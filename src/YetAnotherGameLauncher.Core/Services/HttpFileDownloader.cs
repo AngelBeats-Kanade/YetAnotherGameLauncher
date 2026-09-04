@@ -14,7 +14,7 @@ namespace YetAnotherGameLauncher.Core.Services;
 public sealed class HttpFileDownloader(
     HttpClient httpClient,
     HttpFileDownloaderOptions? options = null,
-    ILogger<HttpFileDownloader>? logger = null) : IDownloader
+    ILogger? logger = null) : IDownloader
 {
     private readonly HttpClient _httpClient = httpClient;
     private readonly HttpFileDownloaderOptions _options = options ?? new();

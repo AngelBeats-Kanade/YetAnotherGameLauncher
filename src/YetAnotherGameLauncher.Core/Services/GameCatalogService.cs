@@ -1,6 +1,6 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using YetAnotherGameLauncher.Core.Models;
+using YetAnotherGameLauncher.Core.Utilities;
 
 namespace YetAnotherGameLauncher.Core.Services;
 
@@ -14,8 +14,6 @@ public sealed class GameCatalogValidationException(IReadOnlyList<string> errors)
 /// <summary>负责 games.json 的加载、校验与保存。文件缺失时不自动创建，由上层决定如何引导用户。</summary>
 public sealed class GameCatalogService
 {
-    private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
-
     private readonly string _configFilePath;
 
     public GameCatalogService() : this(AppPaths.ConfigFilePath)
@@ -65,7 +63,7 @@ public sealed class GameCatalogService
         GameCatalog catalog;
         try
         {
-            catalog = JsonSerializer.Deserialize<GameCatalog>(json, JsonOptions)
+            catalog = JsonSerializer.Deserialize<GameCatalog>(json, Json.Default)
                       ?? throw new GameCatalogValidationException(["配置文件内容为空。"]);
         }
         catch (JsonException ex)
@@ -78,7 +76,7 @@ public sealed class GameCatalogService
     }
 
     public static string Serialize(GameCatalog catalog) =>
-        JsonSerializer.Serialize(catalog, JsonOptions);
+        JsonSerializer.Serialize(catalog, Json.Default);
 
     /// <summary>对目录做完整语义校验，返回全部错误；无错误时返回空列表。</summary>
     public static IReadOnlyList<string> Validate(GameCatalog catalog)
@@ -189,14 +187,4 @@ public sealed class GameCatalogService
 
         return true;
     }
-
-    private static JsonSerializerOptions CreateJsonOptions() => new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        PropertyNameCaseInsensitive = true,
-        ReadCommentHandling = JsonCommentHandling.Skip,
-        AllowTrailingCommas = true,
-        WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() },
-    };
 }

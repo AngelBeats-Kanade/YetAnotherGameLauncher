@@ -5,7 +5,8 @@ public sealed record ManifestFile(
     string Path,
     long Size,
     string Md5,
-    IReadOnlyList<ManifestChunk>? Chunks = null);
+    IReadOnlyList<ManifestChunk>? Chunks = null,
+    string? Url = null);
 
 /// <summary>大文件分块校验信息（鸣潮 chunkInfos，end 为闭区间）。</summary>
 public sealed record ManifestChunk(long Start, long End, string Md5);
@@ -17,8 +18,10 @@ public sealed record ManifestChunk(long Start, long End, string Md5);
 public sealed record PatchGroup(
     string PatchFile,
     long PatchSize,
+    string? PatchMd5,
     IReadOnlyList<ManifestFile> SrcFiles,
-    IReadOnlyList<ManifestFile> DstFiles);
+    IReadOnlyList<ManifestFile> DstFiles,
+    string? Url = null);
 
 /// <summary>游戏文件清单，全量与增量共用。</summary>
 public sealed class GameManifest
