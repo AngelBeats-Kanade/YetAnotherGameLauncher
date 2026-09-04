@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\YetAnotherGameLauncher.Core\YetAnotherGameLauncher.Core.csproj" />
+    <ProjectReference Include="..\YetAnotherGameLauncher.TestSupport\YetAnotherGameLauncher.TestSupport.csproj" />
   </ItemGroup>
 
 </Project>

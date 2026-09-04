@@ -1,4 +1,4 @@
-namespace YetAnotherGameLauncher.Core.Tests.Infrastructure;
+namespace YetAnotherGameLauncher.TestSupport;
 
 /// <summary>测试用临时目录，析构时递归删除。</summary>
 public sealed class TempDir : IDisposable

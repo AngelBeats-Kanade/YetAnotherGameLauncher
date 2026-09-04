@@ -1,7 +1,7 @@
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
-using YetAnotherGameLauncher.Core.Tests.Infrastructure;
+using YetAnotherGameLauncher.TestSupport;
 using YetAnotherGameLauncher.Core.Utilities;
 using Xunit;
 

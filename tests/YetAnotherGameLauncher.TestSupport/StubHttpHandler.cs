@@ -1,6 +1,6 @@
 using System.Net;
 
-namespace YetAnotherGameLauncher.Core.Tests.Infrastructure;
+namespace YetAnotherGameLauncher.TestSupport;
 
 /// <summary>
 /// 测试用 HTTP 处理器：按 URL 返回预设字节，支持 Range 请求（bytes=N-），
