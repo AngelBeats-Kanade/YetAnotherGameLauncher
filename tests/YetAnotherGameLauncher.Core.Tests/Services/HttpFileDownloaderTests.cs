@@ -178,8 +178,8 @@ public class HttpFileDownloaderTests : IDisposable
     public async Task DownloadFileAsync_ReportsMonotonicProgress()
     {
         _handler.Map(Url, Content);
-        var reports = new List<long>();
-        var progress = new Progress<long>(reports.Add);
+        var reports = new System.Collections.Concurrent.ConcurrentQueue<long>();
+        var progress = new Progress<long>(reports.Enqueue);
 
         await CreateDownloader().DownloadFileAsync(Request(), progress, Ct);
 
@@ -192,14 +192,16 @@ public class HttpFileDownloaderTests : IDisposable
         var half = Content[..(Content.Length / 2)];
         await File.WriteAllBytesAsync(_tempDir.FilePath("file.bin.temp"), half);
         _handler.Map(Url, Content);
-        var reports = new List<long>();
-        var progress = new Progress<long>(reports.Add);
+        var reports = new System.Collections.Concurrent.ConcurrentQueue<long>();
+        var progress = new Progress<long>(reports.Enqueue);
 
         await CreateDownloader().DownloadFileAsync(Request(), progress, Ct);
 
-        // 续传时报告的字节数包含已存在的临时文件部分
-        Assert.Equal(Content.Length, reports.Last());
-        Assert.True(reports[0] >= half.Length);
+        // 等待最终报告送达；续传时所有报告的字节数都应包含已存在的临时文件部分
+        Assert.True(SpinWait.SpinUntil(
+            () => reports.Contains(Content.Length), TimeSpan.FromSeconds(5)));
+        Assert.Equal(Content.Length, reports.Max());
+        Assert.All(reports, bytes => Assert.True(bytes >= half.Length));
     }
 
     [Fact]

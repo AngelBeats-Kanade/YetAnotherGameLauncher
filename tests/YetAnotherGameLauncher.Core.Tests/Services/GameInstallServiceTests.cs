@@ -106,8 +106,8 @@ public class GameInstallServiceTests : IDisposable
         _downloader.Responses[Url("a.txt")] = a;
         _downloader.Responses[Url("b.txt")] = b;
         var service = new GameInstallService(_downloader);
-        var reports = new List<UpdateProgress>();
-        var progress = new Progress<UpdateProgress>(reports.Add);
+        var reports = new System.Collections.Concurrent.ConcurrentQueue<UpdateProgress>();
+        var progress = new Progress<UpdateProgress>(reports.Enqueue);
 
         await service.SyncAsync(_tempDir.Path, Manifest(FileEntry("a.txt", a), FileEntry("b.txt", b)), progress);
 
