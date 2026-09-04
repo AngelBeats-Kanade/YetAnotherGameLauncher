@@ -10,6 +10,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- 默认配置模板：首次运行无 games.json 时写入用户配置目录（单一来源为 samples/games.json） -->
+    <EmbeddedResource Include="..\..\samples\games.json" LogicalName="games.sample.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Avalonia" />
     <PackageReference Include="Avalonia.Desktop" />
     <PackageReference Include="Avalonia.Themes.Fluent" />

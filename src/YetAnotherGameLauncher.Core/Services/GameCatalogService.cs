@@ -57,6 +57,66 @@ public sealed class GameCatalogService
         File.Move(tempPath, _configFilePath, overwrite: true);
     }
 
+    /// <summary>
+    /// 首次运行引导：配置文件不存在时在配置路径生成默认配置文件。
+    /// </summary>
+    /// <param name="templateJson">
+    /// 可选的默认内容模板（如随应用分发的示例配置）。模板必须能通过完整校验，
+    /// 否则回退到内置最小默认（空游戏列表 + 推荐设置）。
+    /// </param>
+    /// <returns>true 表示本次创建了文件；文件已存在时不做任何改动并返回 false。</returns>
+    public async Task<bool> CreateDefaultFileAsync(string? templateJson = null, CancellationToken cancellationToken = default)
+    {
+        if (File.Exists(_configFilePath))
+        {
+            return false;
+        }
+
+        var content = templateJson;
+        if (!string.IsNullOrWhiteSpace(content))
+        {
+            try
+            {
+                Parse(content);
+            }
+            catch (GameCatalogValidationException)
+            {
+                content = null;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            content = Serialize(DefaultCatalog());
+        }
+
+        var directory = Path.GetDirectoryName(_configFilePath);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var tempPath = _configFilePath + ".tmp";
+        await File.WriteAllTextAsync(tempPath, content, cancellationToken);
+        File.Move(tempPath, _configFilePath, overwrite: true);
+
+        Catalog = Parse(content);
+        return true;
+    }
+
+    /// <summary>内置最小默认目录：不含任何游戏，仅提供可编辑的起点。</summary>
+    private static GameCatalog DefaultCatalog() => new()
+    {
+        Settings = new AppSettings
+        {
+            InstallRoot = "~/Games",
+            Theme = ThemeMode.System,
+            MaxParallelDownloads = 8,
+            Language = "zh-CN",
+        },
+        Games = [],
+    };
+
     /// <summary>反序列化并校验。任何 JSON 或语义错误都汇总为 GameCatalogValidationException。</summary>
     public static GameCatalog Parse(string json)
     {

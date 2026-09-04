@@ -1,5 +1,6 @@
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
+using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Utilities;
 using YetAnotherGameLauncher.TestSupport;
 using YetAnotherGameLauncher.ViewModels;
@@ -136,5 +137,57 @@ public class MainWindowViewModelTests : IDisposable
 
         Assert.Empty(ctx.Vm.Games);
         Assert.Contains("未注册的渠道", ctx.Vm.StatusMessage);
+    }
+
+    // ---------- 首次运行：自动生成默认配置文件 ----------
+
+    [Fact]
+    public async Task Initialize_MissingConfigFile_WithTemplate_GeneratesDefaultAndLoadsGames()
+    {
+        using var ctx = VmFactory.Build(configJson: null, templateFactory: () => VmFactory.SampleConfigJson);
+        Assert.False(File.Exists(ctx.ConfigPath)); // 前置：确实没有配置文件
+
+        await ctx.Vm.InitializeAsync();
+
+        Assert.True(File.Exists(ctx.ConfigPath));
+        var reloader = new GameCatalogService(ctx.ConfigPath);
+        await reloader.LoadAsync();
+        Assert.NotNull(reloader.Catalog);
+        Assert.Equal(2, reloader.Catalog.Games.Count); // 模板内容（鸣潮 + 终末地）
+        Assert.Equal(2, ctx.Vm.Games.Count);
+        Assert.NotNull(ctx.Vm.SelectedGame);
+        Assert.False(ctx.Vm.ConfigError);
+        Assert.Contains("已生成默认配置文件", ctx.Vm.StatusMessage);
+        Assert.True(ctx.Vm.ShowStatusAsHint); // 以"提示"而非"错误"样式展示
+    }
+
+    [Fact]
+    public async Task Initialize_MissingConfigFile_WithoutTemplate_GeneratesMinimalDefault()
+    {
+        using var ctx = VmFactory.Build(configJson: null);
+
+        await ctx.Vm.InitializeAsync();
+
+        Assert.True(File.Exists(ctx.ConfigPath));
+        var reloader = new GameCatalogService(ctx.ConfigPath);
+        await reloader.LoadAsync();
+        Assert.NotNull(reloader.Catalog);
+        Assert.Empty(reloader.Catalog.Games); // 无模板时生成最小合法配置
+        Assert.False(ctx.Vm.ConfigError);
+    }
+
+    [Fact]
+    public async Task Initialize_SecondRun_DoesNotRegenerate()
+    {
+        using var ctx = VmFactory.Build(configJson: null, templateFactory: () => VmFactory.SampleConfigJson);
+        await ctx.Vm.InitializeAsync();
+        Assert.Contains("已生成默认配置文件", ctx.Vm.StatusMessage);
+        var contentAfterFirstRun = await File.ReadAllTextAsync(ctx.ConfigPath);
+
+        // 第二次初始化（模拟第二次启动）：文件已存在，不覆盖、不再提示"已生成"
+        await ctx.Vm.InitializeAsync();
+
+        Assert.DoesNotContain("已生成默认配置文件", ctx.Vm.StatusMessage);
+        Assert.Equal(contentAfterFirstRun, await File.ReadAllTextAsync(ctx.ConfigPath));
     }
 }

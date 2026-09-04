@@ -117,4 +117,103 @@ public class GameCatalogServiceTests : IDisposable
 
         Assert.StartsWith(expectedRoot, dir, StringComparison.OrdinalIgnoreCase);
     }
+
+    // ---------- CreateDefaultFileAsync：首次运行自动生成默认配置 ----------
+
+    private const string TemplateJson = """
+        {
+          "settings": { "installRoot": "~/Games", "theme": "Dark" },
+          "games": [
+            {
+              "id": "template-game",
+              "displayName": "模板游戏",
+              "channel": "kuro",
+              "installDir": "Template",
+              "executable": "game.exe",
+              "servers": [ { "id": "s1", "name": "S1" } ]
+            }
+          ]
+        }
+        """;
+
+    [Fact]
+    public async Task CreateDefaultFileAsync_MissingFile_WritesValidMinimalDefault()
+    {
+        var service = new GameCatalogService(_configPath);
+
+        var created = await service.CreateDefaultFileAsync();
+
+        Assert.True(created);
+        Assert.True(File.Exists(_configPath));
+        // 生成的文件必须能通过解析与全量校验
+        var reloader = new GameCatalogService(_configPath);
+        await reloader.LoadAsync();
+        Assert.NotNull(reloader.Catalog);
+        Assert.Empty(reloader.Catalog.Games);
+        Assert.Equal("~/Games", reloader.Catalog.Settings.InstallRoot);
+        Assert.Equal(8, reloader.Catalog.Settings.MaxParallelDownloads);
+    }
+
+    [Fact]
+    public async Task CreateDefaultFileAsync_ExistingFile_IsLeftUntouched()
+    {
+        await File.WriteAllTextAsync(_configPath, ValidJson);
+        var service = new GameCatalogService(_configPath);
+
+        var created = await service.CreateDefaultFileAsync();
+
+        Assert.False(created);
+        // 原文件内容未被覆盖（ValidJson 的主题是 Light）
+        var reloader = new GameCatalogService(_configPath);
+        await reloader.LoadAsync();
+        Assert.NotNull(reloader.Catalog);
+        Assert.Equal(ThemeMode.Light, reloader.Catalog.Settings.Theme);
+    }
+
+    [Fact]
+    public async Task CreateDefaultFileAsync_WithValidTemplate_WritesTemplateContent()
+    {
+        var service = new GameCatalogService(_configPath);
+
+        var created = await service.CreateDefaultFileAsync(TemplateJson);
+
+        Assert.True(created);
+        var reloader = new GameCatalogService(_configPath);
+        await reloader.LoadAsync();
+        Assert.NotNull(reloader.Catalog);
+        var game = Assert.Single(reloader.Catalog.Games);
+        Assert.Equal("template-game", game.Id);
+    }
+
+    [Fact]
+    public async Task CreateDefaultFileAsync_InvalidTemplate_FallsBackToMinimalDefault()
+    {
+        // 缺 installRoot 的模板无法通过校验 → 回退到内置最小默认
+        var invalidTemplate = """{ "games": [] }""";
+        var service = new GameCatalogService(_configPath);
+
+        var created = await service.CreateDefaultFileAsync(invalidTemplate);
+
+        Assert.True(created);
+        var reloader = new GameCatalogService(_configPath);
+        await reloader.LoadAsync();
+        Assert.NotNull(reloader.Catalog);
+        Assert.Empty(reloader.Catalog.Games);
+        Assert.Equal("~/Games", reloader.Catalog.Settings.InstallRoot);
+    }
+
+    [Fact]
+    public async Task CreateDefaultFileAsync_CreatesMissingParentDirectories()
+    {
+        var nestedPath = _tempDir.FilePath("a", "b", "games.json");
+        var service = new GameCatalogService(nestedPath);
+
+        var created = await service.CreateDefaultFileAsync();
+
+        Assert.True(created);
+        Assert.True(File.Exists(nestedPath));
+        var reloader = new GameCatalogService(nestedPath);
+        await reloader.LoadAsync();
+        Assert.NotNull(reloader.Catalog);
+    }
 }

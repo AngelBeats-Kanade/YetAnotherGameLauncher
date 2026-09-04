@@ -41,18 +41,26 @@ public static class VmFactory
         public required FakeChannel Kuro { get; init; }
         public required FakeChannel Gryphline { get; init; }
         public required FakeDownloader Downloader { get; init; }
+        public required string ConfigPath { get; init; }
 
         public void Dispose() => TempDir.Dispose();
     }
 
-    public static Context Build(string? configJson = null)
+    /// <summary>
+    /// 构建 ViewModel。configJson 为 null 时<b>不创建</b>配置文件（模拟首次运行）；
+    /// templateFactory 对应注入 VM 的默认配置模板工厂（null = 无模板）。
+    /// </summary>
+    public static Context Build(string? configJson = SampleConfigJson, Func<string?>? templateFactory = null)
     {
         var tempDir = new TempDir();
         var configPath = tempDir.FilePath("games.json");
-        // 安装根目录必须落在临时目录内，避免测试间状态泄漏
-        var json = (configJson ?? SampleConfigJson)
-            .Replace("~/yagl-test-games", tempDir.FilePath("games-root").Replace(System.IO.Path.DirectorySeparatorChar, '/'));
-        File.WriteAllText(configPath, json);
+        if (configJson is not null)
+        {
+            // 安装根目录必须落在临时目录内，避免测试间状态泄漏
+            var json = configJson
+                .Replace("~/yagl-test-games", tempDir.FilePath("games-root").Replace(System.IO.Path.DirectorySeparatorChar, '/'));
+            File.WriteAllText(configPath, json);
+        }
 
         var kuro = new FakeChannel();
         var gryphline = new FakeChannel();
@@ -68,8 +76,13 @@ public static class VmFactory
                 "kuro" => kuro,
                 "hypergryph" => gryphline,
                 _ => null,
-            });
+            },
+            templateFactory);
 
-        return new Context { Vm = vm, TempDir = tempDir, Kuro = kuro, Gryphline = gryphline, Downloader = downloader };
+        return new Context
+        {
+            Vm = vm, TempDir = tempDir, Kuro = kuro, Gryphline = gryphline,
+            Downloader = downloader, ConfigPath = configPath,
+        };
     }
 }

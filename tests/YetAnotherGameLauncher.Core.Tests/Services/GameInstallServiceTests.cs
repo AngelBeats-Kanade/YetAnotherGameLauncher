@@ -111,7 +111,10 @@ public class GameInstallServiceTests : IDisposable
 
         await service.SyncAsync(_tempDir.Path, Manifest(FileEntry("a.txt", a), FileEntry("b.txt", b)), progress);
 
-        var done = reports.Last();
+        // Progress<T> 回调为异步投递，等待最终的 Done 报告送达（最多 5 秒）
+        Assert.True(SpinWait.SpinUntil(
+            () => reports.Any(r => r.Phase == UpdatePhase.Done), TimeSpan.FromSeconds(5)));
+        var done = reports.Last(r => r.Phase == UpdatePhase.Done);
         Assert.Equal(UpdatePhase.Done, done.Phase);
         Assert.Equal(2, done.FilesTotal);
         Assert.Equal(2, done.FilesDone);

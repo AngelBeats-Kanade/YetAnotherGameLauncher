@@ -20,7 +20,7 @@ src/
   YetAnotherGameLauncher.Core/                  # 领域层（无 UI/厂商依赖）
     Models/         GameCatalog/GameDefinition/GameServer、GameManifest、UpdatePlan、UpdateProgress、LocalGameState、ChannelVersionInfo
     Abstractions/   IGameChannelApi、IDownloader、IPatchApplier、IProcessRunner、异常类型
-    Services/       GameCatalogService、HttpFileDownloader、ManifestVerifier、UpdatePlanner、
+    Services/       GameCatalogService（含首次运行 CreateDefaultFileAsync）、HttpFileDownloader、ManifestVerifier、UpdatePlanner、
                     GameInstallService、IncrementalUpdateService、PackageInstallerService、
                     GameUpdateService、GameLauncherService、LocalStateService、SystemProcessRunner
     Utilities/      Hashing（MD5 hex）、Json（统一序列化选项）、InstallPath

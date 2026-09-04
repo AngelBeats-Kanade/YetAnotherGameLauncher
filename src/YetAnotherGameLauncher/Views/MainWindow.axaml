@@ -26,6 +26,8 @@
                                Foreground="{DynamicResource AppTextSecondary}" Margin="0,8,0,0"/>
                     <TextBlock Text="{Binding StatusMessage}" FontSize="12" TextWrapping="Wrap"
                                Foreground="{DynamicResource AppErrorText}" IsVisible="{Binding ConfigError}"/>
+                    <TextBlock Text="{Binding StatusMessage}" FontSize="12" TextWrapping="Wrap"
+                               Foreground="{DynamicResource AppTextSecondary}" IsVisible="{Binding ShowStatusAsHint}"/>
                 </StackPanel>
 
                 <StackPanel DockPanel.Dock="Bottom" Spacing="10" Margin="0,12,0,0">

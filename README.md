@@ -69,8 +69,9 @@ dotnet test
 - Windows：`%APPDATA%\yagl\games.json`
 - 可用环境变量 `YAGL_CONFIG` 覆盖
 
-首次运行若配置缺失，启动器会提示并引导创建；也可直接复制
-[`samples/games.json`](samples/games.json)（已内置鸣潮三服与终末地国际服的官方端点）。
+首次运行若配置缺失，启动器会**自动在默认位置生成默认配置文件**
+（内容即 [`samples/games.json`](samples/games.json) 模板：内置鸣潮三服与终末地国际服，
+开箱即可下载；已存在时绝不覆盖）。删除该文件可重新生成。
 完整字段说明与"添加新游戏"教程见 [docs/GAME_CONFIG.md](docs/GAME_CONFIG.md)。
 
 ### Linux 上通过 wine/Proton 启动的配置示例
@@ -116,7 +117,7 @@ YetAnotherGameLauncher.slnx
 
 | 现象 | 处理 |
 |---|---|
-| 启动器提示"未找到配置文件" | 复制 `samples/games.json` 到 `~/.config/yagl/games.json`，或用环境变量 `YAGL_CONFIG` 指定路径 |
+| 首次启动想重新生成默认配置 | 删除 `~/.config/yagl/games.json`（或 `YAGL_CONFIG` 指向的文件）后重启启动器即可 |
 | 提示"无法连接服务器" | 检查网络/代理；鸣潮 CDN 在国内网络环境更稳定 |
 | 鸣潮增量更新失败，提示 hpatchz | 安装 [HDiffPatch](https://github.com/sisong/HDiffPatch/releases) 并确保 `hpatchz` 在 PATH 中 |
 | 预下载按钮不出现 | 官方未开放预下载窗口（鸣潮 `predownload.config` 不存在 / 终末地无 `patch` 节点） |

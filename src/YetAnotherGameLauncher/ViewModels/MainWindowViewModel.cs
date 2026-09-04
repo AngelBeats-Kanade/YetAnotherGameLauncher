@@ -18,19 +18,22 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly GameUpdateService _updateService;
     private readonly GameLauncherService _launcherService;
     private readonly ThemeService _themeService;
+    private readonly Func<string?>? _defaultConfigTemplateFactory;
 
     public MainWindowViewModel(
         GameCatalogService catalogService,
         GameUpdateService updateService,
         GameLauncherService launcherService,
         ThemeService themeService,
-        Func<string, IGameChannelApi?> channelResolver)
+        Func<string, IGameChannelApi?> channelResolver,
+        Func<string?>? defaultConfigTemplateFactory = null)
     {
         _catalogService = catalogService;
         _updateService = updateService;
         _launcherService = launcherService;
         _themeService = themeService;
         _channelResolver = channelResolver;
+        _defaultConfigTemplateFactory = defaultConfigTemplateFactory;
         SelectedTheme = _themeService.Mode;
         CurrentPage = null;
     }
@@ -48,6 +51,22 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool _configError;
+
+    public bool HasStatusMessage => !string.IsNullOrEmpty(StatusMessage);
+
+    /// <summary>非错误类提示（如首次运行生成配置）以次要点色展示。</summary>
+    public bool ShowStatusAsHint => HasStatusMessage && !ConfigError;
+
+    partial void OnStatusMessageChanged(string value)
+    {
+        OnPropertyChanged(nameof(HasStatusMessage));
+        OnPropertyChanged(nameof(ShowStatusAsHint));
+    }
+
+    partial void OnConfigErrorChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowStatusAsHint));
+    }
 
     [ObservableProperty]
     private ThemeMode _selectedTheme;
@@ -70,6 +89,8 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>启动时初始化：加载配置 → 构建游戏列表 → 应用主题。失败时给出可读提示而不崩溃。</summary>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
+        StatusMessage = "";
+        ConfigError = false;
         var catalog = new GameCatalog();
         try
         {
@@ -79,9 +100,12 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         catch (FileNotFoundException)
         {
-            ConfigError = true;
-            StatusMessage = $"未找到配置文件 {ConfigFilePath}，请参照 docs/GAME_CONFIG.md 创建（可复制 samples/games.json）。";
-            _catalogService.Catalog = catalog;
+            // 首次运行：在默认位置生成默认配置文件（优先使用随应用分发的模板），随后加载
+            await _catalogService.CreateDefaultFileAsync(_defaultConfigTemplateFactory?.Invoke(), cancellationToken);
+            await _catalogService.LoadAsync(cancellationToken);
+            catalog = _catalogService.Catalog!;
+            ConfigError = false;
+            StatusMessage = $"已生成默认配置文件：{ConfigFilePath}，可参照 docs/GAME_CONFIG.md 编辑添加更多游戏。";
         }
         catch (GameCatalogValidationException ex)
         {

@@ -69,9 +69,30 @@ public partial class App : Application
                 sp.GetRequiredService<GameUpdateService>(),
                 sp.GetRequiredService<GameLauncherService>(),
                 sp.GetRequiredService<ThemeService>(),
-                channelKey => keyed.GetKeyedService<IGameChannelApi>(channelKey));
+                channelKey => keyed.GetKeyedService<IGameChannelApi>(channelKey),
+                TryLoadEmbeddedSampleTemplate);
         });
 
         return services.BuildServiceProvider();
+    }
+
+    /// <summary>读取内嵌的默认配置模板（samples/games.json）；缺失或损坏时返回 null，回退到最小默认。</summary>
+    private static string? TryLoadEmbeddedSampleTemplate()
+    {
+        try
+        {
+            using var stream = typeof(App).Assembly.GetManifestResourceStream("games.sample.json");
+            if (stream is null)
+            {
+                return null;
+            }
+
+            using var reader = new StreamReader(stream);
+            return reader.ReadToEnd();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 }
