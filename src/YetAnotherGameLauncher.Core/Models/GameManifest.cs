@@ -34,4 +34,9 @@ public sealed class GameManifest
 
     /// <summary>增量差分组；全量清单为空。</summary>
     public IReadOnlyList<PatchGroup> Groups { get; init; } = [];
+
+    /// <summary>
+    /// 包式渠道标记（如终末地）：Files 条目不是最终游戏文件，而是下载后需解压进安装目录的压缩包。
+    /// </summary>
+    public bool EntriesAreArchives { get; init; }
 }

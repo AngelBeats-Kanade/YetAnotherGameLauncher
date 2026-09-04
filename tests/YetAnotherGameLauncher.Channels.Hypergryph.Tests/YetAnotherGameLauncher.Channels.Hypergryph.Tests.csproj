@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\YetAnotherGameLauncher.Channels.Hypergryph\YetAnotherGameLauncher.Channels.Hypergryph.csproj" />
+    <ProjectReference Include="..\YetAnotherGameLauncher.TestSupport\YetAnotherGameLauncher.TestSupport.csproj" />
   </ItemGroup>
 
 </Project>

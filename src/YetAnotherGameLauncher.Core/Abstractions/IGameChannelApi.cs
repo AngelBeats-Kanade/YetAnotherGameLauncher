@@ -19,4 +19,12 @@ public interface IGameChannelApi
     /// </summary>
     Task<GameManifest?> GetIncrementalManifestAsync(
         GameServer server, string fromVersion, string toVersion, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 获取预下载（下一版本）清单；预下载不可用或渠道不适用时返回 null。
+    /// 包式渠道（终末地）实现此方法；差分式渠道（鸣潮）走 GetIncrementalManifestAsync，默认返回 null。
+    /// </summary>
+    Task<GameManifest?> GetPredownloadManifestAsync(
+        GameServer server, CancellationToken cancellationToken = default)
+        => Task.FromResult<GameManifest?>(null);
 }

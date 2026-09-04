@@ -69,21 +69,27 @@ public sealed class GameUpdateService(
         }
 
         var plan = UpdatePlanner.Plan(localVersion, info.PredownloadVersion, info.PredownloadPatchSourceVersions);
-        if (plan.Strategy != UpdateStrategy.Incremental)
+        if (plan.Strategy == UpdateStrategy.Incremental)
         {
-            throw new UpdateException(
-                $"预下载版本 {info.PredownloadVersion} 没有适用于本地版本 {plan.FromVersion} 的差分包，请等待正式更新后全量更新。");
+            var manifest = await channel.GetIncrementalManifestAsync(
+                               server, plan.FromVersion, plan.ToVersion, cancellationToken)
+                           ?? throw new UpdateException("预下载差分清单不可用。");
+
+            var incremental = new IncrementalUpdateService(downloader, patchApplier);
+            await incremental.PredownloadAsync(installDir, manifest, progress, cancellationToken);
+
+            var totalBytes = manifest.Groups.Sum(g => g.PatchSize) + manifest.Files.Sum(f => f.Size);
+            return new PredownloadSummary(plan.FromVersion, plan.ToVersion, totalBytes);
         }
 
-        var manifest = await channel.GetIncrementalManifestAsync(
-                           server, plan.FromVersion, plan.ToVersion, cancellationToken)
-                       ?? throw new UpdateException("预下载差分清单不可用。");
+        // 包式渠道（整包预下载）
+        var packageManifest = await channel.GetPredownloadManifestAsync(server, cancellationToken)
+                              ?? throw new UpdateException(
+                                  $"预下载版本 {info.PredownloadVersion} 没有适用于本地版本 {plan.FromVersion} 的差分包，请等待正式更新后全量更新。");
 
-        var incremental = new IncrementalUpdateService(downloader, patchApplier);
-        await incremental.PredownloadAsync(installDir, manifest, progress, cancellationToken);
-
-        var totalBytes = manifest.Groups.Sum(g => g.PatchSize) + manifest.Files.Sum(f => f.Size);
-        return new PredownloadSummary(plan.FromVersion, plan.ToVersion, totalBytes);
+        var packages = new PackageInstallerService(downloader, logger);
+        await packages.PredownloadAsync(installDir, packageManifest, progress, cancellationToken);
+        return new PredownloadSummary(plan.FromVersion, plan.ToVersion, packageManifest.Files.Sum(f => f.Size));
     }
 
     /// <summary>应用已预下载的内容并收尾（事后校验修复 + 更新本地版本）。</summary>
@@ -98,17 +104,28 @@ public sealed class GameUpdateService(
         var staged = IncrementalUpdateService.TryLoadStagedManifest(installDir)
                      ?? throw new UpdateException("没有已预下载的更新内容，请先执行预下载。");
 
-        var incremental = new IncrementalUpdateService(downloader, patchApplier);
-        await incremental.ApplyAsync(installDir, staged, progress, cancellationToken);
-
-        var repaired = await RepairAgainstManifestAsync(
-            installDir, server, channel, staged.Version, progress, cancellationToken);
+        int repaired;
+        if (staged.EntriesAreArchives)
+        {
+            var packages = new PackageInstallerService(downloader, logger);
+            await packages.ApplyPredownloadAsync(installDir, staged, progress, cancellationToken);
+            repaired = 0;
+        }
+        else
+        {
+            var incremental = new IncrementalUpdateService(downloader, patchApplier);
+            await incremental.ApplyAsync(installDir, staged, progress, cancellationToken);
+            repaired = await RepairAgainstManifestAsync(
+                installDir, server, channel, staged.Version, progress, cancellationToken);
+        }
 
         await new LocalStateService(installDir).SaveAsync(
             new LocalGameState { GameId = game.Id, ServerId = server.Id, Version = staged.Version },
             cancellationToken);
 
-        return new UpdateOutcome(UpdateStrategy.Incremental, "", staged.Version, repaired);
+        return new UpdateOutcome(
+            staged.EntriesAreArchives ? UpdateStrategy.FullSync : UpdateStrategy.Incremental,
+            "", staged.Version, repaired);
     }
 
     private async Task<int> UpdateFullAsync(
@@ -120,6 +137,14 @@ public sealed class GameUpdateService(
         CancellationToken cancellationToken)
     {
         var manifest = await channel.GetManifestAsync(server, plan.ToVersion, cancellationToken);
+
+        if (manifest.EntriesAreArchives)
+        {
+            var packages = new PackageInstallerService(downloader, logger);
+            await packages.InstallAsync(installDir, manifest, progress, cancellationToken);
+            return 0;
+        }
+
         var installer = new GameInstallService(downloader, options, logger);
         await installer.SyncAsync(installDir, manifest, progress, cancellationToken);
         return 0;

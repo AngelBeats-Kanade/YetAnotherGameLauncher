@@ -16,6 +16,8 @@ internal sealed class FakeChannel : IGameChannelApi
 
     public Dictionary<(string From, string To), GameManifest> IncrementalManifests { get; } = new();
 
+    public GameManifest? PredownloadManifest { get; set; }
+
     public List<string> ManifestRequests { get; } = [];
 
     public Task<ChannelVersionInfo> GetVersionInfoAsync(GameServer server, CancellationToken cancellationToken = default) =>
@@ -26,6 +28,9 @@ internal sealed class FakeChannel : IGameChannelApi
         ManifestRequests.Add(version);
         return Task.FromResult(Manifests[version]);
     }
+
+    public Task<GameManifest?> GetPredownloadManifestAsync(GameServer server, CancellationToken cancellationToken = default) =>
+        Task.FromResult(PredownloadManifest);
 
     public Task<GameManifest?> GetIncrementalManifestAsync(
         GameServer server, string fromVersion, string toVersion, CancellationToken cancellationToken = default) =>
@@ -290,6 +295,57 @@ public class GameUpdateServiceTests : IDisposable
         Assert.Equal(UpdateStrategy.Incremental, outcome.Strategy);
         Assert.Equal("2.0.0", outcome.ToVersion);
         Assert.Equal(v2, await File.ReadAllBytesAsync(_tempDir.FilePath("a.dat")));
+        Assert.Equal("2.0.0", new LocalStateService(_tempDir.Path).Load(_game.Id, _server.Id)?.Version);
+    }
+
+    // ---------- 包式渠道（整包分发，如终末地） ----------
+
+    [Fact]
+    public async Task UpdateAsync_PackageManifest_ExtractsAndSavesState()
+    {
+        var zipBytes = Core.Tests.TestZip.Create(("game.exe", "MZ-stub"));
+        _downloader.Responses[Url("game-0.zip")] = zipBytes;
+        _channel.VersionInfo = new ChannelVersionInfo { LatestVersion = "1.2.0" };
+        _channel.Manifests["1.2.0"] = new GameManifest
+        {
+            Version = "1.2.0",
+            EntriesAreArchives = true,
+            Files = [new ManifestFile("game-0.zip", zipBytes.Length, Md5(zipBytes), Url: Url("game-0.zip"))],
+        };
+
+        var outcome = await CreateService().UpdateAsync(_tempDir.Path, _game, _server, _channel);
+
+        Assert.Equal(UpdateStrategy.FullSync, outcome.Strategy);
+        Assert.Equal("MZ-stub", await File.ReadAllTextAsync(_tempDir.FilePath("game.exe")));
+        Assert.Equal("1.2.0", new LocalStateService(_tempDir.Path).Load(_game.Id, _server.Id)?.Version);
+    }
+
+    [Fact]
+    public async Task PredownloadThenApply_PackageChannel_ExtractsStagedArchive()
+    {
+        var zipBytes = Core.Tests.TestZip.Create(("config.ini", "cfg=1"));
+        _downloader.Responses[Url("patch-2.0.0.zip")] = zipBytes;
+        await WriteLocalState("1.0.0");
+        _channel.VersionInfo = new ChannelVersionInfo
+        {
+            LatestVersion = "1.0.0",
+            PredownloadAvailable = true,
+            PredownloadVersion = "2.0.0",
+        };
+        _channel.PredownloadManifest = new GameManifest
+        {
+            Version = "2.0.0",
+            EntriesAreArchives = true,
+            Files = [new ManifestFile("patch-2.0.0.zip", zipBytes.Length, Md5(zipBytes), Url: Url("patch-2.0.0.zip"))],
+        };
+        var service = CreateService();
+
+        var summary = await service.PredownloadAsync(_tempDir.Path, _game, _server, _channel);
+        var outcome = await service.ApplyPredownloadAsync(_tempDir.Path, _game, _server, _channel);
+
+        Assert.Equal("2.0.0", summary.ToVersion);
+        Assert.Equal("cfg=1", await File.ReadAllTextAsync(_tempDir.FilePath("config.ini")));
+        Assert.Equal("2.0.0", outcome.ToVersion);
         Assert.Equal("2.0.0", new LocalStateService(_tempDir.Path).Load(_game.Id, _server.Id)?.Version);
     }
 }
