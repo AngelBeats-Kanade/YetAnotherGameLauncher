@@ -2,6 +2,8 @@
 
   <PropertyGroup>
     <IsPackable>false</IsPackable>
+    <!-- 测试内文件操作无需响应取消，抑制 xUnit1051 -->
+    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
     <OutputType>Exe</OutputType>
   </PropertyGroup>
 

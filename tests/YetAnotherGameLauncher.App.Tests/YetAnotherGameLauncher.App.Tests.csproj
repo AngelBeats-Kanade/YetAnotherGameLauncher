@@ -2,6 +2,8 @@
 
   <PropertyGroup>
     <IsPackable>false</IsPackable>
+    <!-- 测试内文件操作无需响应取消，抑制 xUnit1051 -->
+    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
     <OutputType>Exe</OutputType>
     <!-- 避免 xunit.v3 自动入口点生成 YetAnotherGameLauncher.App 命名空间，与 UI 程序集的 App 类型全名冲突 -->
     <RootNamespace>YetAnotherGameLauncher.AppTests</RootNamespace>

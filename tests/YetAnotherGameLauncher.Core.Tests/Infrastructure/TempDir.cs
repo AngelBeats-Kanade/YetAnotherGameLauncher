@@ -14,6 +14,8 @@ public sealed class TempDir : IDisposable
 
     public string FilePath(string fileName) => System.IO.Path.Combine(Path, fileName);
 
+    public string FilePath(params string[] segments) => System.IO.Path.Combine([Path, .. segments]);
+
     public void Dispose()
     {
         try
