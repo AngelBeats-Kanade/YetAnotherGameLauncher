@@ -1,3 +1,14 @@
 <Solution>
-  <Project Path="YetAnotherGameLauncher/YetAnotherGameLauncher.csproj" />
+  <Folder Name="/src/">
+    <Project Path="src/YetAnotherGameLauncher/YetAnotherGameLauncher.csproj" />
+    <Project Path="src/YetAnotherGameLauncher.Core/YetAnotherGameLauncher.Core.csproj" />
+    <Project Path="src/YetAnotherGameLauncher.Channels.Kuro/YetAnotherGameLauncher.Channels.Kuro.csproj" />
+    <Project Path="src/YetAnotherGameLauncher.Channels.Hypergryph/YetAnotherGameLauncher.Channels.Hypergryph.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj" />
+    <Project Path="tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj" />
+    <Project Path="tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests.csproj" />
+    <Project Path="tests/YetAnotherGameLauncher.App.Tests/YetAnotherGameLauncher.App.Tests.csproj" />
+  </Folder>
 </Solution>
