@@ -16,7 +16,7 @@ public sealed class GameCatalogService
 {
     private readonly string _configFilePath;
 
-    public GameCatalogService() : this(AppPaths.ConfigFilePath)
+    public GameCatalogService() : this(AppPaths.GetConfigFilePath())
     {
     }
 

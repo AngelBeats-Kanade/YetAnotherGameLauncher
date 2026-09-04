@@ -3,20 +3,170 @@
         xmlns:vm="using:YetAnotherGameLauncher.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="720"
         x:Class="YetAnotherGameLauncher.Views.MainWindow"
-        x:DataType="vm:MainViewModel"
-        Icon="/Assets/avalonia-logo.ico"
-        Title="YetAnotherGameLauncher">
+        x:DataType="vm:MainWindowViewModel"
+        x:Name="RootWindow"
+        Title="YetAnotherGameLauncher"
+        Width="1120" Height="720" MinWidth="920" MinHeight="620"
+        Background="{DynamicResource AppPageBackground}"
+        FontFamily="Microsoft YaHei UI, Noto Sans CJK SC, Segoe UI, Inter">
 
-    <Design.DataContext>
-        <!-- This only sets the DataContext for the previewer in an IDE,
-             to set the actual DataContext for runtime, set the DataContext property in code (look at App.axaml.cs) -->
-        <vm:MainViewModel />
-    </Design.DataContext>
+    <Grid ColumnDefinitions="264,*">
 
-    <TextBox Text="{Binding Greeting}"
-             HorizontalAlignment="Center"
-             VerticalAlignment="Center" />
+        <!-- 侧边栏 -->
+        <Border Grid.Column="0" Background="{DynamicResource AppSidebarBackground}">
+            <DockPanel Margin="16,20,16,16">
 
+                <StackPanel DockPanel.Dock="Top" Spacing="2">
+                    <TextBlock Text="YetAnother" FontSize="21" FontWeight="Bold" Opacity="0.85"/>
+                    <TextBlock Text="Game Launcher" FontSize="21" FontWeight="Bold"
+                               Foreground="{DynamicResource AppAccentBrush}"/>
+                    <TextBlock Text="{Binding ConfigFilePath}" FontSize="10.5" TextTrimming="CharacterEllipsis"
+                               Foreground="{DynamicResource AppTextSecondary}" Margin="0,8,0,0"/>
+                    <TextBlock Text="{Binding StatusMessage}" FontSize="12" TextWrapping="Wrap"
+                               Foreground="{DynamicResource AppErrorText}" IsVisible="{Binding ConfigError}"/>
+                </StackPanel>
+
+                <StackPanel DockPanel.Dock="Bottom" Spacing="10" Margin="0,12,0,0">
+                    <ComboBox ItemsSource="{Binding ThemeModes}"
+                              SelectedItem="{Binding SelectedTheme}"
+                              HorizontalAlignment="Stretch"
+                              ToolTip.Tip="界面主题：跟随系统 / 亮色 / 暗色"/>
+                    <Button Content="设置" Command="{Binding ShowSettingsCommand}"
+                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
+                </StackPanel>
+
+                <ListBox x:Name="GamesList"
+                         ItemsSource="{Binding Games}"
+                         SelectedItem="{Binding SelectedGame}"
+                         Background="Transparent" BorderThickness="0" Margin="0,16,0,0">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Panel Margin="2,4">
+                                <Border Width="38" Height="38" CornerRadius="10"
+                                        Background="{DynamicResource AppAccentBrush}">
+                                    <TextBlock Text="{Binding IconText}" FontSize="17" FontWeight="SemiBold"
+                                               Foreground="White"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <TextBlock Text="{Binding DisplayName}" FontSize="15" Margin="50,0,0,0"
+                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                            </Panel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <!-- 主内容 -->
+        <Grid Grid.Column="1" Margin="28,24,28,20">
+            <ContentControl Content="{Binding CurrentPage}">
+                <ContentControl.DataTemplates>
+
+                    <DataTemplate DataType="{x:Type vm:GameItemViewModel}">
+                        <ScrollViewer>
+                            <StackPanel Spacing="16" MaxWidth="780" HorizontalAlignment="Stretch">
+
+                                <!-- 头部 -->
+                                <StackPanel Orientation="Horizontal" Spacing="16">
+                                    <Border Width="68" Height="68" CornerRadius="16"
+                                            Background="{DynamicResource AppAccentBrush}">
+                                        <TextBlock Text="{Binding IconText}" FontSize="30" FontWeight="SemiBold"
+                                                   Foreground="White"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <StackPanel VerticalAlignment="Center" Spacing="8">
+                                        <TextBlock Text="{Binding DisplayName}" FontSize="27" FontWeight="SemiBold"/>
+                                        <ComboBox ItemsSource="{Binding Servers}"
+                                                  SelectedItem="{Binding SelectedServer}"
+                                                  MinWidth="180"/>
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <!-- 状态卡片 -->
+                                <Border Padding="18" CornerRadius="12" Background="{DynamicResource AppCardBackground}">
+                                    <StackPanel Spacing="8">
+                                        <StackPanel Orientation="Horizontal" Spacing="10">
+                                            <TextBlock Text="{Binding StatusText}" FontSize="15" FontWeight="SemiBold"/>
+                                            <Border Padding="8,2" CornerRadius="6"
+                                                    Background="{DynamicResource AppPredownloadBadge}"
+                                                    IsVisible="{Binding HasStagedPredownload}">
+                                                <TextBlock Text="已预下载待应用" FontSize="12" Foreground="White"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding VersionText}" FontSize="13.5"
+                                                   Foreground="{DynamicResource AppTextSecondary}"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- 操作区 -->
+                                <WrapPanel Orientation="Horizontal">
+                                    <Button Command="{Binding LaunchCommand}"
+                                            IsEnabled="{Binding CanLaunch}"
+                                            Content="启动"
+                                            Padding="26,9" Margin="0,0,10,10" FontWeight="SemiBold"/>
+                                    <Button Command="{Binding InstallOrUpdateCommand}"
+                                            Content="{Binding InstallButtonText}"
+                                            Classes="accent"
+                                            Padding="22,9" Margin="0,0,10,10"/>
+                                    <Button Command="{Binding PredownloadCommand}"
+                                            IsVisible="{Binding PredownloadAvailable}"
+                                            Content="预下载下一版本"
+                                            Padding="18,9" Margin="0,0,10,10"/>
+                                    <Button Command="{Binding ApplyPredownloadCommand}"
+                                            IsVisible="{Binding HasStagedPredownload}"
+                                            Content="应用预下载"
+                                            Padding="18,9" Margin="0,0,10,10"/>
+                                </WrapPanel>
+
+                                <!-- 进度区 -->
+                                <Border Padding="18" CornerRadius="12" Background="{DynamicResource AppCardBackground}"
+                                        IsVisible="{Binding IsBusy}">
+                                    <StackPanel Spacing="10">
+                                        <ProgressBar Maximum="100" Value="{Binding ProgressPercent}" Height="6"/>
+                                        <TextBlock Text="{Binding ProgressText}" FontSize="12.5"
+                                                   Foreground="{DynamicResource AppTextSecondary}"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </DataTemplate>
+
+                    <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
+                        <ScrollViewer>
+                            <StackPanel Spacing="16" MaxWidth="780" HorizontalAlignment="Stretch">
+                                <TextBlock Text="设置" FontSize="27" FontWeight="SemiBold"/>
+
+                                <Border Padding="18" CornerRadius="12" Background="{DynamicResource AppCardBackground}">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="配置文件" FontSize="15" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding ConfigFilePath}" FontSize="13"
+                                                   Foreground="{DynamicResource AppTextSecondary}"
+                                                   TextWrapping="Wrap"/>
+                                        <TextBlock Text="编辑 games.json 即可添加新游戏或服务器；保存后重启启动器生效。"
+                                                   FontSize="12.5" Foreground="{DynamicResource AppTextSecondary}"/>
+                                        <Button Content="打开配置目录" Command="{Binding OpenConfigFolderCommand}"
+                                                HorizontalAlignment="Left" Margin="0,4,0,0"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Padding="18" CornerRadius="12" Background="{DynamicResource AppCardBackground}">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="界面" FontSize="15" FontWeight="SemiBold"/>
+                                        <TextBlock Text="主题可在左下角切换：跟随系统 / 亮色 / 暗色。"
+                                                   FontSize="12.5" Foreground="{DynamicResource AppTextSecondary}"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <Button Content="返回游戏" Command="{Binding ShowGamesCommand}"
+                                        Classes="accent" Padding="20,9" HorizontalAlignment="Left"/>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </DataTemplate>
+
+                </ContentControl.DataTemplates>
+            </ContentControl>
+        </Grid>
+    </Grid>
 </Window>

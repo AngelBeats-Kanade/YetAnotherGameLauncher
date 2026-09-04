@@ -7,5 +7,12 @@ public static class AppPaths
     public static string ConfigDirectory { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "yagl");
 
-    public static string ConfigFilePath { get; } = Path.Combine(ConfigDirectory, "games.json");
+    /// <summary>配置文件路径。环境变量 YAGL_CONFIG 可覆盖（测试/多实例场景）。</summary>
+    public static string GetConfigFilePath()
+    {
+        var overridePath = Environment.GetEnvironmentVariable("YAGL_CONFIG");
+        return string.IsNullOrWhiteSpace(overridePath)
+            ? Path.Combine(ConfigDirectory, "games.json")
+            : overridePath;
+    }
 }

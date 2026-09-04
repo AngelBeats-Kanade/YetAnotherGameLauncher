@@ -104,7 +104,7 @@ public class GameCatalogServiceTests : IDisposable
     [Fact]
     public void GetConfigFilePath_EndsWithYaglGamesJson()
     {
-        var path = AppPaths.ConfigFilePath;
+        var path = AppPaths.GetConfigFilePath();
 
         Assert.EndsWith(Path.Combine("yagl", "games.json"), path, StringComparison.Ordinal);
     }

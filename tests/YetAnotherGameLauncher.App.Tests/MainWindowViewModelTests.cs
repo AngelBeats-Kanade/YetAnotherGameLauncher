@@ -1,0 +1,140 @@
+using YetAnotherGameLauncher.Core.Abstractions;
+using YetAnotherGameLauncher.Core.Models;
+using YetAnotherGameLauncher.Core.Utilities;
+using YetAnotherGameLauncher.TestSupport;
+using YetAnotherGameLauncher.ViewModels;
+using Xunit;
+
+namespace YetAnotherGameLauncher.AppTests;
+
+/// <summary>MainWindowViewModel 状态机测试（纯 VM，无 UI）。</summary>
+public class MainWindowViewModelTests : IDisposable
+{
+    private readonly VmFactory.Context _ctx;
+
+    public MainWindowViewModelTests() => _ctx = VmFactory.Build();
+
+    public void Dispose() => _ctx.TempDir.Dispose();
+
+    [Fact]
+    public async Task Initialize_LoadsTwoGamesAndSelectsFirst()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        Assert.Equal(2, _ctx.Vm.Games.Count);
+        Assert.Equal("鸣潮", _ctx.Vm.SelectedGame?.DisplayName);
+        Assert.Same(_ctx.Vm.SelectedGame, _ctx.Vm.CurrentPage);
+    }
+
+    [Fact]
+    public async Task Initialize_ThemeFromConfig_IsApplied()
+    {
+        // 示例配置 theme=Dark：应反映到 ViewModel 的主题选择上
+        await _ctx.Vm.InitializeAsync();
+
+        Assert.Equal(Core.Models.ThemeMode.Dark, _ctx.Vm.SelectedTheme);
+    }
+
+    [Fact]
+    public async Task Initialize_GameStatus_ReflectsChannelInfo()
+    {
+        _ctx.Kuro.VersionInfo = new ChannelVersionInfo
+        {
+            LatestVersion = "3.6.0",
+            PredownloadAvailable = true,
+            PredownloadVersion = "3.7.0",
+        };
+
+        await _ctx.Vm.InitializeAsync();
+
+        var wuwa = _ctx.Vm.Games[0];
+        Assert.Equal("尚未安装", wuwa.StatusText);
+        Assert.False(wuwa.IsInstalled);
+        Assert.False(wuwa.CanLaunch);
+        Assert.False(wuwa.HasUpdate); // 未安装谈不上"更新"
+        Assert.True(wuwa.PredownloadAvailable);
+        Assert.Equal("安装游戏", wuwa.InstallButtonText);
+    }
+
+    [Fact]
+    public async Task SelectingGame_SwitchesPageAndRefreshes()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        _ctx.Vm.SelectedGame = _ctx.Vm.Games[1];
+        await Task.Yield();
+
+        Assert.Same(_ctx.Vm.Games[1], _ctx.Vm.CurrentPage);
+        Assert.Contains("最新", _ctx.Vm.Games[1].VersionText);
+    }
+
+    [Fact]
+    public async Task InstallOrUpdate_RunsUpdateThroughFakeChannel_SavesState()
+    {
+        var zipBytes = TestZip.Create(("Client/game.exe", "MZ"));
+        _ctx.Kuro.VersionInfo = new ChannelVersionInfo { LatestVersion = "3.6.0" };
+        _ctx.Kuro.Manifests["3.6.0"] = new GameManifest
+        {
+            Version = "3.6.0",
+            Files = [new ManifestFile("Client/game.exe", zipBytes.Length, Hashing.Md5Hex(zipBytes), Url: "https://cdn/game.exe")],
+        };
+        _ctx.Downloader.Responses["https://cdn/game.exe"] = zipBytes;
+
+        await _ctx.Vm.InitializeAsync();
+        await _ctx.Vm.Games[0].InstallOrUpdateCommand.ExecuteAsync(null);
+
+        var wuwa = _ctx.Vm.Games[0];
+        Assert.True(wuwa.IsInstalled);
+        Assert.Equal("完成： → 3.6.0", wuwa.StatusText);
+        Assert.Contains("https://cdn/game.exe", _ctx.Downloader.Requests);
+    }
+
+    [Fact]
+    public async Task Predownload_WhenServerOpensWindow_StagesAndShowsBadge()
+    {
+        _ctx.Gryphline.VersionInfo = new ChannelVersionInfo
+        {
+            LatestVersion = "1.0.0",
+            PredownloadAvailable = true,
+            PredownloadVersion = "1.1.0",
+        };
+        var zipBytes = TestZip.Create(("bin/ef.exe", "MZ"));
+        _ctx.Gryphline.PredownloadManifest = new GameManifest
+        {
+            Version = "1.1.0",
+            EntriesAreArchives = true,
+            Files = [new ManifestFile("patch-1.1.0.zip", zipBytes.Length, Hashing.Md5Hex(zipBytes), Url: "https://cdn/patch.zip")],
+        };
+        _ctx.Downloader.Responses["https://cdn/patch.zip"] = zipBytes;
+
+        await _ctx.Vm.InitializeAsync();
+        await _ctx.Vm.Games[1].PredownloadCommand.ExecuteAsync(null);
+
+        var endfield = _ctx.Vm.Games[1];
+        Assert.True(endfield.HasStagedPredownload);
+        Assert.False(endfield.PredownloadAvailable); // 已暂存，"预下载"按钮隐藏
+        Assert.Contains("预下载完成", endfield.StatusText);
+    }
+
+    [Fact]
+    public async Task LaunchCommand_WithoutInstall_DoesNothing()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        await _ctx.Vm.Games[0].LaunchCommand.ExecuteAsync(null);
+
+        Assert.False(_ctx.Vm.Games[0].CanLaunch);
+        Assert.NotEqual("游戏已启动", _ctx.Vm.Games[0].StatusText);
+    }
+
+    [Fact]
+    public async Task UnknownChannel_SkippedWithMessage()
+    {
+        using var ctx = VmFactory.Build("""{ "settings": { "installRoot": "~/g" }, "games": [ { "id": "x", "displayName": "未知", "channel": "nope", "installDir": "X", "executable": "x.exe", "servers": [ { "id": "s", "name": "S" } ] } ] }""");
+
+        await ctx.Vm.InitializeAsync();
+
+        Assert.Empty(ctx.Vm.Games);
+        Assert.Contains("未注册的渠道", ctx.Vm.StatusMessage);
+    }
+}

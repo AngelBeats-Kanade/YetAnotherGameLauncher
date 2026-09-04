@@ -1,6 +1,6 @@
 using System.IO.Compression;
 
-namespace YetAnotherGameLauncher.Core.Tests;
+namespace YetAnotherGameLauncher.TestSupport;
 
 /// <summary>测试用 zip 压缩包构造。</summary>
 public static class TestZip

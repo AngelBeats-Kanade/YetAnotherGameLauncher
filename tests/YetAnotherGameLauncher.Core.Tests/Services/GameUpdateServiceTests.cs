@@ -7,38 +7,6 @@ using Xunit;
 
 namespace YetAnotherGameLauncher.Core.Tests.Services;
 
-/// <summary>假渠道：可配置版本信息与清单。</summary>
-internal sealed class FakeChannel : IGameChannelApi
-{
-    public ChannelVersionInfo VersionInfo { get; set; } = new() { LatestVersion = "2.0.0" };
-
-    public Dictionary<string, GameManifest> Manifests { get; } = new(StringComparer.Ordinal);
-
-    public Dictionary<(string From, string To), GameManifest> IncrementalManifests { get; } = new();
-
-    public GameManifest? PredownloadManifest { get; set; }
-
-    public List<string> ManifestRequests { get; } = [];
-
-    public Task<ChannelVersionInfo> GetVersionInfoAsync(GameServer server, CancellationToken cancellationToken = default) =>
-        Task.FromResult(VersionInfo);
-
-    public Task<GameManifest> GetManifestAsync(GameServer server, string version, CancellationToken cancellationToken = default)
-    {
-        ManifestRequests.Add(version);
-        return Task.FromResult(Manifests[version]);
-    }
-
-    public Task<GameManifest?> GetPredownloadManifestAsync(GameServer server, CancellationToken cancellationToken = default) =>
-        Task.FromResult(PredownloadManifest);
-
-    public Task<GameManifest?> GetIncrementalManifestAsync(
-        GameServer server, string fromVersion, string toVersion, CancellationToken cancellationToken = default) =>
-        Task.FromResult<GameManifest?>(IncrementalManifests.TryGetValue((fromVersion, toVersion), out var manifest)
-            ? manifest
-            : null);
-}
-
 public class GameUpdateServiceTests : IDisposable
 {
     private readonly TempDir _tempDir = new();
@@ -303,7 +271,7 @@ public class GameUpdateServiceTests : IDisposable
     [Fact]
     public async Task UpdateAsync_PackageManifest_ExtractsAndSavesState()
     {
-        var zipBytes = Core.Tests.TestZip.Create(("game.exe", "MZ-stub"));
+        var zipBytes = TestZip.Create(("game.exe", "MZ-stub"));
         _downloader.Responses[Url("game-0.zip")] = zipBytes;
         _channel.VersionInfo = new ChannelVersionInfo { LatestVersion = "1.2.0" };
         _channel.Manifests["1.2.0"] = new GameManifest
@@ -323,7 +291,7 @@ public class GameUpdateServiceTests : IDisposable
     [Fact]
     public async Task PredownloadThenApply_PackageChannel_ExtractsStagedArchive()
     {
-        var zipBytes = Core.Tests.TestZip.Create(("config.ini", "cfg=1"));
+        var zipBytes = TestZip.Create(("config.ini", "cfg=1"));
         _downloader.Responses[Url("patch-2.0.0.zip")] = zipBytes;
         await WriteLocalState("1.0.0");
         _channel.VersionInfo = new ChannelVersionInfo

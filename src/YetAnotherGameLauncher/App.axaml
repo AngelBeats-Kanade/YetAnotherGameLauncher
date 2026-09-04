@@ -1,15 +1,37 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="YetAnotherGameLauncher.App"
-             xmlns:local="using:YetAnotherGameLauncher"
              RequestedThemeVariant="Default">
-             <!-- "Default" ThemeVariant follows system theme variant. "Dark" or "Light" are other available options. -->
+    <!-- "Default" ThemeVariant 跟随系统亮/暗；ThemeService 会按用户选择覆盖 -->
 
-    <Application.DataTemplates>
-        <local:ViewLocator />
-    </Application.DataTemplates>
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <Color x:Key="AppAccentColor">#2E7CF6</Color>
+                    <SolidColorBrush x:Key="AppAccentBrush" Color="#2E7CF6"/>
+                    <SolidColorBrush x:Key="AppPageBackground" Color="#F7F8FA"/>
+                    <SolidColorBrush x:Key="AppSidebarBackground" Color="#EDEFF3"/>
+                    <SolidColorBrush x:Key="AppCardBackground" Color="#FFFFFF"/>
+                    <SolidColorBrush x:Key="AppTextSecondary" Color="#66666E"/>
+                    <SolidColorBrush x:Key="AppPredownloadBadge" Color="#E8930C"/>
+                    <SolidColorBrush x:Key="AppErrorText" Color="#C42B1C"/>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <Color x:Key="AppAccentColor">#4C8DFF</Color>
+                    <SolidColorBrush x:Key="AppAccentBrush" Color="#4C8DFF"/>
+                    <SolidColorBrush x:Key="AppPageBackground" Color="#121216"/>
+                    <SolidColorBrush x:Key="AppSidebarBackground" Color="#1A1A20"/>
+                    <SolidColorBrush x:Key="AppCardBackground" Color="#23232B"/>
+                    <SolidColorBrush x:Key="AppTextSecondary" Color="#A2A2AB"/>
+                    <SolidColorBrush x:Key="AppPredownloadBadge" Color="#E8930C"/>
+                    <SolidColorBrush x:Key="AppErrorText" Color="#FF8A7A"/>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
 
     <Application.Styles>
-        <FluentTheme />
+        <FluentTheme/>
     </Application.Styles>
 </Application>

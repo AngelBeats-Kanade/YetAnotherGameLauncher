@@ -6,7 +6,7 @@
     <NoWarn>$(NoWarn);xUnit1051</NoWarn>
     <OutputType>Exe</OutputType>
     <!-- 避免 xunit.v3 自动入口点生成 YetAnotherGameLauncher.App 命名空间，与 UI 程序集的 App 类型全名冲突 -->
-    <RootNamespace>YetAnotherGameLauncher.AppTests</RootNamespace>
+    <RootNamespace>YetAnotherGameLauncher.UiTests</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\YetAnotherGameLauncher\YetAnotherGameLauncher.csproj" />
+    <ProjectReference Include="..\YetAnotherGameLauncher.TestSupport\YetAnotherGameLauncher.TestSupport.csproj" />
   </ItemGroup>
 
 </Project>
