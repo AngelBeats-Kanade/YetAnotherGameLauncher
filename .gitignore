@@ -1,0 +1,19 @@
+# Build artifacts
+bin/
+obj/
+artifacts/
+publish/
+*.binlog
+
+# IDE
+.idea/
+.vs/
+*.user
+*.suo
+
+# Test results
+TestResults/
+
+# OS
+Thumbs.db
+.DS_Store
