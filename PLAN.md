@@ -102,19 +102,19 @@ YetAnotherGameLauncher.slnx
 ## 六、TDD 开发序列（每步：先写测试 → 实现 → `dotnet test` 全绿 → 下一步）
 
 0. [x] 保存本计划为 `PLAN.md`；解决方案重构：多项目结构、中央包管理、.editorconfig、git init。
-1. [ ] Core.Models + JSON 序列化/配置校验（含畸形配置用例）。
-2. [ ] IDownloader 实现：断点续传、重试、MD5/size 校验（mock HttpMessageHandler + 临时目录）。
-3. [ ] IManifestVerifier（比对/三态结果）+ 版本计划逻辑（全量 vs 增量判定）。
-4. [ ] IncrementalUpdateService：差分下载 → 应用 → 回滚 → 事后修复（假渠道 API + 假补丁器，覆盖中断恢复用例）。
-5. [ ] Channels.Kuro：index.json/indexFile.json 解析（真实录制 fixtures）、patchConfig 匹配、CDN 选择、下载 URL 拼接。
-6. [ ] HpatchzApplier：进程调度/MD5 验证/备份回滚（IProcessRunner 假实现；真实 hpatchz 作为可选长测）。
-7. [ ] Channels.Hypergryph：gryphline API 客户端（archive fixtures 驱动）。
-8. [ ] GameLauncherService（命令模板解析、环境变量注入）。
-9. [ ] App.Themes + ThemeService（Headless 测试：System/Light/Dark 三态切换断言 `ActualThemeVariant`）。
-10. [ ] 各 ViewModel（假服务注入，测试状态机与命令可用性）。
-11. [ ] Views + Headless 集成测试（绑定、按钮→命令、页面导航）。
-12. [ ] Headless 端到端冒烟：加载 samples/games.json 显示两个游戏、主题跟随设置。
-13. [ ] 文档与发布：`dotnet publish` linux-x64/win-x64 self-contained 验证。
+1. [x] Core.Models + JSON 序列化/配置校验（含畸形配置用例）。
+2. [x] IDownloader 实现：断点续传、重试、MD5/size 校验（mock HttpMessageHandler + 临时目录）。
+3. [x] IManifestVerifier（比对/三态结果）+ 版本计划逻辑（全量 vs 增量判定）。
+4. [x] IncrementalUpdateService：差分下载 → 应用 → 回滚 → 事后修复（假渠道 API + 假补丁器，覆盖中断恢复用例）。
+5. [x] Channels.Kuro：index.json/indexFile.json 解析（真实录制 fixtures）、patchConfig 匹配、CDN 选择、下载 URL 拼接。
+6. [x] HpatchzApplier：进程调度/MD5 验证/备份回滚（IProcessRunner 假实现；真实 hpatchz 作为可选长测）。
+7. [x] Channels.Hypergryph：gryphline API 客户端（archive fixtures 驱动）。
+8. [x] GameLauncherService（命令模板解析、环境变量注入）。
+9. [x] App.Themes + ThemeService（Headless 测试：System/Light/Dark 三态切换断言 `ActualThemeVariant`）。
+10. [x] 各 ViewModel（假服务注入，测试状态机与命令可用性）。
+11. [x] Views + Headless 集成测试（绑定、按钮→命令、页面导航）。
+12. [x] Headless 端到端冒烟：加载 samples/games.json 显示两个游戏、主题跟随设置。
+13. [x] 文档与发布：`dotnet publish` linux-x64/win-x64 self-contained 验证。
 
 ## 七、UI 设计（需求 4）
 
@@ -135,3 +135,13 @@ FluentTheme 单窗口布局：左侧边栏为游戏列表（图标+名称，底�
 - 两款游戏均为 Windows 程序，Linux 运行依赖用户自备 wine/Proton——启动器通过 `commandTemplate` 配置支持，不硬编码也不代管 wine。
 - 预下载仅在官方开放窗口期可用，UI 明确提示"暂未开放"。
 - xunit 体系按 Avalonia.Headless.XUnit 12.1.2 的实际依赖统一为 xunit.v3 4.0.0。
+
+---
+
+## 十、实施结果（2026-09-05 交付）
+
+- 测试：**154 个全部通过**（Core 119 + Kuro 13 + Hypergryph 8 + App 14），`dotnet test`（MTP 模式）。
+- 测试框架按 Avalonia.Headless.XUnit 12.x 的实际依赖统一为 **xunit.v3 4.0.0**（计划中的兜底项），测试平台为 Microsoft.Testing.Platform。
+- 交付物：全部源码与测试、`samples/games.json`、`README.md`（运行说明）、`docs/DEVELOPMENT.md`（开发说明）、`docs/ARCHITECTURE.md`（架构与 mermaid 流程图）、`docs/GAME_CONFIG.md`（配置教程）。
+- 发布验证：`dotnet publish` linux-x64 与 win-x64 self-contained 均成功。
+- 与计划的偏差：UI 项目保留原名 `YetAnotherGameLauncher`（避免 `App.App` 命名别扭）；终末地确认为整包分发模型，为此在 Core 增加了 `PackageInstallerService` 包式安装支持；测试框架组合以 Avalonia 官方包实际依赖为准。
