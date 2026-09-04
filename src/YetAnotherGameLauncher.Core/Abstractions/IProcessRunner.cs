@@ -1,0 +1,21 @@
+namespace YetAnotherGameLauncher.Core.Abstractions;
+
+/// <summary>进程启动描述。</summary>
+public sealed record ProcessStartSpec(
+    string FileName,
+    string Arguments,
+    string? WorkingDirectory = null,
+    IReadOnlyDictionary<string, string>? Environment = null,
+    int TimeoutMilliseconds = 600_000);
+
+/// <summary>进程执行结果。</summary>
+public sealed record ProcessResult(int ExitCode, string StandardOutput, string StandardError)
+{
+    public bool Succeeded => ExitCode == 0;
+}
+
+/// <summary>进程运行器抽象，便于在测试中替身化外部工具（如 hpatchz）。</summary>
+public interface IProcessRunner
+{
+    Task<ProcessResult> RunAsync(ProcessStartSpec spec, CancellationToken cancellationToken = default);
+}
