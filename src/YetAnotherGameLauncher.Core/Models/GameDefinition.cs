@@ -23,5 +23,11 @@ public sealed class GameDefinition
     /// <summary>游戏可执行文件，相对安装目录。</summary>
     public string Executable { get; set; } = "";
 
+    /// <summary>
+    /// 详情页背景图：http(s) URL 或本地文件路径。留空时回退到主题渐变背景；
+    /// 加载失败同样静默回退，不影响功能。
+    /// </summary>
+    public string BackgroundImage { get; set; } = "";
+
     public LaunchOptions Launch { get; set; } = new();
 }

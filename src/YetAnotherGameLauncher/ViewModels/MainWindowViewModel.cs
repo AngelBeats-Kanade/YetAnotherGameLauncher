@@ -21,6 +21,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly GameLauncherService _launcherService;
     private readonly ThemeService _themeService;
     private readonly ILocalizationService _loc;
+    private readonly BackgroundImageService _backgroundImageService;
     private readonly Func<string?>? _defaultConfigTemplateFactory;
 
     public MainWindowViewModel(
@@ -29,6 +30,7 @@ public partial class MainWindowViewModel : ViewModelBase
         GameLauncherService launcherService,
         ThemeService themeService,
         ILocalizationService localization,
+        BackgroundImageService backgroundImageService,
         Func<string, IGameChannelApi?> channelResolver,
         Func<string?>? defaultConfigTemplateFactory = null)
     {
@@ -37,6 +39,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _launcherService = launcherService;
         _themeService = themeService;
         _loc = localization;
+        _backgroundImageService = backgroundImageService;
         _channelResolver = channelResolver;
         _defaultConfigTemplateFactory = defaultConfigTemplateFactory;
         Loc = localization;
@@ -222,7 +225,9 @@ public partial class MainWindowViewModel : ViewModelBase
                 channel,
                 _updateService,
                 _launcherService,
-                _loc));
+                _loc,
+                _catalogService,
+                _backgroundImageService));
         }
 
         if (unknownChannels.Count > 0)

@@ -43,6 +43,7 @@ public static class VmFactory
         public required FakeChannel Gryphline { get; init; }
         public required FakeDownloader Downloader { get; init; }
         public required string ConfigPath { get; init; }
+        public StubHttpHandler BackgroundHandler { get; init; } = new();
 
         public void Dispose() => TempDir.Dispose();
     }
@@ -66,6 +67,7 @@ public static class VmFactory
         var kuro = new FakeChannel();
         var gryphline = new FakeChannel();
         var downloader = new FakeDownloader();
+        var backgroundHandler = new StubHttpHandler();
 
         var vm = new MainWindowViewModel(
             new GameCatalogService(configPath),
@@ -73,6 +75,7 @@ public static class VmFactory
             new GameLauncherService(new FakeProcessRunner()),
             new ThemeService(),
             new LocalizationService(),
+            new BackgroundImageService(new HttpClient(backgroundHandler)),
             channelKey => channelKey switch
             {
                 "kuro" => kuro,
@@ -85,6 +88,7 @@ public static class VmFactory
         {
             Vm = vm, TempDir = tempDir, Kuro = kuro, Gryphline = gryphline,
             Downloader = downloader, ConfigPath = configPath,
+            BackgroundHandler = backgroundHandler,
         };
     }
 }

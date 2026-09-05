@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using YetAnotherGameLauncher.Core;
@@ -16,13 +17,18 @@ public partial class GameItemViewModel(
     IGameChannelApi channel,
     GameUpdateService updateService,
     GameLauncherService launcherService,
-    ILocalizationService loc) : ViewModelBase
+    ILocalizationService loc,
+    GameCatalogService catalogService,
+    BackgroundImageService backgroundImageService) : ViewModelBase
 {
     private readonly GameUpdateService _updateService = updateService;
     private readonly GameLauncherService _launcherService = launcherService;
     private readonly IGameChannelApi _channel = channel;
     private readonly string _installDir = installDir;
     private readonly ILocalizationService _loc = loc;
+
+    /// <summary>启动设置编辑卡（保存走 GameCatalogService 整文件原子写）。</summary>
+    public LaunchSettingsViewModel LaunchSettings { get; } = new(game, catalogService, loc);
 
     public GameDefinition Game { get; } = game;
 
@@ -50,6 +56,13 @@ public partial class GameItemViewModel(
     [ObservableProperty] private double _progressPercent;
     [ObservableProperty] private string _progressText = "";
 
+    /// <summary>详情页背景图（异步加载；null = 回退主题渐变）。</summary>
+    [ObservableProperty]
+    private IImage? _backgroundImage;
+
+    [ObservableProperty]
+    private bool _hasBackgroundImage;
+
     public string InstallButtonText => !IsInstalled ? _loc["game_install"] : HasUpdate ? _loc["game_update"] : _loc["game_verify"];
 
     /// <summary>渠道显示名（已知渠道给中文名，未知原样）。</summary>
@@ -72,6 +85,8 @@ public partial class GameItemViewModel(
 
     private async Task RefreshCoreAsync(CancellationToken cancellationToken)
     {
+        _ = LoadBackgroundImageAsync(cancellationToken);
+
         var state = new LocalStateService(_installDir).Load(Game.Id, SelectedServer.Id);
         var staged = IncrementalUpdateService.TryLoadStagedManifest(_installDir);
         HasStagedPredownload = staged is not null;
@@ -110,6 +125,13 @@ public partial class GameItemViewModel(
             : HasUpdate ? _loc["status_hasUpdate"] : _loc["status_upToDate"];
 
         OnPropertyChanged(nameof(InstallButtonText));
+    }
+
+    private async Task LoadBackgroundImageAsync(CancellationToken cancellationToken)
+    {
+        var image = await backgroundImageService.LoadAsync(Game.BackgroundImage, cancellationToken);
+        BackgroundImage = image;
+        HasBackgroundImage = image is not null;
     }
 
     [RelayCommand]

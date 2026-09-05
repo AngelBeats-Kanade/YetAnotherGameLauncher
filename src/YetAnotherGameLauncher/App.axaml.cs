@@ -61,6 +61,7 @@ public partial class App : Application
         services.AddSingleton<GameLauncherService>();
         services.AddSingleton<ThemeService>();
         services.AddSingleton<ILocalizationService, LocalizationService>();
+        services.AddSingleton<BackgroundImageService>();
 
         // ViewModel
         services.AddSingleton(sp =>
@@ -72,6 +73,7 @@ public partial class App : Application
                 sp.GetRequiredService<GameLauncherService>(),
                 sp.GetRequiredService<ThemeService>(),
                 sp.GetRequiredService<ILocalizationService>(),
+                sp.GetRequiredService<BackgroundImageService>(),
                 channelKey => keyed.GetKeyedService<IGameChannelApi>(channelKey),
                 TryLoadEmbeddedSampleTemplate);
         });

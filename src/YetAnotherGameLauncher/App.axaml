@@ -20,6 +20,9 @@
                     <SolidColorBrush x:Key="AppPredownloadBadge" Color="#E8930C"/>
                     <SolidColorBrush x:Key="AppErrorText" Color="#C42B1C"/>
                     <SolidColorBrush x:Key="AppStatusOk" Color="#2DA44E"/>
+                    <!-- 详情页背景图上的暗化遮罩：顶部保证文字对比，底部融入页面背景 -->
+                    <Color x:Key="AppDetailScrimTopColor">#B3E6EDF3</Color>
+                    <Color x:Key="AppDetailScrimBottomColor">#F7F8FA</Color>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <Color x:Key="AppAccentColor">#4C8DFF</Color>
@@ -34,6 +37,8 @@
                     <SolidColorBrush x:Key="AppPredownloadBadge" Color="#E8930C"/>
                     <SolidColorBrush x:Key="AppErrorText" Color="#FF8A7A"/>
                     <SolidColorBrush x:Key="AppStatusOk" Color="#3FB950"/>
+                    <Color x:Key="AppDetailScrimTopColor">#B314141A</Color>
+                    <Color x:Key="AppDetailScrimBottomColor">#121216</Color>
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
