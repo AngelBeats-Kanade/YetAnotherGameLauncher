@@ -15,12 +15,16 @@ public class GryphlineChannelApiTests
 
     private GryphlineChannelApi CreateApi() => new(new HttpClient(_handler));
 
-    private static GameServer Server() => new()
+    private static GameServer Server(params (string Key, string Value)[] options)
     {
-        Id = "global",
-        Name = "国际服",
-        Options = new Dictionary<string, string> { ["apiBase"] = "https://launcher.gryphline.com/api" },
-    };
+        var dict = new Dictionary<string, string> { ["apiBase"] = "https://launcher.gryphline.com/api" };
+        foreach (var (key, value) in options)
+        {
+            dict[key] = value;
+        }
+
+        return new GameServer { Id = "global", Name = "国际服", Options = dict };
+    }
 
     private void RegisterBatchResponse(string getLatestGameRspJson)
     {
@@ -148,6 +152,52 @@ public class GryphlineChannelApiTests
     [Fact]
     public async Task RequestBody_ContainsProtocolConstants()
     {
+        var body = await CaptureRequestBody(Server());
+
+        Assert.Contains("\"get_latest_game\"", body);
+        Assert.Contains("YDUTE5gscDZ229CW", body);
+        Assert.Contains("\"sub_channel\":\"9999\"", body);
+    }
+
+    [Fact]
+    public async Task RequestBody_ChinaOptions_OverrideProtocolConstants()
+    {
+        // 国服实测参数（ak-endfield-api-archive，2026-09）：hypergryph 域 + cnWinRel 参数集
+        var server = Server(("appcode", "6LL0KJuqHBVz33WK"), ("channel", "1"), ("subChannel", "1"));
+
+        var body = await CaptureRequestBody(server);
+
+        Assert.Contains("6LL0KJuqHBVz33WK", body);
+        Assert.Contains("\"channel\":\"1\"", body);
+        Assert.Contains("\"sub_channel\":\"1\"", body);
+        Assert.DoesNotContain("YDUTE5gscDZ229CW", body);
+    }
+
+    [Fact]
+    public async Task RequestBody_PartialOverride_KeepsOtherDefaults()
+    {
+        var server = Server(("appcode", "custom-appcode"));
+
+        var body = await CaptureRequestBody(server);
+
+        Assert.Contains("custom-appcode", body);
+        Assert.Contains("\"channel\":\"6\"", body);
+        Assert.Contains("\"sub_channel\":\"9999\"", body);
+    }
+
+    [Fact]
+    public async Task RequestBody_BlankOptionValue_FallsBackToDefault()
+    {
+        var server = Server(("channel", "  "));
+
+        var body = await CaptureRequestBody(server);
+
+        Assert.Contains("\"channel\":\"6\"", body);
+    }
+
+    /// <summary>发起一次请求并返回捕获到的 JSON 请求体。</summary>
+    private async Task<string> CaptureRequestBody(GameServer server)
+    {
         HttpRequestMessage? captured = null;
         var handler = new CapturingHandler(request => captured = request)
         {
@@ -160,12 +210,9 @@ public class GryphlineChannelApiTests
         };
         var api = new GryphlineChannelApi(new HttpClient(handler));
 
-        await api.GetVersionInfoAsync(Server());
+        await api.GetVersionInfoAsync(server);
 
-        var body = await captured!.Content!.ReadAsStringAsync();
-        Assert.Contains("\"get_latest_game\"", body);
-        Assert.Contains("YDUTE5gscDZ229CW", body);
-        Assert.Contains("\"sub_channel\":\"9999\"", body);
+        return await captured!.Content!.ReadAsStringAsync();
     }
 
     private sealed class CapturingHandler(Action<HttpRequestMessage> capture) : HttpMessageHandler

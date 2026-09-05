@@ -9,6 +9,7 @@ using Xunit;
 namespace YetAnotherGameLauncher.AppTests;
 
 /// <summary>MainWindowViewModel 状态机测试（纯 VM，无 UI）。</summary>
+[Collection("sequential")]
 public class MainWindowViewModelTests : IDisposable
 {
     private readonly VmFactory.Context _ctx;
@@ -189,5 +190,59 @@ public class MainWindowViewModelTests : IDisposable
 
         Assert.DoesNotContain("已生成默认配置文件", ctx.Vm.StatusMessage);
         Assert.Equal(contentAfterFirstRun, await File.ReadAllTextAsync(ctx.ConfigPath));
+    }
+
+    // ---------- i18n：语言设置 ----------
+
+    [Fact]
+    public async Task Initialize_LanguageFromConfig_IsApplied()
+    {
+        using var ctx = VmFactory.Build("""
+            {
+              "settings": { "installRoot": "~/yagl-test-games", "theme": "Dark", "language": "en-US" },
+              "games": [
+                {
+                  "id": "wuthering-waves", "displayName": "鸣潮", "channel": "kuro",
+                  "installDir": "WutheringWaves", "executable": "Client/game.exe",
+                  "servers": [ { "id": "cn", "name": "国服" } ]
+                }
+              ]
+            }
+            """);
+
+        await ctx.Vm.InitializeAsync();
+
+        Assert.Equal("en-US", ctx.Vm.Loc.Language);
+        Assert.Equal("Install Game", ctx.Vm.Games[0].InstallButtonText);
+        Assert.Equal("Not installed", ctx.Vm.Games[0].StatusText);
+        Assert.Contains("1 games", ctx.Vm.GameCountText);
+        // 主题选项显示名跟随语言重建
+        Assert.Equal("Follow System", ctx.Vm.ThemeModes[0].DisplayName);
+    }
+
+    [Fact]
+    public async Task SaveLanguage_WritesBackToConfigFile()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        _ctx.Vm.Loc.SetLanguage("en-US");
+        await _ctx.Vm.SaveLanguageAsync("en-US");
+
+        var reloader = new GameCatalogService(_ctx.ConfigPath);
+        await reloader.LoadAsync();
+        Assert.Equal("en-US", reloader.Catalog!.Settings.Language);
+    }
+
+    [Fact]
+    public async Task LanguageSwitch_RefreshesExistingGameTexts()
+    {
+        await _ctx.Vm.InitializeAsync();
+        Assert.Equal("安装游戏", _ctx.Vm.Games[0].InstallButtonText);
+
+        _ctx.Vm.Loc.SetLanguage("en-US");
+        await _ctx.Vm.Games[0].RefreshAsync(); // 语言切换会触发各游戏自动刷新，这里显式等待完成
+
+        Assert.Equal("Install Game", _ctx.Vm.Games[0].InstallButtonText);
+        Assert.Equal("Not installed", _ctx.Vm.Games[0].StatusText);
     }
 }

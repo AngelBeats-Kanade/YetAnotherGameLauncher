@@ -8,18 +8,24 @@ using Microsoft.Extensions.Logging;
 namespace YetAnotherGameLauncher.Channels.Hypergryph;
 
 /// <summary>
-/// 鹰角/GRYPHLINE 渠道（明日方舟：终末地，国际服 launcher.gryphline.com）。
+/// 鹰角/GRYPHLINE 渠道（明日方舟：终末地）。
 /// 整包分发模型：get_latest_game 返回压缩包列表（packs），下载解压即安装；
 /// 更新 = 请求新版本的包并解压覆盖；预下载 = 响应中的 patch 节点。
 ///
 /// ⚠ 该协议无官方文档，字段来自社区逆向（LLauncher / ak-endfield-api-archive），
-/// 可能随官方启动器更新而变化；apiBase 由 games.json 的 server.options 提供。
+/// 可能随官方启动器更新而变化；协议参数由 games.json 的 server.options 提供，
+/// 缺省回退国际服（launcher.gryphline.com）实测值。
+/// 国服：apiBase=https://launcher.hypergryph.com/api、appcode=6LL0KJuqHBVz33WK、
+/// channel=1、subChannel=1；B 服 channel=2、subChannel=2（2026-09 实测，响应结构与国际服一致）。
 /// </summary>
 public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger = null) : IGameChannelApi
 {
     public const string ApiBaseOptionKey = "apiBase";
+    public const string AppcodeOptionKey = "appcode";
+    public const string ChannelOptionKey = "channel";
+    public const string SubChannelOptionKey = "subChannel";
 
-    // 逆向自官方启动器的固定参数
+    // 国际服（osWinRel）实测参数，作为 options 未提供时的缺省值
     private const string GameAppcode = "YDUTE5gscDZ229CW";
     private const string ChannelId = "6";
     private const string SubChannelId = "9999";
@@ -102,9 +108,9 @@ public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger =
                     GetLatestGameReq = new GetLatestGameReq
                     {
                         Version = clientVersion,
-                        Appcode = GameAppcode,
-                        Channel = ChannelId,
-                        SubChannel = SubChannelId,
+                        Appcode = OptionOrDefault(server, AppcodeOptionKey, GameAppcode),
+                        Channel = OptionOrDefault(server, ChannelOptionKey, ChannelId),
+                        SubChannel = OptionOrDefault(server, SubChannelOptionKey, SubChannelId),
                         DeviceId = "yetanothervariant-game-launcher",
                     },
                 },
@@ -140,6 +146,11 @@ public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger =
 
         return gameResponse;
     }
+
+    private static string OptionOrDefault(GameServer server, string key, string fallback)
+        => server.Options.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
+            ? value.Trim()
+            : fallback;
 
     private static GameManifest ToPackageManifest(string version, PackageInfo pkg)
     {

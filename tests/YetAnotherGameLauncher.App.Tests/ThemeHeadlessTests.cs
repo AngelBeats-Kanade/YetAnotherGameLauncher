@@ -7,6 +7,7 @@ using Xunit;
 
 namespace YetAnotherGameLauncher.UiTests;
 
+[Collection("sequential")]
 public class ThemeHeadlessTests
 {
     [Fact]

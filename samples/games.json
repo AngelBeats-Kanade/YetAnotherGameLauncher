@@ -3,7 +3,7 @@
     "installRoot": "~/Games",
     "theme": "System",
     "maxParallelDownloads": 8,
-    "language": "zh-CN"
+    "language": "system"
   },
   "games": [
     {
@@ -60,6 +60,26 @@
           "name": "国际服",
           "options": {
             "apiBase": "https://launcher.gryphline.com/api"
+          }
+        },
+        {
+          "id": "cn",
+          "name": "国服",
+          "options": {
+            "apiBase": "https://launcher.hypergryph.com/api",
+            "appcode": "6LL0KJuqHBVz33WK",
+            "channel": "1",
+            "subChannel": "1"
+          }
+        },
+        {
+          "id": "bilibili",
+          "name": "B服",
+          "options": {
+            "apiBase": "https://launcher.hypergryph.com/api",
+            "appcode": "6LL0KJuqHBVz33WK",
+            "channel": "2",
+            "subChannel": "2"
           }
         }
       ]

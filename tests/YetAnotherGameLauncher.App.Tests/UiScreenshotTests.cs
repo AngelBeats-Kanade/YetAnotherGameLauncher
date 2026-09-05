@@ -13,7 +13,9 @@ namespace YetAnotherGameLauncher.UiTests;
 /// <summary>
 /// 视觉自检工具（见 .zcode/skills/avalonia-ui-review）：把真实窗口渲染成 PNG
 /// 供人工/代理检查。产物在仓库根 artifacts/ui-review/（已 gitignore）。
+/// 注意：换页后的模板构建发生在下一轮布局，切页后需 window.UpdateLayout()。
 /// </summary>
+[Collection("sequential")]
 public class UiScreenshotTests
 {
     [Fact]
@@ -37,6 +39,7 @@ public class UiScreenshotTests
             await ctx.Vm.InitializeAsync();
             var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
             window.Show();
+            window.UpdateLayout();
 
             void Capture(string name)
             {
@@ -58,11 +61,32 @@ public class UiScreenshotTests
             // 暗色 · 第二个游戏（终末地）
             ctx.Vm.SelectedTheme = dark;
             ctx.Vm.SelectedGame = ctx.Vm.Games[1];
+            window.UpdateLayout();
             Capture("03-game2-dark.png");
 
-            // 暗色 · 设置页
+            // 暗色 · 侧栏收起
+            ctx.Vm.ToggleSidebarCommand.Execute(null);
+            window.UpdateLayout();
+            Capture("04-sidebar-collapsed-dark.png");
+            ctx.Vm.ToggleSidebarCommand.Execute(null);
+            window.UpdateLayout();
+
+            // 暗色 · 设置页（外观卡：主题 + 语言）
             ctx.Vm.ShowSettingsCommand.Execute(null);
-            Capture("04-settings-dark.png");
+            window.UpdateLayout();
+            Capture("05-settings-dark.png");
+
+            // 暗色 · 关于页
+            ctx.Vm.ShowAboutCommand.Execute(null);
+            window.UpdateLayout();
+            Capture("06-about-dark.png");
+
+            // 英文 · 详情页（i18n 热切换）
+            ctx.Vm.ShowGamesCommand.Execute(null);
+            window.UpdateLayout();
+            ctx.Vm.Loc.SetLanguage("en-US");
+            window.UpdateLayout();
+            Capture("07-game-detail-en.png");
 
             window.Close();
             return 0;

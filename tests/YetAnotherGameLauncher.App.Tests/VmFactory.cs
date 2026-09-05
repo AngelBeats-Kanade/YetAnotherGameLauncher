@@ -1,6 +1,7 @@
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
+using YetAnotherGameLauncher.Services;
 using YetAnotherGameLauncher.TestSupport;
 using YetAnotherGameLauncher.Themes;
 using YetAnotherGameLauncher.ViewModels;
@@ -71,6 +72,7 @@ public static class VmFactory
             new GameUpdateService(downloader, new FakePatchApplier()),
             new GameLauncherService(new FakeProcessRunner()),
             new ThemeService(),
+            new LocalizationService(),
             channelKey => channelKey switch
             {
                 "kuro" => kuro,

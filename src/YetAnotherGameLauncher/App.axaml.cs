@@ -7,6 +7,7 @@ using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Channels.Hypergryph;
 using YetAnotherGameLauncher.Channels.Kuro;
+using YetAnotherGameLauncher.Services;
 using YetAnotherGameLauncher.Themes;
 using YetAnotherGameLauncher.ViewModels;
 using YetAnotherGameLauncher.Views;
@@ -59,6 +60,7 @@ public partial class App : Application
         services.AddSingleton<GameUpdateService>();
         services.AddSingleton<GameLauncherService>();
         services.AddSingleton<ThemeService>();
+        services.AddSingleton<ILocalizationService, LocalizationService>();
 
         // ViewModel
         services.AddSingleton(sp =>
@@ -69,6 +71,7 @@ public partial class App : Application
                 sp.GetRequiredService<GameUpdateService>(),
                 sp.GetRequiredService<GameLauncherService>(),
                 sp.GetRequiredService<ThemeService>(),
+                sp.GetRequiredService<ILocalizationService>(),
                 channelKey => keyed.GetKeyedService<IGameChannelApi>(channelKey),
                 TryLoadEmbeddedSampleTemplate);
         });

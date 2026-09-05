@@ -12,6 +12,9 @@
   <ItemGroup>
     <!-- 默认配置模板：首次运行无 games.json 时写入用户配置目录（单一来源为 samples/games.json） -->
     <EmbeddedResource Include="..\..\samples\games.json" LogicalName="games.sample.json" />
+    <!-- 界面文案资源：文件名用下划线（strings_zh-CN.json）避免 MSBuild AssignCulture
+         把 culture 段识别成卫星资源拆出主程序集 -->
+    <EmbeddedResource Include="Resources\strings_*.json" />
   </ItemGroup>
 
   <ItemGroup>

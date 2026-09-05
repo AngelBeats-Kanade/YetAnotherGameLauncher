@@ -12,4 +12,7 @@ public sealed class AppSettings
     public int MaxParallelDownloads { get; set; } = 8;
 
     public string Language { get; set; } = "zh-CN";
+
+    /// <summary>侧栏是否展开（false = 收起为图标窄条）。</summary>
+    public bool SidebarExpanded { get; set; } = true;
 }

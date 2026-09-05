@@ -5,6 +5,7 @@ using YetAnotherGameLauncher.Core;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
+using YetAnotherGameLauncher.Services;
 
 namespace YetAnotherGameLauncher.ViewModels;
 
@@ -14,14 +15,19 @@ public partial class GameItemViewModel(
     string installDir,
     IGameChannelApi channel,
     GameUpdateService updateService,
-    GameLauncherService launcherService) : ViewModelBase
+    GameLauncherService launcherService,
+    ILocalizationService loc) : ViewModelBase
 {
     private readonly GameUpdateService _updateService = updateService;
     private readonly GameLauncherService _launcherService = launcherService;
     private readonly IGameChannelApi _channel = channel;
     private readonly string _installDir = installDir;
+    private readonly ILocalizationService _loc = loc;
 
     public GameDefinition Game { get; } = game;
+
+    /// <summary>暴露给 XAML 的文案服务（详情页模板绑定 {Binding Loc[key]}）。</summary>
+    public ILocalizationService Loc { get; } = loc;
 
     public string DisplayName => Game.DisplayName;
 
@@ -44,7 +50,7 @@ public partial class GameItemViewModel(
     [ObservableProperty] private double _progressPercent;
     [ObservableProperty] private string _progressText = "";
 
-    public string InstallButtonText => !IsInstalled ? "安装游戏" : HasUpdate ? "立即更新" : "校验修复";
+    public string InstallButtonText => !IsInstalled ? _loc["game_install"] : HasUpdate ? _loc["game_update"] : _loc["game_verify"];
 
     /// <summary>渠道显示名（已知渠道给中文名，未知原样）。</summary>
     public string ChannelDisplayName => Game.Channel switch
@@ -56,7 +62,7 @@ public partial class GameItemViewModel(
 
     public string InstallDirPath => _installDir;
 
-    public string ServerCountText => $"{Servers.Count} 个";
+    public string ServerCountText => _loc.Format("game_info_servers_count", Servers.Count);
 
     [RelayCommand]
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
@@ -78,8 +84,8 @@ public partial class GameItemViewModel(
         }
         catch (Exception ex) when (ex is UpdateException or HttpRequestException or TaskCanceledException)
         {
-            StatusText = "无法连接服务器，版本信息不可用";
-            VersionText = state is null ? "未安装" : $"本地版本 {state.Version}";
+            StatusText = _loc["status_noConnection"];
+            VersionText = state is null ? _loc["status_notInstalledShort"] : _loc.Format("status_localVersion", state.Version);
             IsInstalled = state is not null;
             HasUpdate = false;
             PredownloadAvailable = false;
@@ -94,14 +100,14 @@ public partial class GameItemViewModel(
         PredownloadAvailable = info.PredownloadAvailable && !HasStagedPredownload;
 
         VersionText = state is null
-            ? $"最新版本 {info.LatestVersion}"
+            ? _loc.Format("version_latest", info.LatestVersion)
             : HasUpdate
-                ? $"本地 {state.Version} → 可更新至 {info.LatestVersion}"
-                : $"本地 {state.Version}";
+                ? _loc.Format("version_canUpdate", state.Version, info.LatestVersion)
+                : _loc.Format("version_local", state.Version);
 
         StatusText = !IsInstalled
-            ? "尚未安装"
-            : HasUpdate ? "有可用更新" : "已是最新版本";
+            ? _loc["status_notInstalled"]
+            : HasUpdate ? _loc["status_hasUpdate"] : _loc["status_upToDate"];
 
         OnPropertyChanged(nameof(InstallButtonText));
     }
@@ -118,11 +124,11 @@ public partial class GameItemViewModel(
         try
         {
             await _launcherService.LaunchAsync(Game, _installDir, Game.Executable, cancellationToken);
-            StatusText = "游戏已启动";
+            StatusText = _loc["status_launched"];
         }
         catch (Exception ex)
         {
-            StatusText = $"启动失败：{ex.Message}";
+            StatusText = _loc.Format("status_launchFailed", ex.Message);
         }
         finally
         {
@@ -152,11 +158,11 @@ public partial class GameItemViewModel(
         {
             var summary = await _updateService.PredownloadAsync(
                 _installDir, Game, SelectedServer, _channel, Progress, cancellationToken);
-            message = $"预下载完成（{summary.FromVersion} → {summary.ToVersion}），可随时应用";
+            message = _loc.Format("predownload_done", summary.FromVersion, summary.ToVersion);
         }
         catch (Exception ex)
         {
-            message = $"预下载失败：{ex.Message}";
+            message = _loc.Format("predownload_failed", ex.Message);
         }
         finally
         {
@@ -188,16 +194,16 @@ public partial class GameItemViewModel(
 
         IsBusy = true;
         ProgressPercent = 0;
-        ProgressText = "准备中…";
+        ProgressText = _loc["progress_preparing"];
         var message = "";
         try
         {
             var outcome = await action();
-            message = $"完成：{outcome.FromVersion} → {outcome.ToVersion}";
+            message = _loc.Format("progress_done", outcome.FromVersion, outcome.ToVersion);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            message = $"失败：{ex.Message}";
+            message = _loc.Format("progress_failed", ex.Message);
         }
         finally
         {
@@ -221,12 +227,13 @@ public partial class GameItemViewModel(
                 : 0;
         ProgressText = p.Phase switch
         {
-            UpdatePhase.Downloading => $"{FormatBytes(p.DownloadedBytes)} / {FormatBytes(p.TotalBytes)}（{p.FilesDone}/{p.FilesTotal} 个文件）",
-            UpdatePhase.Patching => "正在应用差分补丁…",
-            UpdatePhase.Verifying => "正在校验文件完整性…",
-            UpdatePhase.CleaningUp => "正在清理…",
-            UpdatePhase.Checking => "正在检查文件…",
-            _ => "完成",
+            UpdatePhase.Downloading => _loc.Format("progress_downloading",
+                FormatBytes(p.DownloadedBytes), FormatBytes(p.TotalBytes), p.FilesDone, p.FilesTotal),
+            UpdatePhase.Patching => _loc["progress_patching"],
+            UpdatePhase.Verifying => _loc["progress_verifying"],
+            UpdatePhase.CleaningUp => _loc["progress_cleaning"],
+            UpdatePhase.Checking => _loc["progress_checking"],
+            _ => _loc["progress_finished"],
         };
     }
 
