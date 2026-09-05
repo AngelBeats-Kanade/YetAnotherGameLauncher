@@ -8,9 +8,15 @@ publish/
 # IDE
 .idea/
 .vs/
-.zcode/
 *.user
 *.suo
+
+# Agent workspace — 版本控制技能库，其余（计划等）忽略
+.zcode/*
+!.zcode/skills/
+
+# Python（.zcode/skills 内技能脚本的运行缓存）
+__pycache__/
 
 # Test results
 TestResults/
