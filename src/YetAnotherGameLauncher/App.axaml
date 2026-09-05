@@ -12,20 +12,28 @@
                     <SolidColorBrush x:Key="AppAccentBrush" Color="#2E7CF6"/>
                     <SolidColorBrush x:Key="AppPageBackground" Color="#F7F8FA"/>
                     <SolidColorBrush x:Key="AppSidebarBackground" Color="#EDEFF3"/>
+                    <SolidColorBrush x:Key="AppSidebarHover" Color="#E2E6EE"/>
+                    <SolidColorBrush x:Key="AppSidebarSelected" Color="#D8E4FB"/>
                     <SolidColorBrush x:Key="AppCardBackground" Color="#FFFFFF"/>
+                    <SolidColorBrush x:Key="AppCardBorder" Color="#E3E6EC"/>
                     <SolidColorBrush x:Key="AppTextSecondary" Color="#66666E"/>
                     <SolidColorBrush x:Key="AppPredownloadBadge" Color="#E8930C"/>
                     <SolidColorBrush x:Key="AppErrorText" Color="#C42B1C"/>
+                    <SolidColorBrush x:Key="AppStatusOk" Color="#2DA44E"/>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <Color x:Key="AppAccentColor">#4C8DFF</Color>
                     <SolidColorBrush x:Key="AppAccentBrush" Color="#4C8DFF"/>
                     <SolidColorBrush x:Key="AppPageBackground" Color="#121216"/>
                     <SolidColorBrush x:Key="AppSidebarBackground" Color="#1A1A20"/>
+                    <SolidColorBrush x:Key="AppSidebarHover" Color="#24242C"/>
+                    <SolidColorBrush x:Key="AppSidebarSelected" Color="#2B3A5C"/>
                     <SolidColorBrush x:Key="AppCardBackground" Color="#23232B"/>
+                    <SolidColorBrush x:Key="AppCardBorder" Color="#2E2E38"/>
                     <SolidColorBrush x:Key="AppTextSecondary" Color="#A2A2AB"/>
                     <SolidColorBrush x:Key="AppPredownloadBadge" Color="#E8930C"/>
                     <SolidColorBrush x:Key="AppErrorText" Color="#FF8A7A"/>
+                    <SolidColorBrush x:Key="AppStatusOk" Color="#3FB950"/>
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>

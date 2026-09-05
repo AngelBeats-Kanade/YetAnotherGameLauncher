@@ -34,7 +34,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _themeService = themeService;
         _channelResolver = channelResolver;
         _defaultConfigTemplateFactory = defaultConfigTemplateFactory;
-        SelectedTheme = _themeService.Mode;
+        SelectedTheme = ThemeModes[0];
         CurrentPage = null;
     }
 
@@ -69,13 +69,28 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     [ObservableProperty]
-    private ThemeMode _selectedTheme;
+    private ThemeOption? _selectedTheme;
 
-    partial void OnSelectedThemeChanged(ThemeMode value) => _themeService.Apply(value);
+    partial void OnSelectedThemeChanged(ThemeOption? value)
+    {
+        if (value is not null)
+        {
+            _themeService.Apply(value.Mode);
+        }
+    }
 
-    public IReadOnlyList<ThemeMode> ThemeModes { get; } = [ThemeMode.System, ThemeMode.Light, ThemeMode.Dark];
+    public IReadOnlyList<ThemeOption> ThemeModes { get; } =
+    [
+        new ThemeOption(ThemeMode.System, "跟随系统"),
+        new ThemeOption(ThemeMode.Light, "亮色"),
+        new ThemeOption(ThemeMode.Dark, "暗色"),
+    ];
 
     public string ConfigFilePath => _catalogService.ConfigFilePath;
+
+    public string InstallRoot => _catalogService.Catalog?.Settings.InstallRoot ?? "";
+
+    public string GameCountText => $"{Games.Count} 款游戏";
 
     partial void OnSelectedGameChanged(GameItemViewModel? value)
     {
@@ -115,8 +130,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         _themeService.Apply(catalog.Settings.Theme);
-        SelectedTheme = _themeService.Mode;
-        OnPropertyChanged(nameof(SelectedTheme));
+        SelectedTheme = ThemeModes.FirstOrDefault(t => t.Mode == catalog.Settings.Theme) ?? ThemeModes[0];
 
         var unknownChannels = new List<string>();
         foreach (var game in catalog.Games)
@@ -142,6 +156,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
         SelectedGame = Games.FirstOrDefault();
         CurrentPage = SelectedGame;
+        OnPropertyChanged(nameof(GameCountText));
+        OnPropertyChanged(nameof(InstallRoot));
     }
 
     [RelayCommand]
@@ -159,6 +175,8 @@ public partial class SettingsViewModel : ViewModelBase
     public SettingsViewModel(MainWindowViewModel owner) => _owner = owner;
 
     public string ConfigFilePath => _owner.ConfigFilePath;
+
+    public string InstallRoot => _owner.InstallRoot;
 
     public string StatusMessage => _owner.StatusMessage;
 
@@ -189,3 +207,6 @@ public partial class SettingsViewModel : ViewModelBase
         }
     }
 }
+
+/// <summary>主题选项（枚举 + 界面显示名）。</summary>
+public sealed record ThemeOption(ThemeMode Mode, string DisplayName);

@@ -46,6 +46,18 @@ public partial class GameItemViewModel(
 
     public string InstallButtonText => !IsInstalled ? "安装游戏" : HasUpdate ? "立即更新" : "校验修复";
 
+    /// <summary>渠道显示名（已知渠道给中文名，未知原样）。</summary>
+    public string ChannelDisplayName => Game.Channel switch
+    {
+        "kuro" => "库洛",
+        "hypergryph" => "GRYPHLINE",
+        var other => other,
+    };
+
+    public string InstallDirPath => _installDir;
+
+    public string ServerCountText => $"{Servers.Count} 个";
+
     [RelayCommand]
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
@@ -67,7 +79,7 @@ public partial class GameItemViewModel(
         catch (Exception ex) when (ex is UpdateException or HttpRequestException or TaskCanceledException)
         {
             StatusText = "无法连接服务器，版本信息不可用";
-            VersionText = state is null ? "未安装" : $"本地 {state.Version}";
+            VersionText = state is null ? "未安装" : $"本地版本 {state.Version}";
             IsInstalled = state is not null;
             HasUpdate = false;
             PredownloadAvailable = false;
@@ -82,8 +94,10 @@ public partial class GameItemViewModel(
         PredownloadAvailable = info.PredownloadAvailable && !HasStagedPredownload;
 
         VersionText = state is null
-            ? $"未安装 · 最新 {info.LatestVersion}"
-            : $"本地 {state.Version} · 最新 {info.LatestVersion}";
+            ? $"最新版本 {info.LatestVersion}"
+            : HasUpdate
+                ? $"本地 {state.Version} → 可更新至 {info.LatestVersion}"
+                : $"本地 {state.Version}";
 
         StatusText = !IsInstalled
             ? "尚未安装"

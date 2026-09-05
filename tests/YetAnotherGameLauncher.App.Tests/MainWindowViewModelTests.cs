@@ -33,7 +33,7 @@ public class MainWindowViewModelTests : IDisposable
         // 示例配置 theme=Dark：应反映到 ViewModel 的主题选择上
         await _ctx.Vm.InitializeAsync();
 
-        Assert.Equal(Core.Models.ThemeMode.Dark, _ctx.Vm.SelectedTheme);
+        Assert.Equal(Core.Models.ThemeMode.Dark, _ctx.Vm.SelectedTheme?.Mode);
     }
 
     [Fact]

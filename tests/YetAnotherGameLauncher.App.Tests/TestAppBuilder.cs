@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Headless;
+using Avalonia.Skia;
 using YetAnotherGameLauncher;
 
 [assembly: AvaloniaTestApplication(typeof(YetAnotherGameLauncher.AppTests.TestAppBuilder))]
@@ -9,7 +10,8 @@ namespace YetAnotherGameLauncher.AppTests;
 public static class TestAppBuilder
 {
     public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>()
-        .UseHeadless(new AvaloniaHeadlessPlatformOptions());
+        .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
+        .UseSkia(); // 真实 Skia 渲染 + 字体服务：支持截图自检
 }
 
 /// <summary>
