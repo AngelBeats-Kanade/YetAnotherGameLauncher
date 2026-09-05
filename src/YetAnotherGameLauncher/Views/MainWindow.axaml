@@ -10,6 +10,7 @@
         x:DataType="vm:MainWindowViewModel"
         x:Name="RootWindow"
         Title="YetAnotherGameLauncher"
+        Icon="avares://YetAnotherGameLauncher/Assets/app-icon.ico"
         Width="1120" Height="720" MinWidth="920" MinHeight="620"
         Background="{DynamicResource AppPageBackground}"
         FontFamily="Microsoft YaHei UI, Noto Sans CJK SC, Segoe UI, Inter">
@@ -156,11 +157,8 @@
                 <!-- 顶部：产品标识 + 折叠切换 -->
                 <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="4,0,0,0">
                     <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                        <Border Width="38" Height="38" CornerRadius="10"
-                                Background="{DynamicResource AppAccentBrush}">
-                            <Path Data="M8 5v14l11-7z" Fill="White" Stretch="Uniform"
-                                  Width="20" Height="20" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
+                        <Image Width="38" Height="38"
+                               Source="avares://YetAnotherGameLauncher/Assets/app-icon.png"/>
                         <StackPanel IsVisible="{Binding IsSidebarExpanded}" VerticalAlignment="Center" Spacing="0">
                             <TextBlock Text="YetAnother" FontSize="19" FontWeight="Bold" Opacity="0.85"/>
                             <TextBlock Text="Game Launcher" FontSize="19" FontWeight="Bold"

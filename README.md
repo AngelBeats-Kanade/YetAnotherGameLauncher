@@ -4,7 +4,7 @@
 游戏本体通过 **配置文件** 驱动，代码不内置任何具体游戏；当前目标是：
 
 - 《鸣潮》（库洛官方启动器协议，支持 国服 / B服 / 国际服）
-- 《明日方舟：终末地》（GRYPHLINE 启动器协议，国际服）
+- 《明日方舟：终末地》（GRYPHLINE / 鹰角启动器协议，支持 国际服 / 国服 / B服）
 
 > [!NOTE]
 > 《鸣潮》《明日方舟：终末地》均为 Windows 程序，在 Linux 上运行依赖 **wine / Proton**。
@@ -20,8 +20,10 @@
 | 增量更新 | 鸣潮：匹配官方 `patchConfig` 差分入口，下载 krpdiff 差分包，调用原生 `hpatchz`（HDiffPatch）合成，`.yagl-bak` 备份回滚 |
 | 预更新（预下载） | 两段式：先"预下载"暂存到 `.yagl/predownload`，官方开放后一键"应用"；鸣潮走差分包、终末地走整包 |
 | 校验修复 | 按清单事后校验（MD5），自动修复缺失/损坏文件，清理游离文件（保留 `Saved/` 存档） |
-| 多服务器 | 鸣潮国服/B服/国际服 一键切换（配置驱动） |
-| 现代化 UI | Avalonia FluentTheme，亮/暗/跟随系统三态主题，卡片式布局，中文界面 |
+| 多服务器 | 鸣潮国服/B服/国际服、终末地国际服/国服/B服 一键切换（全部配置驱动） |
+| 现代化 UI | Avalonia FluentTheme，亮/暗/跟随系统三态主题；可折叠侧栏（图标窄条模式）；游戏背景大图 + 模糊 + 主题遮罩；页面切换与按钮微动效 |
+| 界面语言 | 简体中文 / English，跟随系统可选，切换即时生效（设置页调整） |
+| 启动设置 | 游戏详情页内直接编辑命令模板 / 工作目录 / 环境变量并保存回配置文件 |
 | 架构 | 前后端分离：`Core`（领域层）→ `Channels.*`（厂商渠道）→ `App`（Avalonia UI），全部依赖抽象接口 |
 
 ## 快速开始
@@ -51,15 +53,17 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（154 个）
+### 运行测试（190 个）
 
 ```bash
 dotnet test
 ```
 
 测试覆盖：配置解析/校验、下载器（续传/重试/MD5）、清单校验、版本计划、
-全量同步、增量应用（含回滚）、包式安装、更新编排、渠道解析（鸣潮/终末地）、
-启动命令解析、主题切换、ViewModel 状态机、以及 Avalonia.Headless 真实窗口集成测试。
+全量同步、增量应用（含回滚）、包式安装、更新编排、渠道解析（鸣潮/终末地国服/国际服参数）、
+启动命令解析、本地化服务与语言切换、侧栏折叠/页面切换/关于页、主题切换、
+ViewModel 状态机、以及 Avalonia.Headless 真实窗口集成测试。
+另附视觉自检截图工具（`artifacts/ui-review/`，见 docs/DEVELOPMENT.md）。
 
 ## 配置
 
@@ -107,7 +111,8 @@ YetAnotherGameLauncher.slnx
 │   ├── YetAnotherGameLauncher.Core/                   # 领域层（下载/清单/同步/增量/包式/编排/启动）
 │   ├── YetAnotherGameLauncher.Channels.Kuro/          # 库洛渠道（鸣潮）+ hpatchz 补丁器
 │   ├── YetAnotherGameLauncher.Channels.Hypergryph/    # GRYPHLINE 渠道（终末地）
-│   └── YetAnotherGameLauncher/                        # Avalonia UI（MVVM）
+│   ├── YetAnotherGameLauncher/                        # Avalonia UI（MVVM）
+│   └── tools/IconGen/                                 # 应用图标生成工具（headless 渲染 → ICO）
 ├── tests/                                             # xunit.v3（MTP）+ Avalonia.Headless
 ├── samples/games.json                                 # 示例配置
 └── docs/                                              # 开发/架构/配置文档

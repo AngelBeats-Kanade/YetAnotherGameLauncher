@@ -90,6 +90,35 @@ tests/
 
 同类渠道下只需编辑 `games.json`：复制现有游戏条目，改 `id/displayName/installDir/executable` 与各 `servers[].options`（端点），保存重启即可。详见 [GAME_CONFIG.md](GAME_CONFIG.md)。
 
+### 5.3 界面本地化（i18n）
+
+- 文案资源在 `src/YetAnotherGameLauncher/Resources/strings_zh-CN.json`（默认语言，
+  缺键回退源）与 `strings_en-US.json`；**键名用下划线分节**（`settings_title`），
+  不要用点号——文件名带 culture 段会被 MSBuild 拆进卫星程序集，键里的点会破坏绑定路径。
+- `LocalizationService`（`Services/`）负责加载与切换，`SetLanguage` 必须同时发
+  `"Item[]"` 与 `"Item"` 通知——Avalonia 的索引器绑定只认 `"Item"`（WPF 习惯的
+  `"Item[]"` 不刷新）。
+- XAML 中取文案用 `{svc:Loc settings_title}` 标记扩展（`LocBridge.Instance` 静态桥
+  在 `MainWindowViewModel` 构造时指向当前服务）。不要写 `{Binding Loc[key]}`：
+  Avalonia 对 `属性.索引器` 组合路径求值失败（静默返回空）。
+- VM 内文案用注入的 `ILocalizationService`：`_loc["key"]` / `_loc.Format("key", args)`。
+  `Format` 无参数时原样返回（资源串里的 `{exe}` 等占位符不会被 string.Format 误解析）。
+- 新增文案：两个 JSON 同步加键（有键集一致性测试防漏译），VM/axaml 用下划线键名。
+- 注意：`ReflectionBinding Loc[...]` 的组合路径与 `{Binding Loc['k']}` 引号语法均不可用。
+
+### 5.4 应用图标与视觉自检
+
+- 应用图标由 `tools/IconGen` 生成（headless Avalonia 渲染渐变圆角方块 + 播放三角，
+  导出 16–256px PNG 并打包 ICO）：
+  ```bash
+  dotnet run --project tools/IconGen    # 产物写入 src/YetAnotherGameLauncher/Assets/
+  ```
+  窗口图标在 `MainWindow.axaml`（`Icon="avares://..."`），exe 图标在 csproj 的
+  `<ApplicationIcon>`，关于页展示 `app-icon.png`。
+- UI 视觉自检循环：`UiScreenshotTests.Export_UiScreenshots_ForReview` 把真实窗口
+  渲染成 PNG 输出到 `artifacts/ui-review/`（gitignore），逐张检查后再交付；
+  换页后的模板构建发生在下一轮布局，截图断言前需 `window.UpdateLayout()`。
+
 ## 6. 编码规范
 
 - 文件作用域命名空间、4 空格缩进（`.editorconfig` 强约束，TreatWarningsAsErrors）。
@@ -113,4 +142,4 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64   --self-contain
 - 终末地（GRYPHLINE）协议无官方文档，字段来自社区逆向，官方启动器更新可能使其失效（隔离在渠道层，修复成本低）。
 - 鸣潮预下载仅在官方窗口期可用；差分入口按版本串精确匹配，跳版本更新自动走全量。
 - 包式渠道的"校验修复"粒度是压缩包（无逐文件清单），依赖解压覆盖语义。
-- 终末地国服（ak-conf.hypergryph.com）端点未实现，`apiBase` 留作配置位。
+- 终末地国服参数来自社区持续归档（ak-endfield-api-archive）而非官方文档，官方若调整协议以归档 fixture 为准修渠道层。

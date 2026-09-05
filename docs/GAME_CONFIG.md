@@ -25,9 +25,10 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | 字段 | 类型 | 默认 | 说明 |
 |---|---|---|---|
 | `installRoot` | string | 必填 | 安装根目录，支持 `~` 展开；游戏 `installDir` 相对它解析 |
-| `theme` | `"System" \| "Light" \| "Dark"` | `"System"` | 界面主题，System 跟随操作系统 |
+| `theme` | `"System" \| "Light" \| "Dark"` | `"System"` | 界面主题，System 跟随操作系统（也可在设置页切换） |
 | `maxParallelDownloads` | int | `8` | 文件级下载并发（1–64） |
-| `language` | string | `"zh-CN"` | 界面语言（预留） |
+| `language` | string | `"system"` | 界面语言：`"system"` 跟随系统 / `"zh-CN"` / `"en-US"`（也可在设置页切换，即时生效） |
+| `sidebarExpanded` | bool | `true` | 侧栏是否展开（`false` 为图标窄条模式，由界面折叠按钮切换） |
 
 ### games[]（GameDefinition）
 
@@ -36,7 +37,8 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `id` | string | ✔ | 唯一标识，仅允许字母/数字/`-`/`_`/`.`；写入本地状态文件用于校验 |
 | `displayName` | string | ✔ | 界面显示名（列表图标取首字） |
 | `channel` | string | ✔ | 渠道实现键：`"kuro"`（鸣潮及库洛系）、`"hypergryph"`（终末地/GRYPHLINE） |
-| `icon` | string | | 图标路径（预留，当前 UI 用首字图标） |
+| `icon` | string | | 图标路径（当前 UI 用显示名首字，字段预留） |
+| `backgroundImage` | string | | 详情页背景大图：http(s) URL 或本地路径；留空或加载失败回退主题渐变 |
 | `installDir` | string | ✔ | 安装目录；相对 `settings.installRoot`，也可为绝对路径 |
 | `executable` | string | ✔ | 游戏可执行文件，相对 `installDir`（`/` 或 `\` 均可） |
 | `launch` | object | | 启动方式，见下 |
@@ -68,7 +70,13 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | channel | 键 | 必填 | 说明 |
 |---|---|---|---|
 | `kuro` | `indexUrl` | ✔ | 库洛 launcher `index.json` 完整地址（每服一个） |
-| `hypergryph` | `apiBase` | ✔ | GRYPHLINE 启动器 API 基址（国际服为 `https://launcher.gryphline.com/api`） |
+| `hypergryph` | `apiBase` | ✔ | 启动器 API 基址：国际服 `https://launcher.gryphline.com/api`，国服/B服 `https://launcher.hypergryph.com/api` |
+| `hypergryph` | `appcode` | | 游戏 appcode；缺省为国际服 `YDUTE5gscDZ229CW`，国服/B服为 `6LL0KJuqHBVz33WK` |
+| `hypergryph` | `channel` | | 渠道号；缺省 `6`（国际服），国服 `1`，B服 `2` |
+| `hypergryph` | `subChannel` | | 子渠道号；缺省 `9999`（国际服实测值），国服 `1`，B服 `2` |
+
+> 终末地三个官方服务器（国际服 / 国服 / B服）的完整参数已内置于
+> [`samples/games.json`](../samples/games.json)，直接使用即可；上述键仅供未来新增渠道时覆盖。
 
 ## 2. 完整示例
 
