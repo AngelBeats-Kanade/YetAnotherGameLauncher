@@ -38,6 +38,11 @@ public class UiScreenshotTests
         };
         ctx.Gryphline.VersionInfo = new ChannelVersionInfo { LatestVersion = "1.2.0" };
 
+        // headless 内 HttpClient 走 Stub：把官方背景图字节注册进去，验证远程加载链路
+        var endfieldBgUrl = "https://web.hycdn.cn/upload/image/20260411/dde7c30f64cb985113539ec6c7a03c38.jpg";
+        var endfieldBg = await new HttpClient().GetByteArrayAsync(endfieldBgUrl);
+        ctx.BackgroundHandler.Map(endfieldBgUrl, endfieldBg);
+
         await HeadlessSession.Instance.Dispatch(async () =>
         {
             await ctx.Vm.InitializeAsync();
@@ -47,6 +52,7 @@ public class UiScreenshotTests
 
             void Capture(string name)
             {
+                Thread.Sleep(300); // 等页面淡入/chevron 旋转等动画完成，避免截到中间帧
                 var frame = window.CaptureRenderedFrame();
                 Assert.NotNull(frame);
                 frame.Save(Path.Combine(outDir, name), new PngBitmapEncoderOptions());
@@ -80,9 +86,11 @@ public class UiScreenshotTests
             Capture("02b-launch-settings-dark.png");
             launchToggle.IsChecked = false;
 
-            // 暗色 · 第二个游戏（终末地，无背景图）
+            // 暗色 · 第二个游戏（终末地，官方远程背景图，验证 URL 加载链路）
             ctx.Vm.SelectedTheme = dark;
+            ctx.Vm.Games[1].Game.BackgroundImage = endfieldBgUrl;
             ctx.Vm.SelectedGame = ctx.Vm.Games[1];
+            await ctx.Vm.Games[1].RefreshAsync();
             window.UpdateLayout();
             Capture("03-game2-dark.png");
 

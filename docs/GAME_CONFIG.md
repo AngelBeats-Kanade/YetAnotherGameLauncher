@@ -29,6 +29,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `maxParallelDownloads` | int | `8` | 文件级下载并发（1–64） |
 | `language` | string | `"system"` | 界面语言：`"system"` 跟随系统 / `"zh-CN"` / `"en-US"`（也可在设置页切换，即时生效） |
 | `sidebarExpanded` | bool | `true` | 侧栏是否展开（`false` 为图标窄条模式，由界面折叠按钮切换） |
+| `schemaVersion` | int | `0` | 配置结构版本（内部使用）。旧版本配置首次被新版加载时自动迁移：补齐内置模板中同一游戏新增的官方服务器与背景图，并写回 `schemaVersion: 2`，仅执行一次 |
 
 ### games[]（GameDefinition）
 

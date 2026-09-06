@@ -119,6 +119,11 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             _ = game.RefreshAsync();
         }
+
+        // 兜底：强制重建当前页面，保证所有 {svc:Loc} 标记扩展拿到新语言
+        var page = CurrentPage;
+        CurrentPage = null;
+        CurrentPage = page;
     }
 
     public string ConfigFilePath => _catalogService.ConfigFilePath;
@@ -175,6 +180,7 @@ public partial class MainWindowViewModel : ViewModelBase
             CurrentPage = value;
             _ = value.RefreshAsync();
         }
+
     }
 
     /// <summary>启动时初始化：加载配置 → 应用语言/主题 → 构建游戏列表。失败时给出可读提示而不崩溃。</summary>
@@ -205,11 +211,30 @@ public partial class MainWindowViewModel : ViewModelBase
             _catalogService.Catalog = catalog;
         }
 
+        await MigrateFromSampleAsync(catalog, cancellationToken);
+
         _loc.SetLanguage(catalog.Settings.Language);
         _themeService.Apply(catalog.Settings.Theme);
         SelectedTheme = ThemeModes.FirstOrDefault(t => t.Mode == catalog.Settings.Theme) ?? ThemeModes[0];
         IsSidebarExpanded = catalog.Settings.SidebarExpanded;
 
+        var unknownChannels = RebuildGames(catalog);
+
+        if (unknownChannels.Count > 0)
+        {
+            StatusMessage = _loc.Format("message_unknownChannels", string.Join("、", unknownChannels));
+        }
+
+        SelectedGame = Games.FirstOrDefault();
+        CurrentPage = SelectedGame;
+        OnPropertyChanged(nameof(GameCountText));
+        OnPropertyChanged(nameof(InstallRoot));
+    }
+
+    /// <summary>按当前配置重建游戏列表（installRoot 变更后调用），返回未知渠道提示列表。</summary>
+    private List<string> RebuildGames(GameCatalog catalog)
+    {
+        Games.Clear();
         var unknownChannels = new List<string>();
         foreach (var game in catalog.Games)
         {
@@ -230,15 +255,100 @@ public partial class MainWindowViewModel : ViewModelBase
                 _backgroundImageService));
         }
 
-        if (unknownChannels.Count > 0)
+        return unknownChannels;
+    }
+
+    /// <summary>更新安装根目录并重建游戏列表（路径重新解析），成功返回 true。</summary>
+    public async Task<bool> UpdateInstallRootAsync(string newRoot)
+    {
+        if (_catalogService.Catalog is not { } catalog)
         {
-            StatusMessage = _loc.Format("message_unknownChannels", string.Join(", ", unknownChannels));
+            return false;
         }
 
+        var root = newRoot.Trim();
+        if (root.Length == 0)
+        {
+            return false;
+        }
+
+        catalog.Settings.InstallRoot = root;
+        try
+        {
+            await _catalogService.SaveAsync();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            ConfigError = true;
+            StatusMessage = _loc.Format("message_saveFailed", ex.Message);
+            return false;
+        }
+
+        // 设置页/关于页保持当前页；游戏详情则回到重建后的第一个游戏
+        var keepPage = CurrentPage is SettingsViewModel or AboutViewModel ? CurrentPage : null;
+        SelectedGame = null;
+        RebuildGames(catalog);
         SelectedGame = Games.FirstOrDefault();
-        CurrentPage = SelectedGame;
-        OnPropertyChanged(nameof(GameCountText));
+        CurrentPage = keepPage ?? SelectedGame;
         OnPropertyChanged(nameof(InstallRoot));
+        return true;
+    }
+
+    /// <summary>
+    /// 旧配置一次性迁移：与内置样例模板对照，补齐同一游戏新增的官方服务器与背景图，
+    /// 并写入 SchemaVersion=2 防止重复执行。
+    /// </summary>
+    private async Task MigrateFromSampleAsync(GameCatalog catalog, CancellationToken cancellationToken)
+    {
+        if (catalog.Settings.SchemaVersion >= 2)
+        {
+            return;
+        }
+
+        var templateJson = _defaultConfigTemplateFactory?.Invoke();
+        if (templateJson is not null)
+        {
+            var sample = GameCatalogService.Parse(templateJson);
+            var added = new List<string>();
+            foreach (var game in catalog.Games)
+            {
+                var sampleGame = sample.Games.FirstOrDefault(g => g.Id == game.Id);
+                if (sampleGame is null)
+                {
+                    continue;
+                }
+
+                foreach (var server in sampleGame.Servers)
+                {
+                    if (!game.Servers.Any(s => s.Id.Equals(server.Id, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        game.Servers.Add(server);
+                        added.Add($"{game.DisplayName} · {server.Name}");
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(game.BackgroundImage)
+                    && !string.IsNullOrWhiteSpace(sampleGame.BackgroundImage))
+                {
+                    game.BackgroundImage = sampleGame.BackgroundImage;
+                }
+            }
+
+            if (added.Count > 0)
+            {
+                StatusMessage = _loc.Format("message_serversAdded", string.Join("、", added));
+            }
+        }
+
+        catalog.Settings.SchemaVersion = 2;
+        try
+        {
+            await _catalogService.SaveAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 迁移写回失败不致命：下次启动会再次尝试
+        }
     }
 
     /// <summary>把语言设置写回 games.json（UI 切换由 SetLanguage 即时生效，此处只负责持久化）。</summary>
@@ -273,7 +383,11 @@ public partial class SettingsViewModel : ViewModelBase
 {
     private readonly MainWindowViewModel _owner;
 
-    public SettingsViewModel(MainWindowViewModel owner) => _owner = owner;
+    public SettingsViewModel(MainWindowViewModel owner)
+    {
+        _owner = owner;
+        _installRootDraft = owner.InstallRoot;
+    }
 
     public ILocalizationService Loc => _owner.Loc;
 
@@ -282,6 +396,42 @@ public partial class SettingsViewModel : ViewModelBase
     public string InstallRoot => _owner.InstallRoot;
 
     public string StatusMessage => _owner.StatusMessage;
+
+    /// <summary>安装根目录草稿（编辑后点保存生效，游戏路径随之重新解析）。</summary>
+    [ObservableProperty]
+    private string _installRootDraft;
+
+    [ObservableProperty]
+    private bool _installRootSaveFailed;
+
+    [ObservableProperty]
+    private string _installRootSaveMessage = "";
+
+    partial void OnInstallRootDraftChanged(string value) => InstallRootSaveMessage = "";
+
+    [RelayCommand]
+    private async Task SaveInstallRootAsync(CancellationToken cancellationToken)
+    {
+        InstallRootSaveMessage = "";
+        InstallRootSaveFailed = false;
+        var draft = InstallRootDraft.Trim();
+        if (draft.Length == 0)
+        {
+            InstallRootSaveFailed = true;
+            InstallRootSaveMessage = Loc["settings_installRootRequired"];
+            return;
+        }
+
+        if (await _owner.UpdateInstallRootAsync(draft))
+        {
+            InstallRootSaveMessage = Loc["settings_installRootSaved"];
+        }
+        else
+        {
+            InstallRootSaveFailed = true;
+            InstallRootSaveMessage = _owner.StatusMessage;
+        }
+    }
 
     public IReadOnlyList<ThemeOption> ThemeModes => _owner.ThemeModes;
 

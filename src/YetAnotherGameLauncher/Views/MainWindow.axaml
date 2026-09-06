@@ -16,7 +16,7 @@
         FontFamily="Microsoft YaHei UI, Noto Sans CJK SC, Segoe UI, Inter">
 
     <Window.Styles>
-        <!-- 侧栏列表项：左对齐、圆角、悬停/选中为弱化强调 -->
+        <!-- 侧栏列表项：圆角、悬停/选中为弱化强调 -->
         <Style Selector="ListBoxItem">
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="Padding" Value="8"/>
@@ -50,23 +50,64 @@
             <Setter Property="Fill" Value="{DynamicResource AppAccentBrush}"/>
         </Style>
 
-        <!-- 侧栏收起态：条目与图标按钮在窄条内水平居中 -->
-        <Style Selector="Border.game-sidebar.collapsed ListBoxItem">
-            <Setter Property="Padding" Value="3"/>
+        <!-- 玻璃卡片（浮在窗口背景上）与不透明卡片（表单类，保证可读） -->
+        <Style Selector="Border.card">
+            <Setter Property="Background" Value="{DynamicResource AppCardBackground}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppCardBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="14"/>
+            <Setter Property="Padding" Value="20"/>
         </Style>
-        <Style Selector="Border.game-sidebar.collapsed Button.icon-btn">
-            <Setter Property="HorizontalContentAlignment" Value="Center"/>
-            <Setter Property="Padding" Value="9"/>
+        <Style Selector="Border.card-solid">
+            <Setter Property="Background" Value="{DynamicResource AppGlassStrong}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppCardBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="14"/>
+            <Setter Property="Padding" Value="20"/>
+        </Style>
+        <Style Selector="TextBlock.card-caption">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppTextSecondary}"/>
         </Style>
 
-        <!-- 折叠卡片头（启动设置）：透明按钮 + chevron 旋转 -->
+        <!-- 图标按钮 -->
+        <Style Selector="Button.icon-btn">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="9"/>
+            <Setter Property="CornerRadius" Value="9"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.icon-btn /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="Button.icon-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppSidebarHover}"/>
+        </Style>
+
+        <!-- 按下微缩 -->
+        <Style Selector="Button.pressable">
+            <Setter Property="RenderTransform" Value="scale(1)"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.08"/>
+                </Transitions>
+            </Setter>
+            <Style Selector="^:pressed">
+                <Setter Property="RenderTransform" Value="scale(0.97)"/>
+            </Style>
+        </Style>
+
+        <!-- 折叠卡片头（启动设置）：图标与文字横排，chevron 旋转 -->
         <Style Selector="ToggleButton.card-toggle">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Padding" Value="0"/>
         </Style>
         <Style Selector="ToggleButton.card-toggle /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="10,8"/>
         </Style>
         <Style Selector="ToggleButton.card-toggle:pointerover /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AppSidebarHover}"/>
@@ -83,48 +124,16 @@
             <Setter Property="RenderTransform" Value="rotate(180deg)"/>
         </Style>
 
-        <!-- 卡片 -->
-        <Style Selector="Border.card">
-            <Setter Property="Background" Value="{DynamicResource AppCardBackground}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource AppCardBorder}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="12"/>
-            <Setter Property="Padding" Value="18"/>
+        <!-- 侧栏收起态：条目图标居中 -->
+        <Style Selector="Border.game-sidebar.collapsed ListBoxItem">
+            <Setter Property="Padding" Value="3"/>
         </Style>
-        <Style Selector="TextBlock.card-caption">
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Foreground" Value="{DynamicResource AppTextSecondary}"/>
-        </Style>
-
-        <!-- 侧栏图标按钮：透明背景，悬停浅色，按下微缩 -->
-        <Style Selector="Button.icon-btn">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Padding" Value="9"/>
-            <Setter Property="CornerRadius" Value="9"/>
+        <Style Selector="Border.game-sidebar.collapsed Button.icon-btn">
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
-        </Style>
-        <Style Selector="Button.icon-btn /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="Transparent"/>
-        </Style>
-        <Style Selector="Button.icon-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="{DynamicResource AppSidebarHover}"/>
+            <Setter Property="Padding" Value="9"/>
         </Style>
 
-        <!-- 按下微缩（克制的一次性反馈，不做逐元素入场动效） -->
-        <Style Selector="Button.pressable">
-            <Setter Property="RenderTransform" Value="scale(1)"/>
-            <Setter Property="Transitions">
-                <Transitions>
-                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.08"/>
-                </Transitions>
-            </Setter>
-            <Style Selector="^:pressed">
-                <Setter Property="RenderTransform" Value="scale(0.97)"/>
-            </Style>
-        </Style>
-
-        <!-- 页面切换：淡入 + 轻微上移，一次性入场动画 -->
+        <!-- 页面切换：淡入 + 轻微上移 -->
         <Style Selector="Border.page">
             <Style.Animations>
                 <Animation Duration="0:0:0.22" FillMode="Forward" Easing="CubicEaseOut">
@@ -141,442 +150,463 @@
         </Style>
     </Window.Styles>
 
-    <Grid ColumnDefinitions="Auto,*">
+    <!-- ==================== 窗口级结构：背景 → 遮罩 → 主布局 ==================== -->
+    <Panel>
 
-        <!-- ==================== 侧边栏（可缩放：264px ↔ 68px） ==================== -->
-        <Border Grid.Column="0" Classes="game-sidebar"
-                Width="{Binding SidebarWidth}"
-                Classes.collapsed="{Binding !IsSidebarExpanded}"
-                Background="{DynamicResource AppSidebarBackground}">
-            <Border.Transitions>
-                <Transitions>
-                    <DoubleTransition Property="Width" Duration="0:0:0.2" Easing="CubicEaseOut"/>
-                </Transitions>
-            </Border.Transitions>
-            <DockPanel Margin="12,16,12,12" LastChildFill="True">
-                <!-- 顶部：产品标识 + 折叠切换 -->
-                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="4,0,0,0">
-                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                        <Image Width="38" Height="38"
-                               Source="avares://YetAnotherGameLauncher/Assets/app-icon.png"/>
-                        <StackPanel IsVisible="{Binding IsSidebarExpanded}" VerticalAlignment="Center" Spacing="0">
-                            <TextBlock Text="YetAnother" FontSize="19" FontWeight="Bold" Opacity="0.85"/>
-                            <TextBlock Text="Game Launcher" FontSize="19" FontWeight="Bold"
-                                       Foreground="{DynamicResource AppAccentBrush}"/>
-                        </StackPanel>
-                    </StackPanel>
-                    <Button Grid.Column="1" Classes="icon-btn pressable" Command="{Binding ToggleSidebarCommand}"
-                            VerticalAlignment="Top"
-                            ToolTip.Tip="{svc:Loc sidebar_expanded_collapse}">
-                        <Panel>
-                            <Path Data="M15.4 7.4 14 6l-6 6 6 6 1.4-1.4L10.8 12z"
-                                  Fill="{Binding $parent[Button].Foreground}"
-                                  Stretch="Uniform" Width="16" Height="16"
-                                  IsVisible="{Binding IsSidebarExpanded}"/>
-                            <Path Data="M8.6 16.6 10 18l6-6-6-6-1.4 1.4 4.6 4.6z"
-                                  Fill="{Binding $parent[Button].Foreground}"
-                                  Stretch="Uniform" Width="16" Height="16"
-                                  IsVisible="{Binding !IsSidebarExpanded}"/>
-                        </Panel>
-                    </Button>
-                </Grid>
+        <!-- 背景大图（当前选中游戏，模糊后铺满整窗） -->
+        <Panel IsVisible="{Binding SelectedGame.HasBackgroundImage}">
+            <Image Source="{Binding SelectedGame.BackgroundImage}" Stretch="UniformToFill">
+                <Image.Effect>
+                    <BlurEffect Radius="45"/>
+                </Image.Effect>
+            </Image>
+        </Panel>
 
-                <!-- 计数与状态提示（收起时隐藏） -->
-                <StackPanel DockPanel.Dock="Top" IsVisible="{Binding IsSidebarExpanded}" Margin="6,10,4,0" Spacing="3">
-                    <TextBlock Text="{Binding GameCountText}" FontSize="12"
-                               Foreground="{DynamicResource AppTextSecondary}"/>
-                    <TextBlock Text="{Binding StatusMessage}" FontSize="12" TextWrapping="Wrap"
-                               Foreground="{DynamicResource AppErrorText}" IsVisible="{Binding ConfigError}"/>
-                    <TextBlock Text="{Binding StatusMessage}" FontSize="12" TextWrapping="Wrap"
-                               Foreground="{DynamicResource AppTextSecondary}" IsVisible="{Binding ShowStatusAsHint}"/>
-                </StackPanel>
-
-                <!-- 底部：设置 / 关于（展开=图标+文字，收起=仅图标） -->
-                <StackPanel DockPanel.Dock="Bottom" Spacing="4" Margin="0,10,0,0">
-                    <Button Classes="icon-btn pressable" Command="{Binding ShowSettingsCommand}"
-                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                            Padding="12,8"
-                            ToolTip.Tip="{svc:Loc common_settings}">
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <Path Data="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"
-                                  Fill="{Binding $parent[Button].Foreground}"
-                                  Stretch="Uniform" Width="18" Height="18"
-                                  HorizontalAlignment="Left"/>
-                            <TextBlock IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsSidebarExpanded}"
-                                       Text="{svc:Loc common_settings}"
-                                       FontSize="13.5" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Button>
-                    <Button Classes="icon-btn pressable" Command="{Binding ShowAboutCommand}"
-                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                            Padding="12,8"
-                            ToolTip.Tip="{svc:Loc common_about}">
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <Path Data="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"
-                                  Fill="{Binding $parent[Button].Foreground}"
-                                  Stretch="Uniform" Width="18" Height="18"
-                                  HorizontalAlignment="Left"/>
-                            <TextBlock IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsSidebarExpanded}"
-                                       Text="{svc:Loc common_about}"
-                                       FontSize="13.5" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
-
-                <!-- 游戏列表 -->
-                <ListBox x:Name="GamesList"
-                         ItemsSource="{Binding Games}"
-                         SelectedItem="{Binding SelectedGame}"
-                         Background="Transparent" BorderThickness="0" Margin="0,14,0,0">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate x:DataType="vm:GameItemViewModel">
-                            <Grid ColumnDefinitions="Auto,*,Auto">
-                                <Border Width="38" Height="38" CornerRadius="10"
-                                        Background="{DynamicResource AppAccentBrush}">
-                                    <TextBlock Text="{Binding IconText}" FontSize="17" FontWeight="SemiBold"
-                                               Foreground="White"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" Spacing="1"
-                                            IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsSidebarExpanded}">
-                                    <TextBlock Text="{Binding DisplayName}" FontSize="14.5"
-                                               TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Text="{Binding StatusText}" FontSize="11.5"
-                                               Foreground="{DynamicResource AppTextSecondary}"
-                                               TextTrimming="CharacterEllipsis"/>
-                                </StackPanel>
-                                <Ellipse Grid.Column="2" Classes="dot" VerticalAlignment="Center"
-                                         IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsSidebarExpanded}"
-                                         Classes.installed="{Binding IsInstalled}"
-                                         Classes.has-update="{Binding HasUpdate}"/>
-                            </Grid>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </DockPanel>
+        <!-- 遮罩：顶部透出背景、底部压实内容，保证任何背景下文字可读 -->
+        <Border>
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Color="{DynamicResource AppBackdropScrimTopColor}" Offset="0"/>
+                    <GradientStop Color="{DynamicResource AppBackdropScrimBottomColor}" Offset="1"/>
+                </LinearGradientBrush>
+            </Border.Background>
         </Border>
 
-        <!-- ==================== 主内容 ==================== -->
-        <Grid Grid.Column="1" Margin="28,24,28,20">
-            <ContentControl x:Name="PageHost" Content="{Binding CurrentPage}">
-                <ContentControl.DataTemplates>
+        <Grid ColumnDefinitions="Auto,*">
 
-                    <!-- ========== 游戏详情页 ========== -->
-                    <DataTemplate DataType="{x:Type vm:GameItemViewModel}">
-                        <Border Classes="page">
-                        <Panel>
-                            <!-- 背景层：游戏背景图（模糊）+ 主题暗化渐变；无图/加载失败时回退主题背景 -->
-                            <Panel IsVisible="{Binding HasBackgroundImage}">
-                                <Image Source="{Binding BackgroundImage}" Stretch="UniformToFill">
-                                    <Image.Effect>
-                                        <BlurEffect Radius="28"/>
-                                    </Image.Effect>
-                                </Image>
-                                <Border>
-                                    <Border.Background>
-                                        <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                                            <GradientStop Color="{DynamicResource AppDetailScrimTopColor}" Offset="0"/>
-                                            <GradientStop Color="{DynamicResource AppDetailScrimBottomColor}" Offset="1"/>
-                                        </LinearGradientBrush>
-                                    </Border.Background>
-                                </Border>
-                            </Panel>
-                            <ScrollViewer>
-                            <StackPanel MaxWidth="780" HorizontalAlignment="Stretch" Spacing="16">
+            <!-- ==================== 侧边栏（玻璃，可缩放 264 ↔ 68） ==================== -->
+            <Border Grid.Column="0" Classes="game-sidebar"
+                    Width="{Binding SidebarWidth}"
+                    Classes.collapsed="{Binding !IsSidebarExpanded}"
+                    Background="{DynamicResource AppSidebarBackground}"
+                    BorderBrush="{DynamicResource AppCardBorder}"
+                    BorderThickness="0,0,1,0">
+                <Border.Transitions>
+                    <Transitions>
+                        <DoubleTransition Property="Width" Duration="0:0:0.2" Easing="CubicEaseOut"/>
+                    </Transitions>
+                </Border.Transitions>
+                <DockPanel Margin="12,16,12,12" LastChildFill="True">
 
-                                <!-- Hero：图标 + 名称 + 服务器 -->
-                                <StackPanel Orientation="Horizontal" Spacing="16" Margin="0,4,0,4">
-                                    <Border Width="68" Height="68" CornerRadius="16"
+                    <!-- 顶部：展开态 = logo + 标题 + 折叠；收起态 = 仅居中的展开按钮 -->
+                    <StackPanel DockPanel.Dock="Top">
+                        <Grid ColumnDefinitions="Auto,*,Auto" IsVisible="{Binding IsSidebarExpanded}">
+                            <Image Width="38" Height="38"
+                                   Source="avares://YetAnotherGameLauncher/Assets/app-icon.png"/>
+                            <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" Spacing="0">
+                                <TextBlock Text="YetAnother" FontSize="19" FontWeight="Bold" Opacity="0.85"/>
+                                <TextBlock Text="Game Launcher" FontSize="19" FontWeight="Bold"
+                                           Foreground="{DynamicResource AppAccentBrush}"/>
+                            </StackPanel>
+                            <Button Grid.Column="2" Classes="icon-btn pressable" Command="{Binding ToggleSidebarCommand}"
+                                    VerticalAlignment="Center"
+                                    ToolTip.Tip="{Binding Loc[sidebar_expanded_collapse]}">
+                                <Path Data="M15.4 7.4 14 6l-6 6 6 6 1.4-1.4L10.8 12z"
+                                      Fill="{Binding $parent[Button].Foreground}"
+                                      Stretch="Uniform" Width="16" Height="16"/>
+                            </Button>
+                        </Grid>
+                        <Button Classes="icon-btn pressable" Command="{Binding ToggleSidebarCommand}"
+                                IsVisible="{Binding !IsSidebarExpanded}"
+                                HorizontalAlignment="Center"
+                                ToolTip.Tip="{Binding Loc[sidebar_collapsed_expand]}">
+                            <Path Data="M8.6 16.6 10 18l6-6-6-6-1.4 1.4 4.6 4.6z"
+                                  Fill="{Binding $parent[Button].Foreground}"
+                                  Stretch="Uniform" Width="18" Height="18"/>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- 计数与状态提示（收起时隐藏） -->
+                    <StackPanel DockPanel.Dock="Top" IsVisible="{Binding IsSidebarExpanded}" Margin="6,12,4,0" Spacing="3">
+                        <TextBlock Text="{Binding GameCountText}" FontSize="12"
+                                   Foreground="{DynamicResource AppTextSecondary}"/>
+                        <TextBlock Text="{Binding StatusMessage}" FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource AppErrorText}" IsVisible="{Binding ConfigError}"/>
+                        <TextBlock Text="{Binding StatusMessage}" FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource AppTextSecondary}" IsVisible="{Binding ShowStatusAsHint}"/>
+                    </StackPanel>
+
+                    <!-- 底部：设置 / 关于 -->
+                    <StackPanel DockPanel.Dock="Bottom" Spacing="4" Margin="0,10,0,0">
+                        <Button Classes="icon-btn pressable" Command="{Binding ShowSettingsCommand}"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                Padding="12,8"
+                                ToolTip.Tip="{Binding Loc[common_settings]}">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <Path Data="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"
+                                      Fill="{Binding $parent[Button].Foreground}"
+                                      Stretch="Uniform" Width="18" Height="18"
+                                      HorizontalAlignment="Left"/>
+                                <TextBlock Text="{Binding Loc[common_settings]}"
+                                           FontSize="13.5" VerticalAlignment="Center"
+                                           IsVisible="{Binding IsSidebarExpanded}"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Classes="icon-btn pressable" Command="{Binding ShowAboutCommand}"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                Padding="12,8"
+                                ToolTip.Tip="{Binding Loc[common_about]}">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <Path Data="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"
+                                      Fill="{Binding $parent[Button].Foreground}"
+                                      Stretch="Uniform" Width="18" Height="18"
+                                      HorizontalAlignment="Left"/>
+                                <TextBlock Text="{Binding Loc[common_about]}"
+                                           FontSize="13.5" VerticalAlignment="Center"
+                                           IsVisible="{Binding IsSidebarExpanded}"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- 游戏列表 -->
+                    <ListBox x:Name="GamesList"
+                             ItemsSource="{Binding Games}"
+                             SelectedItem="{Binding SelectedGame}"
+                             Background="Transparent" BorderThickness="0" Margin="0,14,0,0">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:GameItemViewModel">
+                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                    <Border Width="38" Height="38" CornerRadius="10"
                                             Background="{DynamicResource AppAccentBrush}">
-                                        <TextBlock Text="{Binding IconText}" FontSize="30" FontWeight="SemiBold"
+                                        <TextBlock Text="{Binding IconText}" FontSize="17" FontWeight="SemiBold"
                                                    Foreground="White"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Border>
-                                    <StackPanel VerticalAlignment="Center" Spacing="8">
-                                        <TextBlock Text="{Binding DisplayName}" FontSize="26" FontWeight="SemiBold"/>
-                                        <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <TextBlock Text="{svc:Loc game_server}" FontSize="12"
-                                                       Foreground="{DynamicResource AppTextSecondary}"
-                                                       VerticalAlignment="Center"/>
-                                            <ComboBox ItemsSource="{Binding Servers}"
-                                                      SelectedItem="{Binding SelectedServer}"
-                                                      MinWidth="180">
-                                                <ComboBox.ItemTemplate>
-                                                    <DataTemplate x:DataType="models:GameServer">
-                                                        <TextBlock Text="{Binding Name}"/>
-                                                    </DataTemplate>
-                                                </ComboBox.ItemTemplate>
-                                            </ComboBox>
-                                        </StackPanel>
-                                    </StackPanel>
-                                </StackPanel>
-
-                                <!-- 状态卡 -->
-                                <Border Classes="card">
-                                    <StackPanel Spacing="6">
-                                        <StackPanel Orientation="Horizontal" Spacing="10">
-                                            <Ellipse Classes="dot"
-                                                     Classes.installed="{Binding IsInstalled}"
-                                                     Classes.has-update="{Binding HasUpdate}"/>
-                                            <TextBlock Text="{Binding StatusText}" FontSize="15" FontWeight="SemiBold"/>
-                                            <Border Padding="8,2" CornerRadius="6"
-                                                    Background="{DynamicResource AppPredownloadBadge}"
-                                                    IsVisible="{Binding HasStagedPredownload}">
-                                                <TextBlock Text="{svc:Loc game_stagedBadge}" FontSize="12" Foreground="White"/>
-                                            </Border>
-                                        </StackPanel>
-                                        <TextBlock Text="{Binding VersionText}" FontSize="13"
-                                                   Foreground="{DynamicResource AppTextSecondary}"/>
-                                    </StackPanel>
-                                </Border>
-
-                                <!-- 操作区 -->
-                                <WrapPanel Orientation="Horizontal">
-                                    <Button Classes="pressable" Command="{Binding LaunchCommand}"
-                                            IsEnabled="{Binding CanLaunch}"
-                                            Classes.accent="{Binding IsInstalled}"
-                                            Content="{svc:Loc game_launch}"
-                                            Padding="28,9" Margin="0,0,10,10" FontWeight="SemiBold"/>
-                                    <Button Classes="pressable" Command="{Binding InstallOrUpdateCommand}"
-                                            Content="{Binding InstallButtonText}"
-                                            Classes.accent="{Binding !IsInstalled}"
-                                            Padding="22,9" Margin="0,0,10,10"/>
-                                    <Button Classes="pressable" Command="{Binding PredownloadCommand}"
-                                            IsVisible="{Binding PredownloadAvailable}"
-                                            Content="{svc:Loc game_predownload}"
-                                            Padding="18,9" Margin="0,0,10,10"/>
-                                    <Button Classes="pressable" Command="{Binding ApplyPredownloadCommand}"
-                                            IsVisible="{Binding HasStagedPredownload}"
-                                            Content="{svc:Loc game_applyPredownload}"
-                                            Padding="18,9" Margin="0,0,10,10"/>
-                                </WrapPanel>
-
-                                <!-- 进度卡 -->
-                                <Border Classes="card page" IsVisible="{Binding IsBusy}">
-                                    <StackPanel Spacing="10">
-                                        <TextBlock Text="{Binding ProgressText}" FontSize="12.5"
-                                                   Foreground="{DynamicResource AppTextSecondary}"/>
-                                        <ProgressBar Maximum="100" Value="{Binding ProgressPercent}" Height="6"/>
-                                    </StackPanel>
-                                </Border>
-
-                                <!-- 启动设置卡（折叠） -->
-                                <Border Classes="card" Padding="0">
-                                    <StackPanel>
-                                        <ToggleButton x:Name="LaunchToggle" Classes="card-toggle">
-                                            <Panel Margin="18,14">
-                                                <TextBlock Text="{Binding Loc[launch_title]}" FontSize="15"
-                                                           FontWeight="SemiBold" HorizontalAlignment="Left"/>
-                                                <Path Classes="chev" HorizontalAlignment="Right"
-                                                      Data="M12 15.5 6.5 10 8 8.5l4 4 4-4L17.5 10z"
-                                                      Fill="{Binding $parent[ToggleButton].Foreground}"
-                                                      Stretch="Uniform" Width="16" Height="16"/>
-                                            </Panel>
-                                        </ToggleButton>
-                                        <StackPanel IsVisible="{Binding #LaunchToggle.IsChecked}"
-                                                    Margin="18,2,18,16" Spacing="12">
-                                            <StackPanel Spacing="4">
-                                                <TextBlock Text="{Binding Loc[launch_commandTemplate]}" Classes="card-caption"/>
-                                                <TextBox Text="{Binding LaunchSettings.CommandTemplate}"
-                                                         Watermark="{}{exe} / {installDir}"/>
-                                                <TextBlock Text="{Binding Loc[launch_commandTemplateHint]}" Classes="card-caption"/>
-                                            </StackPanel>
-                                            <StackPanel Spacing="4">
-                                                <TextBlock Text="{Binding Loc[launch_workingDirectory]}" Classes="card-caption"/>
-                                                <TextBox Text="{Binding LaunchSettings.WorkingDirectory}"/>
-                                                <TextBlock Text="{Binding Loc[launch_workingDirectoryHint]}" Classes="card-caption"/>
-                                            </StackPanel>
-                                            <StackPanel Spacing="4">
-                                                <TextBlock Text="{Binding Loc[launch_environment]}" Classes="card-caption"/>
-                                                <TextBox Text="{Binding LaunchSettings.EnvironmentText}"
-                                                         AcceptsReturn="True" MinHeight="72" TextWrapping="NoWrap"
-                                                         FontFamily="Consolas, Cascadia Mono, monospace"/>
-                                                <TextBlock Text="{Binding Loc[launch_environmentHint]}" Classes="card-caption"/>
-                                            </StackPanel>
-                                            <StackPanel Orientation="Horizontal" Spacing="12">
-                                                <Button Content="{Binding Loc[launch_save]}"
-                                                        Command="{Binding LaunchSettings.SaveCommand}"
-                                                        Classes="accent pressable" Padding="18,8"/>
-                                                <TextBlock Text="{Binding LaunchSettings.SaveMessage}" VerticalAlignment="Center"
-                                                           Classes="card-caption"
-                                                           Foreground="{DynamicResource AppErrorText}"
-                                                           IsVisible="{Binding LaunchSettings.SaveFailed}"/>
-                                                <TextBlock Text="{Binding LaunchSettings.SaveMessage}" VerticalAlignment="Center"
-                                                           Classes="card-caption"
-                                                           Foreground="{DynamicResource AppStatusOk}"
-                                                           IsVisible="{Binding !LaunchSettings.SaveFailed}"/>
-                                            </StackPanel>
-                                        </StackPanel>
-                                    </StackPanel>
-                                </Border>
-
-                                <!-- 游戏信息卡 -->
-                                <Border Classes="card">
-                                    <StackPanel Spacing="10">
-                                        <TextBlock Text="{svc:Loc game_info_title}" FontSize="15" FontWeight="SemiBold"/>
-                                        <Grid ColumnDefinitions="*,*,*" ColumnSpacing="16">
-                                            <StackPanel Grid.Column="0" Spacing="2">
-                                                <TextBlock Text="{svc:Loc game_info_channel}" Classes="card-caption"/>
-                                                <TextBlock Text="{Binding ChannelDisplayName}" FontSize="13.5"/>
-                                            </StackPanel>
-                                            <StackPanel Grid.Column="1" Spacing="2">
-                                                <TextBlock Text="{svc:Loc game_info_server}" Classes="card-caption"/>
-                                                <TextBlock Text="{Binding ServerCountText}" FontSize="13.5"/>
-                                            </StackPanel>
-                                            <StackPanel Grid.Column="2" Spacing="2">
-                                                <TextBlock Text="{svc:Loc game_info_installDir}" Classes="card-caption"/>
-                                                <TextBlock Text="{Binding InstallDirPath}" FontSize="13.5"
-                                                           TextTrimming="CharacterEllipsis"
-                                                           ToolTip.Tip="{Binding InstallDirPath}"/>
-                                            </StackPanel>
-                                        </Grid>
-                                    </StackPanel>
-                                </Border>
-                            </StackPanel>
-                        </ScrollViewer>
-                        </Panel>
-                        </Border>
-                    </DataTemplate>
-
-                    <!-- ========== 设置页 ========== -->
-                    <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
-                        <ScrollViewer>
-                            <StackPanel MaxWidth="780" HorizontalAlignment="Stretch" Spacing="16">
-
-                                <TextBlock Text="{svc:Loc settings_title}" FontSize="26" FontWeight="SemiBold" Margin="0,4,0,4"/>
-
-                                <!-- 外观：主题 + 语言 -->
-                                <Border Classes="card">
-                                    <StackPanel Spacing="10">
-                                        <TextBlock Text="{svc:Loc settings_appearance}" FontSize="15" FontWeight="SemiBold"/>
-                                        <Grid ColumnDefinitions="*,*" ColumnSpacing="24">
-                                            <StackPanel Grid.Column="0" Spacing="6">
-                                                <TextBlock Text="{svc:Loc settings_theme}" Classes="card-caption"/>
-                                                <ComboBox ItemsSource="{Binding ThemeModes}"
-                                                          SelectedItem="{Binding SelectedTheme}"
-                                                          HorizontalAlignment="Stretch">
-                                                    <ComboBox.ItemTemplate>
-                                                        <DataTemplate x:DataType="vm:ThemeOption">
-                                                            <TextBlock Text="{Binding DisplayName}"/>
-                                                        </DataTemplate>
-                                                    </ComboBox.ItemTemplate>
-                                                </ComboBox>
-                                            </StackPanel>
-                                            <StackPanel Grid.Column="1" Spacing="6">
-                                                <TextBlock Text="{svc:Loc settings_language}" Classes="card-caption"/>
-                                                <ComboBox ItemsSource="{Binding Languages}"
-                                                          SelectedItem="{Binding SelectedLanguage}"
-                                                          HorizontalAlignment="Stretch">
-                                                    <ComboBox.ItemTemplate>
-                                                        <DataTemplate x:DataType="vm:LanguageOption">
-                                                            <TextBlock Text="{Binding DisplayName}"/>
-                                                        </DataTemplate>
-                                                    </ComboBox.ItemTemplate>
-                                                </ComboBox>
-                                            </StackPanel>
-                                        </Grid>
-                                        <TextBlock Text="{svc:Loc settings_appearanceHint}" Classes="card-caption"/>
-                                    </StackPanel>
-                                </Border>
-
-                                <Border Classes="card">
-                                    <StackPanel Spacing="8">
-                                        <TextBlock Text="{svc:Loc settings_configFile}" FontSize="15" FontWeight="SemiBold"/>
-                                        <TextBlock Text="{Binding ConfigFilePath}" FontSize="12.5"
+                                    <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" Spacing="1"
+                                                IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsSidebarExpanded}">
+                                        <TextBlock Text="{Binding DisplayName}" FontSize="14.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding StatusText}" FontSize="11.5"
                                                    Foreground="{DynamicResource AppTextSecondary}"
-                                                   TextWrapping="Wrap"/>
-                                        <TextBlock Text="{svc:Loc settings_configFileHint}" Classes="card-caption"/>
-                                        <Button Content="{svc:Loc settings_openConfigDir}" Command="{Binding OpenConfigFolderCommand}"
-                                                HorizontalAlignment="Left" Margin="0,4,0,0"/>
+                                                   TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>
-                                </Border>
+                                    <Ellipse Grid.Column="2" Classes="dot" VerticalAlignment="Center"
+                                             IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsSidebarExpanded}"
+                                             Classes.installed="{Binding IsInstalled}"
+                                             Classes.has-update="{Binding HasUpdate}"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
 
-                                <Border Classes="card">
-                                    <StackPanel Spacing="8">
-                                        <TextBlock Text="{svc:Loc settings_downloads}" FontSize="15" FontWeight="SemiBold"/>
-                                        <StackPanel Spacing="2">
-                                            <TextBlock Text="{svc:Loc settings_installRoot}" Classes="card-caption"/>
-                                            <TextBlock Text="{Binding InstallRoot}" FontSize="13.5"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       ToolTip.Tip="{Binding InstallRoot}"/>
+            <!-- ==================== 主内容 ==================== -->
+            <Grid Grid.Column="1" Margin="32,26,32,22">
+                <ContentControl x:Name="PageHost" Content="{Binding CurrentPage}">
+                    <ContentControl.DataTemplates>
+
+                        <!-- ========== 游戏详情页（海报式） ========== -->
+                        <DataTemplate DataType="{x:Type vm:GameItemViewModel}">
+                            <Border Classes="page">
+                                <ScrollViewer>
+                                    <StackPanel MaxWidth="720" HorizontalAlignment="Stretch" Spacing="20">
+
+                                        <!-- 标题区 -->
+                                        <StackPanel Orientation="Horizontal" Spacing="18" Margin="0,6,0,0">
+                                            <Border Width="76" Height="76" CornerRadius="18"
+                                                    Background="{DynamicResource AppAccentBrush}"
+                                                    BoxShadow="0 8 24 #40000000">
+                                                <TextBlock Text="{Binding IconText}" FontSize="34" FontWeight="SemiBold"
+                                                           Foreground="White"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                            <StackPanel VerticalAlignment="Center" Spacing="10">
+                                                <TextBlock Text="{Binding DisplayName}" FontSize="30" FontWeight="Bold"/>
+                                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                                    <TextBlock Text="{Binding Loc[game_server]}" FontSize="12.5"
+                                                               Foreground="{DynamicResource AppTextSecondary}"
+                                                               VerticalAlignment="Center"/>
+                                                    <ComboBox ItemsSource="{Binding Servers}"
+                                                              SelectedItem="{Binding SelectedServer}"
+                                                              MinWidth="190">
+                                                        <ComboBox.ItemTemplate>
+                                                            <DataTemplate x:DataType="models:GameServer">
+                                                                <TextBlock Text="{Binding Name}"/>
+                                                            </DataTemplate>
+                                                        </ComboBox.ItemTemplate>
+                                                    </ComboBox>
+                                                </StackPanel>
+                                            </StackPanel>
                                         </StackPanel>
-                                    </StackPanel>
-                                </Border>
 
-                                <Button Content="{svc:Loc common_backToGames}" Command="{Binding ShowGamesCommand}"
-                                        Classes="accent pressable" Padding="20,9" HorizontalAlignment="Left"/>
-                            </StackPanel>
-                        </ScrollViewer>
-                    </DataTemplate>
+                                        <!-- 状态区（无卡片，直接呈现在背景上） -->
+                                        <StackPanel Spacing="5" Margin="2,4,0,0">
+                                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                                <Ellipse Classes="dot" Width="12" Height="12"
+                                                         Classes.installed="{Binding IsInstalled}"
+                                                         Classes.has-update="{Binding HasUpdate}"/>
+                                                <TextBlock Text="{Binding StatusText}" FontSize="19" FontWeight="SemiBold"/>
+                                                <Border Padding="10,3" CornerRadius="7" VerticalAlignment="Center"
+                                                        Background="{DynamicResource AppPredownloadBadge}"
+                                                        IsVisible="{Binding HasStagedPredownload}">
+                                                    <TextBlock Text="{Binding Loc[game_stagedBadge]}" FontSize="12" Foreground="White"/>
+                                                </Border>
+                                            </StackPanel>
+                                            <TextBlock Text="{Binding VersionText}" FontSize="14"
+                                                       Margin="22,0,0,0"
+                                                       Foreground="{DynamicResource AppTextSecondary}"/>
+                                        </StackPanel>
 
-                    <!-- ========== 关于页 ========== -->
-                    <DataTemplate DataType="{x:Type vm:AboutViewModel}">
-                        <Border Classes="page">
-                        <ScrollViewer>
-                            <StackPanel MaxWidth="780" HorizontalAlignment="Stretch" Spacing="16">
+                                        <!-- 操作区 -->
+                                        <WrapPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                            <Button Classes="pressable" Command="{Binding LaunchCommand}"
+                                                    IsEnabled="{Binding CanLaunch}"
+                                                    Classes.accent="{Binding IsInstalled}"
+                                                    Content="{Binding Loc[game_launch]}"
+                                                    FontSize="15.5" FontWeight="SemiBold"
+                                                    Padding="34,11" Margin="0,0,12,10"/>
+                                            <Button Classes="pressable" Command="{Binding InstallOrUpdateCommand}"
+                                                    Content="{Binding InstallButtonText}"
+                                                    Classes.accent="{Binding !IsInstalled}"
+                                                    FontSize="14.5"
+                                                    Padding="26,11" Margin="0,0,12,10"/>
+                                            <Button Classes="pressable" Command="{Binding PredownloadCommand}"
+                                                    IsVisible="{Binding PredownloadAvailable}"
+                                                    Content="{Binding Loc[game_predownload]}"
+                                                    Padding="20,11" Margin="0,0,12,10"/>
+                                            <Button Classes="pressable" Command="{Binding ApplyPredownloadCommand}"
+                                                    IsVisible="{Binding HasStagedPredownload}"
+                                                    Content="{Binding Loc[game_applyPredownload]}"
+                                                    Padding="20,11" Margin="0,0,12,10"/>
+                                        </WrapPanel>
 
-                                <TextBlock Text="{svc:Loc about_title}" FontSize="26" FontWeight="SemiBold" Margin="0,4,0,4"/>
-
-                                <Border Classes="card">
-                                    <StackPanel Orientation="Horizontal" Spacing="16">
-                                        <Border Width="56" Height="56" CornerRadius="14"
-                                                Background="{DynamicResource AppAccentBrush}">
-                                            <Path Data="M8 5v14l11-7z" Fill="White" Stretch="Uniform"
-                                                  Width="28" Height="28"
-                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <!-- 进度（busy 时） -->
+                                        <Border Classes="card" Padding="16" IsVisible="{Binding IsBusy}">
+                                            <StackPanel Spacing="8">
+                                                <TextBlock Text="{Binding ProgressText}" FontSize="12.5"
+                                                           Foreground="{DynamicResource AppTextSecondary}"/>
+                                                <ProgressBar Maximum="100" Value="{Binding ProgressPercent}" Height="6"/>
+                                            </StackPanel>
                                         </Border>
-                                        <StackPanel VerticalAlignment="Center" Spacing="3">
-                                            <TextBlock Text="YetAnotherGameLauncher" FontSize="19" FontWeight="SemiBold"/>
-                                            <TextBlock Text="{svc:Loc about_description}" FontSize="12.5"
-                                                       Foreground="{DynamicResource AppTextSecondary}" TextWrapping="Wrap"/>
-                                        </StackPanel>
-                                    </StackPanel>
-                                </Border>
 
-                                <Border Classes="card">
-                                    <StackPanel Spacing="8">
-                                        <StackPanel Orientation="Horizontal" Spacing="10">
-                                            <TextBlock Text="{svc:Loc about_version}" Classes="card-caption" Width="90"/>
-                                            <TextBlock Text="{Binding AppVersion}" FontSize="13.5"/>
-                                        </StackPanel>
-                                        <StackPanel Orientation="Horizontal" Spacing="10">
-                                            <TextBlock Text="{svc:Loc about_runtime}" Classes="card-caption" Width="90"/>
-                                            <TextBlock Text="{Binding RuntimeVersion}" FontSize="13.5"/>
-                                        </StackPanel>
-                                        <StackPanel Orientation="Horizontal" Spacing="10">
-                                            <TextBlock Text="{svc:Loc about_configFile}" Classes="card-caption" Width="90"/>
-                                            <TextBlock Text="{Binding ConfigFilePath}" FontSize="13.5"
-                                                       TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding ConfigFilePath}"/>
-                                        </StackPanel>
-                                    </StackPanel>
-                                </Border>
-
-                                <Border Classes="card">
-                                    <StackPanel Spacing="8">
-                                        <TextBlock Text="{svc:Loc about_thirdParty}" FontSize="15" FontWeight="SemiBold"/>
-                                        <ItemsControl ItemsSource="{Binding ThirdParty}">
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,1">
-                                                        <TextBlock Text="{Binding Name}" FontSize="13" Width="280"
-                                                                   TextTrimming="CharacterEllipsis"/>
-                                                        <TextBlock Text="{Binding License}" Classes="card-caption"/>
+                                        <!-- 启动设置（折叠卡） -->
+                                        <Border Classes="card" Padding="8,4">
+                                            <StackPanel>
+                                                <ToggleButton x:Name="LaunchToggle" Classes="card-toggle">
+                                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                                        <Path Classes="chev"
+                                                              Data="M12 15.5 6.5 10 8 8.5l4 4 4-4L17.5 10z"
+                                                              Fill="{Binding $parent[ToggleButton].Foreground}"
+                                                              Stretch="Uniform" Width="15" Height="15"
+                                                              VerticalAlignment="Center"/>
+                                                        <TextBlock Text="{Binding Loc[launch_title]}" FontSize="14.5"
+                                                                   FontWeight="SemiBold" VerticalAlignment="Center"/>
                                                     </StackPanel>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
+                                                </ToggleButton>
+                                                <StackPanel IsVisible="{Binding #LaunchToggle.IsChecked}"
+                                                            Margin="10,8,10,12" Spacing="12">
+                                                    <StackPanel Spacing="4">
+                                                        <TextBlock Text="{Binding Loc[launch_commandTemplate]}" Classes="card-caption"/>
+                                                        <TextBox Text="{Binding LaunchSettings.CommandTemplate}"
+                                                                 PlaceholderText="{}{exe} / {installDir}"/>
+                                                        <TextBlock Text="{Binding Loc[launch_commandTemplateHint]}" Classes="card-caption"/>
+                                                    </StackPanel>
+                                                    <StackPanel Spacing="4">
+                                                        <TextBlock Text="{Binding Loc[launch_workingDirectory]}" Classes="card-caption"/>
+                                                        <TextBox Text="{Binding LaunchSettings.WorkingDirectory}"/>
+                                                        <TextBlock Text="{Binding Loc[launch_workingDirectoryHint]}" Classes="card-caption"/>
+                                                    </StackPanel>
+                                                    <StackPanel Spacing="4">
+                                                        <TextBlock Text="{Binding Loc[launch_environment]}" Classes="card-caption"/>
+                                                        <TextBox Text="{Binding LaunchSettings.EnvironmentText}"
+                                                                 AcceptsReturn="True" MinHeight="72" TextWrapping="NoWrap"
+                                                                 FontFamily="Consolas, Cascadia Mono, monospace"/>
+                                                        <TextBlock Text="{Binding Loc[launch_environmentHint]}" Classes="card-caption"/>
+                                                    </StackPanel>
+                                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                                        <Button Content="{Binding Loc[launch_save]}"
+                                                                Command="{Binding LaunchSettings.SaveCommand}"
+                                                                Classes="accent pressable" Padding="18,8"/>
+                                                        <TextBlock Text="{Binding LaunchSettings.SaveMessage}" VerticalAlignment="Center"
+                                                                   Classes="card-caption"
+                                                                   Foreground="{DynamicResource AppErrorText}"
+                                                                   IsVisible="{Binding LaunchSettings.SaveFailed}"/>
+                                                        <TextBlock Text="{Binding LaunchSettings.SaveMessage}" VerticalAlignment="Center"
+                                                                   Classes="card-caption"
+                                                                   Foreground="{DynamicResource AppStatusOk}"
+                                                                   IsVisible="{Binding !LaunchSettings.SaveFailed}"/>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <!-- 游戏信息卡 -->
+                                        <Border Classes="card">
+                                            <StackPanel Spacing="12">
+                                                <TextBlock Text="{Binding Loc[game_info_title]}" FontSize="15" FontWeight="SemiBold"/>
+                                                <Grid ColumnDefinitions="*,*,*" ColumnSpacing="16">
+                                                    <StackPanel Grid.Column="0" Spacing="2">
+                                                        <TextBlock Text="{Binding Loc[game_info_channel]}" Classes="card-caption"/>
+                                                        <TextBlock Text="{Binding ChannelDisplayName}" FontSize="13.5"/>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1" Spacing="2">
+                                                        <TextBlock Text="{Binding Loc[game_info_server]}" Classes="card-caption"/>
+                                                        <TextBlock Text="{Binding ServerCountText}" FontSize="13.5"/>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="2" Spacing="2">
+                                                        <TextBlock Text="{Binding Loc[game_info_installDir]}" Classes="card-caption"/>
+                                                        <TextBlock Text="{Binding InstallDirPath}" FontSize="13.5"
+                                                                   TextTrimming="CharacterEllipsis"
+                                                                   ToolTip.Tip="{Binding InstallDirPath}"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </StackPanel>
+                                        </Border>
                                     </StackPanel>
-                                </Border>
+                                </ScrollViewer>
+                            </Border>
+                        </DataTemplate>
 
-                                <Button Content="{svc:Loc common_backToGames}" Command="{Binding ShowGamesCommand}"
-                                        Classes="accent pressable" Padding="20,9" HorizontalAlignment="Left"/>
-                            </StackPanel>
-                        </ScrollViewer>
-                        </Border>
-                    </DataTemplate>
+                        <!-- ========== 设置页 ========== -->
+                        <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
+                            <Border Classes="page">
+                                <ScrollViewer>
+                                    <StackPanel MaxWidth="720" HorizontalAlignment="Stretch" Spacing="18">
 
-                </ContentControl.DataTemplates>
-            </ContentControl>
+                                        <TextBlock Text="{Binding Loc[settings_title]}" FontSize="28" FontWeight="Bold" Margin="0,4,0,4"/>
+
+                                        <!-- 外观 -->
+                                        <Border Classes="card">
+                                            <StackPanel Spacing="10">
+                                                <TextBlock Text="{Binding Loc[settings_appearance]}" FontSize="15" FontWeight="SemiBold"/>
+                                                <Grid ColumnDefinitions="*,*" ColumnSpacing="24">
+                                                    <StackPanel Grid.Column="0" Spacing="6">
+                                                        <TextBlock Text="{Binding Loc[settings_theme]}" Classes="card-caption"/>
+                                                        <ComboBox ItemsSource="{Binding ThemeModes}"
+                                                                  SelectedItem="{Binding SelectedTheme}"
+                                                                  HorizontalAlignment="Stretch">
+                                                            <ComboBox.ItemTemplate>
+                                                                <DataTemplate x:DataType="vm:ThemeOption">
+                                                                    <TextBlock Text="{Binding DisplayName}"/>
+                                                                </DataTemplate>
+                                                            </ComboBox.ItemTemplate>
+                                                        </ComboBox>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1" Spacing="6">
+                                                        <TextBlock Text="{Binding Loc[settings_language]}" Classes="card-caption"/>
+                                                        <ComboBox ItemsSource="{Binding Languages}"
+                                                                  SelectedItem="{Binding SelectedLanguage}"
+                                                                  HorizontalAlignment="Stretch">
+                                                            <ComboBox.ItemTemplate>
+                                                                <DataTemplate x:DataType="vm:LanguageOption">
+                                                                    <TextBlock Text="{Binding DisplayName}"/>
+                                                                </DataTemplate>
+                                                            </ComboBox.ItemTemplate>
+                                                        </ComboBox>
+                                                    </StackPanel>
+                                                </Grid>
+                                                <TextBlock Text="{Binding Loc[settings_appearanceHint]}" Classes="card-caption"/>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <!-- 下载：安装根目录（可编辑） -->
+                                        <Border Classes="card">
+                                            <StackPanel Spacing="8">
+                                                <TextBlock Text="{Binding Loc[settings_downloads]}" FontSize="15" FontWeight="SemiBold"/>
+                                                <TextBlock Text="{Binding Loc[settings_installRoot]}" Classes="card-caption"/>
+                                                <TextBox Text="{Binding InstallRootDraft}"/>
+                                                <TextBlock Text="{Binding Loc[settings_installRootEdit]}" Classes="card-caption"/>
+                                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                                    <Button Content="{Binding Loc[common_save]}"
+                                                            Command="{Binding SaveInstallRootCommand}"
+                                                            Classes="accent pressable" Padding="18,8"/>
+                                                    <TextBlock Text="{Binding InstallRootSaveMessage}" VerticalAlignment="Center"
+                                                               Classes="card-caption"
+                                                               Foreground="{DynamicResource AppErrorText}"
+                                                               IsVisible="{Binding InstallRootSaveFailed}"/>
+                                                    <TextBlock Text="{Binding InstallRootSaveMessage}" VerticalAlignment="Center"
+                                                               Classes="card-caption"
+                                                               Foreground="{DynamicResource AppStatusOk}"
+                                                               IsVisible="{Binding !InstallRootSaveFailed}"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <!-- 配置文件 -->
+                                        <Border Classes="card">
+                                            <StackPanel Spacing="8">
+                                                <TextBlock Text="{Binding Loc[settings_configFile]}" FontSize="15" FontWeight="SemiBold"/>
+                                                <TextBlock Text="{Binding ConfigFilePath}" FontSize="12.5"
+                                                           Foreground="{DynamicResource AppTextSecondary}"
+                                                           TextWrapping="Wrap"/>
+                                                <TextBlock Text="{Binding Loc[settings_configFileHint]}" Classes="card-caption"/>
+                                                <Button Content="{Binding Loc[settings_openConfigDir]}" Command="{Binding OpenConfigFolderCommand}"
+                                                        HorizontalAlignment="Left" Margin="0,4,0,0"/>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <Button Content="{Binding Loc[common_backToGames]}" Command="{Binding ShowGamesCommand}"
+                                                Classes="accent pressable" Padding="20,9" HorizontalAlignment="Left"/>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </Border>
+                        </DataTemplate>
+
+                        <!-- ========== 关于页 ========== -->
+                        <DataTemplate DataType="{x:Type vm:AboutViewModel}">
+                            <Border Classes="page">
+                                <ScrollViewer>
+                                    <StackPanel MaxWidth="720" HorizontalAlignment="Stretch" Spacing="18">
+
+                                        <TextBlock Text="{Binding Loc[about_title]}" FontSize="28" FontWeight="Bold" Margin="0,4,0,4"/>
+
+                                        <Border Classes="card">
+                                            <StackPanel Orientation="Horizontal" Spacing="18">
+                                                <Image Width="60" Height="60"
+                                                       Source="avares://YetAnotherGameLauncher/Assets/app-icon.png"/>
+                                                <StackPanel VerticalAlignment="Center" Spacing="4">
+                                                    <TextBlock Text="YetAnotherGameLauncher" FontSize="20" FontWeight="SemiBold"/>
+                                                    <TextBlock Text="{Binding Loc[about_description]}" FontSize="12.5"
+                                                               Foreground="{DynamicResource AppTextSecondary}" TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <Border Classes="card">
+                                            <StackPanel Spacing="8">
+                                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                                                    <TextBlock Grid.Column="0" Text="{Binding Loc[about_version]}" Classes="card-caption" Width="90"/>
+                                                    <TextBlock Grid.Column="1" Text="{Binding AppVersion}" FontSize="13.5"/>
+                                                </Grid>
+                                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                                                    <TextBlock Grid.Column="0" Text="{Binding Loc[about_runtime]}" Classes="card-caption" Width="90"/>
+                                                    <TextBlock Grid.Column="1" Text="{Binding RuntimeVersion}" FontSize="13.5"/>
+                                                </Grid>
+                                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                                                    <TextBlock Grid.Column="0" Text="{Binding Loc[about_configFile]}" Classes="card-caption" Width="90"/>
+                                                    <TextBlock Grid.Column="1" Text="{Binding ConfigFilePath}" FontSize="13.5"
+                                                               TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding ConfigFilePath}"/>
+                                                </Grid>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <Border Classes="card">
+                                            <StackPanel Spacing="8">
+                                                <TextBlock Text="{Binding Loc[about_thirdParty]}" FontSize="15" FontWeight="SemiBold"/>
+                                                <ItemsControl ItemsSource="{Binding ThirdParty}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Grid ColumnDefinitions="*,Auto" Margin="0,1">
+                                                                <TextBlock Text="{Binding Name}" FontSize="13"/>
+                                                                <TextBlock Grid.Column="1" Text="{Binding License}" Classes="card-caption"/>
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <Button Content="{Binding Loc[common_backToGames]}" Command="{Binding ShowGamesCommand}"
+                                                Classes="accent pressable" Padding="20,9" HorizontalAlignment="Left"/>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </Border>
+                        </DataTemplate>
+
+                    </ContentControl.DataTemplates>
+                </ContentControl>
+            </Grid>
         </Grid>
-    </Grid>
+    </Panel>
 </Window>

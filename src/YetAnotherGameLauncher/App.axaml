@@ -11,34 +11,36 @@
                     <Color x:Key="AppAccentColor">#2E7CF6</Color>
                     <SolidColorBrush x:Key="AppAccentBrush" Color="#2E7CF6"/>
                     <SolidColorBrush x:Key="AppPageBackground" Color="#F7F8FA"/>
-                    <SolidColorBrush x:Key="AppSidebarBackground" Color="#EDEFF3"/>
-                    <SolidColorBrush x:Key="AppSidebarHover" Color="#E2E6EE"/>
-                    <SolidColorBrush x:Key="AppSidebarSelected" Color="#D8E4FB"/>
-                    <SolidColorBrush x:Key="AppCardBackground" Color="#FFFFFF"/>
-                    <SolidColorBrush x:Key="AppCardBorder" Color="#E3E6EC"/>
+                    <SolidColorBrush x:Key="AppSidebarBackground" Color="#E2EDEFF3"/>
+                    <SolidColorBrush x:Key="AppSidebarHover" Color="#B4FFFFFF"/>
+                    <SolidColorBrush x:Key="AppSidebarSelected" Color="#C8D8E4FB"/>
+                    <SolidColorBrush x:Key="AppCardBackground" Color="#D6FFFFFF"/>
+                    <SolidColorBrush x:Key="AppCardBorder" Color="#66D5D9E0"/>
+                    <SolidColorBrush x:Key="AppGlassStrong" Color="#F2FFFFFF"/>
                     <SolidColorBrush x:Key="AppTextSecondary" Color="#66666E"/>
                     <SolidColorBrush x:Key="AppPredownloadBadge" Color="#E8930C"/>
                     <SolidColorBrush x:Key="AppErrorText" Color="#C42B1C"/>
                     <SolidColorBrush x:Key="AppStatusOk" Color="#2DA44E"/>
                     <!-- 详情页背景图上的暗化遮罩：顶部保证文字对比，底部融入页面背景 -->
-                    <Color x:Key="AppDetailScrimTopColor">#B3E6EDF3</Color>
-                    <Color x:Key="AppDetailScrimBottomColor">#F7F8FA</Color>
+                    <Color x:Key="AppBackdropScrimTopColor">#59EDF0F5</Color>
+                    <Color x:Key="AppBackdropScrimBottomColor">#FFF7F8FA</Color>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <Color x:Key="AppAccentColor">#4C8DFF</Color>
                     <SolidColorBrush x:Key="AppAccentBrush" Color="#4C8DFF"/>
                     <SolidColorBrush x:Key="AppPageBackground" Color="#121216"/>
-                    <SolidColorBrush x:Key="AppSidebarBackground" Color="#1A1A20"/>
-                    <SolidColorBrush x:Key="AppSidebarHover" Color="#24242C"/>
-                    <SolidColorBrush x:Key="AppSidebarSelected" Color="#2B3A5C"/>
-                    <SolidColorBrush x:Key="AppCardBackground" Color="#23232B"/>
-                    <SolidColorBrush x:Key="AppCardBorder" Color="#2E2E38"/>
+                    <SolidColorBrush x:Key="AppSidebarBackground" Color="#D9191920"/>
+                    <SolidColorBrush x:Key="AppSidebarHover" Color="#5C2E2E38"/>
+                    <SolidColorBrush x:Key="AppSidebarSelected" Color="#99304978"/>
+                    <SolidColorBrush x:Key="AppCardBackground" Color="#A6202029"/>
+                    <SolidColorBrush x:Key="AppCardBorder" Color="#4D3A3A4A"/>
+                    <SolidColorBrush x:Key="AppGlassStrong" Color="#E6202029"/>
                     <SolidColorBrush x:Key="AppTextSecondary" Color="#A2A2AB"/>
                     <SolidColorBrush x:Key="AppPredownloadBadge" Color="#E8930C"/>
                     <SolidColorBrush x:Key="AppErrorText" Color="#FF8A7A"/>
                     <SolidColorBrush x:Key="AppStatusOk" Color="#3FB950"/>
-                    <Color x:Key="AppDetailScrimTopColor">#B314141A</Color>
-                    <Color x:Key="AppDetailScrimBottomColor">#121216</Color>
+                    <Color x:Key="AppBackdropScrimTopColor">#4D121218</Color>
+                    <Color x:Key="AppBackdropScrimBottomColor">#F0121218</Color>
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>

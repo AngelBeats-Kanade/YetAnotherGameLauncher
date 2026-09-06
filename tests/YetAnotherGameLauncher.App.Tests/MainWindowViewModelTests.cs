@@ -246,3 +246,87 @@ public class MainWindowViewModelTests : IDisposable
         Assert.Equal("Not installed", _ctx.Vm.Games[0].StatusText);
     }
 }
+
+// ---------- 配置迁移与安装根目录 ----------
+
+public class ConfigMigrationTests : IDisposable
+{
+    private readonly VmFactory.Context _ctx;
+
+    public ConfigMigrationTests() => _ctx = VmFactory.Build("""
+        {
+          "settings": { "installRoot": "~/yagl-test-games", "theme": "Dark", "maxParallelDownloads": 4 },
+          "games": [
+            {
+              "id": "wuthering-waves", "displayName": "鸣潮", "channel": "kuro",
+              "installDir": "WutheringWaves", "executable": "Client/game.exe",
+              "servers": [ { "id": "cn", "name": "国服" } ]
+            }
+          ]
+        }
+        """, templateFactory: () => SampleTemplateWithAllServers);
+
+    public void Dispose() => _ctx.TempDir.Dispose();
+
+    /// <summary>模拟新版内置模板：鸣潮含 3 个服务器与背景图。</summary>
+    private static readonly string SampleTemplateWithAllServers = """
+        {
+          "settings": { "installRoot": "~/Games", "theme": "System", "language": "system", "schemaVersion": 2 },
+          "games": [
+            {
+              "id": "wuthering-waves", "displayName": "鸣潮", "channel": "kuro",
+              "installDir": "WutheringWaves", "executable": "Client/game.exe",
+              "backgroundImage": "https://cdn.example/wuwa.webp",
+              "servers": [
+                { "id": "cn", "name": "国服" },
+                { "id": "global", "name": "国际服" },
+                { "id": "bilibili", "name": "B服" }
+              ]
+            }
+          ]
+        }
+        """;
+
+    [Fact]
+    public async Task Initialize_OldSchema_MergesSampleServersAndBackground()
+    {
+        // 旧配置（schemaVersion 缺失）只有鸣潮国服；样例模板含国服/B服/国际服与背景图
+        await _ctx.Vm.InitializeAsync();
+
+        var wuwa = _ctx.Vm.Games[0];
+        var serverIds = wuwa.Servers.Select(s => s.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Assert.Superset(new HashSet<string> { "cn", "global", "bilibili" }, serverIds);
+        Assert.False(string.IsNullOrWhiteSpace(wuwa.Game.BackgroundImage)); // 背景图随迁移补齐
+        Assert.Contains("补充", _ctx.Vm.StatusMessage);
+
+        // schemaVersion 写回，二次启动不重复迁移
+        var before = await File.ReadAllTextAsync(_ctx.ConfigPath);
+        await _ctx.Vm.InitializeAsync();
+        var after = await File.ReadAllTextAsync(_ctx.ConfigPath);
+        Assert.Equal(before, after);
+    }
+
+    [Fact]
+    public async Task UpdateInstallRoot_PersistsAndRebuildsGames()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        var newRoot = _ctx.TempDir.FilePath("new-root").Replace(Path.DirectorySeparatorChar, '/');
+        var ok = await _ctx.Vm.UpdateInstallRootAsync(newRoot);
+
+        Assert.True(ok);
+        var reloader = new YetAnotherGameLauncher.Core.Services.GameCatalogService(_ctx.ConfigPath);
+        await reloader.LoadAsync();
+        Assert.Equal(newRoot, reloader.Catalog!.Settings.InstallRoot);
+        // 游戏列表以新根目录重新解析
+        Assert.StartsWith(newRoot, _ctx.Vm.Games[0].InstallDirPath.Replace((char)92, '/'));
+    }
+
+    [Fact]
+    public async Task UpdateInstallRoot_Empty_ReturnsFalse()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        Assert.False(await _ctx.Vm.UpdateInstallRootAsync("   "));
+    }
+}

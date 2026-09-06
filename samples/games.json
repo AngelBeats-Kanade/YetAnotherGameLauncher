@@ -3,13 +3,15 @@
     "installRoot": "~/Games",
     "theme": "System",
     "maxParallelDownloads": 8,
-    "language": "system"
+    "language": "system",
+    "schemaVersion": 2
   },
   "games": [
     {
       "id": "wuthering-waves",
       "displayName": "鸣潮",
       "icon": "",
+      "backgroundImage": "https://mc.kurogames.com/website-preface/assets/01-14094cfc.webp",
       "channel": "kuro",
       "installDir": "WutheringWaves",
       "executable": "Client/Binaries/Win64/Client-Win64-Shipping.exe",
@@ -46,6 +48,7 @@
       "id": "arknights-endfield",
       "displayName": "明日方舟：终末地",
       "icon": "",
+      "backgroundImage": "https://web.hycdn.cn/upload/image/20260411/dde7c30f64cb985113539ec6c7a03c38.jpg",
       "channel": "hypergryph",
       "installDir": "ArknightsEndfield",
       "executable": "ArknightsEndfield/Binaries/Win64/ArknightsEndfield.exe",
