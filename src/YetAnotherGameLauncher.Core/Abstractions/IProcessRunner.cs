@@ -17,5 +17,6 @@ public sealed record ProcessResult(int ExitCode, string StandardOutput, string S
 /// <summary>进程运行器抽象，便于在测试中替身化外部工具（如 hpatchz）。</summary>
 public interface IProcessRunner
 {
+    /// <summary>运行进程至退出，返回退出码与输出；超时或取消时终止进程。</summary>
     Task<ProcessResult> RunAsync(ProcessStartSpec spec, CancellationToken cancellationToken = default);
 }

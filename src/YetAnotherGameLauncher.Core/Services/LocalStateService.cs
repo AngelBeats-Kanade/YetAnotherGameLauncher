@@ -36,11 +36,8 @@ public sealed class LocalStateService(string installDir)
         }
     }
 
-    public async Task SaveAsync(LocalGameState state, CancellationToken cancellationToken = default)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(StateFilePath)!);
-        var tempPath = StateFilePath + ".tmp";
-        await File.WriteAllTextAsync(tempPath, JsonSerializer.Serialize(state, Json.Default), cancellationToken);
-        File.Move(tempPath, StateFilePath, overwrite: true);
-    }
+    /// <summary>原子保存：先写临时文件再替换，避免写入中途崩溃损坏状态文件。</summary>
+    public async Task SaveAsync(LocalGameState state, CancellationToken cancellationToken = default) =>
+        await FileUtilities.WriteAtomicAsync(
+            StateFilePath, JsonSerializer.Serialize(state, Json.Default), cancellationToken).ConfigureAwait(false);
 }

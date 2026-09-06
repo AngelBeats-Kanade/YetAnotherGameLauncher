@@ -30,16 +30,9 @@ public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger =
     public const string DefaultChannelId = "6";
     public const string DefaultSubChannelId = "9999";
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-    };
-
-    private readonly HttpClient _httpClient = httpClient;
-
     public async Task<ChannelVersionInfo> GetVersionInfoAsync(GameServer server, CancellationToken cancellationToken = default)
     {
-        var response = await PostGetLatestGameAsync(server, clientVersion: "", cancellationToken);
+        var response = await PostGetLatestGameAsync(server, cancellationToken).ConfigureAwait(false);
 
         string? predownloadVersion = null;
         if (response.Patch is { } patch
@@ -64,7 +57,8 @@ public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger =
 
     public async Task<GameManifest> GetManifestAsync(GameServer server, string version, CancellationToken cancellationToken = default)
     {
-        var response = await PostGetLatestGameAsync(server, clientVersion: "", cancellationToken);
+        // 包式渠道只能取最新整包清单：version 参数仅用于接口契约对齐，响应版本即目标版本
+        var response = await PostGetLatestGameAsync(server, cancellationToken).ConfigureAwait(false);
         return ToPackageManifest(response.Version, response.Pkg!);
     }
 
@@ -74,7 +68,7 @@ public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger =
 
     public async Task<GameManifest?> GetPredownloadManifestAsync(GameServer server, CancellationToken cancellationToken = default)
     {
-        var response = await PostGetLatestGameAsync(server, clientVersion: "", cancellationToken);
+        var response = await PostGetLatestGameAsync(server, cancellationToken).ConfigureAwait(false);
         if (response.Patch is not { } patch || patch.ValueKind != JsonValueKind.Object)
         {
             return null;
@@ -86,12 +80,12 @@ public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger =
             return null;
         }
 
-        var pkg = pkgElement.Deserialize<PackageInfo>(JsonOptions);
+        var pkg = pkgElement.Deserialize<PackageInfo>(GryphlineProtocol.JsonOptions);
         return pkg is null || pkg.Packs.Count == 0 ? null : ToPackageManifest(patchVersion, pkg);
     }
 
     private async Task<GameVersionResponse> PostGetLatestGameAsync(
-        GameServer server, string clientVersion, CancellationToken cancellationToken)
+        GameServer server, CancellationToken cancellationToken)
     {
         var apiBase = server.Options.TryGetValue(ApiBaseOptionKey, out var apiBaseValue)
             && !string.IsNullOrWhiteSpace(apiBaseValue)
@@ -107,31 +101,31 @@ public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger =
                     Kind = "get_latest_game",
                     GetLatestGameReq = new GetLatestGameReq
                     {
-                        Version = clientVersion,
-                        Appcode = OptionOrDefault(server, AppcodeOptionKey, DefaultGameAppcode),
-                        Channel = OptionOrDefault(server, ChannelOptionKey, DefaultChannelId),
-                        SubChannel = OptionOrDefault(server, SubChannelOptionKey, DefaultSubChannelId),
+                        Version = "", // 官方语义为"客户端当前版本"，取最新清单时留空
+                        Appcode = GryphlineProtocol.OptionOrDefault(server.Options, AppcodeOptionKey, DefaultGameAppcode),
+                        Channel = GryphlineProtocol.OptionOrDefault(server.Options, ChannelOptionKey, DefaultChannelId),
+                        SubChannel = GryphlineProtocol.OptionOrDefault(server.Options, SubChannelOptionKey, DefaultSubChannelId),
                         DeviceId = "yetanothervariant-game-launcher",
                     },
                 },
             ],
         };
 
-        logger?.LogDebug("POST {Url}（clientVersion={Version}）", $"{apiBase}/proxy/batch_proxy", clientVersion);
+        logger?.LogDebug("POST {Url}", $"{apiBase}/proxy/batch_proxy");
 
-        using var response = await _httpClient.PostAsJsonAsync(
-            $"{apiBase}/proxy/batch_proxy", payload, cancellationToken);
+        using var response = await httpClient.PostAsJsonAsync(
+            $"{apiBase}/proxy/batch_proxy", payload, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
         GameVersionResponse gameResponse;
         try
         {
-            var batch = await response.Content.ReadFromJsonAsync<BatchProxyResponse>(cancellationToken);
+            var batch = await response.Content.ReadFromJsonAsync<BatchProxyResponse>(cancellationToken).ConfigureAwait(false);
             var first = batch?.ProxyRsps is { Count: > 0 } rsps
                 ? rsps[0]
                 : throw new UpdateException("GRYPHLINE batch_proxy response is empty.");
 
-            gameResponse = first.GetProperty("get_latest_game_rsp").Deserialize<GameVersionResponse>(JsonOptions)
+            gameResponse = first.GetProperty("get_latest_game_rsp").Deserialize<GameVersionResponse>(GryphlineProtocol.JsonOptions)
                            ?? throw new UpdateException("GRYPHLINE get_latest_game_rsp is empty.");
         }
         catch (JsonException ex)
@@ -146,11 +140,6 @@ public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger =
 
         return gameResponse;
     }
-
-    private static string OptionOrDefault(GameServer server, string key, string fallback)
-        => server.Options.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
-            ? value.Trim()
-            : fallback;
 
     private static GameManifest ToPackageManifest(string version, PackageInfo pkg)
     {

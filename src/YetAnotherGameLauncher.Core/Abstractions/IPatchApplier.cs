@@ -7,5 +7,6 @@ namespace YetAnotherGameLauncher.Core.Abstractions;
 /// </summary>
 public interface IPatchApplier
 {
+    /// <summary>对 oldDir 应用差分补丁文件，把结果写入 newDir；失败抛异常（调用方负责回滚）。</summary>
     Task ApplyAsync(string patchFilePath, string oldDir, string newDir, CancellationToken cancellationToken = default);
 }

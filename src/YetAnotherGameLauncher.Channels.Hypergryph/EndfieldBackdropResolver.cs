@@ -13,10 +13,6 @@ namespace YetAnotherGameLauncher.Channels.Hypergryph;
 /// </summary>
 public sealed class EndfieldBackdropResolver(HttpClient httpClient, ILogger? logger = null) : IBackdropResolver
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
-
-    private readonly HttpClient _httpClient = httpClient;
-
     public async Task<string?> GetBackdropUrlAsync(BackdropRequest request, CancellationToken cancellationToken = default)
     {
         var options = request.ServerOptions;
@@ -26,9 +22,9 @@ public sealed class EndfieldBackdropResolver(HttpClient httpClient, ILogger? log
             return null;
         }
 
-        var appcode = OptionOrDefault(options, GryphlineChannelApi.AppcodeOptionKey, GryphlineChannelApi.DefaultGameAppcode);
-        var channel = OptionOrDefault(options, GryphlineChannelApi.ChannelOptionKey, GryphlineChannelApi.DefaultChannelId);
-        var subChannel = OptionOrDefault(options, GryphlineChannelApi.SubChannelOptionKey, GryphlineChannelApi.DefaultSubChannelId);
+        var appcode = GryphlineProtocol.OptionOrDefault(options, GryphlineChannelApi.AppcodeOptionKey, GryphlineChannelApi.DefaultGameAppcode);
+        var channel = GryphlineProtocol.OptionOrDefault(options, GryphlineChannelApi.ChannelOptionKey, GryphlineChannelApi.DefaultChannelId);
+        var subChannel = GryphlineProtocol.OptionOrDefault(options, GryphlineChannelApi.SubChannelOptionKey, GryphlineChannelApi.DefaultSubChannelId);
         var language = request.Region == "cn" ? "zh-cn" : "en-us";
 
         var payload = new
@@ -53,12 +49,15 @@ public sealed class EndfieldBackdropResolver(HttpClient httpClient, ILogger? log
 
         logger?.LogDebug("Fetching Endfield main bg image ({Region})", request.Region);
 
-        using var response = await _httpClient.PostAsJsonAsync(
-            $"{apiBase.TrimEnd('/')}/proxy/web/batch_proxy", payload, cancellationToken);
+        using var response = await httpClient.PostAsJsonAsync(
+            $"{apiBase.TrimEnd('/')}/proxy/web/batch_proxy", payload, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        // CA2007 误报：await using 声明的 DisposeAsync 续体由编译器生成，无法对其追加 ConfigureAwait。
+#pragma warning disable CA2007
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+#pragma warning restore CA2007
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         // 协议为逆向所得、结构可能随官方更新变化：全程用 TryGetProperty/数组检查，不抛键缺失异常
         var url = doc.RootElement.TryGetProperty("proxy_rsps", out var rsps)
@@ -73,9 +72,4 @@ public sealed class EndfieldBackdropResolver(HttpClient httpClient, ILogger? log
 
         return string.IsNullOrWhiteSpace(url) ? null : url;
     }
-
-    private static string OptionOrDefault(IReadOnlyDictionary<string, string> options, string key, string fallback) =>
-        options.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
-            ? value.Trim()
-            : fallback;
 }

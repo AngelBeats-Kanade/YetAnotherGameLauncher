@@ -23,8 +23,6 @@ public sealed class GameBackdropService(
         Converters = { new JsonStringEnumConverter() },
     };
 
-    private readonly HttpClient _httpClient = httpClient;
-    private readonly IReadOnlyDictionary<string, IBackdropResolver> _resolvers = resolvers;
     private readonly string _cacheRoot = cacheRoot ?? DefaultCacheRoot;
 
     /// <summary>按游戏串行化解析与下载，避免并发重复下载同一背景。</summary>
@@ -38,16 +36,16 @@ public sealed class GameBackdropService(
     /// </summary>
     public async Task<string?> ResolveAsync(BackdropRequest request, CancellationToken cancellationToken = default)
     {
-        if (!_resolvers.TryGetValue(request.Channel, out var resolver))
+        if (!resolvers.TryGetValue(request.Channel, out var resolver))
         {
             return null;
         }
 
         var gate = _gameLocks.GetOrAdd(request.GameId, _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync(cancellationToken);
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return await ResolveCoreAsync(request, resolver, cancellationToken);
+            return await ResolveCoreAsync(request, resolver, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -61,7 +59,7 @@ public sealed class GameBackdropService(
         string? remoteUrl;
         try
         {
-            remoteUrl = await resolver.GetBackdropUrlAsync(request, cancellationToken);
+            remoteUrl = await resolver.GetBackdropUrlAsync(request, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when ((ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
             && !cancellationToken.IsCancellationRequested) // 用户主动取消要向上抛，网络失败/超时才回退缓存
@@ -77,19 +75,13 @@ public sealed class GameBackdropService(
             return File.Exists(remoteUrl) ? remoteUrl : null;
         }
 
-        if (remoteUrl is not null
-            && !Uri.TryCreate(remoteUrl, UriKind.Absolute, out var remoteUri))
-        {
-            remoteUrl = null;
-        }
-
         var cacheDir = Path.Combine(_cacheRoot, Sanitize(request.GameId));
         var meta = ReadMeta(Path.Combine(cacheDir, "meta.json"));
 
         // 地址变化（版本/卡池轮换）→ 重新下载覆盖缓存
         if (remoteUrl is not null && !string.Equals(meta?.Url, remoteUrl, StringComparison.OrdinalIgnoreCase))
         {
-            var downloaded = await TryDownloadAsync(remoteUrl, cacheDir, cancellationToken);
+            var downloaded = await TryDownloadAsync(remoteUrl, cacheDir, cancellationToken).ConfigureAwait(false);
             if (downloaded is not null)
             {
                 WriteMeta(Path.Combine(cacheDir, "meta.json"), new BackdropMeta(remoteUrl, downloaded));
@@ -114,8 +106,8 @@ public sealed class GameBackdropService(
             Directory.CreateDirectory(cacheDir);
             var ext = Path.GetExtension(new Uri(url).AbsolutePath) is { Length: > 1 } e ? e : ".img";
             var tempPath = Path.Combine(cacheDir, $"download-{Guid.NewGuid():N}{ext}");
-            var bytes = await _httpClient.GetByteArrayAsync(url, cancellationToken);
-            await File.WriteAllBytesAsync(tempPath, bytes, cancellationToken);
+            var bytes = await httpClient.GetByteArrayAsync(url, cancellationToken).ConfigureAwait(false);
+            await File.WriteAllBytesAsync(tempPath, bytes, cancellationToken).ConfigureAwait(false);
 
             var fileName = $"backdrop{ext}";
             var finalPath = Path.Combine(cacheDir, fileName);
@@ -177,8 +169,7 @@ public sealed class GameBackdropService(
         value.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
         || value.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
 
-    private static string Sanitize(string value) =>
-        new string(value.Where(char.IsLetterOrDigit).ToArray());
+    private static string Sanitize(string value) => string.Concat(value.Where(char.IsLetterOrDigit));
 
     /// <summary>背景缓存元数据：来源直链 + 本地文件名，用于判断"是否有更新"。</summary>
     private sealed record BackdropMeta(

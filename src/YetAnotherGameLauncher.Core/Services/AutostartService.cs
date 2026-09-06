@@ -9,12 +9,12 @@ public interface IAutostartService
     /// <summary>查询当前是否已开启自启。异步：Windows 需起 reg 子进程，禁止在 UI 线程同步等待。</summary>
     Task<bool> IsEnabledAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>查询或切换自启状态（平台相关：Windows 注册表 / Linux 桌面入口）。</summary>
     Task SetEnabledAsync(bool enabled, CancellationToken cancellationToken = default);
 }
 
 public sealed class AutostartService(IProcessRunner runner) : IAutostartService
 {
-    private readonly IProcessRunner _runner = runner;
 
     private const string AppName = "YetAnotherGameLauncher";
 
@@ -49,6 +49,7 @@ public sealed class AutostartService(IProcessRunner runner) : IAutostartService
         X-GNOME-Autostart-enabled=true
         """ + Environment.NewLine;
 
+    /// <summary>XDG autostart 桌面入口文件路径（默认取当前用户主目录，home 可注入测试）。</summary>
     public static string DesktopFilePath(string? home = null)
     {
         var dir = Path.Combine(
@@ -61,7 +62,7 @@ public sealed class AutostartService(IProcessRunner runner) : IAutostartService
     {
         // 走 IProcessRunner：stderr 已被捕获，键不存在时不会向控制台透传错误文本。
         // ConfigureAwait(false)：调用方可能处于 UI 线程同步上下文，避免续体回流 UI 队列。
-        var result = await _runner.RunAsync(
+        var result = await runner.RunAsync(
             new ProcessStartSpec(
                 "reg",
                 $"query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run /v {AppName}",
@@ -80,7 +81,7 @@ public sealed class AutostartService(IProcessRunner runner) : IAutostartService
             : new ProcessStartSpec(
                 "reg",
                 $"delete HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run /v {AppName} /f");
-        await _runner.RunAsync(spec, cancellationToken).ConfigureAwait(false);
+        await runner.RunAsync(spec, cancellationToken).ConfigureAwait(false);
     }
 
     private void SetLinux(bool enabled)

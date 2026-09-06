@@ -25,18 +25,21 @@ public static class CompatTools
     /// <summary>默认推荐的 Proton 版本。</summary>
     public const string DefaultProton = "dw-proton";
 
+    /// <summary>Steam 兼容工具与自带运行时的常见根目录（供版本扫描与定位共用）。</summary>
+    private static string[] ProtonRoots(string home) =>
+    [
+        Path.Combine(home, ".steam", "steam", "compatibilitytools.d"),
+        Path.Combine(home, ".local", "share", "Steam", "compatibilitytools.d"),
+        Path.Combine(home, ".steam", "root", "steamapps", "common"),
+    ];
+
+    /// <summary>扫描已知目录中的可用 Proton 版本名（默认推荐版本置顶，字典序）。</summary>
     public static IReadOnlyList<string> FindProtonVersions(string? home = null)
     {
         home ??= Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var roots = new[]
-        {
-            Path.Combine(home, ".steam", "steam", "compatibilitytools.d"),
-            Path.Combine(home, ".local", "share", "Steam", "compatibilitytools.d"),
-            Path.Combine(home, ".steam", "root", "steamapps", "common"),
-        };
 
         var versions = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var root in roots)
+        foreach (var root in ProtonRoots(home))
         {
             if (!Directory.Exists(root))
             {
@@ -58,11 +61,10 @@ public static class CompatTools
         }
 
         // 默认推荐版本置顶
-        var ordered = versions.OrderByDescending(v =>
-            v.Equals(DefaultProton, StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+        return versions
+            .OrderByDescending(v => v.Equals(DefaultProton, StringComparison.OrdinalIgnoreCase) ? 1 : 0)
             .ThenBy(v => v, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        return ordered;
     }
 
     /// <summary>
@@ -89,13 +91,7 @@ public static class CompatTools
     public static string? LocateProton(string protonVersion, string? home = null)
     {
         home ??= Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        string[] roots =
-        [
-            Path.Combine(home, ".steam", "steam", "compatibilitytools.d"),
-            Path.Combine(home, ".local", "share", "Steam", "compatibilitytools.d"),
-            Path.Combine(home, ".steam", "root", "steamapps", "common"),
-        ];
-        return roots
+        return ProtonRoots(home)
             .Select(root => Path.Combine(root, protonVersion))
             .FirstOrDefault(Directory.Exists);
     }

@@ -17,13 +17,13 @@ public sealed class IncrementalUpdateService(
     IPatchApplier patchApplier,
     ILogger? logger = null)
 {
+    /// <summary>预下载暂存目录名，挂在 {installDir}/.yagl 之下。</summary>
     public const string PredownloadDirName = "predownload";
     private const string PatchWorkDirName = "patchwork";
     private const string BackupSuffix = ".yagl-bak";
 
-    private readonly IDownloader _downloader = downloader;
-    private readonly IPatchApplier _patchApplier = patchApplier;
 
+    /// <summary>某安装目录的预下载暂存目录（{installDir}/.yagl/predownload）。</summary>
     public static string PredownloadDir(string installDir) =>
         Path.Combine(installDir, LocalStateService.StateDirName, PredownloadDirName);
 
@@ -50,9 +50,19 @@ public sealed class IncrementalUpdateService(
         var totalItems = incrementalManifest.Files.Count + incrementalManifest.Groups.Count;
         var done = 0;
         var bytes = 0L;
-        var gate = new object();
 
         progress?.Report(new UpdateProgress(UpdatePhase.Downloading, totalBytes, 0, 0, totalItems, null));
+
+        // 两类暂存条目（直下新文件 / 差分包）下载流程一致：同一本地函数处理并聚合进度
+        // （下载为顺序执行，无并发访问，计数无需加锁）
+        async Task DownloadStagedAsync(string url, long size, string? md5, string relativeTarget, string displayName)
+        {
+            var target = Path.Combine(staging, relativeTarget.Replace('/', Path.DirectorySeparatorChar));
+            await downloader.DownloadFileAsync(new DownloadRequest(url, target, size, md5), null, cancellationToken).ConfigureAwait(false);
+            bytes += size;
+            done++;
+            progress?.Report(new UpdateProgress(UpdatePhase.Downloading, totalBytes, bytes, done, totalItems, displayName));
+        }
 
         foreach (var file in incrementalManifest.Files)
         {
@@ -61,15 +71,7 @@ public sealed class IncrementalUpdateService(
                 throw new UpdateException($"Incremental manifest entry has no download URL: {file.Path}");
             }
 
-            var target = Path.Combine(staging, "files", file.Path.Replace('/', Path.DirectorySeparatorChar));
-            await _downloader.DownloadFileAsync(
-                new DownloadRequest(file.Url, target, file.Size, file.Md5), null, cancellationToken);
-            lock (gate)
-            {
-                bytes += file.Size;
-                done++;
-            }
-            progress?.Report(new UpdateProgress(UpdatePhase.Downloading, totalBytes, bytes, done, totalItems, file.Path));
+            await DownloadStagedAsync(file.Url, file.Size, file.Md5, Path.Combine("files", file.Path), file.Path).ConfigureAwait(false);
         }
 
         foreach (var group in incrementalManifest.Groups)
@@ -79,21 +81,13 @@ public sealed class IncrementalUpdateService(
                 throw new UpdateException($"Patch group has no download URL: {group.PatchFile}");
             }
 
-            var target = Path.Combine(staging, "patches", group.PatchFile.Replace('/', Path.DirectorySeparatorChar));
-            await _downloader.DownloadFileAsync(
-                new DownloadRequest(group.Url, target, group.PatchSize, group.PatchMd5), null, cancellationToken);
-            lock (gate)
-            {
-                bytes += group.PatchSize;
-                done++;
-            }
-            progress?.Report(new UpdateProgress(UpdatePhase.Downloading, totalBytes, bytes, done, totalItems, group.PatchFile));
+            await DownloadStagedAsync(group.Url, group.PatchSize, group.PatchMd5, Path.Combine("patches", group.PatchFile), group.PatchFile).ConfigureAwait(false);
         }
 
         await File.WriteAllTextAsync(
             Path.Combine(staging, "manifest.json"),
             JsonSerializer.Serialize(incrementalManifest, Json.Default),
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
 
         logger?.LogInformation("Predownload finished: {Groups} patch groups, {Files} files", incrementalManifest.Groups.Count, incrementalManifest.Files.Count);
         progress?.Report(new UpdateProgress(UpdatePhase.Done, totalBytes, bytes, totalItems, totalItems, null));
@@ -153,7 +147,7 @@ public sealed class IncrementalUpdateService(
                     $"Patch {group.PatchFile} was not preloaded; run predownload first or use the full update.");
             }
 
-            await ApplyGroupAsync(installDir, workDir, i, group, patchPath, cancellationToken);
+            await ApplyGroupAsync(installDir, workDir, i, group, patchPath, cancellationToken).ConfigureAwait(false);
         }
 
         // 差分组不覆盖的新文件已在预下载时暂存，此处落位；缺失的交给事后修复
@@ -215,7 +209,7 @@ public sealed class IncrementalUpdateService(
 
         try
         {
-            await _patchApplier.ApplyAsync(patchPath, oldDir, newDir, cancellationToken);
+            await patchApplier.ApplyAsync(patchPath, oldDir, newDir, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

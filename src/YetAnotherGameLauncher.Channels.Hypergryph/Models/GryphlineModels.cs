@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace YetAnotherGameLauncher.Channels.Hypergryph.Models;
@@ -42,7 +43,7 @@ internal sealed class GetLatestGameReq
 internal sealed class BatchProxyResponse
 {
     [JsonPropertyName("proxy_rsps")]
-    public List<System.Text.Json.JsonElement>? ProxyRsps { get; set; }
+    public List<JsonElement>? ProxyRsps { get; set; }
 }
 
 /// <summary>get_latest_game 响应：整包分发模型（packs 为压缩包列表）。</summary>
@@ -59,7 +60,7 @@ internal sealed class GameVersionResponse
 
     /// <summary>预下载窗口期出现（下一版本的整包信息），其余为 null。</summary>
     [JsonPropertyName("patch")]
-    public System.Text.Json.JsonElement? Patch { get; set; }
+    public JsonElement? Patch { get; set; }
 }
 
 internal sealed class PackageInfo

@@ -49,7 +49,7 @@ public sealed class GameLauncherService(IProcessRunner processRunner, ILogger? l
         var plan = BuildPlan(game, installDir, effectiveExecutable);
         var result = await processRunner.RunAsync(
             new ProcessStartSpec(plan.FileName, plan.Arguments, plan.WorkingDirectory, plan.Environment),
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
         return result.ExitCode;
     }
 

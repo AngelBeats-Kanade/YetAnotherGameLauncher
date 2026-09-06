@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Utilities;
@@ -17,12 +18,12 @@ public sealed class HttpFileDownloader(
     ILogger? logger = null,
     SpeedLimiter? speedLimiter = null) : IDownloader
 {
-    private readonly HttpClient _httpClient = httpClient;
     private readonly HttpFileDownloaderOptions _options = options ?? new();
 
     /// <summary>全局限速器（多个下载共享同一预算）；null = 不限速。设置页可动态调整其 BytesPerSecond。</summary>
     public SpeedLimiter Limiter { get; } = speedLimiter ?? new();
 
+    /// <summary>下载单个文件：.temp 断点续传 + 瞬态错误重试，完成后按 size/MD5 校验再原子落盘。</summary>
     public async Task DownloadFileAsync(
         DownloadRequest request,
         IProgress<long>? progress = null,
@@ -41,7 +42,7 @@ public sealed class HttpFileDownloader(
         {
             try
             {
-                await DownloadAttemptAsync(request, tempPath, progress, cancellationToken);
+                await DownloadAttemptAsync(request, tempPath, progress, cancellationToken).ConfigureAwait(false);
                 Verify(request, tempPath);
 
                 File.Move(tempPath, request.DestinationPath, overwrite: true);
@@ -64,7 +65,7 @@ public sealed class HttpFileDownloader(
 
             if (attempt < _options.MaxAttempts)
             {
-                await Task.Delay(_options.RetryBaseDelay * attempt, cancellationToken);
+                await Task.Delay(_options.RetryBaseDelay * attempt, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -82,11 +83,11 @@ public sealed class HttpFileDownloader(
         using var requestMessage = new HttpRequestMessage(HttpMethod.Get, request.Url);
         if (existingTempBytes > 0)
         {
-            requestMessage.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(existingTempBytes, null);
+            requestMessage.Headers.Range = new RangeHeaderValue(existingTempBytes, null);
         }
 
-        using var response = await _httpClient.SendAsync(
-            requestMessage, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        using var response = await httpClient.SendAsync(
+            requestMessage, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
         // 仅当服务器确实按 Range 返回 206 时才算续传；返回 200 说明服务器忽略了 Range，需要重写
@@ -99,7 +100,9 @@ public sealed class HttpFileDownloader(
         var startByte = resume ? existingTempBytes : 0;
         logger?.LogDebug("Downloading {Url}: resuming from byte {Start} (resume={Resume})", request.Url, startByte, resume);
 
-        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
+        // CA2007 误报：await using 声明的 DisposeAsync 续体由编译器生成，无法对其追加 ConfigureAwait。
+#pragma warning disable CA2007
+        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         await using var target = new FileStream(
             tempPath,
             resume ? FileMode.Append : FileMode.Create,
@@ -107,26 +110,27 @@ public sealed class HttpFileDownloader(
             FileShare.None,
             _options.BufferSize,
             useAsync: true);
+#pragma warning restore CA2007
 
         var written = startByte;
         progress?.Report(written);
 
         var buffer = new byte[_options.BufferSize];
         int read;
-        while ((read = await source.ReadAsync(buffer, cancellationToken)) > 0)
+        while ((read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
         {
-            await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+            await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
             written += read;
             progress?.Report(written);
 
             var wait = Limiter.Acquire(read);
             if (wait > TimeSpan.Zero)
             {
-                await Task.Delay(wait, cancellationToken);
+                await Task.Delay(wait, cancellationToken).ConfigureAwait(false);
             }
         }
 
-        await target.FlushAsync(cancellationToken);
+        await target.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static void Verify(DownloadRequest request, string tempPath)

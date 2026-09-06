@@ -14,8 +14,8 @@ namespace YetAnotherGameLauncher.Core.Services;
 /// </summary>
 public sealed class PackageInstallerService(IDownloader downloader, ILogger? logger = null)
 {
-    private readonly IDownloader _downloader = downloader;
 
+    /// <summary>两段式预下载的压缩包暂存目录（位于 .yagl/predownload/packages，Apply 时就地解压）。</summary>
     public static string PackagesDir(string installDir) => Path.Combine(
         installDir, LocalStateService.StateDirName, IncrementalUpdateService.PredownloadDirName, "packages");
 
@@ -27,7 +27,7 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
         CancellationToken cancellationToken = default)
     {
         var packagesDir = Path.Combine(installDir, LocalStateService.StateDirName, "packages");
-        var staged = await DownloadPackagesAsync(packagesDir, packageManifest, progress, cancellationToken);
+        var staged = await DownloadPackagesAsync(packagesDir, packageManifest, progress, cancellationToken).ConfigureAwait(false);
 
         progress?.Report(new UpdateProgress(UpdatePhase.Patching, 0, 0, packageManifest.Files.Count, packageManifest.Files.Count, null));
         foreach (var (manifestFile, archivePath) in staged)
@@ -55,12 +55,12 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
         }
 
         Directory.CreateDirectory(staging);
-        await DownloadPackagesAsync(PackagesDir(installDir), packageManifest, progress, cancellationToken);
+        await DownloadPackagesAsync(PackagesDir(installDir), packageManifest, progress, cancellationToken).ConfigureAwait(false);
 
         await File.WriteAllTextAsync(
             Path.Combine(staging, "manifest.json"),
             JsonSerializer.Serialize(packageManifest, Json.Default),
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
 
         progress?.Report(new UpdateProgress(UpdatePhase.Done, 0, 0, packageManifest.Files.Count, packageManifest.Files.Count, null));
     }
@@ -91,8 +91,8 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
             if (!IsArchiveIntact(archivePath, file))
             {
                 logger?.LogInformation("Staged package missing or corrupt, re-downloading: {Path}", file.Path);
-                await _downloader.DownloadFileAsync(
-                    new DownloadRequest(file.Url, archivePath, file.Size, file.Md5), null, cancellationToken);
+                await downloader.DownloadFileAsync(
+                    new DownloadRequest(file.Url, archivePath, file.Size, file.Md5), null, cancellationToken).ConfigureAwait(false);
             }
 
             progress?.Report(new UpdateProgress(UpdatePhase.Patching, 0, 0, index, total, file.Path));
@@ -139,8 +139,8 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
             progress?.Report(new UpdateProgress(UpdatePhase.Downloading, totalBytes, downloaded, index, packageManifest.Files.Count, file.Path));
 
             var archivePath = StagedArchivePath(packagesDir, file);
-            await _downloader.DownloadFileAsync(
-                new DownloadRequest(file.Url, archivePath, file.Size, file.Md5), null, cancellationToken);
+            await downloader.DownloadFileAsync(
+                new DownloadRequest(file.Url, archivePath, file.Size, file.Md5), null, cancellationToken).ConfigureAwait(false);
 
             downloaded += file.Size;
             staged.Add((file, archivePath));

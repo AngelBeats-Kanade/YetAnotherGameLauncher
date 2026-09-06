@@ -19,5 +19,6 @@ public sealed record BackdropRequest(
 /// </summary>
 public interface IBackdropResolver
 {
+    /// <summary>解析指定游戏与区域的背景图；返回 http(s) 直链或本地文件路径，null = 暂无法确定。</summary>
     Task<string?> GetBackdropUrlAsync(BackdropRequest request, CancellationToken cancellationToken = default);
 }

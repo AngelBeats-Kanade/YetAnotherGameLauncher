@@ -30,12 +30,15 @@ public sealed record ManifestVerificationResult(IReadOnlyList<FileCheckResult> R
 /// </summary>
 public static class ManifestVerifier
 {
+    /// <summary>快速校验：只比存在性与文件大小，不读内容。</summary>
     public static ManifestVerificationResult VerifyFast(string installDir, GameManifest manifest) =>
         Verify(installDir, manifest, withMd5: false);
 
+    /// <summary>全量校验：在快速校验之上额外计算并比对 MD5，用于下载后确认完整性。</summary>
     public static ManifestVerificationResult VerifyFull(string installDir, GameManifest manifest) =>
         Verify(installDir, manifest, withMd5: true);
 
+    /// <summary>检查单个文件：存在性 → 大小 →（可选）MD5，返回首个不匹配项或 Ok。</summary>
     public static FileStatus CheckFile(string fullPath, ManifestFile file, bool withMd5)
     {
         if (!File.Exists(fullPath))

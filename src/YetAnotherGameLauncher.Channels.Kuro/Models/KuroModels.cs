@@ -32,6 +32,7 @@ internal sealed class KuroResourceBlock
     public KuroResourceConfig? Config { get; set; }
 }
 
+/// <summary>index.json cdnList 中的一个 CDN 节点。</summary>
 public sealed class KuroCdnNode
 {
     [JsonPropertyName("P")]

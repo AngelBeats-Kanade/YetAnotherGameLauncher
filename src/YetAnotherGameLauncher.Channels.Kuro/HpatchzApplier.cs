@@ -13,7 +13,6 @@ public sealed class HpatchzApplier(
     HpatchzApplierOptions? options = null,
     ILogger? logger = null) : IPatchApplier
 {
-    private readonly IProcessRunner _processRunner = processRunner;
     private readonly HpatchzApplierOptions _options = options ?? new();
 
     public async Task ApplyAsync(string patchFilePath, string oldDir, string newDir, CancellationToken cancellationToken = default)
@@ -23,9 +22,9 @@ public sealed class HpatchzApplier(
         var arguments = $"-f \"{oldDir}\" \"{patchFilePath}\" \"{newDir}\"";
         logger?.LogDebug("Running {Exe} {Args}", _options.HpatchzPath, arguments);
 
-        var result = await _processRunner.RunAsync(
+        var result = await processRunner.RunAsync(
             new ProcessStartSpec(_options.HpatchzPath, arguments, TimeoutMilliseconds: _options.TimeoutMilliseconds),
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
 
         if (!result.Succeeded)
         {

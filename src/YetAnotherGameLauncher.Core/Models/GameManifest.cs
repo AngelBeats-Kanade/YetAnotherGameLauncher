@@ -5,11 +5,7 @@ public sealed record ManifestFile(
     string Path,
     long Size,
     string Md5,
-    IReadOnlyList<ManifestChunk>? Chunks = null,
     string? Url = null);
-
-/// <summary>大文件分块校验信息（鸣潮 chunkInfos，end 为闭区间）。</summary>
-public sealed record ManifestChunk(long Start, long End, string Md5);
 
 /// <summary>
 /// 一个增量差分组（如库洛 krpdiff groupInfos）：把 SrcFiles 的当前内容

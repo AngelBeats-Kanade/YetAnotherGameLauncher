@@ -14,6 +14,7 @@ public sealed class SpeedLimiter
 
     public SpeedLimiter(TimeProvider? time = null) => _time = time ?? TimeProvider.System;
 
+    /// <summary>当前限速（字节/秒），0 = 不限速；写入会清空已排队的发送窗口。</summary>
     public long BytesPerSecond
     {
         get

@@ -6,6 +6,7 @@ namespace YetAnotherGameLauncher.Core.Services;
 /// <summary>基于 System.Diagnostics.Process 的进程运行器：捕获输出、超时杀死、传播取消。</summary>
 public sealed class SystemProcessRunner : IProcessRunner
 {
+    /// <summary>启动进程并等待退出，捕获 stdout/stderr；超时或取消时杀死整个进程树并抛出取消。</summary>
     public async Task<ProcessResult> RunAsync(ProcessStartSpec spec, CancellationToken cancellationToken = default)
     {
         var startInfo = new ProcessStartInfo
@@ -46,7 +47,7 @@ public sealed class SystemProcessRunner : IProcessRunner
             try
             {
                 process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync(CancellationToken.None);
+                await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
             }
             catch (InvalidOperationException)
             {

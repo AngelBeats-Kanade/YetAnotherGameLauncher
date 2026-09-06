@@ -6,6 +6,7 @@ public sealed class AppSettings
     /// <summary>游戏安装根目录，游戏 InstallDir 相对于它（支持绝对路径）。</summary>
     public string InstallRoot { get; set; } = "";
 
+    /// <summary>界面主题（跟随系统/浅色/深色）。</summary>
     public ThemeMode Theme { get; set; } = ThemeMode.System;
 
     /// <summary>下载时的最大文件级并发数。</summary>
@@ -14,6 +15,7 @@ public sealed class AppSettings
     /// <summary>全局限速（字节/秒），0 = 不限速。</summary>
     public long DownloadSpeedLimitBytes { get; set; }
 
+    /// <summary>界面语言（culture 名，如 "zh-CN"）。</summary>
     public string Language { get; set; } = "zh-CN";
 
     /// <summary>侧栏是否展开（false = 收起为图标窄条）。</summary>

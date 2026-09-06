@@ -137,8 +137,6 @@ public class KuroChannelApiTests
         // 空格转义
         var pak = manifest.Files[1];
         Assert.EndsWith("pakchunk%207.pak", pak.Url);
-        Assert.NotNull(pak.Chunks);
-        Assert.Equal(9, pak.Chunks![0].End);
 
         // fromFolder 覆盖默认资源目录
         var extra = manifest.Files[2];

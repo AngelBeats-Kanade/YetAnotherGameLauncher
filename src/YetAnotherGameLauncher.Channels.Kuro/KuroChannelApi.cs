@@ -14,11 +14,10 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
 {
     public const string IndexUrlOptionKey = "indexUrl";
 
-    private readonly IDownloader _downloader = downloader;
 
     public async Task<ChannelVersionInfo> GetVersionInfoAsync(GameServer server, CancellationToken cancellationToken = default)
     {
-        var index = await FetchIndexAsync(server, cancellationToken);
+        var index = await FetchIndexAsync(server, cancellationToken).ConfigureAwait(false);
         var block = RequireDefault(index);
 
         var predownloadConfig = index.Predownload?.Config;
@@ -34,7 +33,7 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
 
     public async Task<GameManifest> GetManifestAsync(GameServer server, string version, CancellationToken cancellationToken = default)
     {
-        var index = await FetchIndexAsync(server, cancellationToken);
+        var index = await FetchIndexAsync(server, cancellationToken).ConfigureAwait(false);
         var block = RequireDefault(index);
         var cdn = RequireCdn(block);
         var config = RequireConfig(block);
@@ -42,7 +41,7 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         var indexFileJson = await FetchTextAsync(
             KuroUrlBuilder.BuildFileUrl(cdn, null, RequireIndexFile(config)),
             config.IndexFileMd5,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
         var indexFile = ParseJson<KuroIndexFile>(indexFileJson, "indexFile.json");
 
         return new GameManifest
@@ -56,7 +55,7 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
     public async Task<GameManifest?> GetIncrementalManifestAsync(
         GameServer server, string fromVersion, string toVersion, CancellationToken cancellationToken = default)
     {
-        var index = await FetchIndexAsync(server, cancellationToken);
+        var index = await FetchIndexAsync(server, cancellationToken).ConfigureAwait(false);
         var block = RequireDefault(index);
         var cdn = RequireCdn(block);
         var config = RequireConfig(block);
@@ -70,7 +69,7 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         var patchIndexJson = await FetchTextAsync(
             KuroUrlBuilder.BuildFileUrl(cdn, null, patchEntry.IndexFile),
             patchEntry.IndexFileMd5,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
         var patchIndexFile = ParseJson<KuroIndexFile>(patchIndexJson, "incremental indexFile.json");
 
         return new GameManifest
@@ -91,7 +90,7 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         }
 
         logger?.LogDebug("Fetching Kuro index.json: {Url}", indexUrl);
-        var json = await FetchTextAsync(indexUrl, expectedMd5: null, cancellationToken);
+        var json = await FetchTextAsync(indexUrl, expectedMd5: null, cancellationToken).ConfigureAwait(false);
         return ParseJson<KuroLauncherIndex>(json, "index.json");
     }
 
@@ -101,9 +100,9 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         Directory.CreateDirectory(Path.GetDirectoryName(tempPath)!);
         try
         {
-            await _downloader.DownloadFileAsync(
-                new DownloadRequest(url, tempPath, null, expectedMd5), null, cancellationToken);
-            return await File.ReadAllTextAsync(tempPath, cancellationToken);
+            await downloader.DownloadFileAsync(
+                new DownloadRequest(url, tempPath, null, expectedMd5), null, cancellationToken).ConfigureAwait(false);
+            return await File.ReadAllTextAsync(tempPath, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -117,14 +116,14 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         }
     }
 
+    /// <summary>资源条目 → 清单文件；withUrl=false 用于差分组的源/目标描述（只需校验信息，URL 无意义）。</summary>
     private static IReadOnlyList<ManifestFile> ToManifestFiles(
-        IEnumerable<KuroResourceEntry> entries, string cdn, string? folder) =>
+        IEnumerable<KuroResourceEntry> entries, string cdn, string? folder, bool withUrl = true) =>
         [.. entries.Select(entry => new ManifestFile(
             entry.Dest,
             entry.Size,
             entry.Md5,
-            entry.ChunkInfos is null ? null : [.. entry.ChunkInfos.Select(c => new ManifestChunk(c.Start, c.End, c.Md5))],
-            KuroUrlBuilder.BuildFileUrl(cdn, entry.FromFolder ?? folder, entry.Dest)))];
+            withUrl ? KuroUrlBuilder.BuildFileUrl(cdn, entry.FromFolder ?? folder, entry.Dest) : null))];
 
     private static IReadOnlyList<PatchGroup> ToGroups(
         IEnumerable<KuroGroupInfo>? groups, string cdn,
@@ -139,12 +138,8 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
             group.Dest,
             group.Size,
             group.Md5,
-            ToManifestFiles(group.SrcFiles, cdn, resourcesBasePath)
-                .Select(f => f with { Url = null })
-                .ToList(),
-            ToManifestFiles(group.DstFiles, cdn, resourcesBasePath)
-                .Select(f => f with { Url = null })
-                .ToList(),
+            ToManifestFiles(group.SrcFiles, cdn, resourcesBasePath, withUrl: false),
+            ToManifestFiles(group.DstFiles, cdn, resourcesBasePath, withUrl: false),
             KuroUrlBuilder.BuildPatchUrl(cdn, patchBaseUrl, defaultBaseUrl, group.Dest)))];
     }
 

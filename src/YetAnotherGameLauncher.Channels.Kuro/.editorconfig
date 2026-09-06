@@ -1,0 +1,4 @@
+# 仅对本库项目生效：CA2007（ConfigureAwait 缺失）升级为 warning，
+# 配合根目录 TreatWarningsAsErrors=true 即成为编译错误。不设 root=true，继承根配置。
+[*.cs]
+dotnet_diagnostic.CA2007.severity = warning

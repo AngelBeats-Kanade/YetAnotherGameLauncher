@@ -6,6 +6,7 @@ public sealed class GameDefinition
     /// <summary>唯一标识（kebab-case），例如 "wuthering-waves"。</summary>
     public string Id { get; set; } = "";
 
+    /// <summary>默认显示名（无 NameLocalized 匹配时的回退）。</summary>
     public string DisplayName { get; set; } = "";
 
     /// <summary>
@@ -29,5 +30,6 @@ public sealed class GameDefinition
     /// <summary>游戏可执行文件，相对安装目录。</summary>
     public string Executable { get; set; } = "";
 
+    /// <summary>启动配置（命令模板与参数，支持 {exe}/{installDir} 等占位符展开）。</summary>
     public LaunchOptions Launch { get; set; } = new();
 }

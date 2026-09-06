@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 
 namespace YetAnotherGameLauncher.Core.Services;
 
+/// <summary>全量同步选项。</summary>
 public sealed class GameInstallServiceOptions
 {
     /// <summary>文件级下载并发数。</summary>
@@ -19,12 +20,12 @@ public sealed class GameInstallService(
     GameInstallServiceOptions? options = null,
     ILogger? logger = null)
 {
-    private readonly IDownloader _downloader = downloader;
     private readonly GameInstallServiceOptions _options = options ?? new();
 
     /// <summary>不在清单内也要保留的顶层目录与文件（存档、启动器自身数据、官方启动器兼容文件）。</summary>
     private static readonly IReadOnlyList<string> PreservedEntries = [".yagl", "Saved", "launcherDownloadConfig.json"];
 
+    /// <summary>对照清单把安装目录补齐到目标版本：快速校验 → 只并行下载缺失/损坏文件 → 全量 MD5 校验 → 清理游离文件。</summary>
     public async Task SyncAsync(
         string installDir,
         GameManifest manifest,
@@ -62,30 +63,30 @@ public sealed class GameInstallService(
                 }
 
                 var destination = ManifestVerifier.ResolveSafe(installDir, file.Path);
+
+                // 并行下载共享计数：per-file 字节回调只在 lock 内读累计值，
+                // 文件完成时才累加并上报（避免每字节回调高频打散 UI 进度条）
                 var perFile = new Progress<long>(bytes =>
                 {
-                    long total;
-                    string? current;
                     lock (gate)
                     {
-                        current = file.Path;
-                        total = Interlocked.Read(ref downloadedBytes);
+                        Report(progress, UpdatePhase.Downloading, totalBytes, downloadedBytes, filesDone, needed.Count, file.Path);
                     }
-                    Report(progress, UpdatePhase.Downloading, totalBytes, total, filesDone, needed.Count, current);
                 });
 
-                await _downloader.DownloadFileAsync(
+                await downloader.DownloadFileAsync(
                     new DownloadRequest(file.Url, destination, file.Size, file.Md5),
                     perFile,
-                    token);
+                    token).ConfigureAwait(false);
 
                 lock (gate)
                 {
                     downloadedBytes += file.Size;
                     filesDone++;
                 }
+
                 Report(progress, UpdatePhase.Downloading, totalBytes, downloadedBytes, filesDone, needed.Count, file.Path);
-            });
+            }).ConfigureAwait(false);
 
         Report(progress, UpdatePhase.Verifying, totalBytes, downloadedBytes, needed.Count, needed.Count, null);
 

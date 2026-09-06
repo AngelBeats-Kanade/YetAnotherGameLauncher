@@ -25,8 +25,10 @@ public sealed class GameCatalogService
     /// <summary>当前加载的目录；Load 失败时为 null。</summary>
     public GameCatalog? Catalog { get; set; }
 
+    /// <summary>games.json 的实际路径（默认在应用配置目录）。</summary>
     public string ConfigFilePath => _configFilePath;
 
+    /// <summary>从磁盘读取并解析配置，结果写入 Catalog；文件缺失时抛 FileNotFoundException。</summary>
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
         if (!File.Exists(_configFilePath))
@@ -34,7 +36,7 @@ public sealed class GameCatalogService
             throw new FileNotFoundException("Game config file not found", _configFilePath);
         }
 
-        var json = await File.ReadAllTextAsync(_configFilePath, cancellationToken);
+        var json = await File.ReadAllTextAsync(_configFilePath, cancellationToken).ConfigureAwait(false);
         Catalog = Parse(json);
     }
 
@@ -46,15 +48,7 @@ public sealed class GameCatalogService
             throw new InvalidOperationException("No config has been loaded; nothing to save.");
         }
 
-        var directory = Path.GetDirectoryName(_configFilePath);
-        if (!string.IsNullOrEmpty(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
-
-        var tempPath = _configFilePath + ".tmp";
-        await File.WriteAllTextAsync(tempPath, Serialize(Catalog), cancellationToken);
-        File.Move(tempPath, _configFilePath, overwrite: true);
+        await FileUtilities.WriteAtomicAsync(_configFilePath, Serialize(Catalog), cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -90,15 +84,7 @@ public sealed class GameCatalogService
             content = Serialize(DefaultCatalog());
         }
 
-        var directory = Path.GetDirectoryName(_configFilePath);
-        if (!string.IsNullOrEmpty(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
-
-        var tempPath = _configFilePath + ".tmp";
-        await File.WriteAllTextAsync(tempPath, content, cancellationToken);
-        File.Move(tempPath, _configFilePath, overwrite: true);
+        await FileUtilities.WriteAtomicAsync(_configFilePath, content, cancellationToken).ConfigureAwait(false);
 
         Catalog = Parse(content);
         return true;
@@ -135,6 +121,7 @@ public sealed class GameCatalogService
         return errors.Count > 0 ? throw new GameCatalogValidationException(errors) : catalog;
     }
 
+    /// <summary>把目录序列化为配置文件 JSON（与 Parse 互逆）。</summary>
     public static string Serialize(GameCatalog catalog) =>
         JsonSerializer.Serialize(catalog, Json.Default);
 
@@ -168,6 +155,15 @@ public sealed class GameCatalogService
     {
         var field = $"games[{index}]";
 
+        // 必填字段统一校验（错误路径形如 "games[0].displayName"，一次报出全部错误）
+        void Require(string? value, string path)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                errors.Add($"{path} must not be empty.");
+            }
+        }
+
         if (string.IsNullOrWhiteSpace(game.Id))
         {
             errors.Add($"{field}.id must not be empty.");
@@ -181,30 +177,11 @@ public sealed class GameCatalogService
             errors.Add($"{field}.id is duplicated: {game.Id}.");
         }
 
-        if (string.IsNullOrWhiteSpace(game.DisplayName))
-        {
-            errors.Add($"{field}.displayName must not be empty.");
-        }
-
-        if (string.IsNullOrWhiteSpace(game.Channel))
-        {
-            errors.Add($"{field}.channel must not be empty.");
-        }
-
-        if (string.IsNullOrWhiteSpace(game.InstallDir))
-        {
-            errors.Add($"{field}.installDir must not be empty.");
-        }
-
-        if (string.IsNullOrWhiteSpace(game.Executable))
-        {
-            errors.Add($"{field}.executable must not be empty.");
-        }
-
-        if (string.IsNullOrWhiteSpace(game.Launch.CommandTemplate))
-        {
-            errors.Add($"{field}.launch.commandTemplate must not be empty.");
-        }
+        Require(game.DisplayName, $"{field}.displayName");
+        Require(game.Channel, $"{field}.channel");
+        Require(game.InstallDir, $"{field}.installDir");
+        Require(game.Executable, $"{field}.executable");
+        Require(game.Launch.CommandTemplate, $"{field}.launch.commandTemplate");
 
         if (game.Servers.Count == 0)
         {
@@ -227,24 +204,11 @@ public sealed class GameCatalogService
                 errors.Add($"{serverField}.id is duplicated: {server.Id}.");
             }
 
-            if (string.IsNullOrWhiteSpace(server.Name))
-            {
-                errors.Add($"{serverField}.name must not be empty.");
-            }
+            Require(server.Name, $"{serverField}.name");
         }
     }
 
-    private static bool IsValidId(string id)
-    {
-        foreach (var ch in id)
-        {
-            var valid = char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_' or '.';
-            if (!valid)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
+    /// <summary>id 仅允许字母、数字与 -_.（用作安装子目录与状态文件键）。</summary>
+    private static bool IsValidId(string id) =>
+        id.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_' or '.');
 }
