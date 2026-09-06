@@ -68,11 +68,14 @@ public static class VmFactory
         var gryphline = new FakeChannel();
         var downloader = new FakeDownloader();
         var backgroundHandler = new StubHttpHandler();
+        var httpDownloader = new HttpFileDownloader(new HttpClient(backgroundHandler));
 
         var vm = new MainWindowViewModel(
             new GameCatalogService(configPath),
             new GameUpdateService(downloader, new FakePatchApplier()),
             new GameLauncherService(new FakeProcessRunner()),
+            httpDownloader,
+            new AutostartService(new FakeProcessRunner()),
             new ThemeService(),
             new LocalizationService(),
             new BackgroundImageService(new HttpClient(backgroundHandler)),

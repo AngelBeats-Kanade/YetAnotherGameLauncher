@@ -47,7 +47,10 @@ public partial class App : Application
         {
             Timeout = TimeSpan.FromSeconds(30),
         });
-        services.AddSingleton<IDownloader, HttpFileDownloader>();
+        services.AddSingleton<SpeedLimiter>();
+        services.AddSingleton<HttpFileDownloader>();
+        services.AddSingleton<IDownloader>(sp => sp.GetRequiredService<HttpFileDownloader>());
+        services.AddSingleton<IAutostartService, AutostartService>();
         services.AddSingleton<IProcessRunner, SystemProcessRunner>();
         services.AddSingleton<IPatchApplier>(sp => new HpatchzApplier(sp.GetRequiredService<IProcessRunner>()));
 
@@ -71,6 +74,8 @@ public partial class App : Application
                 sp.GetRequiredService<GameCatalogService>(),
                 sp.GetRequiredService<GameUpdateService>(),
                 sp.GetRequiredService<GameLauncherService>(),
+                sp.GetRequiredService<HttpFileDownloader>(),
+                sp.GetRequiredService<IAutostartService>(),
                 sp.GetRequiredService<ThemeService>(),
                 sp.GetRequiredService<ILocalizationService>(),
                 sp.GetRequiredService<BackgroundImageService>(),

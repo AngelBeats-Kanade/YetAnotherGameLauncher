@@ -1,4 +1,6 @@
+using Avalonia;
 using Avalonia.Media;
+using Avalonia.Platform;
 using Avalonia.Media.Imaging;
 
 namespace YetAnotherGameLauncher.Services;
@@ -47,6 +49,15 @@ public sealed class BackgroundImageService(HttpClient httpClient)
 
     private async Task<byte[]> FetchAsync(string source, CancellationToken cancellationToken)
     {
+        if (source.StartsWith("avares://", StringComparison.OrdinalIgnoreCase))
+        {
+            // 应用内置资源（随包分发的官方图标等），离线可用
+            await using var stream = AssetLoader.Open(new Uri(source, UriKind.Absolute));
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms, cancellationToken);
+            return ms.ToArray();
+        }
+
         if (Uri.TryCreate(source, UriKind.Absolute, out var uri)
             && uri.Scheme is "http" or "https")
         {

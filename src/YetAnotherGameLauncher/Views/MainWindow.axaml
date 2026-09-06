@@ -70,13 +70,16 @@
             <Setter Property="Foreground" Value="{DynamicResource AppTextSecondary}"/>
         </Style>
 
-        <!-- 主内容面板：圆角 + 毛玻璃底 -->
-        <Style Selector="Border.content-panel">
-            <Setter Property="Background" Value="{DynamicResource AppGlassStrong}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource AppCardBorder}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="18"/>
-            <Setter Property="ClipToBounds" Value="True"/>
+        <!-- 玻璃卡片与玻璃按钮：半透明底（清晰背景图上保证可读，圆角优先） -->
+        <Style Selector="Button.glass">
+            <Setter Property="Background" Value="{DynamicResource AppCardBackground}"/>
+        </Style>
+        <Style Selector="Button.glass /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppCardBackground}"/>
+            <Setter Property="CornerRadius" Value="10"/>
+        </Style>
+        <Style Selector="Button.glass:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppSidebarHover}"/>
         </Style>
 
         <!-- 图标按钮 -->
@@ -296,18 +299,8 @@
                 </DockPanel>
             </Border>
 
-            <!-- ==================== 主内容（圆角面板 + 毛玻璃） ==================== -->
-            <Grid Grid.Column="1" Margin="22,20,22,20">
-                <Border Classes="content-panel">
-                <Panel>
-                <!-- 面板毛玻璃层：同一背景图的模糊副本，裁切在圆角内 -->
-                <Panel IsVisible="{Binding SelectedGame.HasBackgroundImage}">
-                    <Image Source="{Binding SelectedGame.BackgroundImage}" Stretch="UniformToFill" Opacity="0.55">
-                        <Image.Effect>
-                            <BlurEffect Radius="40"/>
-                        </Image.Effect>
-                    </Image>
-                </Panel>
+            <!-- ==================== 主内容（浮在清晰背景上；按钮/卡片用亚克力毛玻璃） ==================== -->
+            <Grid Grid.Column="1" Margin="34,26,34,24">
                 <ContentControl x:Name="PageHost" Content="{Binding CurrentPage}">
                     <ContentControl.DataTemplates>
 
@@ -391,6 +384,31 @@
                                                     Padding="20,11" Margin="0,0,12,10"/>
                                         </WrapPanel>
 
+                                        <!-- 游戏位置（安装目录，每个游戏独立设置） -->
+                                        <Border Classes="card">
+                                            <StackPanel Spacing="8">
+                                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                                    <TextBlock Text="{Binding Loc[game_location]}" FontSize="15" FontWeight="SemiBold"/>
+                                                    <TextBlock Text="{Binding Loc[launch_installDirHint]}" Classes="card-caption"
+                                                               VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                                    <TextBox Grid.Column="0" Text="{Binding LaunchSettings.InstallDirDraft}"/>
+                                                    <Button Grid.Column="1" Content="{Binding Loc[common_save]}"
+                                                            Command="{Binding LaunchSettings.SaveCommand}"
+                                                            Classes="accent pressable" Padding="18,8"/>
+                                                </Grid>
+                                                <TextBlock Text="{Binding LaunchSettings.SaveMessage}"
+                                                           Classes="card-caption"
+                                                           Foreground="{DynamicResource AppErrorText}"
+                                                           IsVisible="{Binding LaunchSettings.SaveFailed}"/>
+                                                <TextBlock Text="{Binding LaunchSettings.SaveMessage}"
+                                                           Classes="card-caption"
+                                                           Foreground="{DynamicResource AppStatusOk}"
+                                                           IsVisible="{Binding !LaunchSettings.SaveFailed}"/>
+                                            </StackPanel>
+                                        </Border>
+
                                         <!-- 进度（busy 时） -->
                                         <Border Classes="card" Padding="16" IsVisible="{Binding IsBusy}">
                                             <StackPanel Spacing="8">
@@ -416,11 +434,28 @@
                                                 </ToggleButton>
                                                 <StackPanel IsVisible="{Binding #LaunchToggle.IsChecked}"
                                                             Margin="10,8,10,12" Spacing="12">
-                                                    <StackPanel Spacing="4">
-                                                        <TextBlock Text="{Binding Loc[launch_installDir]}" Classes="card-caption"/>
-                                                        <TextBox Text="{Binding LaunchSettings.InstallDirDraft}"/>
-                                                        <TextBlock Text="{Binding Loc[launch_installDirHint]}" Classes="card-caption"/>
+                                                    <StackPanel Spacing="4" IsVisible="{Binding LaunchSettings.IsLinux}">
+                                                        <TextBlock Text="{Binding Loc[launch_compat]}" Classes="card-caption"/>
+                                                        <StackPanel Orientation="Horizontal" Spacing="10">
+                                                            <ComboBox ItemsSource="{Binding LaunchSettings.LaunchModes}"
+                                                                      SelectedItem="{Binding LaunchSettings.SelectedLaunchMode}"
+                                                                      MinWidth="220">
+                                                                <ComboBox.ItemTemplate>
+                                                                    <DataTemplate x:DataType="vm:LaunchModeOption">
+                                                                        <TextBlock Text="{Binding Name}"/>
+                                                                    </DataTemplate>
+                                                                </ComboBox.ItemTemplate>
+                                                            </ComboBox>
+                                                            <ComboBox ItemsSource="{Binding LaunchSettings.ProtonVersions}"
+                                                                      SelectedItem="{Binding LaunchSettings.SelectedProtonVersion}"
+                                                                      MinWidth="200"
+                                                                      IsVisible="{Binding LaunchSettings.IsProtonMode}">
+                                                            </ComboBox>
+                                                        </StackPanel>
                                                     </StackPanel>
+                                                    <TextBlock Text="{Binding Loc[launch_windowsDefaultHint]}"
+                                                               Classes="card-caption"
+                                                               IsVisible="{Binding !LaunchSettings.IsLinux}"/>
                                                     <StackPanel Spacing="4">
                                                         <TextBlock Text="{Binding Loc[launch_commandTemplate]}" Classes="card-caption"/>
                                                         <TextBox Text="{Binding LaunchSettings.CommandTemplate}"
@@ -545,6 +580,29 @@
                                                                Foreground="{DynamicResource AppStatusOk}"
                                                                IsVisible="{Binding !InstallRootSaveFailed}"/>
                                                 </StackPanel>
+                                                <StackPanel Spacing="4" Margin="0,8,0,0">
+                                                    <TextBlock Text="{Binding Loc[settings_downloadLimit]}" Classes="card-caption"/>
+                                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                                        <TextBox Text="{Binding SpeedLimitMbDraft}" Width="140"/>
+                                                        <TextBlock Text="{Binding Loc[settings_downloadLimitHint]}" Classes="card-caption"
+                                                                   VerticalAlignment="Center"/>
+                                                        <Button Content="{Binding Loc[common_save]}"
+                                                                Command="{Binding SaveDownloadLimitCommand}"
+                                                                Classes="glass pressable" Padding="18,8"/>
+                                                        <TextBlock Text="{Binding SpeedLimitSaveMessage}" VerticalAlignment="Center"
+                                                                   Classes="card-caption"
+                                                                   Foreground="{DynamicResource AppErrorText}"
+                                                                   IsVisible="{Binding SpeedLimitSaveFailed}"/>
+                                                        <TextBlock Text="{Binding SpeedLimitSaveMessage}" VerticalAlignment="Center"
+                                                                   Classes="card-caption"
+                                                                   Foreground="{DynamicResource AppStatusOk}"
+                                                                   IsVisible="{Binding !SpeedLimitSaveFailed}"/>
+                                                    </StackPanel>
+                                                </StackPanel>
+
+                                                <ToggleSwitch Content="{Binding Loc[settings_autostart]}"
+                                                              IsChecked="{Binding IsAutostart, Mode=OneWay}"
+                                                              Command="{Binding ToggleAutostartCommand}" Margin="0,6,0,0"/>
                                             </StackPanel>
                                         </Border>
 
@@ -631,8 +689,6 @@
 
                     </ContentControl.DataTemplates>
                 </ContentControl>
-                </Panel>
-                </Border>
             </Grid>
         </Grid>
     </Panel>

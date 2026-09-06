@@ -14,10 +14,14 @@ namespace YetAnotherGameLauncher.Core.Services;
 public sealed class HttpFileDownloader(
     HttpClient httpClient,
     HttpFileDownloaderOptions? options = null,
-    ILogger? logger = null) : IDownloader
+    ILogger? logger = null,
+    SpeedLimiter? speedLimiter = null) : IDownloader
 {
     private readonly HttpClient _httpClient = httpClient;
     private readonly HttpFileDownloaderOptions _options = options ?? new();
+
+    /// <summary>全局限速器（多个下载共享同一预算）；null = 不限速。设置页可动态调整其 BytesPerSecond。</summary>
+    public SpeedLimiter Limiter { get; } = speedLimiter ?? new();
 
     public async Task DownloadFileAsync(
         DownloadRequest request,
@@ -114,6 +118,12 @@ public sealed class HttpFileDownloader(
             await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
             written += read;
             progress?.Report(written);
+
+            var wait = Limiter.Acquire(read);
+            if (wait > TimeSpan.Zero)
+            {
+                await Task.Delay(wait, cancellationToken);
+            }
         }
 
         await target.FlushAsync(cancellationToken);

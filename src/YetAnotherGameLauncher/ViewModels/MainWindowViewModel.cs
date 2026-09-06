@@ -19,6 +19,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly Func<string, IGameChannelApi?> _channelResolver;
     private readonly GameUpdateService _updateService;
     private readonly GameLauncherService _launcherService;
+    private readonly HttpFileDownloader _downloader;
+    private readonly IAutostartService _autostart;
     private readonly ThemeService _themeService;
     private readonly ILocalizationService _loc;
     private readonly BackgroundImageService _backgroundImageService;
@@ -28,6 +30,8 @@ public partial class MainWindowViewModel : ViewModelBase
         GameCatalogService catalogService,
         GameUpdateService updateService,
         GameLauncherService launcherService,
+        HttpFileDownloader downloader,
+        IAutostartService autostart,
         ThemeService themeService,
         ILocalizationService localization,
         BackgroundImageService backgroundImageService,
@@ -37,6 +41,8 @@ public partial class MainWindowViewModel : ViewModelBase
         _catalogService = catalogService;
         _updateService = updateService;
         _launcherService = launcherService;
+        _downloader = downloader;
+        _autostart = autostart;
         _themeService = themeService;
         _loc = localization;
         _backgroundImageService = backgroundImageService;
@@ -126,6 +132,8 @@ public partial class MainWindowViewModel : ViewModelBase
         CurrentPage = page;
     }
 
+    public long DownloadSpeedLimitBytes => _catalogService.Catalog?.Settings.DownloadSpeedLimitBytes ?? 0;
+
     public string ConfigFilePath => _catalogService.ConfigFilePath;
 
     public string InstallRoot => _catalogService.Catalog?.Settings.InstallRoot ?? "";
@@ -212,6 +220,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         await MigrateFromSampleAsync(catalog, cancellationToken);
+        _downloader.Limiter.BytesPerSecond = catalog.Settings.DownloadSpeedLimitBytes;
 
         _loc.SetLanguage(catalog.Settings.Language);
         _themeService.Apply(catalog.Settings.Theme);
@@ -257,6 +266,43 @@ public partial class MainWindowViewModel : ViewModelBase
 
         return unknownChannels;
     }
+
+    /// <summary>应用下载限速（字节/秒）并持久化；0 = 不限速。</summary>
+    public async Task ApplySpeedLimitAsync(long bytesPerSecond, CancellationToken cancellationToken = default)
+    {
+        _downloader.Limiter.BytesPerSecond = bytesPerSecond;
+        if (_catalogService.Catalog is { } catalog)
+        {
+            catalog.Settings.DownloadSpeedLimitBytes = bytesPerSecond;
+            try
+            {
+                await _catalogService.SaveAsync(cancellationToken);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                StatusMessage = _loc.Format("message_saveFailed", ex.Message);
+            }
+        }
+    }
+
+    /// <summary>切换开机自启动，成功返回 true（失败时置状态提示）。</summary>
+    public async Task<bool> SetAutostartAsync(bool enabled)
+    {
+        try
+        {
+            await _autostart.SetEnabledAsync(enabled);
+            return _autostart.IsEnabled() == enabled;
+        }
+        catch (Exception ex)
+        {
+            ConfigError = true;
+            StatusMessage = _loc.Format("message_saveFailed", ex.Message);
+            return false;
+        }
+    }
+
+    /// <summary>当前是否已开启开机自启动。</summary>
+    public bool IsAutostartEnabled => _autostart.IsEnabled();
 
     /// <summary>更新安装根目录并重建游戏列表（路径重新解析），成功返回 true。</summary>
     public async Task<bool> UpdateInstallRootAsync(string newRoot)
@@ -393,7 +439,11 @@ public partial class SettingsViewModel : ViewModelBase
     {
         _owner = owner;
         _installRootDraft = owner.InstallRoot;
+        _speedLimitMbDraft = FormatSpeed(owner.DownloadSpeedLimitBytes);
     }
+
+    private static string FormatSpeed(long bytes) =>
+        bytes <= 0 ? "0" : Math.Round(bytes / 1024.0 / 1024.0, 1).ToString("0.#");
 
     public ILocalizationService Loc => _owner.Loc;
 
@@ -406,6 +456,51 @@ public partial class SettingsViewModel : ViewModelBase
     /// <summary>安装根目录草稿（编辑后点保存生效，游戏路径随之重新解析）。</summary>
     [ObservableProperty]
     private string _installRootDraft;
+
+    /// <summary>下载限速草稿（MB/s，0 = 不限速）。</summary>
+    [ObservableProperty]
+    private string _speedLimitMbDraft;
+
+    [ObservableProperty]
+    private bool _speedLimitSaveFailed;
+
+    [ObservableProperty]
+    private string _speedLimitSaveMessage = "";
+
+    partial void OnSpeedLimitMbDraftChanged(string value) => SpeedLimitSaveMessage = "";
+
+    [RelayCommand]
+    private async Task SaveDownloadLimitAsync(CancellationToken cancellationToken)
+    {
+        SpeedLimitSaveMessage = "";
+        SpeedLimitSaveFailed = false;
+        if (!double.TryParse(SpeedLimitMbDraft.Trim(), out var mb) || mb < 0)
+        {
+            SpeedLimitSaveFailed = true;
+            SpeedLimitSaveMessage = Loc["settings_downloadLimitInvalid"];
+            return;
+        }
+
+        await _owner.ApplySpeedLimitAsync((long)Math.Round(mb * 1024 * 1024), cancellationToken);
+        SpeedLimitSaveMessage = Loc["settings_downloadLimitSaved"];
+    }
+
+    /// <summary>开机自启动开关（写入系统注册表 / XDG autostart）。</summary>
+    public bool IsAutostart => _owner.IsAutostartEnabled;
+
+    public async Task SetAutostartAsync(bool enabled)
+    {
+        if (!await _owner.SetAutostartAsync(enabled))
+        {
+            SpeedLimitSaveFailed = true;
+            SpeedLimitSaveMessage = Loc["settings_autostartFailed"];
+        }
+
+        OnPropertyChanged(nameof(IsAutostart));
+    }
+
+    [RelayCommand]
+    private async Task ToggleAutostartAsync() => await SetAutostartAsync(!IsAutostart);
 
     [ObservableProperty]
     private bool _installRootSaveFailed;

@@ -17,6 +17,7 @@
                     <SolidColorBrush x:Key="AppCardBackground" Color="#D6FFFFFF"/>
                     <SolidColorBrush x:Key="AppCardBorder" Color="#66D5D9E0"/>
                     <SolidColorBrush x:Key="AppGlassStrong" Color="#F2FFFFFF"/>
+                    <ExperimentalAcrylicMaterial x:Key="AppAcrylicMaterial" BackgroundSource="Digger" TintColor="#F5F7FA" TintOpacity="0.72" MaterialOpacity="0.55"/>
                     <SolidColorBrush x:Key="AppTextSecondary" Color="#66666E"/>
                     <SolidColorBrush x:Key="AppPredownloadBadge" Color="#E8930C"/>
                     <SolidColorBrush x:Key="AppErrorText" Color="#C42B1C"/>
@@ -35,6 +36,7 @@
                     <SolidColorBrush x:Key="AppCardBackground" Color="#A6202029"/>
                     <SolidColorBrush x:Key="AppCardBorder" Color="#4D3A3A4A"/>
                     <SolidColorBrush x:Key="AppGlassStrong" Color="#E6202029"/>
+                    <ExperimentalAcrylicMaterial x:Key="AppAcrylicMaterial" BackgroundSource="Digger" TintColor="#16161F" TintOpacity="0.6" MaterialOpacity="0.55"/>
                     <SolidColorBrush x:Key="AppTextSecondary" Color="#A2A2AB"/>
                     <SolidColorBrush x:Key="AppPredownloadBadge" Color="#E8930C"/>
                     <SolidColorBrush x:Key="AppErrorText" Color="#FF8A7A"/>

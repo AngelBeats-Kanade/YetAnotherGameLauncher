@@ -11,6 +11,9 @@ public sealed class AppSettings
     /// <summary>下载时的最大文件级并发数。</summary>
     public int MaxParallelDownloads { get; set; } = 8;
 
+    /// <summary>全局限速（字节/秒），0 = 不限速。</summary>
+    public long DownloadSpeedLimitBytes { get; set; }
+
     public string Language { get; set; } = "zh-CN";
 
     /// <summary>侧栏是否展开（false = 收起为图标窄条）。</summary>
