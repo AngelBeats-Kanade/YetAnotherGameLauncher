@@ -63,7 +63,8 @@ public sealed class GameBackdropService(
         {
             remoteUrl = await resolver.GetBackdropUrlAsync(request, cancellationToken);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        catch (Exception ex) when ((ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+            && !cancellationToken.IsCancellationRequested) // 用户主动取消要向上抛，网络失败/超时才回退缓存
         {
             logger?.LogDebug("Backdrop resolve failed for {GameId}: {Message}", request.GameId, ex.Message);
             remoteUrl = null;
@@ -122,8 +123,8 @@ public sealed class GameBackdropService(
             File.Move(tempPath, finalPath);
             return fileName;
         }
-        catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException
-            or TaskCanceledException)
+        catch (Exception ex) when ((ex is HttpRequestException or IOException or InvalidOperationException
+            or TaskCanceledException) && !cancellationToken.IsCancellationRequested)
         {
             logger?.LogDebug("Backdrop download failed: {Message}", ex.Message);
             try

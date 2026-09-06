@@ -60,9 +60,11 @@ public sealed class EndfieldBackdropResolver(HttpClient httpClient, ILogger? log
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
 
-        var url = doc.RootElement
-            .GetProperty("proxy_rsps")[0]
-            .TryGetProperty("get_main_bg_image_rsp", out var rsp)
+        // 协议为逆向所得、结构可能随官方更新变化：全程用 TryGetProperty/数组检查，不抛键缺失异常
+        var url = doc.RootElement.TryGetProperty("proxy_rsps", out var rsps)
+            && rsps.ValueKind == JsonValueKind.Array
+            && rsps.GetArrayLength() > 0
+            && rsps[0].TryGetProperty("get_main_bg_image_rsp", out var rsp)
             && rsp.TryGetProperty("main_bg_image", out var bg)
             && bg.TryGetProperty("url", out var urlElement)
             && urlElement.ValueKind == JsonValueKind.String

@@ -636,16 +636,25 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isAutostart;
 
+    /// <summary>自启设置失败提示（独立消息位，显示在自启开关旁）。</summary>
+    [ObservableProperty]
+    private bool _autostartSaveFailed;
+
+    [ObservableProperty]
+    private string _autostartSaveMessage = "";
+
     /// <summary>页面上屏后异步补齐自启状态（Windows 查询需起 reg 子进程）。</summary>
     public async Task InitializeAsync(CancellationToken cancellationToken = default) =>
         IsAutostart = await _owner.GetAutostartStateAsync(cancellationToken);
 
     public async Task SetAutostartAsync(bool enabled)
     {
+        AutostartSaveFailed = false;
+        AutostartSaveMessage = "";
         if (!await _owner.SetAutostartAsync(enabled))
         {
-            SpeedLimitSaveFailed = true;
-            SpeedLimitSaveMessage = Loc["settings_autostartFailed"];
+            AutostartSaveFailed = true;
+            AutostartSaveMessage = Loc["settings_autostartFailed"];
         }
 
         IsAutostart = await _owner.GetAutostartStateAsync();

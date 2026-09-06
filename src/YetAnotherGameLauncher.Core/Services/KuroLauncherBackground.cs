@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace YetAnotherGameLauncher.Core.Services;
 
 /// <summary>
@@ -5,20 +7,34 @@ namespace YetAnotherGameLauncher.Core.Services;
 /// 游戏目录旁的 kr_game_cache/animate_bg/&lt;hash&gt;/home_N.jpg（N 为帧序号）。
 /// 复用这些帧即可让启动器背景与官方启动器保持一致（随版本更新）。
 /// </summary>
-public static class KuroLauncherBackground
+public static partial class KuroLauncherBackground
 {
+    /// <summary>游戏安装目录向上探测 kr_game_cache 的最大层数（…\Wuthering Waves\Wuthering Waves Game → …\Wuthering Waves）。</summary>
+    private const int MaxAncestorLevels = 3;
+
+    /// <summary>帧文件名中的序号（home_12.jpg → 12）；官方帧名不保证零填充，必须按数值比较。</summary>
+    [GeneratedRegex(@"home_(\d+)\.jpg$", RegexOptions.IgnoreCase)]
+    private static partial Regex FrameSequenceRegex();
+
     /// <summary>
     /// 定位最新的背景帧。优先在游戏安装目录的兄弟目录（kr_game_cache）中查找，
-    /// 再扫描各盘符的常见安装位置；返回动画末帧（文件序号最大），找不到返回 null。
+    /// 再扫描各盘符的常见安装位置；返回动画末帧（帧序号最大，home_10 &gt; home_9），找不到返回 null。
     /// </summary>
     public static string? FindLatestFrame(string? gameInstallDir = null, IEnumerable<string>? driveRoots = null)
     {
         var latest = CandidateRoots(gameInstallDir, driveRoots)
             .Where(Directory.Exists)
             .SelectMany(EnumerateFrames)
-            .OrderByDescending(f => f, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(FrameSequence)
             .FirstOrDefault();
         return latest;
+    }
+
+    /// <summary>帧文件名解析出的序号；无法解析的文件排最后。</summary>
+    private static int FrameSequence(string framePath)
+    {
+        var match = FrameSequenceRegex().Match(framePath);
+        return match.Success && int.TryParse(match.Groups[1].Value, out var n) ? n : -1;
     }
 
     private static IEnumerable<string> CandidateRoots(string? gameInstallDir, IEnumerable<string>? driveRoots)
@@ -28,7 +44,7 @@ public static class KuroLauncherBackground
         {
             var dir = Path.GetDirectoryName(
                 Path.TrimEndingDirectorySeparator(Path.GetFullPath(gameInstallDir)));
-            for (var i = 0; i < 3 && dir is not null; i++)
+            for (var i = 0; i < MaxAncestorLevels && dir is not null; i++)
             {
                 yield return Path.Combine(dir, "kr_game_cache");
                 dir = Path.GetDirectoryName(dir);

@@ -75,7 +75,7 @@ public sealed class GameUpdateService(
                                server, plan.FromVersion, plan.ToVersion, cancellationToken)
                            ?? throw new UpdateException("Predownload incremental manifest is unavailable.");
 
-            var incremental = new IncrementalUpdateService(downloader, patchApplier);
+            var incremental = new IncrementalUpdateService(downloader, patchApplier, logger);
             await incremental.PredownloadAsync(installDir, manifest, progress, cancellationToken);
 
             var totalBytes = manifest.Groups.Sum(g => g.PatchSize) + manifest.Files.Sum(f => f.Size);
@@ -113,7 +113,7 @@ public sealed class GameUpdateService(
         }
         else
         {
-            var incremental = new IncrementalUpdateService(downloader, patchApplier);
+            var incremental = new IncrementalUpdateService(downloader, patchApplier, logger);
             await incremental.ApplyAsync(installDir, staged, progress, cancellationToken);
             repaired = await RepairAgainstManifestAsync(
                 installDir, server, channel, staged.Version, progress, cancellationToken);

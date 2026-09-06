@@ -135,14 +135,15 @@ public class KuroLauncherBackgroundTests : IDisposable
     {
         var installDir = _home.FilePath("Wuthering Waves", "Wuthering Waves Game");
         Directory.CreateDirectory(installDir);
-        foreach (var n in new[] { 1, 2, 9 })
+        foreach (var n in new[] { 1, 2, 9, 10 })
         {
             var f = _home.FilePath("kr_game_cache", "animate_bg", "h1", $"home_{n}.jpg");
             Directory.CreateDirectory(Path.GetDirectoryName(f)!);
             File.WriteAllText(f, "x");
         }
 
-        Assert.EndsWith($"home_9{System.IO.Path.GetExtension(".jpg")}", KuroLauncherBackground.FindLatestFrame(installDir, ["Z:\\"]));
+        // 帧序号按数值比较：home_10 是末帧而非 home_9（文件名非零填充）
+        Assert.EndsWith($"home_10{System.IO.Path.GetExtension(".jpg")}", KuroLauncherBackground.FindLatestFrame(installDir, ["Z:\\"]));
     }
 
     [Fact]

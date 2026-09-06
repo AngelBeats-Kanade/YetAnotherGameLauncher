@@ -40,7 +40,7 @@ public sealed class GameInstallService(
         var totalBytes = needed.Sum(f => f.Size);
 
         logger?.LogInformation("Sync {Version}: {Needed} of {Total} files to download",
-            manifest.Version, manifest.Files.Count, needed.Count);
+            manifest.Version, needed.Count, manifest.Files.Count);
 
         long downloadedBytes = 0;
         var filesDone = 0;

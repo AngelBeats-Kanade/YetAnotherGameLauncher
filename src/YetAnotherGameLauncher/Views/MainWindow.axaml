@@ -557,6 +557,10 @@
                                                 <ToggleSwitch Content="{Binding Loc[settings_autostart]}"
                                                               IsChecked="{Binding IsAutostart, Mode=OneWay}"
                                                               Command="{Binding ToggleAutostartCommand}" Margin="0,6,0,0"/>
+                                                <TextBlock Text="{Binding AutostartSaveMessage}"
+                                                           Classes="card-caption"
+                                                           Foreground="{DynamicResource AppErrorText}"
+                                                           IsVisible="{Binding AutostartSaveFailed}"/>
                                             </StackPanel>
                                         </Border>
 

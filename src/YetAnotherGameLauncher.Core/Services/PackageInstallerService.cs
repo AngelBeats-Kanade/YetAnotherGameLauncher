@@ -65,21 +65,58 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
         progress?.Report(new UpdateProgress(UpdatePhase.Done, 0, 0, packageManifest.Files.Count, packageManifest.Files.Count, null));
     }
 
-    /// <summary>应用预下载：解压暂存压缩包并清理暂存目录。</summary>
+    /// <summary>
+    /// 应用预下载：直接解压暂存压缩包（Predownload 的产物），完成后清理暂存目录。
+    /// 正常情况下零下载；仅当某个包缺失或校验不通过（如暂存被中断/篡改）时才回退重新下载该包。
+    /// </summary>
     public async Task ApplyPredownloadAsync(
         string installDir,
         GameManifest packageManifest,
         IProgress<UpdateProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        await InstallAsync(installDir, packageManifest, progress, cancellationToken);
-
         var staging = IncrementalUpdateService.PredownloadDir(installDir);
+        var stagedDir = PackagesDir(installDir);
+        var total = packageManifest.Files.Count;
+
+        progress?.Report(new UpdateProgress(UpdatePhase.Patching, 0, 0, 0, total, null));
+        foreach (var (file, index) in packageManifest.Files.Select((f, i) => (f, i)))
+        {
+            if (file.Url is null)
+            {
+                throw new UpdateException($"Package entry has no download URL: {file.Path}");
+            }
+
+            var archivePath = StagedArchivePath(stagedDir, file);
+            if (!IsArchiveIntact(archivePath, file))
+            {
+                logger?.LogInformation("Staged package missing or corrupt, re-downloading: {Path}", file.Path);
+                await _downloader.DownloadFileAsync(
+                    new DownloadRequest(file.Url, archivePath, file.Size, file.Md5), null, cancellationToken);
+            }
+
+            progress?.Report(new UpdateProgress(UpdatePhase.Patching, 0, 0, index, total, file.Path));
+            ExtractArchive(archivePath, installDir, file.Path);
+        }
+
         if (Directory.Exists(staging))
         {
             Directory.Delete(staging, recursive: true);
         }
+
+        logger?.LogInformation("Predownload applied: {Version} ({Count} archives)", packageManifest.Version, total);
+        progress?.Report(new UpdateProgress(UpdatePhase.Done, 0, 0, total, total, null));
     }
+
+    /// <summary>压缩包在包目录内的落盘路径（清单里的反斜杠路径取末段文件名）。</summary>
+    private static string StagedArchivePath(string packagesDir, ManifestFile file) =>
+        Path.Combine(packagesDir, Path.GetFileName(file.Path.Replace('\\', '/')));
+
+    /// <summary>暂存包完整性：文件存在、大小与 MD5 均与清单一致。</summary>
+    private static bool IsArchiveIntact(string archivePath, ManifestFile file) =>
+        File.Exists(archivePath)
+        && new FileInfo(archivePath).Length == file.Size
+        && Hashing.Md5Hex(archivePath).Equals(file.Md5, StringComparison.OrdinalIgnoreCase);
 
     private async Task<List<(ManifestFile File, string ArchivePath)>> DownloadPackagesAsync(
         string packagesDir,
@@ -101,7 +138,7 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
 
             progress?.Report(new UpdateProgress(UpdatePhase.Downloading, totalBytes, downloaded, index, packageManifest.Files.Count, file.Path));
 
-            var archivePath = Path.Combine(packagesDir, Path.GetFileName(file.Path.Replace('\\', '/')));
+            var archivePath = StagedArchivePath(packagesDir, file);
             await _downloader.DownloadFileAsync(
                 new DownloadRequest(file.Url, archivePath, file.Size, file.Md5), null, cancellationToken);
 

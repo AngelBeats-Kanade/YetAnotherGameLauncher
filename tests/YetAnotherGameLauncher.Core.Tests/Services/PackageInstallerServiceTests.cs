@@ -69,6 +69,38 @@ public class PackageInstallerServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyPredownload_UsesStagedArchive_WithoutReDownloading()
+    {
+        // 回归：Apply 曾误走 InstallAsync，把预下载暂存的包弃用后整包重新下载
+        _downloader.Responses[ZipUrl] = ZipBytes;
+        var service = new PackageInstallerService(_downloader);
+        await service.PredownloadAsync(_tempDir.Path, Manifest());
+        var requestsAfterPredownload = _downloader.Requests.Count;
+
+        await service.ApplyPredownloadAsync(_tempDir.Path, Manifest());
+
+        Assert.Equal(requestsAfterPredownload, _downloader.Requests.Count); // 应用阶段零下载
+        Assert.False(File.Exists(_tempDir.FilePath("game-0.zip"))); // 暂存包已随暂存目录清理
+    }
+
+    [Fact]
+    public async Task ApplyPredownload_CorruptStagedArchive_FallsBackToReDownload()
+    {
+        _downloader.Responses[ZipUrl] = ZipBytes;
+        var service = new PackageInstallerService(_downloader);
+        await service.PredownloadAsync(_tempDir.Path, Manifest());
+        // 篡改暂存包使其校验失败（截断）
+        var staged = Path.Combine(
+            IncrementalUpdateService.PredownloadDir(_tempDir.Path), "packages", "game-0.zip");
+        await File.WriteAllBytesAsync(staged, ZipBytes[..^8]);
+
+        await service.ApplyPredownloadAsync(_tempDir.Path, Manifest());
+
+        Assert.True(_downloader.Requests.Count > 1); // 该包被重新下载
+        Assert.Equal("MZ-stub", await File.ReadAllTextAsync(_tempDir.FilePath("game.exe")));
+    }
+
+    [Fact]
     public async Task InstallAsync_Md5Mismatch_Throws()
     {
         // 用真实下载器 + 桩 HTTP 验证 md5 链路
