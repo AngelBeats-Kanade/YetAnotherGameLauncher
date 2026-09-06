@@ -12,7 +12,7 @@ public sealed class LocalStateService(string installDir)
 {
     public const string StateDirName = ".yagl";
 
-    public string StateFilePath => Path.Combine(installDir, StateDirName, "state.json");
+    private string StateFilePath => Path.Combine(installDir, StateDirName, "state.json");
 
     /// <summary>读取状态；gameId/serverId 不匹配时同样视为未安装。</summary>
     public LocalGameState? Load(string gameId, string serverId)

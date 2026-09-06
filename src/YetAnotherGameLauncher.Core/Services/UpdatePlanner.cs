@@ -5,6 +5,7 @@ namespace YetAnotherGameLauncher.Core.Services;
 /// <summary>根据本地版本与渠道提供的差分入口，决定全量还是增量更新。</summary>
 public static class UpdatePlanner
 {
+    /// <summary>决定更新策略：本地版本命中差分入口走增量，否则全量同步。</summary>
     /// <param name="localVersion">本地已安装版本；null/空 表示尚未安装。</param>
     /// <param name="targetVersion">目标版本。</param>
     /// <param name="availablePatchSourceVersions">
@@ -45,7 +46,4 @@ public static class VersionComparison
 
         return !string.Equals(remoteVersion, localVersion, StringComparison.Ordinal);
     }
-
-    public static bool IsSame(string? a, string? b) =>
-        string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 }

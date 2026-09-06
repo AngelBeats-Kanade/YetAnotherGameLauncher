@@ -214,9 +214,9 @@ public partial class MainWindowViewModel : ViewModelBase
     public string GameCountText => _loc.Format("sidebar_games_count", Games.Count);
 
     /// <summary>侧栏展开/收起（收起 = 68px 图标窄条），宽度驱动侧栏过渡动画。</summary>
-    public const double SidebarExpandedWidth = 264;
+    private const double SidebarExpandedWidth = 264;
 
-    public const double SidebarCollapsedWidth = 68;
+    private const double SidebarCollapsedWidth = 68;
 
     [ObservableProperty]
     private bool _isSidebarExpanded = true;
@@ -600,10 +600,6 @@ public partial class SettingsViewModel : ViewModelBase
 
     public string ConfigFilePath => _owner.ConfigFilePath;
 
-    public string InstallRoot => _owner.InstallRoot;
-
-    public string StatusMessage => _owner.StatusMessage;
-
     /// <summary>安装根目录草稿（编辑后点保存生效，游戏路径随之重新解析）。</summary>
     [ObservableProperty]
     private string _installRootDraft;
@@ -829,8 +825,6 @@ public sealed partial class AboutViewModel : ViewModelBase
     public ILocalizationService Loc => _owner.Loc;
 
     public string ConfigFilePath => _owner.ConfigFilePath;
-
-    public string GameCountText => _owner.GameCountText;
 
     /// <summary>应用程序集版本（AssemblyInformationalVersion 优先，含 git 信息时更长）。</summary>
     public string AppVersion =>

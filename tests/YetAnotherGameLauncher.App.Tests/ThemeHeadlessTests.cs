@@ -19,7 +19,6 @@ public class ThemeHeadlessTests
 
             service.Apply(ThemeMode.Dark);
 
-            Assert.Equal(ThemeMode.Dark, service.Mode);
             Assert.Equal(ThemeVariant.Dark, Application.Current!.ActualThemeVariant);
         }, CancellationToken.None);
     }

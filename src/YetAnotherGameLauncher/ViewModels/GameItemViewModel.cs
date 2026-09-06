@@ -1,7 +1,5 @@
 using System.Collections.ObjectModel;
-using Avalonia;
 using Avalonia.Media;
-using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using YetAnotherGameLauncher.Core;
@@ -114,7 +112,7 @@ public partial class GameItemViewModel(
 
     public string ServerCountText => _loc.Format("game_info_servers_count", Servers.Count);
 
-    [RelayCommand]
+    /// <summary>刷新安装状态/版本/预下载可用性（语言或渠道数据变化后也会调用）。</summary>
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
         await RefreshCoreAsync(cancellationToken);

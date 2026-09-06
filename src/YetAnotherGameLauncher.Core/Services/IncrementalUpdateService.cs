@@ -18,7 +18,7 @@ public sealed class IncrementalUpdateService(
     ILogger? logger = null)
 {
     public const string PredownloadDirName = "predownload";
-    public const string PatchWorkDirName = "patchwork";
+    private const string PatchWorkDirName = "patchwork";
     private const string BackupSuffix = ".yagl-bak";
 
     private readonly IDownloader _downloader = downloader;

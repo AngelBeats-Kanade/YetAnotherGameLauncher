@@ -80,12 +80,4 @@ public class VersionComparisonTests
         Assert.False(VersionComparison.IsNewer("3.6.0", null));
         Assert.False(VersionComparison.IsNewer("3.6.0", ""));
     }
-
-    [Fact]
-    public void IsSame_IgnoresCase()
-    {
-        Assert.True(VersionComparison.IsSame("3.6.0", "3.6.0"));
-        Assert.True(VersionComparison.IsSame("3.6.0-RC", "3.6.0-rc"));
-        Assert.False(VersionComparison.IsSame("3.6.0", "3.6.1"));
-    }
 }

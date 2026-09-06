@@ -7,14 +7,8 @@ namespace YetAnotherGameLauncher.Themes;
 /// <summary>主题切换服务：System 跟随操作系统，Light/Dark 显式覆盖。</summary>
 public sealed class ThemeService
 {
-    /// <summary>当前模式（不随系统变化事件重置，仅记录用户选择）。</summary>
-    public ThemeMode Mode { get; private set; } = ThemeMode.System;
-
-    public event Action? ThemeChanged;
-
     public void Apply(ThemeMode mode)
     {
-        Mode = mode;
         if (Application.Current is { } app)
         {
             var variant = mode switch
@@ -34,7 +28,5 @@ public sealed class ThemeService
                 app.Dispatcher.Post(() => app.RequestedThemeVariant = variant);
             }
         }
-
-        ThemeChanged?.Invoke();
     }
 }

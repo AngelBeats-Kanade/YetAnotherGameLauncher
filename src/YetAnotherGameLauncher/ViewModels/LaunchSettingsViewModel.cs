@@ -6,8 +6,6 @@ using YetAnotherGameLauncher.Services;
 
 namespace YetAnotherGameLauncher.ViewModels;
 
-
-
 /// <summary>
 /// 详情页"启动设置"卡：编辑命令模板 / 工作目录 / 环境变量并保存回 games.json。
 /// 环境变量以多行 KEY=VALUE 文本编辑（解析容错，错误行给出行内容提示）。
@@ -174,8 +172,6 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         return result;
     }
 
-    public ILocalizationService Loc => _loc;
-
     [ObservableProperty]
     private string _commandTemplate;
 
@@ -252,7 +248,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         }
     }
 
-    internal static string SerializeEnvironment(Dictionary<string, string> environment)
+    private static string SerializeEnvironment(Dictionary<string, string> environment)
         => string.Join(Environment.NewLine, environment.Select(kv => $"{kv.Key}={kv.Value}"));
 
     private static bool TryParseEnvironment(
@@ -281,7 +277,6 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         return true;
     }
 }
-
 
 /// <summary>启动方式选项（模式 + 已本地化文案）。</summary>
 public sealed record LaunchModeOption(LaunchMode Mode, string Name);

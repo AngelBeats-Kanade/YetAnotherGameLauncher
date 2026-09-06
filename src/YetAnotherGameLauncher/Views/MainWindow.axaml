@@ -50,16 +50,9 @@
             <Setter Property="Fill" Value="{DynamicResource AppAccentBrush}"/>
         </Style>
 
-        <!-- 玻璃卡片（浮在窗口背景上）与不透明卡片（表单类，保证可读） -->
+        <!-- 玻璃卡片（浮在窗口背景上） -->
         <Style Selector="Border.card">
             <Setter Property="Background" Value="{DynamicResource AppCardBackground}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource AppCardBorder}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="14"/>
-            <Setter Property="Padding" Value="20"/>
-        </Style>
-        <Style Selector="Border.card-solid">
-            <Setter Property="Background" Value="{DynamicResource AppGlassStrong}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource AppCardBorder}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="14"/>
@@ -121,27 +114,6 @@
             <Style Selector="^:pressed">
                 <Setter Property="RenderTransform" Value="scale(0.97)"/>
             </Style>
-        </Style>
-
-        <!-- 折叠卡片头（启动设置）：图标与文字横排，chevron 旋转 -->
-        <Style Selector="ToggleButton.card-toggle">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="HorizontalContentAlignment" Value="Left"/>
-            <Setter Property="Padding" Value="0"/>
-        </Style>
-        <Style Selector="ToggleButton.card-toggle /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="CornerRadius" Value="8"/>
-            <Setter Property="Padding" Value="10,8"/>
-        </Style>
-        <Style Selector="ToggleButton.card-toggle:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="{DynamicResource AppSidebarHover}"/>
-        </Style>
-        <Style Selector="ToggleButton.card-toggle Path.chev">
-            <Setter Property="RenderTransform" Value="rotate(0deg)"/>
-        </Style>
-        <Style Selector="ToggleButton.card-toggle:checked Path.chev">
-            <Setter Property="RenderTransform" Value="rotate(180deg)"/>
         </Style>
 
         <!-- 侧栏收起态：条目图标居中 -->
@@ -522,7 +494,7 @@
                                                 <TextBlock Text="{Binding Loc[settings_appBackground]}" FontSize="15" FontWeight="SemiBold"/>
                                                 <TextBlock Text="{Binding Loc[settings_appBackground_hint]}" Classes="card-caption" TextWrapping="Wrap"/>
                                                 <TextBox Text="{Binding AppBackgroundPath}" IsReadOnly="True"
-                                                         Watermark="{Binding Loc[settings_appBackground_watermark]}"/>
+                                                         PlaceholderText="{Binding Loc[settings_appBackground_watermark]}"/>
                                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                                     <Button Content="{Binding Loc[settings_appBackground_browse]}"
                                                             Command="{Binding BrowseAppBackgroundCommand}"

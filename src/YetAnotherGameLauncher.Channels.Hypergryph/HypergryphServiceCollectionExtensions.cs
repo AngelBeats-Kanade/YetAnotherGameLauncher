@@ -1,6 +1,5 @@
 using YetAnotherGameLauncher.Core.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Http;
 using Microsoft.Extensions.Logging;
 
 namespace YetAnotherGameLauncher.Channels.Hypergryph;

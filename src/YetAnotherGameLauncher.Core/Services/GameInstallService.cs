@@ -23,7 +23,7 @@ public sealed class GameInstallService(
     private readonly GameInstallServiceOptions _options = options ?? new();
 
     /// <summary>不在清单内也要保留的顶层目录与文件（存档、启动器自身数据、官方启动器兼容文件）。</summary>
-    public static readonly IReadOnlyList<string> PreservedEntries = [".yagl", "Saved", "launcherDownloadConfig.json"];
+    private static readonly IReadOnlyList<string> PreservedEntries = [".yagl", "Saved", "launcherDownloadConfig.json"];
 
     public async Task SyncAsync(
         string installDir,
@@ -103,7 +103,7 @@ public sealed class GameInstallService(
     }
 
     /// <summary>删除清单之外的游离文件（跳过存档与启动器数据目录）。</summary>
-    public static void CleanupStaleFiles(string installDir, GameManifest manifest)
+    private static void CleanupStaleFiles(string installDir, GameManifest manifest)
     {
         if (!Directory.Exists(installDir))
         {
