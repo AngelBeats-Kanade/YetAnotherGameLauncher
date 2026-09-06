@@ -140,8 +140,8 @@
             <Setter Property="Padding" Value="9"/>
         </Style>
 
-        <!-- 页面切换：淡入 + 轻微上移 -->
-        <Style Selector="Border.page">
+        <!-- 页面切换：淡入 + 轻微上移（详情页根为 Panel，其余页根为 Border，用 :is 统一） -->
+        <Style Selector=":is(Control).page">
             <Style.Animations>
                 <Animation Duration="0:0:0.22" FillMode="Forward" Easing="CubicEaseOut">
                     <KeyFrame Cue="0%">
@@ -157,23 +157,17 @@
         </Style>
     </Window.Styles>
 
-    <!-- ==================== 窗口级结构：背景 → 遮罩 → 主布局 ==================== -->
+    <!-- ==================== 窗口级结构：应用自有背景 → 主布局（游戏背景只在详情页模板内） ==================== -->
     <Panel>
 
-        <!-- 背景大图（当前选中游戏，清晰铺满整窗；模糊只发生在内容面板层） -->
-        <Panel IsVisible="{Binding SelectedGame.HasBackgroundImage}">
-            <Image Source="{Binding SelectedGame.BackgroundImage}" Stretch="UniformToFill"/>
+        <!-- 应用自有背景：主题感知渐变 + 柔光斑；设置里的自定义背景图覆盖其上 -->
+        <Panel>
+            <Rectangle Fill="{DynamicResource AppBackdropBaseBrush}"/>
+            <Rectangle Fill="{DynamicResource AppBackdropGlowBrush}"/>
+            <Rectangle Fill="{DynamicResource AppBackdropGlowWarmBrush}"/>
+            <Image Source="{Binding AppBackgroundImage}" Stretch="UniformToFill"
+                   IsVisible="{Binding HasCustomAppBackground}"/>
         </Panel>
-
-        <!-- 遮罩：顶部透出背景、底部压实内容，保证任何背景下文字可读 -->
-        <Border>
-            <Border.Background>
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Color="{DynamicResource AppBackdropScrimTopColor}" Offset="0"/>
-                    <GradientStop Color="{DynamicResource AppBackdropScrimBottomColor}" Offset="1"/>
-                </LinearGradientBrush>
-            </Border.Background>
-        </Border>
 
         <Grid ColumnDefinitions="Auto,*">
 
@@ -299,15 +293,30 @@
                 </DockPanel>
             </Border>
 
-            <!-- ==================== 主内容（浮在清晰背景上；按钮/卡片用亚克力毛玻璃） ==================== -->
-            <Grid Grid.Column="1" Margin="34,26,34,24">
+            <!-- ==================== 主内容（游戏详情页自带全幅背景；设置/关于透出应用自有背景） ==================== -->
+            <Grid Grid.Column="1">
                 <ContentControl x:Name="PageHost" Content="{Binding CurrentPage}">
                     <ContentControl.DataTemplates>
 
-                        <!-- ========== 游戏详情页（海报式） ========== -->
+                        <!-- ========== 游戏详情页（海报式：游戏当期背景铺满主区域，仅此页） ========== -->
                         <DataTemplate DataType="{x:Type vm:GameItemViewModel}">
-                            <Border Classes="page">
-                                <Grid RowDefinitions="Auto,*,Auto,Auto,Auto,Auto" Margin="8,10,8,10">
+                            <Panel Classes="page">
+
+                                <!-- 游戏当期背景（清晰全幅）+ 三段式遮罩保证文字可读 -->
+                                <Panel IsVisible="{Binding HasBackgroundImage}">
+                                    <Image Source="{Binding BackgroundImage}" Stretch="UniformToFill"/>
+                                    <Border>
+                                        <Border.Background>
+                                            <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                                                <GradientStop Color="{DynamicResource AppBackdropScrimTopColor}" Offset="0"/>
+                                                <GradientStop Color="{DynamicResource AppBackdropScrimMidColor}" Offset="0.45"/>
+                                                <GradientStop Color="{DynamicResource AppBackdropScrimBottomColor}" Offset="1"/>
+                                            </LinearGradientBrush>
+                                        </Border.Background>
+                                    </Border>
+                                </Panel>
+
+                                <Grid RowDefinitions="Auto,*,Auto,Auto,Auto,Auto" Margin="42,36,42,34">
 
                                     <!-- 标题区（左上） -->
                                     <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="18" Margin="14,10,0,0">
@@ -406,33 +415,35 @@
                                         </StackPanel>
                                     </Border>
 
-                                    <!-- 页脚（渠道 · 服务器 · 安装目录） -->
-                                    <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="8" Opacity="0.75"
-                                                HorizontalAlignment="Left" Margin="18,2,0,0">
-                                        <TextBlock Text="{Binding Loc[game_info_channel]}" FontSize="11.5"
+                                    <!-- 页脚（渠道 · 服务器 · 安装目录；路径列自适应收窄并省略） -->
+                                    <Grid Grid.Row="4" ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*" Opacity="0.75"
+                                          HorizontalAlignment="Stretch" Margin="18,2,0,0">
+                                        <TextBlock Grid.Column="0" Text="{Binding Loc[game_info_channel]}" FontSize="11.5"
                                                    Foreground="{DynamicResource AppTextSecondary}"/>
-                                        <TextBlock Text="{Binding ChannelDisplayName}" FontSize="11.5"
+                                        <TextBlock Grid.Column="1" Text="{Binding ChannelDisplayName}" FontSize="11.5" Margin="6,0,0,0"
                                                    Foreground="{DynamicResource AppTextSecondary}"/>
-                                        <TextBlock Text="·" FontSize="11.5" Foreground="{DynamicResource AppTextSecondary}"/>
-                                        <TextBlock Text="{Binding Loc[game_server]}" FontSize="11.5"
+                                        <TextBlock Grid.Column="2" Text="·" FontSize="11.5" Margin="8,0"
                                                    Foreground="{DynamicResource AppTextSecondary}"/>
-                                        <TextBlock Text="{Binding ServerCountText}" FontSize="11.5"
+                                        <TextBlock Grid.Column="3" Text="{Binding Loc[game_server]}" FontSize="11.5"
                                                    Foreground="{DynamicResource AppTextSecondary}"/>
-                                        <TextBlock Text="·" FontSize="11.5" Foreground="{DynamicResource AppTextSecondary}"/>
-                                        <TextBlock Text="{Binding Loc[game_info_installDir]}" FontSize="11.5"
+                                        <TextBlock Grid.Column="4" Text="{Binding ServerCountText}" FontSize="11.5" Margin="6,0,0,0"
                                                    Foreground="{DynamicResource AppTextSecondary}"/>
-                                        <TextBlock Text="{Binding InstallDirPath}" FontSize="11.5"
+                                        <TextBlock Grid.Column="5" Text="·" FontSize="11.5" Margin="8,0"
+                                                   Foreground="{DynamicResource AppTextSecondary}"/>
+                                        <TextBlock Grid.Column="6" Text="{Binding Loc[game_info_installDir]}" FontSize="11.5"
+                                                   Foreground="{DynamicResource AppTextSecondary}"/>
+                                        <TextBlock Grid.Column="7" Text="{Binding InstallDirPath}" FontSize="11.5" Margin="6,0,0,0"
                                                    Foreground="{DynamicResource AppTextSecondary}"
                                                    TextTrimming="CharacterEllipsis"
                                                    ToolTip.Tip="{Binding InstallDirPath}"/>
-                                    </StackPanel>
+                                    </Grid>
                                 </Grid>
-                            </Border>
+                            </Panel>
                         </DataTemplate>
 
                         <!-- ========== 设置页 ========== -->
                         <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
-                            <Border Classes="page">
+                            <Border Classes="page" Margin="34,26,34,24">
                                 <ScrollViewer>
                                     <StackPanel MaxWidth="720" HorizontalAlignment="Stretch" Spacing="18">
 
@@ -469,6 +480,32 @@
                                                     </StackPanel>
                                                 </Grid>
                                                 <TextBlock Text="{Binding Loc[settings_appearanceHint]}" Classes="card-caption"/>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <!-- 应用背景（设置/关于/侧栏底色；游戏详情页背景不受影响） -->
+                                        <Border Classes="card">
+                                            <StackPanel Spacing="8">
+                                                <TextBlock Text="{Binding Loc[settings_appBackground]}" FontSize="15" FontWeight="SemiBold"/>
+                                                <TextBlock Text="{Binding Loc[settings_appBackground_hint]}" Classes="card-caption" TextWrapping="Wrap"/>
+                                                <TextBox Text="{Binding AppBackgroundPath}" IsReadOnly="True"
+                                                         Watermark="{Binding Loc[settings_appBackground_watermark]}"/>
+                                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                                    <Button Content="{Binding Loc[settings_appBackground_browse]}"
+                                                            Command="{Binding BrowseAppBackgroundCommand}"
+                                                            Classes="accent pressable" Padding="18,8"/>
+                                                    <Button Content="{Binding Loc[settings_appBackground_reset]}"
+                                                            Command="{Binding ResetAppBackgroundCommand}"
+                                                            Classes="glass pressable" Padding="18,8"/>
+                                                    <TextBlock Text="{Binding AppBackgroundMessage}" VerticalAlignment="Center"
+                                                               Classes="card-caption"
+                                                               Foreground="{DynamicResource AppErrorText}"
+                                                               IsVisible="{Binding AppBackgroundFailed}"/>
+                                                    <TextBlock Text="{Binding AppBackgroundMessage}" VerticalAlignment="Center"
+                                                               Classes="card-caption"
+                                                               Foreground="{DynamicResource AppStatusOk}"
+                                                               IsVisible="{Binding !AppBackgroundFailed}"/>
+                                                </StackPanel>
                                             </StackPanel>
                                         </Border>
 
@@ -540,7 +577,7 @@
 
                         <!-- ========== 关于页 ========== -->
                         <DataTemplate DataType="{x:Type vm:AboutViewModel}">
-                            <Border Classes="page">
+                            <Border Classes="page" Margin="34,26,34,24">
                                 <ScrollViewer>
                                     <StackPanel MaxWidth="720" HorizontalAlignment="Stretch" Spacing="18">
 
@@ -601,7 +638,7 @@
 
                         <!-- ========== 游戏设置页（Motrix 式分区） ========== -->
                         <DataTemplate DataType="{x:Type vm:GameSettingsViewModel}">
-                            <Border Classes="page">
+                            <Border Classes="page" Margin="34,26,34,24">
                                 <ScrollViewer>
                                     <StackPanel MaxWidth="720" HorizontalAlignment="Stretch" Spacing="18">
 

@@ -25,10 +25,10 @@ public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger =
     public const string ChannelOptionKey = "channel";
     public const string SubChannelOptionKey = "subChannel";
 
-    // 国际服（osWinRel）实测参数，作为 options 未提供时的缺省值
-    private const string GameAppcode = "YDUTE5gscDZ229CW";
-    private const string ChannelId = "6";
-    private const string SubChannelId = "9999";
+    // 国际服（osWinRel）实测参数，作为 options 未提供时的缺省值（背景接口等复用）
+    public const string DefaultGameAppcode = "YDUTE5gscDZ229CW";
+    public const string DefaultChannelId = "6";
+    public const string DefaultSubChannelId = "9999";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -108,9 +108,9 @@ public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger =
                     GetLatestGameReq = new GetLatestGameReq
                     {
                         Version = clientVersion,
-                        Appcode = OptionOrDefault(server, AppcodeOptionKey, GameAppcode),
-                        Channel = OptionOrDefault(server, ChannelOptionKey, ChannelId),
-                        SubChannel = OptionOrDefault(server, SubChannelOptionKey, SubChannelId),
+                        Appcode = OptionOrDefault(server, AppcodeOptionKey, DefaultGameAppcode),
+                        Channel = OptionOrDefault(server, ChannelOptionKey, DefaultChannelId),
+                        SubChannel = OptionOrDefault(server, SubChannelOptionKey, DefaultSubChannelId),
                         DeviceId = "yetanothervariant-game-launcher",
                     },
                 },

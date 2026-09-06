@@ -21,7 +21,8 @@ public partial class GameItemViewModel(
     GameLauncherService launcherService,
     ILocalizationService loc,
     GameCatalogService catalogService,
-    BackgroundImageService backgroundImageService) : ViewModelBase
+    BackgroundImageService backgroundImageService,
+    GameBackdropService backdropService) : ViewModelBase
 {
     private readonly GameUpdateService _updateService = updateService;
     private readonly GameLauncherService _launcherService = launcherService;
@@ -29,6 +30,7 @@ public partial class GameItemViewModel(
     private string _installDir = installDir;
     private readonly ILocalizationService _loc = loc;
     private readonly GameCatalogService _catalogService = catalogService;
+    private readonly GameBackdropService _backdropService = backdropService;
 
     private LaunchSettingsViewModel? _launchSettings;
 
@@ -41,10 +43,32 @@ public partial class GameItemViewModel(
     /// <summary>暴露给 XAML 的文案服务（详情页模板绑定 {Binding Loc[key]}）。</summary>
     public ILocalizationService Loc { get; } = loc;
 
-    public string DisplayName => Game.DisplayName;
+    /// <summary>显示名：配置 nameLocalized 按当前语言取值，缺失回退 displayName。</summary>
+    public string DisplayName => ResolveDisplayName();
 
     /// <summary>列表图标：显示名首字（icon 加载失败/未配置时的回退）。</summary>
-    public string IconText => string.IsNullOrEmpty(Game.DisplayName) ? "?" : Game.DisplayName[..1];
+    public string IconText => string.IsNullOrEmpty(DisplayName) ? "?" : DisplayName[..1];
+
+    private string ResolveDisplayName()
+    {
+        var culture = _loc.EffectiveCulture;
+        if (Game.NameLocalized.TryGetValue(culture, out var exact))
+        {
+            return exact;
+        }
+
+        // 语言前缀回退：zh-TW → zh-CN 等同前缀项
+        var prefix = culture.Split('-')[0];
+        foreach (var (key, value) in Game.NameLocalized)
+        {
+            if (key.Split('-')[0].Equals(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return value;
+            }
+        }
+
+        return Game.DisplayName;
+    }
 
     /// <summary>官方游戏图标（games.json 的 icon 字段；异步加载，失败回退首字）。</summary>
     [ObservableProperty]
@@ -98,6 +122,10 @@ public partial class GameItemViewModel(
 
     private async Task RefreshCoreAsync(CancellationToken cancellationToken)
     {
+        // 语言可能已切换：显示名/图标首字随语言重建
+        OnPropertyChanged(nameof(DisplayName));
+        OnPropertyChanged(nameof(IconText));
+
         // 背景为装饰性资源：后台加载，不阻塞状态刷新（否则 StatusText 等会晚到）
         _ = LoadBackgroundImageAsync(cancellationToken);
 
@@ -143,22 +171,28 @@ public partial class GameItemViewModel(
 
     private async Task LoadBackgroundImageAsync(CancellationToken cancellationToken)
     {
+        // 图标与背景分别兜底：背景链路失败不应吞掉图标（图标失败同样回退首字贴片）
         try
         {
-            var iconTask = backgroundImageService.LoadAsync(Game.Icon, cancellationToken);
-
-            // 背景优先级：配置指定 > 库洛官方启动器本地缓存（当期背景） > 主题渐变
-            var source = Game.BackgroundImage;
-            if (string.IsNullOrWhiteSpace(source) && Game.Channel == "kuro")
-            {
-                source = KuroLauncherBackground.FindLatestFrame(_installDir);
-            }
-
-            var image = await backgroundImageService.LoadAsync(source, cancellationToken);
-            var icon = await iconTask;
-
+            var icon = await backgroundImageService.LoadAsync(Game.Icon, cancellationToken);
             GameIcon = icon;
             HasGameIcon = icon is not null;
+        }
+        catch (Exception)
+        {
+            // 装饰性资源失败不影响功能
+        }
+
+        try
+        {
+            // 背景来源（配置文件不携带背景地址，每次打开都向渠道确认当期背景）：
+            // 渠道背景服务（远程接口/官方启动器本地帧，含磁盘缓存）→ null 时回退主题渐变
+            var region = RegionForLanguage(_loc.EffectiveCulture);
+            var source = await _backdropService.ResolveAsync(
+                new BackdropRequest(Game.Id, Game.Channel, region, _installDir, SelectServerOptions(region)),
+                cancellationToken);
+
+            var image = await backgroundImageService.LoadAsync(source, cancellationToken);
             BackgroundImage = image;
             HasBackgroundImage = image is not null;
         }
@@ -166,6 +200,19 @@ public partial class GameItemViewModel(
         {
             // 与 BackgroundImageService 的静默回退一致：装饰性资源失败不影响功能
         }
+    }
+
+    /// <summary>界面语言决定背景区域：中文走国服渠道，其余走国际服渠道。</summary>
+    private static string RegionForLanguage(string culture) =>
+        culture.StartsWith("zh", StringComparison.OrdinalIgnoreCase) ? "cn" : "global";
+
+    /// <summary>按区域挑服务器：cn → id 为 cn 的服务器；global → global，避免误用 B 服端点。</summary>
+    private IReadOnlyDictionary<string, string> SelectServerOptions(string region)
+    {
+        var preferred = Servers.FirstOrDefault(s => s.Id.Equals(region, StringComparison.OrdinalIgnoreCase))
+            ?? (region == "cn" ? null : Servers.FirstOrDefault(s => !s.Id.Equals("bilibili", StringComparison.OrdinalIgnoreCase)))
+            ?? Servers.FirstOrDefault();
+        return preferred?.Options ?? new Dictionary<string, string>();
     }
 
     /// <summary>安装目录变更（设置卡保存后）就地生效：路径重解析 + 状态刷新，不重建列表。</summary>

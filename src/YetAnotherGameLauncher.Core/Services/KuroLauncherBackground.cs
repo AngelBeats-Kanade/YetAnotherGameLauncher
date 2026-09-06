@@ -45,8 +45,9 @@ public static class KuroLauncherBackground
     {
         try
         {
-            return Directory.EnumerateFiles(
-                Path.Combine(root, "animate_bg"), "home_*.jpg", SearchOption.AllDirectories);
+            // 立即物化：惰性枚举在后续排序时才抛 IOException/UnauthorizedAccessException 会逃出 try
+            return [.. Directory.EnumerateFiles(
+                Path.Combine(root, "animate_bg"), "home_*.jpg", SearchOption.AllDirectories)];
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

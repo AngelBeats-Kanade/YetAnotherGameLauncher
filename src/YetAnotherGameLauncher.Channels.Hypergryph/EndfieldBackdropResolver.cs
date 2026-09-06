@@ -1,0 +1,79 @@
+using System.Net.Http.Json;
+using System.Text.Json;
+using YetAnotherGameLauncher.Core.Abstractions;
+using Microsoft.Extensions.Logging;
+
+namespace YetAnotherGameLauncher.Channels.Hypergryph;
+
+/// <summary>
+/// 明日方舟：终末地的详情页背景解析：官方启动器的 get_main_bg_image 接口（与版本接口同一 batch_proxy，
+/// web 前缀），返回当期主背景（官方启动器首页同图，随版本更新）。
+/// 端点参数来自 games.json 对应 server 的 options（apiBase/appcode/channel/subChannel），
+/// 语言按区域取值：cn → zh-cn，global → en-us。协议无官方文档，字段来自社区逆向，可能随官方更新变化。
+/// </summary>
+public sealed class EndfieldBackdropResolver(HttpClient httpClient, ILogger? logger = null) : IBackdropResolver
+{
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
+
+    private readonly HttpClient _httpClient = httpClient;
+
+    public async Task<string?> GetBackdropUrlAsync(BackdropRequest request, CancellationToken cancellationToken = default)
+    {
+        var options = request.ServerOptions;
+        if (!options.TryGetValue(GryphlineChannelApi.ApiBaseOptionKey, out var apiBase)
+            || string.IsNullOrWhiteSpace(apiBase))
+        {
+            return null;
+        }
+
+        var appcode = OptionOrDefault(options, GryphlineChannelApi.AppcodeOptionKey, GryphlineChannelApi.DefaultGameAppcode);
+        var channel = OptionOrDefault(options, GryphlineChannelApi.ChannelOptionKey, GryphlineChannelApi.DefaultChannelId);
+        var subChannel = OptionOrDefault(options, GryphlineChannelApi.SubChannelOptionKey, GryphlineChannelApi.DefaultSubChannelId);
+        var language = request.Region == "cn" ? "zh-cn" : "en-us";
+
+        var payload = new
+        {
+            proxy_reqs = new[]
+            {
+                new
+                {
+                    kind = "get_main_bg_image",
+                    get_main_bg_image_req = new
+                    {
+                        appcode,
+                        channel,
+                        sub_channel = subChannel,
+                        language,
+                        platform = "Windows",
+                        source = "launcher",
+                    },
+                },
+            },
+        };
+
+        logger?.LogDebug("Fetching Endfield main bg image ({Region})", request.Region);
+
+        using var response = await _httpClient.PostAsJsonAsync(
+            $"{apiBase.TrimEnd('/')}/proxy/web/batch_proxy", payload, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+
+        var url = doc.RootElement
+            .GetProperty("proxy_rsps")[0]
+            .TryGetProperty("get_main_bg_image_rsp", out var rsp)
+            && rsp.TryGetProperty("main_bg_image", out var bg)
+            && bg.TryGetProperty("url", out var urlElement)
+            && urlElement.ValueKind == JsonValueKind.String
+                ? urlElement.GetString()
+                : null;
+
+        return string.IsNullOrWhiteSpace(url) ? null : url;
+    }
+
+    private static string OptionOrDefault(IReadOnlyDictionary<string, string> options, string key, string fallback) =>
+        options.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
+            ? value.Trim()
+            : fallback;
+}

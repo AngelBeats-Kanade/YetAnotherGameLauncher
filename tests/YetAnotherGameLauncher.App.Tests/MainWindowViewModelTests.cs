@@ -268,15 +268,15 @@ public class ConfigMigrationTests : IDisposable
 
     public void Dispose() => _ctx.TempDir.Dispose();
 
-    /// <summary>模拟新版内置模板：鸣潮含 3 个服务器与背景图。</summary>
+    /// <summary>模拟新版内置模板：鸣潮含 3 个服务器与本地化名称。</summary>
     private static readonly string SampleTemplateWithAllServers = """
         {
-          "settings": { "installRoot": "~/Games", "theme": "System", "language": "system", "schemaVersion": 2 },
+          "settings": { "installRoot": "~/Games", "theme": "System", "language": "system", "schemaVersion": 3 },
           "games": [
             {
               "id": "wuthering-waves", "displayName": "鸣潮", "channel": "kuro",
+              "nameLocalized": { "zh-CN": "鸣潮", "en-US": "Wuthering Waves" },
               "installDir": "WutheringWaves", "executable": "Client/game.exe",
-              "backgroundImage": "https://cdn.example/wuwa.webp",
               "servers": [
                 { "id": "cn", "name": "国服" },
                 { "id": "global", "name": "国际服" },
@@ -288,15 +288,15 @@ public class ConfigMigrationTests : IDisposable
         """;
 
     [Fact]
-    public async Task Initialize_OldSchema_MergesSampleServersAndBackground()
+    public async Task Initialize_OldSchema_MergesSampleServersAndLocalizedNames()
     {
-        // 旧配置（schemaVersion 缺失）只有鸣潮国服；样例模板含国服/B服/国际服与背景图
+        // 旧配置（schemaVersion 缺失）只有鸣潮国服；样例模板含国服/B服/国际服与本地化名称
         await _ctx.Vm.InitializeAsync();
 
         var wuwa = _ctx.Vm.Games[0];
         var serverIds = wuwa.Servers.Select(s => s.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         Assert.Superset(new HashSet<string> { "cn", "global", "bilibili" }, serverIds);
-        Assert.False(string.IsNullOrWhiteSpace(wuwa.Game.BackgroundImage)); // 背景图随迁移补齐
+        Assert.False(string.IsNullOrWhiteSpace(wuwa.Game.NameLocalized["en-US"])); // 名称映射随迁移补齐
         Assert.Contains("补充", _ctx.Vm.StatusMessage);
 
         // schemaVersion 写回，二次启动不重复迁移

@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Collections.ObjectModel;
+using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using YetAnotherGameLauncher.Core;
@@ -24,6 +25,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly ThemeService _themeService;
     private readonly ILocalizationService _loc;
     private readonly BackgroundImageService _backgroundImageService;
+    private readonly GameBackdropService _backdropService;
+    private readonly IFilePickerService? _filePicker;
     private readonly Func<string?>? _defaultConfigTemplateFactory;
 
     public MainWindowViewModel(
@@ -35,8 +38,10 @@ public partial class MainWindowViewModel : ViewModelBase
         ThemeService themeService,
         ILocalizationService localization,
         BackgroundImageService backgroundImageService,
+        GameBackdropService backdropService,
         Func<string, IGameChannelApi?> channelResolver,
-        Func<string?>? defaultConfigTemplateFactory = null)
+        Func<string?>? defaultConfigTemplateFactory = null,
+        IFilePickerService? filePicker = null)
     {
         _catalogService = catalogService;
         _updateService = updateService;
@@ -46,8 +51,10 @@ public partial class MainWindowViewModel : ViewModelBase
         _themeService = themeService;
         _loc = localization;
         _backgroundImageService = backgroundImageService;
+        _backdropService = backdropService;
         _channelResolver = channelResolver;
         _defaultConfigTemplateFactory = defaultConfigTemplateFactory;
+        _filePicker = filePicker;
         Loc = localization;
         LocBridge.Instance = localization; // 供 {svc:Loc key} 标记扩展取 Source
         _loc.PropertyChanged += OnLanguageChanged;
@@ -74,6 +81,14 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool _configError;
 
     public bool HasStatusMessage => !string.IsNullOrEmpty(StatusMessage);
+
+    /// <summary>应用自有背景图（设置/关于/侧栏底色，来自设置的背景图选项）；null = 内置主题渐变。</summary>
+    [ObservableProperty]
+    private IImage? _appBackgroundImage;
+
+    public bool HasCustomAppBackground => AppBackgroundImage is not null;
+
+    partial void OnAppBackgroundImageChanged(IImage? value) => OnPropertyChanged(nameof(HasCustomAppBackground));
 
     /// <summary>非错误类提示（如首次运行生成配置）以次要点色展示。</summary>
     public bool ShowStatusAsHint => HasStatusMessage && !ConfigError;
@@ -179,15 +194,18 @@ public partial class MainWindowViewModel : ViewModelBase
     private void ToggleSidebar() => IsSidebarExpanded = !IsSidebarExpanded;
 
     [RelayCommand]
-    private void ShowAbout() => CurrentPage = new AboutViewModel(this);
+    private async Task ShowAboutAsync(CancellationToken cancellationToken) =>
+        CurrentPage = new AboutViewModel(this);
 
     [RelayCommand]
-    private void ShowGameSettings()
+    private async Task ShowGameSettingsAsync(CancellationToken cancellationToken)
     {
         if (SelectedGame is not null)
         {
             CurrentPage = new GameSettingsViewModel(SelectedGame, this);
         }
+
+        await Task.CompletedTask;
     }
 
     partial void OnSelectedGameChanged(GameItemViewModel? value)
@@ -235,6 +253,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _themeService.Apply(catalog.Settings.Theme);
         SelectedTheme = ThemeModes.FirstOrDefault(t => t.Mode == catalog.Settings.Theme) ?? ThemeModes[0];
         IsSidebarExpanded = catalog.Settings.SidebarExpanded;
+        _ = LoadAppBackgroundAsync();
 
         var unknownChannels = RebuildGames(catalog);
 
@@ -270,10 +289,64 @@ public partial class MainWindowViewModel : ViewModelBase
                 _launcherService,
                 _loc,
                 _catalogService,
-                _backgroundImageService));
+                _backgroundImageService,
+                _backdropService));
         }
 
         return unknownChannels;
+    }
+
+    /// <summary>启动与设置变更后加载应用自定义背景图；失败静默回退内置渐变。</summary>
+    private async Task LoadAppBackgroundAsync()
+    {
+        var source = _catalogService.Catalog?.Settings.AppBackgroundImage;
+        var image = await _backgroundImageService.LoadAsync(source);
+        AppBackgroundImage = image;
+    }
+
+    /// <summary>
+    /// 设置应用自定义背景图（null/空白 = 恢复内置渐变）并持久化，成功返回 true。
+    /// </summary>
+    public async Task<bool> SetAppBackgroundAsync(string? path)
+    {
+        if (_catalogService.Catalog is not { } catalog)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(path) && !File.Exists(path))
+        {
+            return false;
+        }
+
+        catalog.Settings.AppBackgroundImage = string.IsNullOrWhiteSpace(path) ? null : path;
+        try
+        {
+            await _catalogService.SaveAsync();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            ConfigError = true;
+            StatusMessage = _loc.Format("message_saveFailed", ex.Message);
+            return false;
+        }
+
+        AppBackgroundImage = await _backgroundImageService.LoadAsync(catalog.Settings.AppBackgroundImage);
+        return true;
+    }
+
+    /// <summary>配置文件里记录的应用自定义背景路径（空白 = 内置渐变）。</summary>
+    public string ConfiguredAppBackground => _catalogService.Catalog?.Settings.AppBackgroundImage ?? "";
+
+    /// <summary>弹系统文件选择器挑一张图片作为应用背景；未注册选择器（测试）时返回 null。</summary>
+    public async Task<string?> PickImageFileAsync()
+    {
+        if (_filePicker is null)
+        {
+            return null;
+        }
+
+        return await _filePicker.PickImageFileAsync(_loc["settings_appBackground_pickTitle"]);
     }
 
     /// <summary>应用下载限速（字节/秒）并持久化；0 = 不限速。</summary>
@@ -294,13 +367,17 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>异步查询自启状态（Windows 需起 reg 子进程，禁止在 UI 线程同步等待）。</summary>
+    public Task<bool> GetAutostartStateAsync(CancellationToken cancellationToken = default) =>
+        _autostart.IsEnabledAsync(cancellationToken);
+
     /// <summary>切换开机自启动，成功返回 true（失败时置状态提示）。</summary>
     public async Task<bool> SetAutostartAsync(bool enabled)
     {
         try
         {
             await _autostart.SetEnabledAsync(enabled);
-            return _autostart.IsEnabled() == enabled;
+            return await _autostart.IsEnabledAsync() == enabled;
         }
         catch (Exception ex)
         {
@@ -309,9 +386,6 @@ public partial class MainWindowViewModel : ViewModelBase
             return false;
         }
     }
-
-    /// <summary>当前是否已开启开机自启动。</summary>
-    public bool IsAutostartEnabled => _autostart.IsEnabled();
 
     /// <summary>更新安装根目录并重建游戏列表（路径重新解析），成功返回 true。</summary>
     public async Task<bool> UpdateInstallRootAsync(string newRoot)
@@ -350,12 +424,12 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 旧配置一次性迁移：与内置样例模板对照，补齐同一游戏新增的官方服务器与背景图，
-    /// 并写入 SchemaVersion=2 防止重复执行。
+    /// 旧配置一次性迁移：与内置样例模板对照，补齐同一游戏新增的官方服务器与本地化名称，
+    /// 并写入 SchemaVersion 防止重复执行。
     /// </summary>
     private async Task MigrateFromSampleAsync(GameCatalog catalog, CancellationToken cancellationToken)
     {
-        if (catalog.Settings.SchemaVersion >= 2)
+        if (catalog.Settings.SchemaVersion >= 3)
         {
             return;
         }
@@ -382,16 +456,18 @@ public partial class MainWindowViewModel : ViewModelBase
                     }
                 }
 
-                if (string.IsNullOrWhiteSpace(game.BackgroundImage)
-                    && !string.IsNullOrWhiteSpace(sampleGame.BackgroundImage))
-                {
-                    game.BackgroundImage = sampleGame.BackgroundImage;
-                }
-
                 if (string.IsNullOrWhiteSpace(game.Icon)
                     && !string.IsNullOrWhiteSpace(sampleGame.Icon))
                 {
                     game.Icon = sampleGame.Icon;
+                }
+
+                if (game.NameLocalized.Count == 0 && sampleGame.NameLocalized.Count > 0)
+                {
+                    foreach (var (culture, name) in sampleGame.NameLocalized)
+                    {
+                        game.NameLocalized[culture] = name;
+                    }
                 }
             }
 
@@ -401,7 +477,7 @@ public partial class MainWindowViewModel : ViewModelBase
             }
         }
 
-        catalog.Settings.SchemaVersion = 2;
+        catalog.Settings.SchemaVersion = 3;
         try
         {
             await _catalogService.SaveAsync(cancellationToken);
@@ -433,7 +509,13 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void ShowSettings() => CurrentPage = new SettingsViewModel(this);
+    private async Task ShowSettingsAsync(CancellationToken cancellationToken)
+    {
+        var page = new SettingsViewModel(this);
+        CurrentPage = page;
+        // 自启状态需起 reg 子进程查询，页面上屏后异步补齐（此前同步阻塞求值导致 UI 死锁）
+        await page.InitializeAsync(cancellationToken);
+    }
 
     [RelayCommand]
     private void ShowGames() => CurrentPage = SelectedGame;
@@ -449,6 +531,7 @@ public partial class SettingsViewModel : ViewModelBase
         _owner = owner;
         _installRootDraft = owner.InstallRoot;
         _speedLimitMbDraft = FormatSpeed(owner.DownloadSpeedLimitBytes);
+        _appBackgroundPath = owner.ConfiguredAppBackground;
     }
 
     private static string FormatSpeed(long bytes) =>
@@ -494,8 +577,13 @@ public partial class SettingsViewModel : ViewModelBase
         SpeedLimitSaveMessage = Loc["settings_downloadLimitSaved"];
     }
 
-    /// <summary>开机自启动开关（写入系统注册表 / XDG autostart）。</summary>
-    public bool IsAutostart => _owner.IsAutostartEnabled;
+    /// <summary>开机自启动开关（写入系统注册表 / XDG autostart），打开设置页时异步初始化。</summary>
+    [ObservableProperty]
+    private bool _isAutostart;
+
+    /// <summary>页面上屏后异步补齐自启状态（Windows 查询需起 reg 子进程）。</summary>
+    public async Task InitializeAsync(CancellationToken cancellationToken = default) =>
+        IsAutostart = await _owner.GetAutostartStateAsync(cancellationToken);
 
     public async Task SetAutostartAsync(bool enabled)
     {
@@ -505,7 +593,7 @@ public partial class SettingsViewModel : ViewModelBase
             SpeedLimitSaveMessage = Loc["settings_autostartFailed"];
         }
 
-        OnPropertyChanged(nameof(IsAutostart));
+        IsAutostart = await _owner.GetAutostartStateAsync();
     }
 
     [RelayCommand]
@@ -586,6 +674,57 @@ public partial class SettingsViewModel : ViewModelBase
 
     [RelayCommand]
     private void ShowGames() => _owner.ShowGamesCommand.Execute(null);
+
+    /// <summary>应用自定义背景图路径显示（空白 = 内置渐变）。</summary>
+    [ObservableProperty]
+    private string _appBackgroundPath;
+
+    /// <summary>应用背景操作结果提示（成功/失败共用文本）。</summary>
+    [ObservableProperty]
+    private string _appBackgroundMessage = "";
+
+    [ObservableProperty]
+    private bool _appBackgroundFailed;
+
+    [RelayCommand]
+    private async Task BrowseAppBackgroundAsync(CancellationToken cancellationToken)
+    {
+        AppBackgroundMessage = "";
+        AppBackgroundFailed = false;
+        var path = await _owner.PickImageFileAsync();
+        if (path is null)
+        {
+            return;
+        }
+
+        if (await _owner.SetAppBackgroundAsync(path))
+        {
+            AppBackgroundPath = path;
+            AppBackgroundMessage = Loc["settings_appBackground_saved"];
+        }
+        else
+        {
+            AppBackgroundFailed = true;
+            AppBackgroundMessage = Loc["settings_appBackground_failed"];
+        }
+    }
+
+    [RelayCommand]
+    private async Task ResetAppBackgroundAsync()
+    {
+        AppBackgroundMessage = "";
+        AppBackgroundFailed = false;
+        if (await _owner.SetAppBackgroundAsync(null))
+        {
+            AppBackgroundPath = "";
+            AppBackgroundMessage = Loc["settings_appBackground_resetDone"];
+        }
+        else
+        {
+            AppBackgroundFailed = true;
+            AppBackgroundMessage = Loc["settings_appBackground_failed"];
+        }
+    }
 
     [RelayCommand]
     private void OpenConfigFolder()

@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using YetAnotherGameLauncher.Core;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Services;
@@ -65,6 +66,19 @@ public partial class App : Application
         services.AddSingleton<ThemeService>();
         services.AddSingleton<ILocalizationService, LocalizationService>();
         services.AddSingleton<BackgroundImageService>();
+        services.AddSingleton<IFilePickerService, StorageProviderFilePicker>();
+
+        // 游戏背景解析（按渠道键注册；配置文件不携带背景地址，启动时向渠道确认当期背景）
+        services.AddKeyedSingleton<IBackdropResolver, KuroBackdropResolver>("kuro");
+        services.AddKeyedSingleton<IBackdropResolver, EndfieldBackdropResolver>("hypergryph");
+        services.AddSingleton(sp => new GameBackdropService(
+            sp.GetRequiredService<HttpClient>(),
+            new Dictionary<string, IBackdropResolver>
+            {
+                ["kuro"] = sp.GetRequiredKeyedService<IBackdropResolver>("kuro"),
+                ["hypergryph"] = sp.GetRequiredKeyedService<IBackdropResolver>("hypergryph"),
+            },
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger<GameBackdropService>()));
 
         // ViewModel
         services.AddSingleton(sp =>
@@ -79,8 +93,10 @@ public partial class App : Application
                 sp.GetRequiredService<ThemeService>(),
                 sp.GetRequiredService<ILocalizationService>(),
                 sp.GetRequiredService<BackgroundImageService>(),
+                sp.GetRequiredService<GameBackdropService>(),
                 channelKey => keyed.GetKeyedService<IGameChannelApi>(channelKey),
-                TryLoadEmbeddedSampleTemplate);
+                TryLoadEmbeddedSampleTemplate,
+                sp.GetRequiredService<IFilePickerService>());
         });
 
         return services.BuildServiceProvider();

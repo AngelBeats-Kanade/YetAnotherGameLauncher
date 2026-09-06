@@ -29,17 +29,18 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `maxParallelDownloads` | int | `8` | 文件级下载并发（1–64） |
 | `language` | string | `"system"` | 界面语言：`"system"` 跟随系统 / `"zh-CN"` / `"en-US"`（也可在设置页切换，即时生效） |
 | `sidebarExpanded` | bool | `true` | 侧栏是否展开（`false` 为图标窄条模式，由界面折叠按钮切换） |
-| `schemaVersion` | int | `0` | 配置结构版本（内部使用）。旧版本配置首次被新版加载时自动迁移：补齐内置模板中同一游戏新增的官方服务器与背景图，并写回 `schemaVersion: 2`，仅执行一次 |
+| `appBackgroundImage` | string | | 应用自有背景图（设置/关于页与侧栏底色）：本地文件路径；留空使用内置的主题感知渐变。可在设置页"应用背景"卡选择图片或恢复默认。游戏详情页背景不受此项影响 |
+| `schemaVersion` | int | `0` | 配置结构版本（内部使用）。旧版本配置首次被新版加载时自动迁移：补齐内置模板中同一游戏新增的官方服务器与本地化名称，并写回 `schemaVersion: 3`，仅执行一次 |
 
 ### games[]（GameDefinition）
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `id` | string | ✔ | 唯一标识，仅允许字母/数字/`-`/`_`/`.`；写入本地状态文件用于校验 |
-| `displayName` | string | ✔ | 界面显示名（列表图标取首字） |
+| `displayName` | string | ✔ | 默认显示名（列表图标取首字） |
+| `nameLocalized` | object | | 显示名本地化映射，如 `{"zh-CN": "鸣潮", "en-US": "Wuthering Waves"}`；按界面语言取值，缺失回退 `displayName` |
 | `channel` | string | ✔ | 渠道实现键：`"kuro"`（鸣潮及库洛系）、`"hypergryph"`（终末地/GRYPHLINE） |
 | `icon` | string | | 官方游戏图标：http(s) URL 或本地路径；加载失败回退显示名首字 |
-| `backgroundImage` | string | | 详情页背景大图：http(s) URL 或本地路径；**鸣潮留空时自动探测本机库洛官方启动器的当期背景缓存**（kr_game_cache，随官方启动器版本更新）；加载失败回退主题渐变 |
 | `installDir` | string | ✔ | 安装目录；相对 `settings.installRoot`，也可为绝对路径 |
 | `executable` | string | ✔ | 游戏可执行文件，相对 `installDir`（`/` 或 `\` 均可） |
 | `launch` | object | | 启动方式，见下 |
@@ -78,6 +79,14 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 
 > 终末地三个官方服务器（国际服 / 国服 / B服）的完整参数已内置于
 > [`samples/games.json`](../samples/games.json)，直接使用即可；上述键仅供未来新增渠道时覆盖。
+
+### 详情页背景与名称本地化（代码内置，不写入配置）
+
+- **详情页背景**：配置文件不携带背景地址。每次启动按界面语言选择渠道（中文 → 国服端点，其余 → 国际服端点）向官方接口确认当期背景，地址变化时自动下载到应用数据目录缓存（`%APPDATA%\yagl\backdrops\`），离线时回退上次缓存：
+  - 终末地：官方启动器 `get_main_bg_image` 接口（当期版本主视觉，端点参数取自该游戏 `servers[].options`）。
+  - 鸣潮：库洛未开放免登录的当期卡池立绘接口，改为探测本机库洛官方启动器的当期背景帧缓存（`kr_game_cache\animate_bg`），随官方启动器版本轮换。
+  - 均不可用时回退主题渐变背景。
+- **游戏名**：`nameLocalized` 按界面语言显示（样例模板已含鸣潮/终末地中英文名，旧配置自动迁移补齐）；服务器名等其余配置数据按配置文件原样显示。
 
 ## 2. 完整示例
 

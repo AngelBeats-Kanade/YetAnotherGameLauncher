@@ -8,6 +8,12 @@ public sealed class GameDefinition
 
     public string DisplayName { get; set; } = "";
 
+    /// <summary>
+    /// 显示名的本地化映射（culture 名 → 显示名），如 {"zh-CN": "鸣潮", "en-US": "Wuthering Waves"}。
+    /// 缺失或无对应 culture 时回退 DisplayName。
+    /// </summary>
+    public Dictionary<string, string> NameLocalized { get; set; } = [];
+
     /// <summary>图标路径，相对启动器资源目录或绝对路径。</summary>
     public string Icon { get; set; } = "";
 
@@ -22,12 +28,6 @@ public sealed class GameDefinition
 
     /// <summary>游戏可执行文件，相对安装目录。</summary>
     public string Executable { get; set; } = "";
-
-    /// <summary>
-    /// 详情页背景图：http(s) URL 或本地文件路径。留空时回退到主题渐变背景；
-    /// 加载失败同样静默回退，不影响功能。
-    /// </summary>
-    public string BackgroundImage { get; set; } = "";
 
     public LaunchOptions Launch { get; set; } = new();
 }

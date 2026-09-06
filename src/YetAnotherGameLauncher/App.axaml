@@ -22,9 +22,24 @@
                     <SolidColorBrush x:Key="AppPredownloadBadge" Color="#E8930C"/>
                     <SolidColorBrush x:Key="AppErrorText" Color="#C42B1C"/>
                     <SolidColorBrush x:Key="AppStatusOk" Color="#2DA44E"/>
-                    <!-- 详情页背景图上的暗化遮罩：顶部保证文字对比，底部融入页面背景 -->
+                    <!-- 详情页背景图上的暗化遮罩：顶部轻、中段压状态区、底部压实内容 -->
                     <Color x:Key="AppBackdropScrimTopColor">#59EDF0F5</Color>
+                    <Color x:Key="AppBackdropScrimMidColor">#C0EDF0F5</Color>
                     <Color x:Key="AppBackdropScrimBottomColor">#FFF7F8FA</Color>
+                    <!-- 应用自有背景（设置/关于/侧栏底色）：浅色 = 淡雾蓝渐变 + 柔和光晕 -->
+                    <LinearGradientBrush x:Key="AppBackdropBaseBrush" StartPoint="0%,0%" EndPoint="35%,100%">
+                        <GradientStop Color="#EFF2F8" Offset="0"/>
+                        <GradientStop Color="#E2E9F4" Offset="0.55"/>
+                        <GradientStop Color="#EBEEF6" Offset="1"/>
+                    </LinearGradientBrush>
+                    <RadialGradientBrush x:Key="AppBackdropGlowBrush" Center="82%,18%" RadiusX="0.55" RadiusY="0.5">
+                        <GradientStop Color="#5A2E7CF6" Offset="0"/>
+                        <GradientStop Color="#002E7CF6" Offset="1"/>
+                    </RadialGradientBrush>
+                    <RadialGradientBrush x:Key="AppBackdropGlowWarmBrush" Center="12%,88%" RadiusX="0.5" RadiusY="0.45">
+                        <GradientStop Color="#47F0A64A" Offset="0"/>
+                        <GradientStop Color="#00F0A64A" Offset="1"/>
+                    </RadialGradientBrush>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <Color x:Key="AppAccentColor">#4C8DFF</Color>
@@ -42,7 +57,22 @@
                     <SolidColorBrush x:Key="AppErrorText" Color="#FF8A7A"/>
                     <SolidColorBrush x:Key="AppStatusOk" Color="#3FB950"/>
                     <Color x:Key="AppBackdropScrimTopColor">#26101418</Color>
+                    <Color x:Key="AppBackdropScrimMidColor">#8C10141A</Color>
                     <Color x:Key="AppBackdropScrimBottomColor">#D9121218</Color>
+                    <!-- 应用自有背景：深空蓝黑渐变 + 蓝橙光晕（呼应应用图标） -->
+                    <LinearGradientBrush x:Key="AppBackdropBaseBrush" StartPoint="0%,0%" EndPoint="35%,100%">
+                        <GradientStop Color="#0C0F1D" Offset="0"/>
+                        <GradientStop Color="#131A2E" Offset="0.55"/>
+                        <GradientStop Color="#0D1019" Offset="1"/>
+                    </LinearGradientBrush>
+                    <RadialGradientBrush x:Key="AppBackdropGlowBrush" Center="82%,18%" RadiusX="0.55" RadiusY="0.5">
+                        <GradientStop Color="#404C8DFF" Offset="0"/>
+                        <GradientStop Color="#004C8DFF" Offset="1"/>
+                    </RadialGradientBrush>
+                    <RadialGradientBrush x:Key="AppBackdropGlowWarmBrush" Center="12%,88%" RadiusX="0.5" RadiusY="0.45">
+                        <GradientStop Color="#33E8930C" Offset="0"/>
+                        <GradientStop Color="#00E8930C" Offset="1"/>
+                    </RadialGradientBrush>
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>

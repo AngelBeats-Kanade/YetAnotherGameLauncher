@@ -44,6 +44,8 @@ public class UiScreenshotTests
         ctx.BackgroundHandler.Map(endfieldBgUrl, endfieldBg);
         var endfieldIconUrl = "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/dd/af/42/ddaf42c8-5bea-adf0-e6e7-b67f291868aa/AppIcon-0-0-1x_U007emarketing-0-8-0-85-220.png/512x512bb.jpg";
         ctx.BackgroundHandler.Map(endfieldIconUrl, await new HttpClient().GetByteArrayAsync(endfieldIconUrl));
+        // 终末地背景走背景解析器（模拟 get_main_bg_image 返回的当期直链）
+        ctx.GryphlineBackdrop.Resolver = _ => endfieldBgUrl;
 
         await HeadlessSession.Instance.Dispatch(async () =>
         {
@@ -70,10 +72,16 @@ public class UiScreenshotTests
                 frame.Save(Path.Combine(outDir, name), new PngBitmapEncoderOptions());
             }
 
-            // 模拟库洛官方启动器背景帧缓存：配置留空时应被自动探测（当期官方背景）
+            // 模拟库洛官方启动器背景帧缓存：解析器走与 KuroBackdropResolver 相同的本地帧探测
             var bgPath = ctx.TempDir.FilePath("kr_game_cache", "animate_bg", "h1", "home_1.jpg");
             Directory.CreateDirectory(Path.GetDirectoryName(bgPath)!);
             CreateTestBackground(bgPath);
+            ctx.KuroBackdrop.Resolver = _ => YetAnotherGameLauncher.Core.Services.KuroLauncherBackground
+                .FindLatestFrame(ctx.Vm.Games[0].InstallDirPath);
+            // headless 测试进程解析不了 app 的 avares:// 资源：图标走 stub http
+            const string wuwaIconUrl = "https://is1-ssl.mzstatic.com/wuwa-icon.jpg";
+            ctx.BackgroundHandler.Map(wuwaIconUrl, await new HttpClient().GetByteArrayAsync(endfieldIconUrl));
+            ctx.Vm.Games[0].Game.Icon = wuwaIconUrl;
             await ctx.Vm.Games[0].RefreshAsync();
 
             // 暗色 · 游戏详情（鸣潮：未安装 + 预下载可用 + 背景图）
@@ -98,7 +106,6 @@ public class UiScreenshotTests
 
             // 暗色 · 第二个游戏（终末地，官方远程背景图，验证 URL 加载链路）
             ctx.Vm.SelectedTheme = dark;
-            ctx.Vm.Games[1].Game.BackgroundImage = endfieldBgUrl;
             ctx.Vm.Games[1].Game.Icon = endfieldIconUrl;
             ctx.Vm.SelectedGame = ctx.Vm.Games[1];
             await ctx.Vm.Games[1].RefreshAsync();
@@ -122,7 +129,8 @@ public class UiScreenshotTests
             window.UpdateLayout();
             Capture("06-about-dark.png");
 
-            // 英文 · 详情页（i18n 热切换）
+            // 英文 · 鸣潮详情页（i18n 热切换：UI 文案与游戏名变英文，背景仍为本地帧探测图）
+            ctx.Vm.SelectedGame = ctx.Vm.Games[0];
             ctx.Vm.ShowGamesCommand.Execute(null);
             window.UpdateLayout();
             ctx.Vm.Loc.SetLanguage("en-US");

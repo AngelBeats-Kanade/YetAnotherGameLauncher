@@ -18,6 +18,7 @@ public static class VmFactory
             {
               "id": "wuthering-waves",
               "displayName": "鸣潮",
+              "nameLocalized": { "zh-CN": "鸣潮", "en-US": "Wuthering Waves" },
               "channel": "kuro",
               "installDir": "WutheringWaves",
               "executable": "Client/Binaries/Win64/Client-Win64-Shipping.exe",
@@ -26,6 +27,7 @@ public static class VmFactory
             {
               "id": "arknights-endfield",
               "displayName": "明日方舟：终末地",
+              "nameLocalized": { "zh-CN": "明日方舟：终末地", "en-US": "Arknights: Endfield" },
               "channel": "hypergryph",
               "installDir": "ArknightsEndfield",
               "executable": "ArknightsEndfield/Binaries/Win64/ArknightsEndfield.exe",
@@ -43,16 +45,32 @@ public static class VmFactory
         public required FakeChannel Gryphline { get; init; }
         public required FakeDownloader Downloader { get; init; }
         public required string ConfigPath { get; init; }
+        public required FakeBackdropResolver KuroBackdrop { get; init; }
+        public required FakeBackdropResolver GryphlineBackdrop { get; init; }
         public StubHttpHandler BackgroundHandler { get; init; } = new();
 
         public void Dispose() => TempDir.Dispose();
     }
 
+    /// <summary>可编程的背景解析器假实现：默认返回 null（回退主题渐变）。</summary>
+    public sealed class FakeBackdropResolver : IBackdropResolver
+    {
+        /// <summary>按区域返回背景来源；null = 解析失败。</summary>
+        public Func<string, string?>? Resolver { get; set; }
+
+        public Task<string?> GetBackdropUrlAsync(BackdropRequest request, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Resolver?.Invoke(request.Region));
+    }
+
     /// <summary>
     /// 构建 ViewModel。configJson 为 null 时<b>不创建</b>配置文件（模拟首次运行）；
-    /// templateFactory 对应注入 VM 的默认配置模板工厂（null = 无模板）。
+    /// templateFactory 对应注入 VM 的默认配置模板工厂（null = 无模板）；
+    /// autostart 可注入真实 AutostartService（回归测试用），缺省为 FakeProcessRunner 版本。
     /// </summary>
-    public static Context Build(string? configJson = SampleConfigJson, Func<string?>? templateFactory = null)
+    public static Context Build(
+        string? configJson = SampleConfigJson,
+        Func<string?>? templateFactory = null,
+        IAutostartService? autostart = null)
     {
         var tempDir = new TempDir();
         var configPath = tempDir.FilePath("games.json");
@@ -69,16 +87,27 @@ public static class VmFactory
         var downloader = new FakeDownloader();
         var backgroundHandler = new StubHttpHandler();
         var httpDownloader = new HttpFileDownloader(new HttpClient(backgroundHandler));
+        var kuroBackdrop = new FakeBackdropResolver();
+        var gryphlineBackdrop = new FakeBackdropResolver();
+        var backdropService = new GameBackdropService(
+            new HttpClient(backgroundHandler),
+            new Dictionary<string, IBackdropResolver>
+            {
+                ["kuro"] = kuroBackdrop,
+                ["hypergryph"] = gryphlineBackdrop,
+            },
+            cacheRoot: tempDir.FilePath("backdrops"));
 
         var vm = new MainWindowViewModel(
             new GameCatalogService(configPath),
             new GameUpdateService(downloader, new FakePatchApplier()),
             new GameLauncherService(new FakeProcessRunner()),
             httpDownloader,
-            new AutostartService(new FakeProcessRunner()),
+            autostart ?? new AutostartService(new FakeProcessRunner()),
             new ThemeService(),
             new LocalizationService(),
             new BackgroundImageService(new HttpClient(backgroundHandler)),
+            backdropService,
             channelKey => channelKey switch
             {
                 "kuro" => kuro,
@@ -91,6 +120,7 @@ public static class VmFactory
         {
             Vm = vm, TempDir = tempDir, Kuro = kuro, Gryphline = gryphline,
             Downloader = downloader, ConfigPath = configPath,
+            KuroBackdrop = kuroBackdrop, GryphlineBackdrop = gryphlineBackdrop,
             BackgroundHandler = backgroundHandler,
         };
     }
