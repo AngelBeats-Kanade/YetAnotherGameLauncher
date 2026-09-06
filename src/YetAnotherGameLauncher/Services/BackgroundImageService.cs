@@ -12,6 +12,7 @@ public sealed class BackgroundImageService(HttpClient httpClient)
 {
     private readonly Dictionary<string, IImage?> _cache = [];
 
+    /// <summary>按来源加载并解码图片（会话内按来源缓存，含失败结果）；失败返回 null。</summary>
     public async Task<IImage?> LoadAsync(string? source, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(source))
@@ -46,6 +47,7 @@ public sealed class BackgroundImageService(HttpClient httpClient)
         return image;
     }
 
+    /// <summary>按来源类型取原始字节：内置资源 / http(s) 下载 / 本地文件读取。</summary>
     private async Task<byte[]> FetchAsync(string source, CancellationToken cancellationToken)
     {
         if (source.StartsWith("avares://", StringComparison.OrdinalIgnoreCase))

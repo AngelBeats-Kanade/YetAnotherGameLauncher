@@ -14,6 +14,7 @@ public interface IFilePickerService
 /// <summary>基于主窗口 StorageProvider 的实现。</summary>
 public sealed class StorageProviderFilePicker : IFilePickerService
 {
+    /// <summary>弹出图片文件选择对话框，返回选中的本地路径；取消或无主窗口返回 null。</summary>
     public async Task<string?> PickImageFileAsync(string title)
     {
         if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop

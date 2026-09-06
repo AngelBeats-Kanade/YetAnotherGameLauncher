@@ -17,29 +17,24 @@ public partial class GameItemViewModel(
     IGameChannelApi channel,
     GameUpdateService updateService,
     GameLauncherService launcherService,
-    ILocalizationService loc,
+    ILocalizationService localizationService,
     GameCatalogService catalogService,
     BackgroundImageService backgroundImageService,
     GameBackdropService backdropService) : ViewModelBase
 {
-    private readonly GameUpdateService _updateService = updateService;
-    private readonly GameLauncherService _launcherService = launcherService;
-    private readonly IGameChannelApi _channel = channel;
     private string _installDir = installDir;
-    private readonly ILocalizationService _loc = loc;
-    private readonly GameCatalogService _catalogService = catalogService;
-    private readonly GameBackdropService _backdropService = backdropService;
 
     private LaunchSettingsViewModel? _launchSettings;
 
     /// <summary>启动设置编辑卡（保存走 GameCatalogService 整文件原子写）。</summary>
     public LaunchSettingsViewModel LaunchSettings => _launchSettings ??= new(
-        Game, _installDir, _catalogService, _loc, this);
+        Game, _installDir, catalogService, Loc, this);
 
+    /// <summary>底层游戏配置（只读引用；名称/图标/服务器等以此为准）。</summary>
     public GameDefinition Game { get; } = game;
 
     /// <summary>暴露给 XAML 的文案服务（详情页模板绑定 {Binding Loc[key]}）。</summary>
-    public ILocalizationService Loc { get; } = loc;
+    public ILocalizationService Loc { get; } = localizationService;
 
     /// <summary>显示名：配置 nameLocalized 按当前语言取值，缺失回退 displayName。</summary>
     public string DisplayName => ResolveDisplayName();
@@ -49,7 +44,7 @@ public partial class GameItemViewModel(
 
     private string ResolveDisplayName()
     {
-        var culture = _loc.EffectiveCulture;
+        var culture = Loc.EffectiveCulture;
         if (Game.NameLocalized.TryGetValue(culture, out var exact))
         {
             return exact;
@@ -72,33 +67,48 @@ public partial class GameItemViewModel(
     [ObservableProperty]
     private IImage? _gameIcon;
 
+    /// <summary>官方图标是否加载成功（失败时列表回退首字贴片）。</summary>
     [ObservableProperty]
     private bool _hasGameIcon;
 
+    /// <summary>可选服务器列表（来自配置，构造时快照）。</summary>
     public ObservableCollection<GameServer> Servers { get; } = [.. game.Servers];
 
+    /// <summary>当前选中服务器（默认第一个；版本查询与安装/更新均针对它）。</summary>
     [ObservableProperty]
     private GameServer _selectedServer = game.Servers.Count > 0 ? game.Servers[0] : new GameServer { Id = "", Name = "" };
 
+    /// <summary>状态栏提示（连接失败/未安装/可更新等）。</summary>
     [ObservableProperty] private string _statusText = "";
+    /// <summary>版本展示文案（本地/最新/可更新对照）。</summary>
     [ObservableProperty] private string _versionText = "";
+    /// <summary>当前服务器是否已安装。</summary>
     [ObservableProperty] private bool _isInstalled;
+    /// <summary>是否满足启动条件（已安装且可执行文件存在）。</summary>
     [ObservableProperty] private bool _canLaunch;
+    /// <summary>本地版本落后于远端最新版。</summary>
     [ObservableProperty] private bool _hasUpdate;
+    /// <summary>渠道提供预下载且尚未暂存。</summary>
     [ObservableProperty] private bool _predownloadAvailable;
+    /// <summary>已有暂存的预下载包待应用。</summary>
     [ObservableProperty] private bool _hasStagedPredownload;
+    /// <summary>是否有操作进行中（启动/安装/更新互斥）。</summary>
     [ObservableProperty] private bool _isBusy;
+    /// <summary>当前操作进度百分比（0-100）。</summary>
     [ObservableProperty] private double _progressPercent;
+    /// <summary>当前操作进度文案（下载/校验/打补丁等阶段）。</summary>
     [ObservableProperty] private string _progressText = "";
 
     /// <summary>详情页背景图（异步加载；null = 回退主题渐变）。</summary>
     [ObservableProperty]
     private IImage? _backgroundImage;
 
+    /// <summary>详情页背景图是否加载成功（失败回退主题渐变）。</summary>
     [ObservableProperty]
     private bool _hasBackgroundImage;
 
-    public string InstallButtonText => !IsInstalled ? _loc["game_install"] : HasUpdate ? _loc["game_update"] : _loc["game_verify"];
+    /// <summary>主操作按钮文案：未安装→安装，有更新→更新，否则校验。</summary>
+    public string InstallButtonText => !IsInstalled ? Loc["game_install"] : HasUpdate ? Loc["game_update"] : Loc["game_verify"];
 
     /// <summary>渠道显示名（已知渠道给中文名，未知原样）。</summary>
     public string ChannelDisplayName => Game.Channel switch
@@ -108,9 +118,11 @@ public partial class GameItemViewModel(
         var other => other,
     };
 
+    /// <summary>当前生效的安装目录（绝对路径；设置卡保存后就地更新）。</summary>
     public string InstallDirPath => _installDir;
 
-    public string ServerCountText => _loc.Format("game_info_servers_count", Servers.Count);
+    /// <summary>服务器数量文案（如"服务器：2"）。</summary>
+    public string ServerCountText => Loc.Format("game_info_servers_count", Servers.Count);
 
     /// <summary>刷新安装状态/版本/预下载可用性（语言或渠道数据变化后也会调用）。</summary>
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
@@ -134,13 +146,13 @@ public partial class GameItemViewModel(
         ChannelVersionInfo info;
         try
         {
-            info = await _channel.GetVersionInfoAsync(SelectedServer, cancellationToken);
+            info = await channel.GetVersionInfoAsync(SelectedServer, cancellationToken);
             StatusText = "";
         }
         catch (Exception ex) when (ex is UpdateException or HttpRequestException or TaskCanceledException)
         {
-            StatusText = _loc["status_noConnection"];
-            VersionText = state is null ? _loc["status_notInstalledShort"] : _loc.Format("status_localVersion", state.Version);
+            StatusText = Loc["status_noConnection"];
+            VersionText = state is null ? Loc["status_notInstalledShort"] : Loc.Format("status_localVersion", state.Version);
             IsInstalled = state is not null;
             HasUpdate = false;
             PredownloadAvailable = false;
@@ -155,14 +167,14 @@ public partial class GameItemViewModel(
         PredownloadAvailable = info.PredownloadAvailable && !HasStagedPredownload;
 
         VersionText = state is null
-            ? _loc.Format("version_latest", info.LatestVersion)
+            ? Loc.Format("version_latest", info.LatestVersion)
             : HasUpdate
-                ? _loc.Format("version_canUpdate", state.Version, info.LatestVersion)
-                : _loc.Format("version_local", state.Version);
+                ? Loc.Format("version_canUpdate", state.Version, info.LatestVersion)
+                : Loc.Format("version_local", state.Version);
 
         StatusText = !IsInstalled
-            ? _loc["status_notInstalled"]
-            : HasUpdate ? _loc["status_hasUpdate"] : _loc["status_upToDate"];
+            ? Loc["status_notInstalled"]
+            : HasUpdate ? Loc["status_hasUpdate"] : Loc["status_upToDate"];
 
         OnPropertyChanged(nameof(InstallButtonText));
     }
@@ -185,8 +197,8 @@ public partial class GameItemViewModel(
         {
             // 背景来源（配置文件不携带背景地址，每次打开都向渠道确认当期背景）：
             // 渠道背景服务（远程接口/官方启动器本地帧，含磁盘缓存）→ null 时回退主题渐变
-            var region = RegionForLanguage(_loc.EffectiveCulture);
-            var source = await _backdropService.ResolveAsync(
+            var region = RegionForLanguage(Loc.EffectiveCulture);
+            var source = await backdropService.ResolveAsync(
                 new BackdropRequest(Game.Id, Game.Channel, region, _installDir, SelectServerOptions(region)),
                 cancellationToken);
 
@@ -226,6 +238,7 @@ public partial class GameItemViewModel(
         _ = RefreshAsync();
     }
 
+    /// <summary>启动游戏；忙碌或不可启动时忽略，成败写入状态提示。</summary>
     [RelayCommand]
     public async Task LaunchAsync(CancellationToken cancellationToken = default)
     {
@@ -237,12 +250,12 @@ public partial class GameItemViewModel(
         IsBusy = true;
         try
         {
-            await _launcherService.LaunchAsync(Game, _installDir, Game.Executable, cancellationToken);
-            StatusText = _loc["status_launched"];
+            await launcherService.LaunchAsync(Game, _installDir, Game.Executable, cancellationToken);
+            StatusText = Loc["status_launched"];
         }
         catch (Exception ex)
         {
-            StatusText = _loc.Format("status_launchFailed", ex.Message);
+            StatusText = Loc.Format("status_launchFailed", ex.Message);
         }
         finally
         {
@@ -250,14 +263,16 @@ public partial class GameItemViewModel(
         }
     }
 
+    /// <summary>主操作：未安装时全新安装，已安装时更新到最新版。</summary>
     [RelayCommand]
     public async Task InstallOrUpdateAsync(CancellationToken cancellationToken = default)
     {
         await RunUpdateAsync(
-            () => _updateService.UpdateAsync(_installDir, Game, SelectedServer, _channel, Progress, cancellationToken),
+            () => updateService.UpdateAsync(_installDir, Game, SelectedServer, channel, Progress, cancellationToken),
             cancellationToken);
     }
 
+    /// <summary>下载预下载包到暂存区（不覆盖现有安装），结束后刷新状态并给出结果提示。</summary>
     [RelayCommand]
     public async Task PredownloadAsync(CancellationToken cancellationToken = default)
     {
@@ -270,13 +285,13 @@ public partial class GameItemViewModel(
         var message = "";
         try
         {
-            var summary = await _updateService.PredownloadAsync(
-                _installDir, Game, SelectedServer, _channel, Progress, cancellationToken);
-            message = _loc.Format("predownload_done", summary.FromVersion, summary.ToVersion);
+            var summary = await updateService.PredownloadAsync(
+                _installDir, Game, SelectedServer, channel, Progress, cancellationToken);
+            message = Loc.Format("predownload_done", summary.FromVersion, summary.ToVersion);
         }
         catch (Exception ex)
         {
-            message = _loc.Format("predownload_failed", ex.Message);
+            message = Loc.Format("predownload_failed", ex.Message);
         }
         finally
         {
@@ -286,6 +301,7 @@ public partial class GameItemViewModel(
         }
     }
 
+    /// <summary>把已暂存的预下载包应用为正式版本。</summary>
     [RelayCommand]
     public async Task ApplyPredownloadAsync(CancellationToken cancellationToken = default)
     {
@@ -295,10 +311,11 @@ public partial class GameItemViewModel(
         }
 
         await RunUpdateAsync(
-            () => _updateService.ApplyPredownloadAsync(_installDir, Game, SelectedServer, _channel, Progress, cancellationToken),
+            () => updateService.ApplyPredownloadAsync(_installDir, Game, SelectedServer, channel, Progress, cancellationToken),
             cancellationToken);
     }
 
+    /// <summary>更新类操作通用骨架：忙碌互斥、进度归零、异常转提示、完成后刷新状态。</summary>
     private async Task RunUpdateAsync(Func<Task<UpdateOutcome>> action, CancellationToken cancellationToken)
     {
         if (IsBusy)
@@ -308,16 +325,16 @@ public partial class GameItemViewModel(
 
         IsBusy = true;
         ProgressPercent = 0;
-        ProgressText = _loc["progress_preparing"];
+        ProgressText = Loc["progress_preparing"];
         var message = "";
         try
         {
             var outcome = await action();
-            message = _loc.Format("progress_done", outcome.FromVersion, outcome.ToVersion);
+            message = Loc.Format("progress_done", outcome.FromVersion, outcome.ToVersion);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            message = _loc.Format("progress_failed", ex.Message);
+            message = Loc.Format("progress_failed", ex.Message);
         }
         finally
         {
@@ -332,6 +349,7 @@ public partial class GameItemViewModel(
     /// <summary>惰性创建进度转发器（在 UI 线程上下文中捕获同步上下文）。</summary>
     private IProgress<UpdateProgress> Progress => _progress ??= new Progress<UpdateProgress>(OnProgress);
 
+    /// <summary>下载进度回调（后台线程触发）：换算百分比并生成阶段文案。</summary>
     private void OnProgress(UpdateProgress p)
     {
         ProgressPercent = p.TotalBytes > 0
@@ -341,13 +359,13 @@ public partial class GameItemViewModel(
                 : 0;
         ProgressText = p.Phase switch
         {
-            UpdatePhase.Downloading => _loc.Format("progress_downloading",
+            UpdatePhase.Downloading => Loc.Format("progress_downloading",
                 FormatBytes(p.DownloadedBytes), FormatBytes(p.TotalBytes), p.FilesDone, p.FilesTotal),
-            UpdatePhase.Patching => _loc["progress_patching"],
-            UpdatePhase.Verifying => _loc["progress_verifying"],
-            UpdatePhase.CleaningUp => _loc["progress_cleaning"],
-            UpdatePhase.Checking => _loc["progress_checking"],
-            _ => _loc["progress_finished"],
+            UpdatePhase.Patching => Loc["progress_patching"],
+            UpdatePhase.Verifying => Loc["progress_verifying"],
+            UpdatePhase.CleaningUp => Loc["progress_cleaning"],
+            UpdatePhase.Checking => Loc["progress_checking"],
+            _ => Loc["progress_finished"],
         };
     }
 
@@ -359,6 +377,7 @@ public partial class GameItemViewModel(
         _ => $"{bytes} B",
     };
 
+    /// <summary>游戏可执行文件是否存在于安装目录。</summary>
     private bool ExecutableExists() =>
         File.Exists(Path.Combine(_installDir, Game.Executable.Replace('\\', '/')));
 }

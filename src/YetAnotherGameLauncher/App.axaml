@@ -16,7 +16,6 @@
                     <SolidColorBrush x:Key="AppCardBackground" Color="#D6FFFFFF"/>
                     <SolidColorBrush x:Key="AppCardBorder" Color="#66D5D9E0"/>
                     <SolidColorBrush x:Key="AppTextSecondary" Color="#66666E"/>
-                    <SolidColorBrush x:Key="AppPredownloadBadge" Color="#E8930C"/>
                     <SolidColorBrush x:Key="AppErrorText" Color="#C42B1C"/>
                     <SolidColorBrush x:Key="AppStatusOk" Color="#2DA44E"/>
                     <!-- 详情页背景图上的暗化遮罩：顶部轻、中段压状态区、底部压实内容 -->
@@ -47,7 +46,6 @@
                     <SolidColorBrush x:Key="AppCardBackground" Color="#A6202029"/>
                     <SolidColorBrush x:Key="AppCardBorder" Color="#4D3A3A4A"/>
                     <SolidColorBrush x:Key="AppTextSecondary" Color="#A2A2AB"/>
-                    <SolidColorBrush x:Key="AppPredownloadBadge" Color="#E8930C"/>
                     <SolidColorBrush x:Key="AppErrorText" Color="#FF8A7A"/>
                     <SolidColorBrush x:Key="AppStatusOk" Color="#3FB950"/>
                     <Color x:Key="AppBackdropScrimTopColor">#26101418</Color>
@@ -69,6 +67,8 @@
                     </RadialGradientBrush>
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
+            <!-- 主题无关的资源 -->
+            <SolidColorBrush x:Key="AppPredownloadBadge" Color="#E8930C"/>
         </ResourceDictionary>
     </Application.Resources>
 

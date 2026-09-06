@@ -7,6 +7,7 @@ namespace YetAnotherGameLauncher.Themes;
 /// <summary>主题切换服务：System 跟随操作系统，Light/Dark 显式覆盖。</summary>
 public sealed class ThemeService
 {
+    /// <summary>应用主题到当前应用（可能从非 UI 线程调用，跨线程时投递到 UI 线程）。</summary>
     public void Apply(ThemeMode mode)
     {
         if (Application.Current is { } app)

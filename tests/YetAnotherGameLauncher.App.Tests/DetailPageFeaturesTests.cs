@@ -107,8 +107,8 @@ public class LaunchSettingsTests : IDisposable
         settings.EnvironmentText = "WINEPREFIX=/tmp/pfx\nLANG=zh_CN.UTF-8";
         await settings.SaveCommand.ExecuteAsync(null);
 
-        Assert.False(settings.SaveFailed);
-        Assert.Equal("启动设置已保存", settings.SaveMessage);
+        Assert.False(settings.Save.Failed);
+        Assert.Equal("启动设置已保存", settings.Save.Message);
 
         var reloader = new YetAnotherGameLauncher.Core.Services.GameCatalogService(_ctx.ConfigPath);
         await reloader.LoadAsync();
@@ -127,8 +127,8 @@ public class LaunchSettingsTests : IDisposable
 
         await settings.SaveCommand.ExecuteAsync(null);
 
-        Assert.True(settings.SaveFailed);
-        Assert.Contains("NOT-A-PAIR", settings.SaveMessage);
+        Assert.True(settings.Save.Failed);
+        Assert.Contains("NOT-A-PAIR", settings.Save.Message);
 
         var reloader = new YetAnotherGameLauncher.Core.Services.GameCatalogService(_ctx.ConfigPath);
         await reloader.LoadAsync();
@@ -144,8 +144,8 @@ public class LaunchSettingsTests : IDisposable
 
         await settings.SaveCommand.ExecuteAsync(null);
 
-        Assert.True(settings.SaveFailed);
-        Assert.Equal("命令模板不能为空", settings.SaveMessage);
+        Assert.True(settings.Save.Failed);
+        Assert.Equal("命令模板不能为空", settings.Save.Message);
     }
 
     [Fact]

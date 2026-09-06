@@ -88,6 +88,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     [ObservableProperty]
     private string? _selectedProtonVersion;
 
+    /// <summary>Proton 版本变化时触发：用所选版本重新生成命令模板与兼容环境。</summary>
     partial void OnSelectedProtonVersionChanged(string? value)
     {
         if (SelectedLaunchMode?.Mode == LaunchMode.Proton && !string.IsNullOrWhiteSpace(value))
@@ -96,6 +97,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         }
     }
 
+    /// <summary>启动方式变化时触发：刷新 Proton 可见性，按方式生成命令模板并增删兼容环境变量。</summary>
     partial void OnSelectedLaunchModeChanged(LaunchModeOption? value)
     {
         OnPropertyChanged(nameof(IsProtonMode));
@@ -130,6 +132,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         }
     }
 
+    /// <summary>应用生成的启动配置：覆盖命令模板，生成的环境变量按 KEY 合并进现有文本。</summary>
     private void ApplyGenerated((string CommandTemplate, Dictionary<string, string> Environment) generated)
     {
         CommandTemplate = generated.CommandTemplate;
@@ -142,6 +145,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         EnvironmentText = SerializeEnvironment(merged);
     }
 
+    /// <summary>从环境文本中移除全部 STEAM_COMPAT_* 变量（切回直接/Wine 启动时调用）。</summary>
     private void RemoveCompatEnvironment()
     {
         var merged = ParseEnvironmentOrEmpty(EnvironmentText);
@@ -156,6 +160,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         EnvironmentText = SerializeEnvironment(merged);
     }
 
+    /// <summary>宽松解析环境文本为字典（跳过无 "=" 的行，不报错）。</summary>
     private static Dictionary<string, string> ParseEnvironmentOrEmpty(string text)
     {
         var result = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -172,47 +177,44 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         return result;
     }
 
+    /// <summary>启动命令模板草稿（{exe} 为游戏可执行文件占位符）。</summary>
     [ObservableProperty]
     private string _commandTemplate;
 
+    /// <summary>工作目录草稿（空白 = 保存时回退 {installDir}）。</summary>
     [ObservableProperty]
     private string _workingDirectory;
 
+    /// <summary>环境变量草稿（多行 KEY=VALUE 文本）。</summary>
     [ObservableProperty]
     private string _environmentText;
 
-    /// <summary>保存结果提示（成功或错误原因）；空 = 无提示。</summary>
+    /// <summary>保存结果提示（显示在游戏设置页位置卡内）。</summary>
     [ObservableProperty]
-    private string _saveMessage = "";
+    private SaveMessageSlot _save = new();
 
-    [ObservableProperty]
-    private bool _saveFailed;
-
+    /// <summary>校验并保存启动设置回 games.json（含安装目录变更时就地生效）。</summary>
     [RelayCommand]
     private async Task SaveAsync(CancellationToken cancellationToken)
     {
-        SaveMessage = "";
-        SaveFailed = false;
+        Save.Clear();
 
         if (string.IsNullOrWhiteSpace(CommandTemplate))
         {
-            SaveFailed = true;
-            SaveMessage = _loc["launch_commandTemplateRequired"];
+            Save.SetFailure(_loc["launch_commandTemplateRequired"]);
             return;
         }
 
         var installDir = InstallDirDraft.Trim();
         if (installDir.Length == 0)
         {
-            SaveFailed = true;
-            SaveMessage = _loc["launch_installDirRequired"];
+            Save.SetFailure(_loc["launch_installDirRequired"]);
             return;
         }
 
         if (!TryParseEnvironment(EnvironmentText, out var environment, out var badLine))
         {
-            SaveFailed = true;
-            SaveMessage = _loc.Format("launch_invalidEnvLine", badLine);
+            Save.SetFailure(_loc.Format("launch_invalidEnvLine", badLine));
             return;
         }
 
@@ -239,24 +241,25 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 _owner.UpdateInstallDir(installDir); // 路径就地重解析 + 状态刷新
             }
 
-            SaveMessage = _loc["launch_saved"];
+            Save.SetSuccess(_loc["launch_saved"]);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            SaveFailed = true;
-            SaveMessage = _loc.Format("message_saveFailed", ex.Message);
+            Save.SetFailure(_loc.Format("message_saveFailed", ex.Message));
         }
     }
 
+    /// <summary>环境变量字典 → 多行 KEY=VALUE 文本（编辑框显示用）。</summary>
     private static string SerializeEnvironment(Dictionary<string, string> environment)
         => string.Join(Environment.NewLine, environment.Select(kv => $"{kv.Key}={kv.Value}"));
 
+    /// <summary>多行 KEY=VALUE 文本 → 字典；出错的行写入 badLine 返回 false（解析容错与保存校验共用）。</summary>
     private static bool TryParseEnvironment(
         string text, out Dictionary<string, string> environment, out string badLine)
     {
         environment = [];
         badLine = "";
-        foreach (var raw in text.Split([(char)13, (char)10], StringSplitOptions.RemoveEmptyEntries))
+        foreach (var raw in text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
         {
             var line = raw.Trim();
             if (line.Length == 0)

@@ -118,9 +118,14 @@ public static class VmFactory
 
         return new Context
         {
-            Vm = vm, TempDir = tempDir, Kuro = kuro, Gryphline = gryphline,
-            Downloader = downloader, ConfigPath = configPath,
-            KuroBackdrop = kuroBackdrop, GryphlineBackdrop = gryphlineBackdrop,
+            Vm = vm,
+            TempDir = tempDir,
+            Kuro = kuro,
+            Gryphline = gryphline,
+            Downloader = downloader,
+            ConfigPath = configPath,
+            KuroBackdrop = kuroBackdrop,
+            GryphlineBackdrop = gryphlineBackdrop,
             BackgroundHandler = backgroundHandler,
         };
     }

@@ -276,7 +276,7 @@ public class SidebarNavigationTests : IDisposable
     {
         await _ctx.Vm.InitializeAsync();
 
-        await _ctx.Vm.ShowAboutCommand.ExecuteAsync(null);
+        _ctx.Vm.ShowAboutCommand.Execute(null);
 
         Assert.True(_ctx.Vm.IsAboutNavActive);
         Assert.False(_ctx.Vm.IsGameNavActive);
@@ -331,7 +331,7 @@ public class SidebarNavigationTests : IDisposable
     {
         await _ctx.Vm.InitializeAsync();
 
-        await _ctx.Vm.ShowGameSettingsCommand.ExecuteAsync(null);
+        _ctx.Vm.ShowGameSettingsCommand.Execute(null);
 
         Assert.True(_ctx.Vm.IsGameNavActive);
         Assert.Same(_ctx.Vm.SelectedGame, _ctx.Vm.GameNavSelection);

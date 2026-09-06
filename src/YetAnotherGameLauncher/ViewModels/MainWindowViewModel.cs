@@ -66,11 +66,14 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>暴露给 XAML 的文案服务：{Binding Loc[key]} 在语言切换时整体刷新。</summary>
     public ILocalizationService Loc { get; }
 
+    /// <summary>游戏列表（按配置顺序构建；侧栏与导航的数据源）。</summary>
     public ObservableCollection<GameItemViewModel> Games { get; } = [];
 
+    /// <summary>当前选中的游戏；变化时导航到详情页并刷新状态。</summary>
     [ObservableProperty]
     private GameItemViewModel? _selectedGame;
 
+    /// <summary>当前显示的页面（游戏详情/游戏设置/应用设置/关于）。</summary>
     [ObservableProperty]
     private object? _currentPage;
 
@@ -112,6 +115,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>页面切换时触发：转发通知给依赖 CurrentPage 的侧栏高亮与选中项绑定。</summary>
     partial void OnCurrentPageChanged(object? value)
     {
         OnPropertyChanged(nameof(IsGameNavActive));
@@ -132,39 +136,48 @@ public partial class MainWindowViewModel : ViewModelBase
         CurrentPage = page;
     }
 
+    /// <summary>全局状态栏提示文本（配置生成/迁移/操作结果等）。</summary>
     [ObservableProperty]
     private string _statusMessage = "";
 
+    /// <summary>当前状态提示是否为错误（驱动侧栏红字样式）。</summary>
     [ObservableProperty]
     private bool _configError;
 
+    /// <summary>是否有待展示的状态提示（控制状态栏可见性）。</summary>
     public bool HasStatusMessage => !string.IsNullOrEmpty(StatusMessage);
 
     /// <summary>应用自有背景图（设置/关于/侧栏底色，来自设置的背景图选项）；null = 内置主题渐变。</summary>
     [ObservableProperty]
     private IImage? _appBackgroundImage;
 
+    /// <summary>是否已设置应用自定义背景图（否则回退内置主题渐变）。</summary>
     public bool HasCustomAppBackground => AppBackgroundImage is not null;
 
+    /// <summary>背景图变化时触发：转发通知给 HasCustomAppBackground。</summary>
     partial void OnAppBackgroundImageChanged(IImage? value) => OnPropertyChanged(nameof(HasCustomAppBackground));
 
     /// <summary>非错误类提示（如首次运行生成配置）以次要点色展示。</summary>
     public bool ShowStatusAsHint => HasStatusMessage && !ConfigError;
 
+    /// <summary>状态提示变化时触发：转发通知给可见性与样式绑定。</summary>
     partial void OnStatusMessageChanged(string value)
     {
         OnPropertyChanged(nameof(HasStatusMessage));
         OnPropertyChanged(nameof(ShowStatusAsHint));
     }
 
+    /// <summary>错误标记变化时触发：转发通知给 ShowStatusAsHint。</summary>
     partial void OnConfigErrorChanged(bool value)
     {
         OnPropertyChanged(nameof(ShowStatusAsHint));
     }
 
+    /// <summary>当前选中的主题选项（主窗口与设置页共用）；变化即应用主题。</summary>
     [ObservableProperty]
     private ThemeOption? _selectedTheme;
 
+    /// <summary>主题选项变化时触发：立即应用对应的 ThemeVariant。</summary>
     partial void OnSelectedThemeChanged(ThemeOption? value)
     {
         if (value is not null)
@@ -173,8 +186,10 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>可选主题列表（显示名随语言重建）。</summary>
     public IReadOnlyList<ThemeOption> ThemeModes { get; private set; } = [];
 
+    /// <summary>按当前语言重建主题显示名；keepMode 非空时保持选中模式不变。</summary>
     private void RebuildThemeModes(ThemeMode? keepMode)
     {
         ThemeModes =
@@ -190,6 +205,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>语言切换回调：重建主题/计数文案并刷新各游戏，强制重建当前页让 {svc:Loc} 取到新语言。</summary>
     private void OnLanguageChanged(object? sender, PropertyChangedEventArgs e)
     {
         RebuildThemeModes(SelectedTheme?.Mode);
@@ -205,30 +221,58 @@ public partial class MainWindowViewModel : ViewModelBase
         CurrentPage = page;
     }
 
+    /// <summary>当前下载限速（字节/秒；0 = 不限速），供设置页草稿初始化。</summary>
     public long DownloadSpeedLimitBytes => _catalogService.Catalog?.Settings.DownloadSpeedLimitBytes ?? 0;
 
+    /// <summary>games.json 配置文件完整路径（展示与"打开所在目录"用）。</summary>
     public string ConfigFilePath => _catalogService.ConfigFilePath;
 
+    /// <summary>当前安装根目录（供设置页草稿初始化与展示）。</summary>
     public string InstallRoot => _catalogService.Catalog?.Settings.InstallRoot ?? "";
 
+    /// <summary>侧栏游戏计数文案（随语言切换刷新）。</summary>
     public string GameCountText => _loc.Format("sidebar_games_count", Games.Count);
 
     /// <summary>侧栏展开/收起（收起 = 68px 图标窄条），宽度驱动侧栏过渡动画。</summary>
     private const double SidebarExpandedWidth = 264;
 
+    /// <summary>侧栏收起时的窄条宽度。</summary>
     private const double SidebarCollapsedWidth = 68;
 
+    /// <summary>侧栏是否展开（持久化到 games.json，启动时恢复）。</summary>
     [ObservableProperty]
     private bool _isSidebarExpanded = true;
 
+    /// <summary>侧栏当前宽度（展开/收起值二选一，驱动过渡动画）。</summary>
     public double SidebarWidth => IsSidebarExpanded ? SidebarExpandedWidth : SidebarCollapsedWidth;
 
+    /// <summary>展开状态变化时触发：转发通知给 SidebarWidth 并异步持久化。</summary>
     partial void OnIsSidebarExpandedChanged(bool value)
     {
         OnPropertyChanged(nameof(SidebarWidth));
         _ = PersistSidebarExpandedAsync(value);
     }
 
+    /// <summary>
+    /// 保存 games.json 并统一处理 IO 失败：成功返回 true；
+    /// 失败置 ConfigError/StatusMessage（侧栏红字提示）后返回 false。
+    /// </summary>
+    public async Task<bool> TrySaveCatalogAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await _catalogService.SaveAsync(cancellationToken);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            ConfigError = true;
+            StatusMessage = _loc.Format("message_saveFailed", ex.Message);
+            return false;
+        }
+    }
+
+    /// <summary>把侧栏展开状态写回 games.json（值未变或无配置时跳过）。</summary>
     private async Task PersistSidebarExpandedAsync(bool expanded)
     {
         if (_catalogService.Catalog is not { } catalog || catalog.Settings.SidebarExpanded == expanded)
@@ -237,35 +281,25 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         catalog.Settings.SidebarExpanded = expanded;
-        try
-        {
-            await _catalogService.SaveAsync();
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            ConfigError = true;
-            StatusMessage = _loc.Format("message_saveFailed", ex.Message);
-        }
+        await TrySaveCatalogAsync();
     }
 
     [RelayCommand]
     private void ToggleSidebar() => IsSidebarExpanded = !IsSidebarExpanded;
 
     [RelayCommand]
-    private async Task ShowAboutAsync(CancellationToken cancellationToken) =>
-        NavigateTo(new AboutViewModel(this));
+    private void ShowAbout() => NavigateTo(new AboutViewModel(this));
 
     [RelayCommand]
-    private async Task ShowGameSettingsAsync(CancellationToken cancellationToken)
+    private void ShowGameSettings()
     {
         if (SelectedGame is not null)
         {
             NavigateTo(new GameSettingsViewModel(SelectedGame, this));
         }
-
-        await Task.CompletedTask;
     }
 
+    /// <summary>选中游戏变化时触发：转发侧栏选中通知，非空时导航到详情页并刷新状态。</summary>
     partial void OnSelectedGameChanged(GameItemViewModel? value)
     {
         OnPropertyChanged(nameof(GameNavSelection));
@@ -379,14 +413,8 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         catalog.Settings.AppBackgroundImage = string.IsNullOrWhiteSpace(path) ? null : path;
-        try
+        if (!await TrySaveCatalogAsync())
         {
-            await _catalogService.SaveAsync();
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            ConfigError = true;
-            StatusMessage = _loc.Format("message_saveFailed", ex.Message);
             return false;
         }
 
@@ -415,14 +443,7 @@ public partial class MainWindowViewModel : ViewModelBase
         if (_catalogService.Catalog is { } catalog)
         {
             catalog.Settings.DownloadSpeedLimitBytes = bytesPerSecond;
-            try
-            {
-                await _catalogService.SaveAsync(cancellationToken);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                StatusMessage = _loc.Format("message_saveFailed", ex.Message);
-            }
+            await TrySaveCatalogAsync(cancellationToken);
         }
     }
 
@@ -461,14 +482,8 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         catalog.Settings.InstallRoot = root;
-        try
+        if (!await TrySaveCatalogAsync())
         {
-            await _catalogService.SaveAsync();
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            ConfigError = true;
-            StatusMessage = _loc.Format("message_saveFailed", ex.Message);
             return false;
         }
 
@@ -500,34 +515,7 @@ public partial class MainWindowViewModel : ViewModelBase
             var added = new List<string>();
             foreach (var game in catalog.Games)
             {
-                var sampleGame = sample.Games.FirstOrDefault(g => g.Id == game.Id);
-                if (sampleGame is null)
-                {
-                    continue;
-                }
-
-                foreach (var server in sampleGame.Servers)
-                {
-                    if (!game.Servers.Any(s => s.Id.Equals(server.Id, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        game.Servers.Add(server);
-                        added.Add($"{game.DisplayName} · {server.Name}");
-                    }
-                }
-
-                if (string.IsNullOrWhiteSpace(game.Icon)
-                    && !string.IsNullOrWhiteSpace(sampleGame.Icon))
-                {
-                    game.Icon = sampleGame.Icon;
-                }
-
-                if (game.NameLocalized.Count == 0 && sampleGame.NameLocalized.Count > 0)
-                {
-                    foreach (var (culture, name) in sampleGame.NameLocalized)
-                    {
-                        game.NameLocalized[culture] = name;
-                    }
-                }
+                MergeFromSample(game, sample.Games.FirstOrDefault(g => g.Id == game.Id), added);
             }
 
             if (added.Count > 0)
@@ -547,6 +535,37 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>单个游戏的样例对照合并：补服务器（记录新增项）、图标与本地化名称（已有值不覆盖）。</summary>
+    private void MergeFromSample(GameDefinition game, GameDefinition? sampleGame, List<string> added)
+    {
+        if (sampleGame is null)
+        {
+            return;
+        }
+
+        foreach (var server in sampleGame.Servers)
+        {
+            if (!game.Servers.Any(s => s.Id.Equals(server.Id, StringComparison.OrdinalIgnoreCase)))
+            {
+                game.Servers.Add(server);
+                added.Add($"{game.DisplayName} · {server.Name}");
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(game.Icon) && !string.IsNullOrWhiteSpace(sampleGame.Icon))
+        {
+            game.Icon = sampleGame.Icon;
+        }
+
+        if (game.NameLocalized.Count == 0 && sampleGame.NameLocalized.Count > 0)
+        {
+            foreach (var (culture, name) in sampleGame.NameLocalized)
+            {
+                game.NameLocalized[culture] = name;
+            }
+        }
+    }
+
     /// <summary>把语言设置写回 games.json（UI 切换由 SetLanguage 即时生效，此处只负责持久化）。</summary>
     public async Task SaveLanguageAsync(string language, CancellationToken cancellationToken = default)
     {
@@ -556,17 +575,10 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         catalog.Settings.Language = language;
-        try
-        {
-            await _catalogService.SaveAsync(cancellationToken);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            ConfigError = true;
-            StatusMessage = _loc.Format("message_saveFailed", ex.Message);
-        }
+        await TrySaveCatalogAsync(cancellationToken);
     }
 
+    /// <summary>打开应用设置页，页面上屏后异步补齐自启状态。</summary>
     [RelayCommand]
     private async Task ShowSettingsAsync(CancellationToken cancellationToken)
     {
@@ -596,107 +608,100 @@ public partial class SettingsViewModel : ViewModelBase
     private static string FormatSpeed(long bytes) =>
         bytes <= 0 ? "0" : Math.Round(bytes / 1024.0 / 1024.0, 1).ToString("0.#");
 
+    /// <summary>文案服务（转发主窗口实例，供 XAML 绑定）。</summary>
     public ILocalizationService Loc => _owner.Loc;
 
+    /// <summary>games.json 配置文件完整路径（展示与"打开所在目录"用）。</summary>
     public string ConfigFilePath => _owner.ConfigFilePath;
 
     /// <summary>安装根目录草稿（编辑后点保存生效，游戏路径随之重新解析）。</summary>
     [ObservableProperty]
     private string _installRootDraft;
 
-    /// <summary>下载限速草稿（MB/s，0 = 不限速）。</summary>
+    /// <summary>下载限速草稿（MB/s，0 = 不限速）；重新编辑时清空上次结果。</summary>
     [ObservableProperty]
     private string _speedLimitMbDraft;
 
+    /// <summary>限速保存结果提示。</summary>
     [ObservableProperty]
-    private bool _speedLimitSaveFailed;
+    private SaveMessageSlot _speedLimitSave = new();
 
-    [ObservableProperty]
-    private string _speedLimitSaveMessage = "";
+    partial void OnSpeedLimitMbDraftChanged(string value) => SpeedLimitSave.Clear();
 
-    partial void OnSpeedLimitMbDraftChanged(string value) => SpeedLimitSaveMessage = "";
-
+    /// <summary>校验限速草稿（MB/s ≥ 0）并应用，结果写入独立消息位。</summary>
     [RelayCommand]
     private async Task SaveDownloadLimitAsync(CancellationToken cancellationToken)
     {
-        SpeedLimitSaveMessage = "";
-        SpeedLimitSaveFailed = false;
+        SpeedLimitSave.Clear();
         if (!double.TryParse(SpeedLimitMbDraft.Trim(), out var mb) || mb < 0)
         {
-            SpeedLimitSaveFailed = true;
-            SpeedLimitSaveMessage = Loc["settings_downloadLimitInvalid"];
+            SpeedLimitSave.SetFailure(Loc["settings_downloadLimitInvalid"]);
             return;
         }
 
         await _owner.ApplySpeedLimitAsync((long)Math.Round(mb * 1024 * 1024), cancellationToken);
-        SpeedLimitSaveMessage = Loc["settings_downloadLimitSaved"];
+        SpeedLimitSave.SetSuccess(Loc["settings_downloadLimitSaved"]);
     }
 
     /// <summary>开机自启动开关（写入系统注册表 / XDG autostart），打开设置页时异步初始化。</summary>
     [ObservableProperty]
     private bool _isAutostart;
 
-    /// <summary>自启设置失败提示（独立消息位，显示在自启开关旁）。</summary>
+    /// <summary>自启设置结果提示（独立消息位，显示在自启开关旁）。</summary>
     [ObservableProperty]
-    private bool _autostartSaveFailed;
-
-    [ObservableProperty]
-    private string _autostartSaveMessage = "";
+    private SaveMessageSlot _autostartSave = new();
 
     /// <summary>页面上屏后异步补齐自启状态（Windows 查询需起 reg 子进程）。</summary>
     public async Task InitializeAsync(CancellationToken cancellationToken = default) =>
         IsAutostart = await _owner.GetAutostartStateAsync(cancellationToken);
 
+    /// <summary>切换自启并回读实际状态，失败时写入失败提示。</summary>
     public async Task SetAutostartAsync(bool enabled)
     {
-        AutostartSaveFailed = false;
-        AutostartSaveMessage = "";
+        AutostartSave.Clear();
         if (!await _owner.SetAutostartAsync(enabled))
         {
-            AutostartSaveFailed = true;
-            AutostartSaveMessage = Loc["settings_autostartFailed"];
+            AutostartSave.SetFailure(Loc["settings_autostartFailed"]);
         }
 
         IsAutostart = await _owner.GetAutostartStateAsync();
     }
 
     [RelayCommand]
-    private async Task ToggleAutostartAsync() => await SetAutostartAsync(!IsAutostart);
+    private Task ToggleAutostartAsync() => SetAutostartAsync(!IsAutostart);
 
+    /// <summary>安装根目录保存结果提示。</summary>
     [ObservableProperty]
-    private bool _installRootSaveFailed;
+    private SaveMessageSlot _installRootSave = new();
 
-    [ObservableProperty]
-    private string _installRootSaveMessage = "";
+    partial void OnInstallRootDraftChanged(string value) => InstallRootSave.Clear();
 
-    partial void OnInstallRootDraftChanged(string value) => InstallRootSaveMessage = "";
-
+    /// <summary>校验安装根目录草稿非空后保存，结果写入独立消息位。</summary>
     [RelayCommand]
     private async Task SaveInstallRootAsync(CancellationToken cancellationToken)
     {
-        InstallRootSaveMessage = "";
-        InstallRootSaveFailed = false;
+        InstallRootSave.Clear();
         var draft = InstallRootDraft.Trim();
         if (draft.Length == 0)
         {
-            InstallRootSaveFailed = true;
-            InstallRootSaveMessage = Loc["settings_installRootRequired"];
+            InstallRootSave.SetFailure(Loc["settings_installRootRequired"]);
             return;
         }
 
         if (await _owner.UpdateInstallRootAsync(draft))
         {
-            InstallRootSaveMessage = Loc["settings_installRootSaved"];
+            InstallRootSave.SetSuccess(Loc["settings_installRootSaved"]);
         }
         else
         {
-            InstallRootSaveFailed = true;
-            InstallRootSaveMessage = _owner.StatusMessage;
+            InstallRootSave.SetFailure(_owner.StatusMessage);
         }
     }
 
+    /// <summary>可选主题列表（转发主窗口，显示名随语言重建）。</summary>
     public IReadOnlyList<ThemeOption> ThemeModes => _owner.ThemeModes;
 
+    /// <summary>主题选择（直接读写主窗口状态并回传变更通知）。</summary>
     public ThemeOption? SelectedTheme
     {
         get => _owner.SelectedTheme;
@@ -710,8 +715,10 @@ public partial class SettingsViewModel : ViewModelBase
         }
     }
 
+    /// <summary>可选语言列表（显示名随当前语言重建）。</summary>
     public IReadOnlyList<LanguageOption> Languages => BuildLanguages();
 
+    /// <summary>构建语言选项：跟随系统 + 简体中文 + English。</summary>
     private IReadOnlyList<LanguageOption> BuildLanguages() =>
     [
         new LanguageOption(LocalizationService.SystemLanguage, _owner.Loc["lang_system"]),
@@ -719,6 +726,7 @@ public partial class SettingsViewModel : ViewModelBase
         new LanguageOption("en-US", _owner.Loc["lang_en-US"]),
     ];
 
+    /// <summary>当前语言；切换即全局生效并持久化，同时刷新选项列表显示名。</summary>
     public LanguageOption? SelectedLanguage
     {
         get => BuildLanguages().FirstOrDefault(l => l.Value == _owner.Loc.Language);
@@ -736,6 +744,7 @@ public partial class SettingsViewModel : ViewModelBase
         }
     }
 
+    /// <summary>返回游戏页（转发主窗口命令）。</summary>
     [RelayCommand]
     private void ShowGames() => _owner.ShowGamesCommand.Execute(null);
 
@@ -743,18 +752,15 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     private string _appBackgroundPath;
 
-    /// <summary>应用背景操作结果提示（成功/失败共用文本）。</summary>
+    /// <summary>应用背景操作结果提示。</summary>
     [ObservableProperty]
-    private string _appBackgroundMessage = "";
+    private SaveMessageSlot _appBackgroundSave = new();
 
-    [ObservableProperty]
-    private bool _appBackgroundFailed;
-
+    /// <summary>挑一张图片设为应用背景，结果写入独立消息位。</summary>
     [RelayCommand]
     private async Task BrowseAppBackgroundAsync(CancellationToken cancellationToken)
     {
-        AppBackgroundMessage = "";
-        AppBackgroundFailed = false;
+        AppBackgroundSave.Clear();
         var path = await _owner.PickImageFileAsync();
         if (path is null)
         {
@@ -764,32 +770,31 @@ public partial class SettingsViewModel : ViewModelBase
         if (await _owner.SetAppBackgroundAsync(path))
         {
             AppBackgroundPath = path;
-            AppBackgroundMessage = Loc["settings_appBackground_saved"];
+            AppBackgroundSave.SetSuccess(Loc["settings_appBackground_saved"]);
         }
         else
         {
-            AppBackgroundFailed = true;
-            AppBackgroundMessage = Loc["settings_appBackground_failed"];
+            AppBackgroundSave.SetFailure(Loc["settings_appBackground_failed"]);
         }
     }
 
+    /// <summary>清除应用背景图恢复内置渐变，结果写入独立消息位。</summary>
     [RelayCommand]
     private async Task ResetAppBackgroundAsync()
     {
-        AppBackgroundMessage = "";
-        AppBackgroundFailed = false;
+        AppBackgroundSave.Clear();
         if (await _owner.SetAppBackgroundAsync(null))
         {
             AppBackgroundPath = "";
-            AppBackgroundMessage = Loc["settings_appBackground_resetDone"];
+            AppBackgroundSave.SetSuccess(Loc["settings_appBackground_resetDone"]);
         }
         else
         {
-            AppBackgroundFailed = true;
-            AppBackgroundMessage = Loc["settings_appBackground_failed"];
+            AppBackgroundSave.SetFailure(Loc["settings_appBackground_failed"]);
         }
     }
 
+    /// <summary>在系统文件管理器中打开配置文件所在目录（跨平台由系统 shell 决定）。</summary>
     [RelayCommand]
     private void OpenConfigFolder()
     {
@@ -799,19 +804,15 @@ public partial class SettingsViewModel : ViewModelBase
             return;
         }
 
-        // 打开目录：跨平台由系统 shell 决定
-        if (OperatingSystem.IsWindows())
+        var open = new ProcessStartInfo
         {
-            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{directory}\"") { UseShellExecute = true });
-        }
-        else if (OperatingSystem.IsMacOS())
-        {
-            Process.Start("open", directory);
-        }
-        else if (OperatingSystem.IsLinux())
-        {
-            Process.Start("xdg-open", directory);
-        }
+            FileName = OperatingSystem.IsWindows() ? "explorer.exe"
+                : OperatingSystem.IsMacOS() ? "open"
+                : "xdg-open",
+            Arguments = OperatingSystem.IsWindows() ? $"\"{directory}\"" : directory,
+            UseShellExecute = true,
+        };
+        Process.Start(open);
     }
 }
 
@@ -825,23 +826,22 @@ public sealed record LanguageOption(string Value, string DisplayName);
 public sealed record ThirdPartyItem(string Name, string License);
 
 /// <summary>关于页：应用信息、版本与第三方声明。</summary>
-public sealed partial class AboutViewModel : ViewModelBase
+public sealed partial class AboutViewModel(MainWindowViewModel owner) : ViewModelBase
 {
-    private readonly MainWindowViewModel _owner;
+    /// <summary>文案服务（转发主窗口实例，供 XAML 绑定）。</summary>
+    public ILocalizationService Loc => owner.Loc;
 
-    public AboutViewModel(MainWindowViewModel owner) => _owner = owner;
-
-    public ILocalizationService Loc => _owner.Loc;
-
-    public string ConfigFilePath => _owner.ConfigFilePath;
+    /// <summary>games.json 配置文件完整路径（展示用）。</summary>
+    public string ConfigFilePath => owner.ConfigFilePath;
 
     /// <summary>应用程序集版本（AssemblyInformationalVersion 优先，含 git 信息时更长）。</summary>
     public string AppVersion =>
         System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "0.0.0";
 
-    public string RuntimeVersion =>
-        Environment.Version.ToString();
+    /// <summary>运行时版本。</summary>
+    public string RuntimeVersion => Environment.Version.ToString();
 
+    /// <summary>第三方组件与许可声明。</summary>
     public IReadOnlyList<ThirdPartyItem> ThirdParty =>
     [
         new("Avalonia UI 12.1.2", "MIT"),
@@ -852,6 +852,7 @@ public sealed partial class AboutViewModel : ViewModelBase
         new("frontend-design skill", "Apache-2.0"),
     ];
 
+    /// <summary>返回游戏页（转发主窗口命令）。</summary>
     [RelayCommand]
-    private void ShowGames() => _owner.ShowGamesCommand.Execute(null);
+    private void ShowGames() => owner.ShowGamesCommand.Execute(null);
 }

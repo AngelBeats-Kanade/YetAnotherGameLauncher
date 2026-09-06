@@ -2,7 +2,6 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:YetAnotherGameLauncher.ViewModels"
         xmlns:models="using:YetAnotherGameLauncher.Core.Models"
-        xmlns:svc="using:YetAnotherGameLauncher.Services"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="720"
@@ -14,6 +13,11 @@
         Width="1120" Height="720" MinWidth="920" MinHeight="620"
         Background="{DynamicResource AppPageBackground}"
         FontFamily="Microsoft YaHei UI, Noto Sans CJK SC, Segoe UI, Inter">
+
+    <Window.Resources>
+        <!-- 齿轮图标（侧栏设置入口与详情页游戏设置入口共用） -->
+        <StreamGeometry x:Key="GearIconGeo">M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z</StreamGeometry>
+    </Window.Resources>
 
     <Window.Styles>
         <!-- 侧栏列表项：圆角、悬停/选中为弱化强调 -->
@@ -61,6 +65,24 @@
         <Style Selector="TextBlock.card-caption">
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Foreground" Value="{DynamicResource AppTextSecondary}"/>
+        </Style>
+
+        <!-- 表单保存结果提示：绿色成功 / 红色失败（文本空白时由 HasMessage 隐藏） -->
+        <Style Selector="TextBlock.save-msg">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppStatusOk}"/>
+        </Style>
+        <Style Selector="TextBlock.save-msg.failed">
+            <Setter Property="Foreground" Value="{DynamicResource AppErrorText}"/>
+        </Style>
+
+        <!-- 常用按钮规格：小号操作钮与返回钮 -->
+        <Style Selector="Button.btn-sm">
+            <Setter Property="Padding" Value="18,8"/>
+        </Style>
+        <Style Selector="Button.back-btn">
+            <Setter Property="Padding" Value="20,9"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
         </Style>
 
         <!-- 玻璃卡片与玻璃按钮：半透明底（清晰背景图上保证可读，圆角优先） -->
@@ -125,8 +147,13 @@
             <Setter Property="Padding" Value="9"/>
         </Style>
 
-        <!-- 页面切换：Store 式横滑过渡（前进自右滑入、后退自左滑入，配淡入；
-             详情页根为 Panel，其余页根为 Border，用 :is 统一） -->
+        <!-- 页面切换：Store 式横滑过渡（前进自右滑入、后退自左滑入，配淡入）；
+             详情页根为 Panel 无边距，设置类页根为 Border.page 统一留边 -->
+
+        <!-- 设置类页面（设置/关于/游戏设置）的统一页边距 -->
+        <Style Selector="Border.page">
+            <Setter Property="Margin" Value="34,26,34,24"/>
+        </Style>
         <Style Selector="ContentControl.nav-forward :is(Control).page">
             <Style.Animations>
                 <Animation Duration="0:0:0.3" FillMode="Forward" Easing="CubicEaseOut">
@@ -231,7 +258,7 @@
                                 Padding="12,8"
                                 ToolTip.Tip="{Binding Loc[common_settings]}">
                             <StackPanel Orientation="Horizontal" Spacing="12">
-                                <Path Data="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"
+                                <Path Data="{StaticResource GearIconGeo}"
                                       Fill="{Binding $parent[Button].Foreground}"
                                       Stretch="Uniform" Width="18" Height="18"
                                       HorizontalAlignment="Left"/>
@@ -404,7 +431,7 @@
                                         <Button Classes="icon-btn pressable" Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ShowGameSettingsCommand}"
                                                 VerticalAlignment="Center"
                                                 ToolTip.Tip="{Binding Loc[game_settings_title]}">
-                                            <Path Data="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"
+                                            <Path Data="{StaticResource GearIconGeo}"
                                                   Fill="{Binding $parent[Button].Foreground}"
                                                   Stretch="Uniform" Width="19" Height="19"/>
                                         </Button>
@@ -448,7 +475,7 @@
 
                         <!-- ========== 设置页 ========== -->
                         <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
-                            <Border Classes="page" Margin="34,26,34,24">
+                            <Border Classes="page">
                                 <ScrollViewer>
                                     <StackPanel MaxWidth="720" HorizontalAlignment="Stretch" Spacing="18">
 
@@ -498,18 +525,14 @@
                                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                                     <Button Content="{Binding Loc[settings_appBackground_browse]}"
                                                             Command="{Binding BrowseAppBackgroundCommand}"
-                                                            Classes="accent pressable" Padding="18,8"/>
+                                                            Classes="accent pressable btn-sm"/>
                                                     <Button Content="{Binding Loc[settings_appBackground_reset]}"
                                                             Command="{Binding ResetAppBackgroundCommand}"
-                                                            Classes="glass pressable" Padding="18,8"/>
-                                                    <TextBlock Text="{Binding AppBackgroundMessage}" VerticalAlignment="Center"
-                                                               Classes="card-caption"
-                                                               Foreground="{DynamicResource AppErrorText}"
-                                                               IsVisible="{Binding AppBackgroundFailed}"/>
-                                                    <TextBlock Text="{Binding AppBackgroundMessage}" VerticalAlignment="Center"
-                                                               Classes="card-caption"
-                                                               Foreground="{DynamicResource AppStatusOk}"
-                                                               IsVisible="{Binding !AppBackgroundFailed}"/>
+                                                            Classes="glass pressable btn-sm"/>
+                                                    <TextBlock Classes="save-msg" VerticalAlignment="Center"
+                                                               Text="{Binding AppBackgroundSave.Message}"
+                                                               IsVisible="{Binding AppBackgroundSave.HasMessage}"
+                                                               Classes.failed="{Binding AppBackgroundSave.Failed}"/>
                                                 </StackPanel>
                                             </StackPanel>
                                         </Border>
@@ -524,15 +547,11 @@
                                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                                     <Button Content="{Binding Loc[common_save]}"
                                                             Command="{Binding SaveInstallRootCommand}"
-                                                            Classes="accent pressable" Padding="18,8"/>
-                                                    <TextBlock Text="{Binding InstallRootSaveMessage}" VerticalAlignment="Center"
-                                                               Classes="card-caption"
-                                                               Foreground="{DynamicResource AppErrorText}"
-                                                               IsVisible="{Binding InstallRootSaveFailed}"/>
-                                                    <TextBlock Text="{Binding InstallRootSaveMessage}" VerticalAlignment="Center"
-                                                               Classes="card-caption"
-                                                               Foreground="{DynamicResource AppStatusOk}"
-                                                               IsVisible="{Binding !InstallRootSaveFailed}"/>
+                                                            Classes="accent pressable btn-sm"/>
+                                                    <TextBlock Classes="save-msg" VerticalAlignment="Center"
+                                                               Text="{Binding InstallRootSave.Message}"
+                                                               IsVisible="{Binding InstallRootSave.HasMessage}"
+                                                               Classes.failed="{Binding InstallRootSave.Failed}"/>
                                                 </StackPanel>
                                                 <StackPanel Spacing="4" Margin="0,8,0,0">
                                                     <TextBlock Text="{Binding Loc[settings_downloadLimit]}" Classes="card-caption"/>
@@ -542,25 +561,21 @@
                                                                    VerticalAlignment="Center"/>
                                                         <Button Content="{Binding Loc[common_save]}"
                                                                 Command="{Binding SaveDownloadLimitCommand}"
-                                                                Classes="glass pressable" Padding="18,8"/>
-                                                        <TextBlock Text="{Binding SpeedLimitSaveMessage}" VerticalAlignment="Center"
-                                                                   Classes="card-caption"
-                                                                   Foreground="{DynamicResource AppErrorText}"
-                                                                   IsVisible="{Binding SpeedLimitSaveFailed}"/>
-                                                        <TextBlock Text="{Binding SpeedLimitSaveMessage}" VerticalAlignment="Center"
-                                                                   Classes="card-caption"
-                                                                   Foreground="{DynamicResource AppStatusOk}"
-                                                                   IsVisible="{Binding !SpeedLimitSaveFailed}"/>
+                                                                Classes="glass pressable btn-sm"/>
+                                                        <TextBlock Classes="save-msg" VerticalAlignment="Center"
+                                                                   Text="{Binding SpeedLimitSave.Message}"
+                                                                   IsVisible="{Binding SpeedLimitSave.HasMessage}"
+                                                                   Classes.failed="{Binding SpeedLimitSave.Failed}"/>
                                                     </StackPanel>
                                                 </StackPanel>
 
                                                 <ToggleSwitch Content="{Binding Loc[settings_autostart]}"
                                                               IsChecked="{Binding IsAutostart, Mode=OneWay}"
                                                               Command="{Binding ToggleAutostartCommand}" Margin="0,6,0,0"/>
-                                                <TextBlock Text="{Binding AutostartSaveMessage}"
-                                                           Classes="card-caption"
-                                                           Foreground="{DynamicResource AppErrorText}"
-                                                           IsVisible="{Binding AutostartSaveFailed}"/>
+                                                <TextBlock Classes="save-msg"
+                                                           Text="{Binding AutostartSave.Message}"
+                                                           IsVisible="{Binding AutostartSave.HasMessage}"
+                                                           Classes.failed="{Binding AutostartSave.Failed}"/>
                                             </StackPanel>
                                         </Border>
 
@@ -578,7 +593,7 @@
                                         </Border>
 
                                         <Button Content="{Binding Loc[common_backToGames]}" Command="{Binding ShowGamesCommand}"
-                                                Classes="accent pressable" Padding="20,9" HorizontalAlignment="Left"/>
+                                                Classes="accent pressable back-btn"/>
                                     </StackPanel>
                                 </ScrollViewer>
                             </Border>
@@ -586,7 +601,7 @@
 
                         <!-- ========== 关于页 ========== -->
                         <DataTemplate DataType="{x:Type vm:AboutViewModel}">
-                            <Border Classes="page" Margin="34,26,34,24">
+                            <Border Classes="page">
                                 <ScrollViewer>
                                     <StackPanel MaxWidth="720" HorizontalAlignment="Stretch" Spacing="18">
 
@@ -639,7 +654,7 @@
                                         </Border>
 
                                         <Button Content="{Binding Loc[common_backToGames]}" Command="{Binding ShowGamesCommand}"
-                                                Classes="accent pressable" Padding="20,9" HorizontalAlignment="Left"/>
+                                                Classes="accent pressable back-btn"/>
                                     </StackPanel>
                                 </ScrollViewer>
                             </Border>
@@ -647,7 +662,7 @@
 
                         <!-- ========== 游戏设置页（Motrix 式分区） ========== -->
                         <DataTemplate DataType="{x:Type vm:GameSettingsViewModel}">
-                            <Border Classes="page" Margin="34,26,34,24">
+                            <Border Classes="page">
                                 <ScrollViewer>
                                     <StackPanel MaxWidth="720" HorizontalAlignment="Stretch" Spacing="18">
 
@@ -668,17 +683,13 @@
                                                     <TextBox Grid.Column="0" Text="{Binding LaunchSettings.InstallDirDraft}"/>
                                                     <Button Grid.Column="1" Content="{Binding Loc[common_save]}"
                                                             Command="{Binding LaunchSettings.SaveCommand}"
-                                                            Classes="accent pressable" Padding="18,8"/>
+                                                            Classes="accent pressable btn-sm"/>
                                                 </Grid>
                                                 <TextBlock Text="{Binding Loc[launch_installDirHint]}" Classes="card-caption"/>
-                                                <TextBlock Text="{Binding LaunchSettings.SaveMessage}"
-                                                           Classes="card-caption"
-                                                           Foreground="{DynamicResource AppErrorText}"
-                                                           IsVisible="{Binding LaunchSettings.SaveFailed}"/>
-                                                <TextBlock Text="{Binding LaunchSettings.SaveMessage}"
-                                                           Classes="card-caption"
-                                                           Foreground="{DynamicResource AppStatusOk}"
-                                                           IsVisible="{Binding !LaunchSettings.SaveFailed}"/>
+                                                <TextBlock Classes="save-msg"
+                                                           Text="{Binding LaunchSettings.Save.Message}"
+                                                           IsVisible="{Binding LaunchSettings.Save.HasMessage}"
+                                                           Classes.failed="{Binding LaunchSettings.Save.Failed}"/>
                                             </StackPanel>
                                         </Border>
 
@@ -752,7 +763,7 @@
                                         </Border>
 
                                         <Button Content="{Binding Loc[common_backToGames]}" Command="{Binding BackToGameCommand}"
-                                                Classes="accent pressable" Padding="20,9" HorizontalAlignment="Left"/>
+                                                Classes="accent pressable back-btn"/>
                                     </StackPanel>
                                 </ScrollViewer>
                             </Border>

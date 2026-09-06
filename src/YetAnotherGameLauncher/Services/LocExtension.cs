@@ -10,12 +10,14 @@ namespace YetAnotherGameLauncher.Services;
 /// </summary>
 public static class LocBridge
 {
+    /// <summary>当前本地化服务实例（应用启动时由 DI 组合根赋值）。</summary>
     public static ILocalizationService Instance { get; set; } = new LocalizationService();
 }
 
 /// <summary>XAML 用法：{svc:Loc settings_title} → 取当前语言文案，语言切换时随 Item[] 通知刷新。</summary>
 public class LocExtension(string key) : MarkupExtension
 {
+    /// <summary>文案键（对应 strings_*.json 资源里的键名）。</summary>
     public string Key { get; set; } = key;
 
     public override object ProvideValue(IServiceProvider serviceProvider)
