@@ -98,6 +98,7 @@ public partial class GameItemViewModel(
 
     private async Task RefreshCoreAsync(CancellationToken cancellationToken)
     {
+        // 背景为装饰性资源：后台加载，不阻塞状态刷新（否则 StatusText 等会晚到）
         _ = LoadBackgroundImageAsync(cancellationToken);
 
         var state = new LocalStateService(_installDir).Load(Game.Id, SelectedServer.Id);
@@ -145,17 +146,21 @@ public partial class GameItemViewModel(
         try
         {
             var iconTask = backgroundImageService.LoadAsync(Game.Icon, cancellationToken);
-            var image = await backgroundImageService.LoadAsync(Game.BackgroundImage, cancellationToken);
+
+            // 背景优先级：配置指定 > 库洛官方启动器本地缓存（当期背景） > 主题渐变
+            var source = Game.BackgroundImage;
+            if (string.IsNullOrWhiteSpace(source) && Game.Channel == "kuro")
+            {
+                source = KuroLauncherBackground.FindLatestFrame(_installDir);
+            }
+
+            var image = await backgroundImageService.LoadAsync(source, cancellationToken);
             var icon = await iconTask;
 
-            // 图像属性的赋值必须回到 UI 线程（加载续延可能在池线程上）
-            Dispatcher.UIThread.Post(() =>
-            {
-                GameIcon = icon;
-                HasGameIcon = icon is not null;
-                BackgroundImage = image;
-                HasBackgroundImage = image is not null;
-            });
+            GameIcon = icon;
+            HasGameIcon = icon is not null;
+            BackgroundImage = image;
+            HasBackgroundImage = image is not null;
         }
         catch (Exception)
         {

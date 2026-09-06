@@ -11,9 +11,9 @@ public static class KuroLauncherBackground
     /// 定位最新的背景帧。优先在游戏安装目录的兄弟目录（kr_game_cache）中查找，
     /// 再扫描各盘符的常见安装位置；返回动画末帧（文件序号最大），找不到返回 null。
     /// </summary>
-    public static string? FindLatestFrame(string? gameInstallDir = null)
+    public static string? FindLatestFrame(string? gameInstallDir = null, IEnumerable<string>? driveRoots = null)
     {
-        var latest = CandidateRoots(gameInstallDir)
+        var latest = CandidateRoots(gameInstallDir, driveRoots)
             .Where(Directory.Exists)
             .SelectMany(EnumerateFrames)
             .OrderByDescending(f => f, StringComparer.OrdinalIgnoreCase)
@@ -21,7 +21,7 @@ public static class KuroLauncherBackground
         return latest;
     }
 
-    private static IEnumerable<string> CandidateRoots(string? gameInstallDir)
+    private static IEnumerable<string> CandidateRoots(string? gameInstallDir, IEnumerable<string>? driveRoots)
     {
         // 游戏安装目录上溯：…\Wuthering Waves\Wuthering Waves Game → …\Wuthering Waves\kr_game_cache
         if (!string.IsNullOrWhiteSpace(gameInstallDir))
@@ -35,7 +35,7 @@ public static class KuroLauncherBackground
             }
         }
 
-        foreach (var drive in DriveInfo.GetDrives().Select(d => d.Name))
+        foreach (var drive in driveRoots ?? DriveInfo.GetDrives().Select(d => d.Name))
         {
             yield return Path.Combine(drive, "Wuthering Waves", "kr_game_cache");
         }

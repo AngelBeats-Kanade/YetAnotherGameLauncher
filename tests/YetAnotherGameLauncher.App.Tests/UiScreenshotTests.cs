@@ -52,6 +52,15 @@ public class UiScreenshotTests
             window.Show();
             window.UpdateLayout();
 
+            void WaitForBackdrop()
+            {
+                // 背景为装饰性异步加载：轮询等待其就绪（上限 5s），避免截到纯渐变帧
+                for (var i = 0; i < 100 && !ctx.Vm.Games[0].HasBackgroundImage; i++)
+                {
+                    Thread.Sleep(50);
+                }
+            }
+
             void Capture(string name)
             {
                 Thread.Sleep(150); // headless 动画时钟靠手动 tick 推进：先等真实时钟，再显式推进
@@ -61,10 +70,10 @@ public class UiScreenshotTests
                 frame.Save(Path.Combine(outDir, name), new PngBitmapEncoderOptions());
             }
 
-            // 给鸣潮挂一张渐变测试背景图，验证详情页背景 + 模糊 + 遮罩效果
-            var bgPath = ctx.TempDir.FilePath("bg.png");
+            // 模拟库洛官方启动器背景帧缓存：配置留空时应被自动探测（当期官方背景）
+            var bgPath = ctx.TempDir.FilePath("kr_game_cache", "animate_bg", "h1", "home_1.jpg");
+            Directory.CreateDirectory(Path.GetDirectoryName(bgPath)!);
             CreateTestBackground(bgPath);
-            ctx.Vm.Games[0].Game.BackgroundImage = bgPath;
             await ctx.Vm.Games[0].RefreshAsync();
 
             // 暗色 · 游戏详情（鸣潮：未安装 + 预下载可用 + 背景图）
@@ -72,6 +81,7 @@ public class UiScreenshotTests
             var light = ctx.Vm.ThemeModes.First(t => t.Mode == ThemeMode.Light);
             ctx.Vm.SelectedTheme = dark;
             window.UpdateLayout();
+            WaitForBackdrop();
             Capture("01-game-detail-dark.png");
 
             // 亮色 · 游戏详情
@@ -79,15 +89,12 @@ public class UiScreenshotTests
             window.UpdateLayout();
             Capture("02-game-detail-light.png");
 
-            // 暗色 · 启动设置展开
+            // 暗色 · 游戏设置页（位置 / 启动方式 / 启动参数）
             ctx.Vm.SelectedTheme = dark;
+            ctx.Vm.ShowGameSettingsCommand.Execute(null);
             window.UpdateLayout();
-            var launchToggle = window.GetVisualDescendants()
-                .OfType<ToggleButton>().First(t => t.Classes.Contains("card-toggle"));
-            launchToggle.IsChecked = true;
-            window.UpdateLayout();
-            Capture("02b-launch-settings-dark.png");
-            launchToggle.IsChecked = false;
+            Capture("02b-game-settings-dark.png");
+            ctx.Vm.ShowGamesCommand.Execute(null);
 
             // 暗色 · 第二个游戏（终末地，官方远程背景图，验证 URL 加载链路）
             ctx.Vm.SelectedTheme = dark;

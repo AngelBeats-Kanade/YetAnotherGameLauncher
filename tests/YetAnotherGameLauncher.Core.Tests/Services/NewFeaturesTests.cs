@@ -110,3 +110,47 @@ public class AutostartContentTests
         Assert.EndsWith(System.IO.Path.Combine(".config", "autostart", "yetanothergamelauncher.desktop"), path);
     }
 }
+
+public class KuroLauncherBackgroundTests : IDisposable
+{
+    private readonly TempDir _home = new();
+
+    public void Dispose() => _home.Dispose();
+
+    [Fact]
+    public void FindLatestFrame_ProbesSiblingCacheDirectory()
+    {
+        // 游戏目录：temp/Wuthering Waves/Wuthering Waves Game；缓存：temp/Wuthering Waves/kr_game_cache
+        var installDir = _home.FilePath("Wuthering Waves", "Wuthering Waves Game");
+        Directory.CreateDirectory(installDir);
+        var frame = _home.FilePath("Wuthering Waves", "kr_game_cache", "animate_bg", "h1", "home_7.jpg");
+        Directory.CreateDirectory(Path.GetDirectoryName(frame)!);
+        File.WriteAllText(frame, "x");
+
+        Assert.Equal(frame, KuroLauncherBackground.FindLatestFrame(installDir, ["Z:\\"]));
+    }
+
+    [Fact]
+    public void FindLatestFrame_ReturnsNewestFrame()
+    {
+        var installDir = _home.FilePath("Wuthering Waves", "Wuthering Waves Game");
+        Directory.CreateDirectory(installDir);
+        foreach (var n in new[] { 1, 2, 9 })
+        {
+            var f = _home.FilePath("kr_game_cache", "animate_bg", "h1", $"home_{n}.jpg");
+            Directory.CreateDirectory(Path.GetDirectoryName(f)!);
+            File.WriteAllText(f, "x");
+        }
+
+        Assert.EndsWith($"home_9{System.IO.Path.GetExtension(".jpg")}", KuroLauncherBackground.FindLatestFrame(installDir, ["Z:\\"]));
+    }
+
+    [Fact]
+    public void FindLatestFrame_None_ReturnsNull()
+    {
+        var installDir = _home.FilePath("Wuthering Waves", "Wuthering Waves Game");
+        Directory.CreateDirectory(installDir);
+
+        Assert.Null(KuroLauncherBackground.FindLatestFrame(installDir, ["Z:\\"]));
+    }
+}

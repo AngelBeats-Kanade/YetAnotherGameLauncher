@@ -181,6 +181,15 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void ShowAbout() => CurrentPage = new AboutViewModel(this);
 
+    [RelayCommand]
+    private void ShowGameSettings()
+    {
+        if (SelectedGame is not null)
+        {
+            CurrentPage = new GameSettingsViewModel(SelectedGame, this);
+        }
+    }
+
     partial void OnSelectedGameChanged(GameItemViewModel? value)
     {
         if (value is not null)

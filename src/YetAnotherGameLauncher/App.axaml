@@ -41,8 +41,8 @@
                     <SolidColorBrush x:Key="AppPredownloadBadge" Color="#E8930C"/>
                     <SolidColorBrush x:Key="AppErrorText" Color="#FF8A7A"/>
                     <SolidColorBrush x:Key="AppStatusOk" Color="#3FB950"/>
-                    <Color x:Key="AppBackdropScrimTopColor">#4D121218</Color>
-                    <Color x:Key="AppBackdropScrimBottomColor">#F0121218</Color>
+                    <Color x:Key="AppBackdropScrimTopColor">#26101418</Color>
+                    <Color x:Key="AppBackdropScrimBottomColor">#D9121218</Color>
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>

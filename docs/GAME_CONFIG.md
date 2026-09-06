@@ -39,7 +39,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `displayName` | string | ✔ | 界面显示名（列表图标取首字） |
 | `channel` | string | ✔ | 渠道实现键：`"kuro"`（鸣潮及库洛系）、`"hypergryph"`（终末地/GRYPHLINE） |
 | `icon` | string | | 官方游戏图标：http(s) URL 或本地路径；加载失败回退显示名首字 |
-| `backgroundImage` | string | | 详情页背景大图：http(s) URL 或本地路径；留空或加载失败回退主题渐变 |
+| `backgroundImage` | string | | 详情页背景大图：http(s) URL 或本地路径；**鸣潮留空时自动探测本机库洛官方启动器的当期背景缓存**（kr_game_cache，随官方启动器版本更新）；加载失败回退主题渐变 |
 | `installDir` | string | ✔ | 安装目录；相对 `settings.installRoot`，也可为绝对路径 |
 | `executable` | string | ✔ | 游戏可执行文件，相对 `installDir`（`/` 或 `\` 均可） |
 | `launch` | object | | 启动方式，见下 |
@@ -63,7 +63,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `id` | string | ✔ | 服务器标识（同游戏内唯一，忽略大小写） |
-| `name` | string | ✔ | 界面显示名（如"国服"） |
+| `name` | string | ✔ | 界面显示名（任意语言，原样显示；内置样例用英文 Global/CN/Bilibili） |
 | `options` | object | | **渠道自定义选项**，由 `channel` 实现解释，见下表 |
 
 ### 各渠道的 options
