@@ -74,6 +74,64 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private object? _currentPage;
 
+    /// <summary>导航方向：false=前进（新页自右滑入），true=后退（自左滑入），驱动页面切换动画。</summary>
+    [ObservableProperty]
+    private bool _isNavBack;
+
+    /// <summary>侧栏高亮归属：当前页属于游戏（详情/游戏设置）。</summary>
+    public bool IsGameNavActive => CurrentPage is GameItemViewModel or GameSettingsViewModel;
+
+    /// <summary>侧栏高亮归属：当前页是应用设置页。</summary>
+    public bool IsSettingsNavActive => CurrentPage is SettingsViewModel;
+
+    /// <summary>侧栏高亮归属：当前页是关于页。</summary>
+    public bool IsAboutNavActive => CurrentPage is AboutViewModel;
+
+    /// <summary>
+    /// 侧栏游戏列表的选中项转发：非游戏页时返回 null 让高亮让位给设置/关于入口。
+    /// 停在设置/关于页时点击"仍是当前游戏"的列表项不会触发 SelectedGame 变化，这里直接导航回去。
+    /// </summary>
+    public GameItemViewModel? GameNavSelection
+    {
+        get => IsGameNavActive ? SelectedGame : null;
+        set
+        {
+            if (value is null)
+            {
+                return;
+            }
+
+            if (!ReferenceEquals(value, SelectedGame))
+            {
+                SelectedGame = value;
+            }
+            else
+            {
+                NavigateTo(value);
+            }
+        }
+    }
+
+    partial void OnCurrentPageChanged(object? value)
+    {
+        OnPropertyChanged(nameof(IsGameNavActive));
+        OnPropertyChanged(nameof(IsSettingsNavActive));
+        OnPropertyChanged(nameof(IsAboutNavActive));
+        OnPropertyChanged(nameof(GameNavSelection));
+    }
+
+    /// <summary>切换当前页并记录方向（决定切换动画自左/自右滑入）。</summary>
+    private void NavigateTo(object? page, bool back = false)
+    {
+        if (ReferenceEquals(CurrentPage, page))
+        {
+            return;
+        }
+
+        IsNavBack = back;
+        CurrentPage = page;
+    }
+
     [ObservableProperty]
     private string _statusMessage = "";
 
@@ -195,14 +253,14 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [RelayCommand]
     private async Task ShowAboutAsync(CancellationToken cancellationToken) =>
-        CurrentPage = new AboutViewModel(this);
+        NavigateTo(new AboutViewModel(this));
 
     [RelayCommand]
     private async Task ShowGameSettingsAsync(CancellationToken cancellationToken)
     {
         if (SelectedGame is not null)
         {
-            CurrentPage = new GameSettingsViewModel(SelectedGame, this);
+            NavigateTo(new GameSettingsViewModel(SelectedGame, this));
         }
 
         await Task.CompletedTask;
@@ -210,9 +268,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnSelectedGameChanged(GameItemViewModel? value)
     {
+        OnPropertyChanged(nameof(GameNavSelection));
         if (value is not null)
         {
-            CurrentPage = value;
+            NavigateTo(value);
             _ = value.RefreshAsync();
         }
 
@@ -263,7 +322,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         SelectedGame = Games.FirstOrDefault();
-        CurrentPage = SelectedGame;
+        NavigateTo(SelectedGame);
         OnPropertyChanged(nameof(GameCountText));
         OnPropertyChanged(nameof(InstallRoot));
     }
@@ -418,7 +477,7 @@ public partial class MainWindowViewModel : ViewModelBase
         SelectedGame = null;
         RebuildGames(catalog);
         SelectedGame = Games.FirstOrDefault();
-        CurrentPage = keepPage ?? SelectedGame;
+        NavigateTo(keepPage ?? SelectedGame);
         OnPropertyChanged(nameof(InstallRoot));
         return true;
     }
@@ -512,13 +571,13 @@ public partial class MainWindowViewModel : ViewModelBase
     private async Task ShowSettingsAsync(CancellationToken cancellationToken)
     {
         var page = new SettingsViewModel(this);
-        CurrentPage = page;
+        NavigateTo(page);
         // 自启状态需起 reg 子进程查询，页面上屏后异步补齐（此前同步阻塞求值导致 UI 死锁）
         await page.InitializeAsync(cancellationToken);
     }
 
     [RelayCommand]
-    private void ShowGames() => CurrentPage = SelectedGame;
+    private void ShowGames() => NavigateTo(SelectedGame, back: true);
 }
 
 /// <summary>设置页：外观（主题/语言）、配置文件与下载设置（其余编辑走 games.json）。</summary>

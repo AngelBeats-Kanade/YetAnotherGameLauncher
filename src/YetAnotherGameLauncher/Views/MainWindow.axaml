@@ -97,6 +97,19 @@
             <Setter Property="Background" Value="{DynamicResource AppSidebarHover}"/>
         </Style>
 
+        <!-- 设置/关于导航项：当前页对应的入口与游戏列表同色高亮 -->
+        <Style Selector="Button.nav-item.selected /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppSidebarSelected}"/>
+        </Style>
+
+        <!-- 非游戏页时抑制游戏列表的选中高亮（导航高亮让位给设置/关于入口） -->
+        <Style Selector="ListBox.nav-inactive ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="ListBox.nav-inactive ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+
         <!-- 按下微缩 -->
         <Style Selector="Button.pressable">
             <Setter Property="RenderTransform" Value="scale(1)"/>
@@ -140,17 +153,32 @@
             <Setter Property="Padding" Value="9"/>
         </Style>
 
-        <!-- 页面切换：淡入 + 轻微上移（详情页根为 Panel，其余页根为 Border，用 :is 统一） -->
-        <Style Selector=":is(Control).page">
+        <!-- 页面切换：Store 式横滑过渡（前进自右滑入、后退自左滑入，配淡入；
+             详情页根为 Panel，其余页根为 Border，用 :is 统一） -->
+        <Style Selector="ContentControl.nav-forward :is(Control).page">
             <Style.Animations>
-                <Animation Duration="0:0:0.22" FillMode="Forward" Easing="CubicEaseOut">
+                <Animation Duration="0:0:0.3" FillMode="Forward" Easing="CubicEaseOut">
                     <KeyFrame Cue="0%">
                         <Setter Property="Opacity" Value="0"/>
-                        <Setter Property="TranslateTransform.Y" Value="10"/>
+                        <Setter Property="TranslateTransform.X" Value="42"/>
                     </KeyFrame>
                     <KeyFrame Cue="100%">
                         <Setter Property="Opacity" Value="1"/>
-                        <Setter Property="TranslateTransform.Y" Value="0"/>
+                        <Setter Property="TranslateTransform.X" Value="0"/>
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+        <Style Selector="ContentControl.nav-back :is(Control).page">
+            <Style.Animations>
+                <Animation Duration="0:0:0.3" FillMode="Forward" Easing="CubicEaseOut">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="Opacity" Value="0"/>
+                        <Setter Property="TranslateTransform.X" Value="-42"/>
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="Opacity" Value="1"/>
+                        <Setter Property="TranslateTransform.X" Value="0"/>
                     </KeyFrame>
                 </Animation>
             </Style.Animations>
@@ -225,7 +253,8 @@
 
                     <!-- 底部：设置 / 关于 -->
                     <StackPanel DockPanel.Dock="Bottom" Spacing="4" Margin="0,10,0,0">
-                        <Button Classes="icon-btn pressable" Command="{Binding ShowSettingsCommand}"
+                        <Button Classes="icon-btn pressable nav-item" Command="{Binding ShowSettingsCommand}"
+                                Classes.selected="{Binding IsSettingsNavActive}"
                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                                 Padding="12,8"
                                 ToolTip.Tip="{Binding Loc[common_settings]}">
@@ -239,7 +268,8 @@
                                            IsVisible="{Binding IsSidebarExpanded}"/>
                             </StackPanel>
                         </Button>
-                        <Button Classes="icon-btn pressable" Command="{Binding ShowAboutCommand}"
+                        <Button Classes="icon-btn pressable nav-item" Command="{Binding ShowAboutCommand}"
+                                Classes.selected="{Binding IsAboutNavActive}"
                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                                 Padding="12,8"
                                 ToolTip.Tip="{Binding Loc[common_about]}">
@@ -255,10 +285,11 @@
                         </Button>
                     </StackPanel>
 
-                    <!-- 游戏列表 -->
+                    <!-- 游戏列表（非游戏页时高亮让位给设置/关于，选中项经 GameNavSelection 转发） -->
                     <ListBox x:Name="GamesList"
                              ItemsSource="{Binding Games}"
-                             SelectedItem="{Binding SelectedGame}"
+                             SelectedItem="{Binding GameNavSelection}"
+                             Classes.nav-inactive="{Binding !IsGameNavActive}"
                              Background="Transparent" BorderThickness="0" Margin="0,14,0,0">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:GameItemViewModel">
@@ -295,7 +326,9 @@
 
             <!-- ==================== 主内容（游戏详情页自带全幅背景；设置/关于透出应用自有背景） ==================== -->
             <Grid Grid.Column="1">
-                <ContentControl x:Name="PageHost" Content="{Binding CurrentPage}">
+                <ContentControl x:Name="PageHost" Content="{Binding CurrentPage}"
+                                Classes.nav-forward="{Binding !IsNavBack}"
+                                Classes.nav-back="{Binding IsNavBack}">
                     <ContentControl.DataTemplates>
 
                         <!-- ========== 游戏详情页（海报式：游戏当期背景铺满主区域，仅此页） ========== -->

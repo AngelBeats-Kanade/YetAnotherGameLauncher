@@ -247,6 +247,99 @@ public class MainWindowViewModelTests : IDisposable
     }
 }
 
+// ---------- 侧栏导航高亮与切换方向 ----------
+
+[Collection("sequential")]
+public class SidebarNavigationTests : IDisposable
+{
+    private readonly VmFactory.Context _ctx;
+
+    public SidebarNavigationTests() => _ctx = VmFactory.Build();
+
+    public void Dispose() => _ctx.TempDir.Dispose();
+
+    [Fact]
+    public async Task ShowSettings_MovesHighlightToSettingsAndClearsGameSelection()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        await _ctx.Vm.ShowSettingsCommand.ExecuteAsync(null);
+
+        Assert.True(_ctx.Vm.IsSettingsNavActive);
+        Assert.False(_ctx.Vm.IsGameNavActive);
+        Assert.False(_ctx.Vm.IsAboutNavActive);
+        Assert.Null(_ctx.Vm.GameNavSelection); // 列表高亮让位给设置入口
+    }
+
+    [Fact]
+    public async Task ShowAbout_MovesHighlightToAbout()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        await _ctx.Vm.ShowAboutCommand.ExecuteAsync(null);
+
+        Assert.True(_ctx.Vm.IsAboutNavActive);
+        Assert.False(_ctx.Vm.IsGameNavActive);
+        Assert.False(_ctx.Vm.IsSettingsNavActive);
+        Assert.Null(_ctx.Vm.GameNavSelection);
+    }
+
+    [Fact]
+    public async Task BackToGames_RestoresGameHighlight_AndMarksBackDirection()
+    {
+        await _ctx.Vm.InitializeAsync();
+        await _ctx.Vm.ShowSettingsCommand.ExecuteAsync(null);
+
+        _ctx.Vm.ShowGamesCommand.Execute(null);
+
+        Assert.Same(_ctx.Vm.SelectedGame, _ctx.Vm.CurrentPage);
+        Assert.True(_ctx.Vm.IsGameNavActive);
+        Assert.Same(_ctx.Vm.SelectedGame, _ctx.Vm.GameNavSelection);
+        Assert.True(_ctx.Vm.IsNavBack); // 后退：页面自左滑入
+    }
+
+    [Fact]
+    public async Task ClickingCurrentGameInList_FromSettingsPage_ReturnsToGameDetail()
+    {
+        await _ctx.Vm.InitializeAsync();
+        await _ctx.Vm.ShowSettingsCommand.ExecuteAsync(null);
+
+        // 停在设置页时点击"仍是当前游戏"的列表项：SelectedItem 未变化，走转发属性导航
+        _ctx.Vm.GameNavSelection = _ctx.Vm.Games[0];
+
+        Assert.Same(_ctx.Vm.Games[0], _ctx.Vm.CurrentPage);
+        Assert.True(_ctx.Vm.IsGameNavActive);
+        Assert.False(_ctx.Vm.IsNavBack); // 视为前进：页面自右滑入
+    }
+
+    [Fact]
+    public async Task SelectingDifferentGame_UsesForwardDirection()
+    {
+        await _ctx.Vm.InitializeAsync();
+        await _ctx.Vm.ShowSettingsCommand.ExecuteAsync(null);
+        _ctx.Vm.ShowGamesCommand.Execute(null);
+        Assert.True(_ctx.Vm.IsNavBack);
+
+        _ctx.Vm.GameNavSelection = _ctx.Vm.Games[1];
+
+        Assert.Same(_ctx.Vm.Games[1], _ctx.Vm.CurrentPage);
+        Assert.False(_ctx.Vm.IsNavBack);
+    }
+
+    [Fact]
+    public async Task ShowGameSettings_KeepsGameHighlightedInSidebar()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        await _ctx.Vm.ShowGameSettingsCommand.ExecuteAsync(null);
+
+        Assert.True(_ctx.Vm.IsGameNavActive);
+        Assert.Same(_ctx.Vm.SelectedGame, _ctx.Vm.GameNavSelection);
+        Assert.False(_ctx.Vm.IsSettingsNavActive);
+        Assert.False(_ctx.Vm.IsAboutNavActive);
+    }
+}
+
 // ---------- 配置迁移与安装根目录 ----------
 
 public class ConfigMigrationTests : IDisposable
