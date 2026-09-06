@@ -71,7 +71,7 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
             KuroUrlBuilder.BuildFileUrl(cdn, null, patchEntry.IndexFile),
             patchEntry.IndexFileMd5,
             cancellationToken);
-        var patchIndexFile = ParseJson<KuroIndexFile>(patchIndexJson, "增量 indexFile.json");
+        var patchIndexFile = ParseJson<KuroIndexFile>(patchIndexJson, "incremental indexFile.json");
 
         return new GameManifest
         {
@@ -87,10 +87,10 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
     {
         if (!server.Options.TryGetValue(IndexUrlOptionKey, out var indexUrl) || string.IsNullOrWhiteSpace(indexUrl))
         {
-            throw new UpdateException($"服务器 \"{server.Name}\" 缺少 {IndexUrlOptionKey} 配置。");
+            throw new UpdateException($"Server \"{server.Name}\" is missing the {IndexUrlOptionKey} option.");
         }
 
-        logger?.LogDebug("获取库洛 index.json：{Url}", indexUrl);
+        logger?.LogDebug("Fetching Kuro index.json: {Url}", indexUrl);
         var json = await FetchTextAsync(indexUrl, expectedMd5: null, cancellationToken);
         return ParseJson<KuroLauncherIndex>(json, "index.json");
     }
@@ -157,29 +157,29 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
                 .Select(v => v!)];
 
     private static KuroResourceBlock RequireDefault(KuroLauncherIndex index) =>
-        index.Default ?? throw new UpdateException("库洛 index.json 缺少 default 资源块。");
+        index.Default ?? throw new UpdateException("Kuro index.json has no default resource block.");
 
     private static string RequireCdn(KuroResourceBlock block) =>
         KuroCdnSelector.SelectCdn(block.CdnList)
-        ?? throw new UpdateException("库洛 index.json 的 cdnList 中没有可用节点（K1/K2）。");
+        ?? throw new UpdateException("Kuro index.json cdnList has no usable node (K1/K2).");
 
     private static KuroResourceConfig RequireConfig(KuroResourceBlock block) =>
-        block.Config ?? throw new UpdateException("库洛 index.json 缺少 config 节点。");
+        block.Config ?? throw new UpdateException("Kuro index.json has no config node.");
 
     private static string RequireIndexFile(KuroResourceConfig config) =>
         config.IndexFile
-        ?? throw new UpdateException("库洛 index.json 的 config 缺少 indexFile。");
+        ?? throw new UpdateException("Kuro index.json config has no indexFile.");
 
     private static T ParseJson<T>(string json, string source) where T : class
     {
         try
         {
             return JsonSerializer.Deserialize<T>(json)
-                   ?? throw new UpdateException($"库洛响应（{source}）内容为空。");
+                   ?? throw new UpdateException($"Kuro response ({source}) is empty.");
         }
         catch (JsonException ex)
         {
-            throw new UpdateException($"解析库洛响应（{source}）失败：{ex.Message}", ex);
+            throw new UpdateException($"Failed to parse Kuro response ({source}): {ex.Message}", ex);
         }
     }
 }

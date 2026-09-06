@@ -15,6 +15,15 @@ _ = AppBuilder.Configure<IconGenApp>()
     .UseSkia()
     .SetupWithoutStarting();
 
+// 子命令：convert <in> <out> —— 图像格式转换（webp→png 等），用于核验/准备素材
+if (args.Length >= 2 && args[0] == "convert")
+{
+    using var src = new Bitmap(args[1]);
+    src.Save(args[2], new PngBitmapEncoderOptions());
+    Console.WriteLine($"converted {args[1]} -> {args[2]}");
+    return;
+}
+
 var outDir = args.Length > 0
     ? args[0]
     : Path.Combine("src", "YetAnotherGameLauncher", "Assets");

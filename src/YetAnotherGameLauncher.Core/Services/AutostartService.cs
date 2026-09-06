@@ -13,14 +13,18 @@ public interface IAutostartService
 
 public sealed class AutostartService(IProcessRunner runner) : IAutostartService
 {
+    private readonly IProcessRunner _runner = runner;
+
     private const string AppName = "YetAnotherGameLauncher";
 
     private static string ExePath =>
         Environment.ProcessPath
-        ?? throw new InvalidOperationException("无法确定启动器可执行文件路径。");
+        ?? throw new InvalidOperationException("Cannot determine the launcher executable path.");
 
     public bool IsEnabled() =>
-        OperatingSystem.IsWindows() ? QueryWindows() : OperatingSystem.IsLinux() && File.Exists(DesktopFilePath());
+        OperatingSystem.IsWindows()
+            ? QueryWindowsAsync(CancellationToken.None).GetAwaiter().GetResult()
+            : OperatingSystem.IsLinux() && File.Exists(DesktopFilePath());
 
     public async Task SetEnabledAsync(bool enabled, CancellationToken cancellationToken = default)
     {
@@ -52,17 +56,16 @@ public sealed class AutostartService(IProcessRunner runner) : IAutostartService
         return Path.Combine(dir, "yetanothergamelauncher.desktop");
     }
 
-    private static bool QueryWindows()
+    private async Task<bool> QueryWindowsAsync(CancellationToken cancellationToken)
     {
-        var result = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
-            "reg", $"query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run /v {AppName}")
-        {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-        });
-        result?.WaitForExit(5000);
-        return result?.ExitCode == 0;
+        // 走 IProcessRunner：stderr 已被捕获，键不存在时不会向控制台透传错误文本
+        var result = await _runner.RunAsync(
+            new ProcessStartSpec(
+                "reg",
+                $"query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run /v {AppName}",
+                TimeoutMilliseconds: 5000),
+            cancellationToken);
+        return result.ExitCode == 0;
     }
 
     [SupportedOSPlatform("windows")]
@@ -75,7 +78,7 @@ public sealed class AutostartService(IProcessRunner runner) : IAutostartService
             : new ProcessStartSpec(
                 "reg",
                 $"delete HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run /v {AppName} /f");
-        await runner.RunAsync(spec, cancellationToken);
+        await _runner.RunAsync(spec, cancellationToken);
     }
 
     private void SetLinux(bool enabled)

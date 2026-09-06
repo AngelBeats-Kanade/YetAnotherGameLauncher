@@ -37,7 +37,7 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
         }
 
         Directory.Delete(packagesDir, recursive: true);
-        logger?.LogInformation("包式安装完成：{Version}（{Count} 个压缩包）", packageManifest.Version, packageManifest.Files.Count);
+        logger?.LogInformation("Package install finished: {Version} ({Count} archives)", packageManifest.Version, packageManifest.Files.Count);
         progress?.Report(new UpdateProgress(UpdatePhase.Done, 0, 0, packageManifest.Files.Count, packageManifest.Files.Count, null));
     }
 
@@ -96,7 +96,7 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
         {
             if (file.Url is null)
             {
-                throw new UpdateException($"压缩包条目缺少下载地址：{file.Path}");
+                throw new UpdateException($"Package entry has no download URL: {file.Path}");
             }
 
             progress?.Report(new UpdateProgress(UpdatePhase.Downloading, totalBytes, downloaded, index, packageManifest.Files.Count, file.Path));
@@ -120,7 +120,7 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException)
         {
-            throw new UpdateException($"解压 {displayName} 失败：{ex.Message}", ex);
+            throw new UpdateException($"Failed to extract {displayName}: {ex.Message}", ex);
         }
     }
 }

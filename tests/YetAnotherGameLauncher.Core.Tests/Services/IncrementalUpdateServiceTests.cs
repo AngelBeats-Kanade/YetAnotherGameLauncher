@@ -127,7 +127,7 @@ public class IncrementalUpdateServiceTests : IDisposable
         var ex = await Assert.ThrowsAsync<UpdateException>(
             () => CreateService().ApplyAsync(_tempDir.Path, manifest));
 
-        Assert.Contains("未预下载", ex.Message);
+        Assert.Contains("was not preloaded", ex.Message);
     }
 
     [Fact]
@@ -143,7 +143,7 @@ public class IncrementalUpdateServiceTests : IDisposable
         var ex = await Assert.ThrowsAsync<UpdateException>(
             () => CreateService().ApplyAsync(_tempDir.Path, manifest));
 
-        Assert.Contains("全量更新", ex.Message);
+        Assert.Contains("full update", ex.Message);
     }
 
     [Fact]

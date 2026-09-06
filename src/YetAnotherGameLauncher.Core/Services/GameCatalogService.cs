@@ -6,7 +6,7 @@ namespace YetAnotherGameLauncher.Core.Services;
 
 /// <summary>配置校验失败异常，Errors 包含全部错误（中文化，可直接展示给用户）。</summary>
 public sealed class GameCatalogValidationException(IReadOnlyList<string> errors)
-    : Exception($"游戏配置无效（{errors.Count} 处错误）：{string.Join("；", errors)}")
+    : Exception($"Invalid game config ({errors.Count} errors): {string.Join("; ", errors)}")
 {
     public IReadOnlyList<string> Errors { get; } = errors;
 }
@@ -31,7 +31,7 @@ public sealed class GameCatalogService
     {
         if (!File.Exists(_configFilePath))
         {
-            throw new FileNotFoundException("游戏配置文件不存在", _configFilePath);
+            throw new FileNotFoundException("Game config file not found", _configFilePath);
         }
 
         var json = await File.ReadAllTextAsync(_configFilePath, cancellationToken);
@@ -43,7 +43,7 @@ public sealed class GameCatalogService
     {
         if (Catalog is null)
         {
-            throw new InvalidOperationException("尚未加载或设置任何配置，无法保存。");
+            throw new InvalidOperationException("No config has been loaded; nothing to save.");
         }
 
         var directory = Path.GetDirectoryName(_configFilePath);
@@ -124,11 +124,11 @@ public sealed class GameCatalogService
         try
         {
             catalog = JsonSerializer.Deserialize<GameCatalog>(json, Json.Default)
-                      ?? throw new GameCatalogValidationException(["配置文件内容为空。"]);
+                      ?? throw new GameCatalogValidationException(["Config file is empty."]);
         }
         catch (JsonException ex)
         {
-            throw new GameCatalogValidationException([$"配置文件 JSON 格式错误：{ex.Message}"]);
+            throw new GameCatalogValidationException([$"Config file contains invalid JSON: {ex.Message}"]);
         }
 
         var errors = Validate(catalog);
@@ -146,12 +146,12 @@ public sealed class GameCatalogService
 
         if (string.IsNullOrWhiteSpace(settings.InstallRoot))
         {
-            errors.Add("settings.installRoot 不能为空。");
+            errors.Add("settings.installRoot must not be empty.");
         }
 
         if (settings.MaxParallelDownloads is < 1 or > 64)
         {
-            errors.Add("settings.maxParallelDownloads 必须在 1-64 之间。");
+            errors.Add("settings.maxParallelDownloads must be between 1 and 64.");
         }
 
         var seenGameIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -170,45 +170,45 @@ public sealed class GameCatalogService
 
         if (string.IsNullOrWhiteSpace(game.Id))
         {
-            errors.Add($"{field}.id 不能为空。");
+            errors.Add($"{field}.id must not be empty.");
         }
         else if (!IsValidId(game.Id))
         {
-            errors.Add($"{field}.id 含有非法字符，只允许字母、数字、'-'、'_'、'.'。");
+            errors.Add($"{field}.id contains invalid characters; only letters, digits, '-', '_', '.' are allowed.");
         }
         else if (!seenGameIds.Add(game.Id))
         {
-            errors.Add($"{field}.id 重复：{game.Id}。");
+            errors.Add($"{field}.id is duplicated: {game.Id}.");
         }
 
         if (string.IsNullOrWhiteSpace(game.DisplayName))
         {
-            errors.Add($"{field}.displayName 不能为空。");
+            errors.Add($"{field}.displayName must not be empty.");
         }
 
         if (string.IsNullOrWhiteSpace(game.Channel))
         {
-            errors.Add($"{field}.channel 不能为空。");
+            errors.Add($"{field}.channel must not be empty.");
         }
 
         if (string.IsNullOrWhiteSpace(game.InstallDir))
         {
-            errors.Add($"{field}.installDir 不能为空。");
+            errors.Add($"{field}.installDir must not be empty.");
         }
 
         if (string.IsNullOrWhiteSpace(game.Executable))
         {
-            errors.Add($"{field}.executable 不能为空。");
+            errors.Add($"{field}.executable must not be empty.");
         }
 
         if (string.IsNullOrWhiteSpace(game.Launch.CommandTemplate))
         {
-            errors.Add($"{field}.launch.commandTemplate 不能为空。");
+            errors.Add($"{field}.launch.commandTemplate must not be empty.");
         }
 
         if (game.Servers.Count == 0)
         {
-            errors.Add($"{field}.servers 至少需要配置一个服务器。");
+            errors.Add($"{field}.servers requires at least one server.");
             return;
         }
 
@@ -220,16 +220,16 @@ public sealed class GameCatalogService
 
             if (string.IsNullOrWhiteSpace(server.Id))
             {
-                errors.Add($"{serverField}.id 不能为空。");
+                errors.Add($"{serverField}.id must not be empty.");
             }
             else if (!seenServerIds.Add(server.Id))
             {
-                errors.Add($"{serverField}.id 重复：{server.Id}。");
+                errors.Add($"{serverField}.id is duplicated: {server.Id}.");
             }
 
             if (string.IsNullOrWhiteSpace(server.Name))
             {
-                errors.Add($"{serverField}.name 不能为空。");
+                errors.Add($"{serverField}.name must not be empty.");
             }
         }
     }

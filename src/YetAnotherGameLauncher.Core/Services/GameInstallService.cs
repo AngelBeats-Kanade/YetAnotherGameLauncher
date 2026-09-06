@@ -39,7 +39,7 @@ public sealed class GameInstallService(
             .ToList();
         var totalBytes = needed.Sum(f => f.Size);
 
-        logger?.LogInformation("同步 {Version}：{Total} 个文件中需要下载 {Needed} 个",
+        logger?.LogInformation("Sync {Version}: {Needed} of {Total} files to download",
             manifest.Version, manifest.Files.Count, needed.Count);
 
         long downloadedBytes = 0;
@@ -58,7 +58,7 @@ public sealed class GameInstallService(
             {
                 if (file.Url is null)
                 {
-                    throw new UpdateException($"清单条目缺少下载地址：{file.Path}");
+                    throw new UpdateException($"Manifest entry has no download URL: {file.Path}");
                 }
 
                 var destination = ManifestVerifier.ResolveSafe(installDir, file.Path);
@@ -93,7 +93,7 @@ public sealed class GameInstallService(
         if (!post.IsComplete)
         {
             var broken = string.Join("、", post.NeedsDownload.Select(n => $"{n.Path}({n.Status})"));
-            throw new UpdateException($"下载完成后完整性校验失败，问题文件：{broken}");
+            throw new UpdateException($"Post-download verification failed. Broken files: {broken}");
         }
 
         Report(progress, UpdatePhase.CleaningUp, totalBytes, downloadedBytes, needed.Count, needed.Count, null);

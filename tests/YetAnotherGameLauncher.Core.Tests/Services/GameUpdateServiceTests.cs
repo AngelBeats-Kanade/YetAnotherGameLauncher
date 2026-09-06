@@ -178,7 +178,7 @@ public class GameUpdateServiceTests : IDisposable
         var ex = await Assert.ThrowsAsync<UpdateException>(
             () => CreateService().PredownloadAsync(_tempDir.Path, _game, _server, _channel));
 
-        Assert.Contains("预下载", ex.Message);
+        Assert.Contains("predownload", ex.Message);
     }
 
     [Fact]
@@ -196,7 +196,7 @@ public class GameUpdateServiceTests : IDisposable
         var ex = await Assert.ThrowsAsync<UpdateException>(
             () => CreateService().PredownloadAsync(_tempDir.Path, _game, _server, _channel));
 
-        Assert.Contains("没有适用于本地版本", ex.Message);
+        Assert.Contains("has no patch for local version", ex.Message);
     }
 
     [Fact]

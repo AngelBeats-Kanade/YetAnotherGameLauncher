@@ -64,7 +64,7 @@ public class GameCatalogValidationTests
     {
         var errors = Validate(c => c.Games.Add(ValidGame("test-game")));
 
-        Assert.Contains(errors, e => e.Contains("重复", StringComparison.Ordinal));
+        Assert.Contains(errors, e => e.Contains("duplicated", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public class GameCatalogValidationTests
     {
         var errors = Validate(c => c.Games.Add(ValidGame("Test-Game")));
 
-        Assert.Contains(errors, e => e.Contains("重复", StringComparison.Ordinal));
+        Assert.Contains(errors, e => e.Contains("duplicated", StringComparison.Ordinal));
     }
 
     [Fact]

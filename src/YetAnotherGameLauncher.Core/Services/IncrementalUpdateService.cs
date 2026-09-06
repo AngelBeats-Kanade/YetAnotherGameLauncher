@@ -58,7 +58,7 @@ public sealed class IncrementalUpdateService(
         {
             if (file.Url is null)
             {
-                throw new UpdateException($"增量清单条目缺少下载地址：{file.Path}");
+                throw new UpdateException($"Incremental manifest entry has no download URL: {file.Path}");
             }
 
             var target = Path.Combine(staging, "files", file.Path.Replace('/', Path.DirectorySeparatorChar));
@@ -76,7 +76,7 @@ public sealed class IncrementalUpdateService(
         {
             if (group.Url is null)
             {
-                throw new UpdateException($"差分包缺少下载地址：{group.PatchFile}");
+                throw new UpdateException($"Patch group has no download URL: {group.PatchFile}");
             }
 
             var target = Path.Combine(staging, "patches", group.PatchFile.Replace('/', Path.DirectorySeparatorChar));
@@ -95,7 +95,7 @@ public sealed class IncrementalUpdateService(
             JsonSerializer.Serialize(incrementalManifest, Json.Default),
             cancellationToken);
 
-        logger?.LogInformation("预下载完成：{Groups} 组差分，{Files} 个文件", incrementalManifest.Groups.Count, incrementalManifest.Files.Count);
+        logger?.LogInformation("Predownload finished: {Groups} patch groups, {Files} files", incrementalManifest.Groups.Count, incrementalManifest.Files.Count);
         progress?.Report(new UpdateProgress(UpdatePhase.Done, totalBytes, bytes, totalItems, totalItems, null));
     }
 
@@ -142,7 +142,7 @@ public sealed class IncrementalUpdateService(
 
             if (GroupAlreadyApplied(installDir, group))
             {
-                logger?.LogDebug("组 {Patch} 的目标文件已就绪，跳过", group.PatchFile);
+                logger?.LogDebug("Target file of group {Patch} already present; skipped", group.PatchFile);
                 continue;
             }
 
@@ -150,7 +150,7 @@ public sealed class IncrementalUpdateService(
             if (!File.Exists(patchPath))
             {
                 throw new UpdateException(
-                    $"差分包 {group.PatchFile} 未预下载。请先执行预下载，或改用全量更新。");
+                    $"Patch {group.PatchFile} was not preloaded; run predownload first or use the full update.");
             }
 
             await ApplyGroupAsync(installDir, workDir, i, group, patchPath, cancellationToken);
@@ -174,7 +174,7 @@ public sealed class IncrementalUpdateService(
 
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             File.Move(stagedFile, target, overwrite: true);
-            logger?.LogDebug("暂存新文件落位：{Path}", file.Path);
+            logger?.LogDebug("Staged file placed: {Path}", file.Path);
         }
 
         // 暂存目录完成使命后清理
@@ -205,7 +205,7 @@ public sealed class IncrementalUpdateService(
             if (!File.Exists(source))
             {
                 throw new UpdateException(
-                    $"差分组 {group.PatchFile} 需要的源文件 {src.Path} 不存在，请改用全量更新。");
+                    $"Source file {src.Path} required by patch group {group.PatchFile} is missing; use the full update.");
             }
 
             var copied = Path.Combine(oldDir, src.Path.Replace('/', Path.DirectorySeparatorChar));
@@ -219,7 +219,7 @@ public sealed class IncrementalUpdateService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            throw new UpdateException($"补丁应用失败（{group.PatchFile}）：{ex.Message}", ex);
+            throw new UpdateException($"Patch application failed ({group.PatchFile}): {ex.Message}", ex);
         }
 
         foreach (var dst in group.DstFiles)
@@ -227,14 +227,14 @@ public sealed class IncrementalUpdateService(
             var produced = Path.Combine(newDir, dst.Path.Replace('/', Path.DirectorySeparatorChar));
             if (!File.Exists(produced))
             {
-                throw new UpdateException($"补丁器未生成 {dst.Path}，差分组 {group.PatchFile} 应用失败。");
+                throw new UpdateException($"Patcher did not produce {dst.Path}; patch group {group.PatchFile} failed.");
             }
 
             var producedLength = new FileInfo(produced).Length;
             if (producedLength != dst.Size
                 || !string.Equals(Hashing.Md5Hex(produced), dst.Md5, StringComparison.OrdinalIgnoreCase))
             {
-                throw new UpdateException($"补丁器生成的 {dst.Path} 校验失败，差分组 {group.PatchFile} 应用失败。");
+                throw new UpdateException($"Checksum mismatch for patched {dst.Path}; patch group {group.PatchFile} failed.");
             }
         }
 
@@ -285,7 +285,7 @@ public sealed class IncrementalUpdateService(
                 }
             }
 
-            throw new UpdateException($"替换文件失败，本组已回滚（{group.PatchFile}）：{ex.Message}", ex);
+            throw new UpdateException($"Failed to swap files, group rolled back ({group.PatchFile}): {ex.Message}", ex);
         }
 
         foreach (var (_, backup, _) in replaced)

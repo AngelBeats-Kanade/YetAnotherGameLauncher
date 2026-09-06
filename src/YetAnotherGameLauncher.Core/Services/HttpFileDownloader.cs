@@ -52,14 +52,14 @@ public sealed class HttpFileDownloader(
                 // 内容不对：丢弃临时文件，从头重下
                 DeleteQuiet(tempPath);
                 lastError = ex;
-                logger?.LogWarning(ex, "第 {Attempt}/{Max} 次下载校验失败（{Url}）", attempt, _options.MaxAttempts, request.Url);
+                logger?.LogWarning(ex, "Download verification failed (attempt {Attempt}/{Max}) ({Url})", attempt, _options.MaxAttempts, request.Url);
             }
             catch (Exception ex) when (ex is HttpRequestException or IOException
                                        && ex is not OperationCanceledException)
             {
                 // 网络瞬态错误：保留 .temp 以便断点续传
-                lastError = new DownloadException($"下载失败（{request.Url}）：{ex.Message}", ex);
-                logger?.LogWarning(ex, "第 {Attempt}/{Max} 次下载网络错误（{Url}）", attempt, _options.MaxAttempts, request.Url);
+                lastError = new DownloadException($"Download failed ({request.Url}): {ex.Message}", ex);
+                logger?.LogWarning(ex, "Network error on download (attempt {Attempt}/{Max}) ({Url})", attempt, _options.MaxAttempts, request.Url);
             }
 
             if (attempt < _options.MaxAttempts)
@@ -97,7 +97,7 @@ public sealed class HttpFileDownloader(
         }
 
         var startByte = resume ? existingTempBytes : 0;
-        logger?.LogDebug("下载 {Url}：从 {Start} 字节开始（resume={Resume}）", request.Url, startByte, resume);
+        logger?.LogDebug("Downloading {Url}: resuming from byte {Start} (resume={Resume})", request.Url, startByte, resume);
 
         await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
         await using var target = new FileStream(
@@ -135,7 +135,7 @@ public sealed class HttpFileDownloader(
         if (request.ExpectedSize is long expectedSize && actualLength != expectedSize)
         {
             throw new DownloadVerificationException(
-                $"文件大小校验失败（{request.DestinationPath}）：期望 {expectedSize} 字节，实际 {actualLength} 字节。");
+                $"Size mismatch for {request.DestinationPath}: expected {expectedSize} bytes, got {actualLength}.");
         }
 
         if (request.ExpectedMd5 is string expectedMd5)
@@ -144,7 +144,7 @@ public sealed class HttpFileDownloader(
             if (!string.Equals(actualMd5, expectedMd5, StringComparison.OrdinalIgnoreCase))
             {
                 throw new DownloadVerificationException(
-                    $"MD5 校验失败（{request.DestinationPath}）：期望 {expectedMd5}，实际 {actualMd5}。");
+                    $"MD5 mismatch for {request.DestinationPath}: expected {expectedMd5}, got {actualMd5}.");
             }
         }
     }

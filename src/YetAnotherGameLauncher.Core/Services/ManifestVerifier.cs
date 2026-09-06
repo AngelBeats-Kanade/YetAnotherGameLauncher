@@ -83,7 +83,7 @@ public static class ManifestVerifier
         if (!candidate.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, comparison)
             && !string.Equals(candidate, root.TrimEnd(Path.DirectorySeparatorChar), comparison))
         {
-            throw new InvalidOperationException($"清单路径越界，已拒绝：{manifestPath}");
+            throw new InvalidOperationException($"Manifest path escapes sandbox; rejected: {manifestPath}");
         }
 
         return candidate;

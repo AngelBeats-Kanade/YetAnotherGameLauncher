@@ -21,7 +21,7 @@ public sealed class HpatchzApplier(
         Directory.CreateDirectory(newDir);
 
         var arguments = $"-f \"{oldDir}\" \"{patchFilePath}\" \"{newDir}\"";
-        logger?.LogDebug("执行 {Exe} {Args}", _options.HpatchzPath, arguments);
+        logger?.LogDebug("Running {Exe} {Args}", _options.HpatchzPath, arguments);
 
         var result = await _processRunner.RunAsync(
             new ProcessStartSpec(_options.HpatchzPath, arguments, TimeoutMilliseconds: _options.TimeoutMilliseconds),
@@ -30,7 +30,7 @@ public sealed class HpatchzApplier(
         if (!result.Succeeded)
         {
             throw new UpdateException(
-                $"hpatchz 退出码 {result.ExitCode}（补丁：{Path.GetFileName(patchFilePath)}）：{result.StandardError}");
+                $"hpatchz exited with code {result.ExitCode} (patch: {Path.GetFileName(patchFilePath)}): {result.StandardError}");
         }
     }
 }

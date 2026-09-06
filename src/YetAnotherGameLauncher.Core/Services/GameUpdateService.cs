@@ -45,7 +45,7 @@ public sealed class GameUpdateService(
             new LocalGameState { GameId = game.Id, ServerId = server.Id, Version = plan.ToVersion },
             cancellationToken);
 
-        logger?.LogInformation("{Game} 更新完成：{From} → {To}（{Strategy}，修复 {Repaired} 个文件）",
+        logger?.LogInformation("{Game} update finished: {From} -> {To} ({Strategy}, repaired {Repaired} files)",
             game.DisplayName, plan.FromVersion, plan.ToVersion, plan.Strategy, repaired);
         return new UpdateOutcome(plan.Strategy, plan.FromVersion, plan.ToVersion, repaired);
     }
@@ -65,7 +65,7 @@ public sealed class GameUpdateService(
 
         if (!info.PredownloadAvailable || string.IsNullOrEmpty(info.PredownloadVersion))
         {
-            throw new UpdateException("当前没有开放的预下载。");
+            throw new UpdateException("No predownload is currently open.");
         }
 
         var plan = UpdatePlanner.Plan(localVersion, info.PredownloadVersion, info.PredownloadPatchSourceVersions);
@@ -73,7 +73,7 @@ public sealed class GameUpdateService(
         {
             var manifest = await channel.GetIncrementalManifestAsync(
                                server, plan.FromVersion, plan.ToVersion, cancellationToken)
-                           ?? throw new UpdateException("预下载差分清单不可用。");
+                           ?? throw new UpdateException("Predownload incremental manifest is unavailable.");
 
             var incremental = new IncrementalUpdateService(downloader, patchApplier);
             await incremental.PredownloadAsync(installDir, manifest, progress, cancellationToken);
@@ -85,7 +85,7 @@ public sealed class GameUpdateService(
         // 包式渠道（整包预下载）
         var packageManifest = await channel.GetPredownloadManifestAsync(server, cancellationToken)
                               ?? throw new UpdateException(
-                                  $"预下载版本 {info.PredownloadVersion} 没有适用于本地版本 {plan.FromVersion} 的差分包，请等待正式更新后全量更新。");
+                                  $"Predownload version {info.PredownloadVersion} has no patch for local version {plan.FromVersion}; wait for the full update.");
 
         var packages = new PackageInstallerService(downloader, logger);
         await packages.PredownloadAsync(installDir, packageManifest, progress, cancellationToken);
@@ -102,7 +102,7 @@ public sealed class GameUpdateService(
         CancellationToken cancellationToken = default)
     {
         var staged = IncrementalUpdateService.TryLoadStagedManifest(installDir)
-                     ?? throw new UpdateException("没有已预下载的更新内容，请先执行预下载。");
+                     ?? throw new UpdateException("No preloaded update found; run predownload first.");
 
         int repaired;
         if (staged.EntriesAreArchives)
@@ -160,7 +160,7 @@ public sealed class GameUpdateService(
     {
         var manifest = await channel.GetIncrementalManifestAsync(
                            server, plan.FromVersion, plan.ToVersion, cancellationToken)
-                       ?? throw new UpdateException("差分清单不可用，请改用全量更新。");
+                       ?? throw new UpdateException("Incremental manifest unavailable; use the full update instead.");
 
         var incremental = new IncrementalUpdateService(downloader, patchApplier, logger);
         await incremental.PredownloadAsync(installDir, manifest, progress, cancellationToken);

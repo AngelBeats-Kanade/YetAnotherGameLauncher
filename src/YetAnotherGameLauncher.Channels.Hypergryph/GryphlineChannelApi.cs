@@ -50,7 +50,7 @@ public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger =
             predownloadVersion = v;
         }
 
-        logger?.LogDebug("GRYPHLINE 最新版本：{Version}（预下载：{Predownload}）", response.Version, predownloadVersion ?? "无");
+        logger?.LogDebug("GRYPHLINE latest: {Version} (predownload: {Predownload})", response.Version, predownloadVersion ?? "none");
 
         return new ChannelVersionInfo
         {
@@ -96,7 +96,7 @@ public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger =
         var apiBase = server.Options.TryGetValue(ApiBaseOptionKey, out var apiBaseValue)
             && !string.IsNullOrWhiteSpace(apiBaseValue)
             ? apiBaseValue.TrimEnd('/')
-            : throw new UpdateException($"服务器 \"{server.Name}\" 缺少 {ApiBaseOptionKey} 配置。");
+            : throw new UpdateException($"Server \"{server.Name}\" is missing the {ApiBaseOptionKey} option.");
 
         var payload = new BatchProxyRequest
         {
@@ -129,19 +129,19 @@ public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger =
             var batch = await response.Content.ReadFromJsonAsync<BatchProxyResponse>(cancellationToken);
             var first = batch?.ProxyRsps is { Count: > 0 } rsps
                 ? rsps[0]
-                : throw new UpdateException("GRYPHLINE batch_proxy 响应为空。");
+                : throw new UpdateException("GRYPHLINE batch_proxy response is empty.");
 
             gameResponse = first.GetProperty("get_latest_game_rsp").Deserialize<GameVersionResponse>(JsonOptions)
-                           ?? throw new UpdateException("GRYPHLINE get_latest_game_rsp 为空。");
+                           ?? throw new UpdateException("GRYPHLINE get_latest_game_rsp is empty.");
         }
         catch (JsonException ex)
         {
-            throw new UpdateException($"解析 GRYPHLINE 响应失败：{ex.Message}", ex);
+            throw new UpdateException($"Failed to parse GRYPHLINE response: {ex.Message}", ex);
         }
 
         if (gameResponse.Pkg is null)
         {
-            throw new UpdateException("GRYPHLINE 响应缺少 pkg（压缩包信息）。");
+            throw new UpdateException("GRYPHLINE response is missing pkg (package info).");
         }
 
         return gameResponse;

@@ -81,7 +81,7 @@ public class GameInstallServiceTests : IDisposable
         var ex = await Assert.ThrowsAsync<UpdateException>(
             () => service.SyncAsync(_tempDir.Path, Manifest(FileEntry("a.txt", a))));
 
-        Assert.Contains("完整性校验失败", ex.Message);
+        Assert.Contains("Post-download verification failed", ex.Message);
     }
 
     [Fact]

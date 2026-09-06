@@ -81,7 +81,7 @@ public partial class GameItemViewModel(
     /// <summary>渠道显示名（已知渠道给中文名，未知原样）。</summary>
     public string ChannelDisplayName => Game.Channel switch
     {
-        "kuro" => "库洛",
+        "kuro" => "Kuro Games",
         "hypergryph" => "GRYPHLINE",
         var other => other,
     };

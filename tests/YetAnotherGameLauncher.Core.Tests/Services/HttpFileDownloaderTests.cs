@@ -85,7 +85,7 @@ public class HttpFileDownloaderTests : IDisposable
         var ex = await Assert.ThrowsAsync<DownloadVerificationException>(
             () => CreateDownloader().DownloadFileAsync(Request(expectedSize: Content.Length + 100), cancellationToken: Ct));
 
-        Assert.Contains("大小", ex.Message);
+        Assert.Contains("Size mismatch", ex.Message);
         Assert.False(File.Exists(_tempDir.FilePath("file.bin")));
         Assert.False(File.Exists(_tempDir.FilePath("file.bin.temp")));
     }

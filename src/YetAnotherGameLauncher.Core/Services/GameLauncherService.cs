@@ -17,13 +17,13 @@ public sealed class GameLauncherService(IProcessRunner processRunner, ILogger? l
         var exePath = Path.GetFullPath(Path.Combine(installDir, effectiveExecutable.Replace('\\', '/')));
         if (!File.Exists(exePath))
         {
-            throw new UpdateException($"找不到游戏可执行文件：{exePath}");
+            throw new UpdateException($"Game executable not found: {exePath}");
         }
 
         var template = game.Launch.CommandTemplate;
         if (string.IsNullOrWhiteSpace(template))
         {
-            throw new UpdateException($"游戏 {game.DisplayName} 的 launch.commandTemplate 不能为空。");
+            throw new UpdateException($"launch.commandTemplate for game {game.DisplayName} must not be empty.");
         }
 
         var command = Expand(template, exePath, installDir);
@@ -38,7 +38,7 @@ public sealed class GameLauncherService(IProcessRunner processRunner, ILogger? l
             kv => Expand(kv.Value, exePath, installDir),
             StringComparer.Ordinal);
 
-        logger?.LogInformation("启动 {Game}：{File} {Args}", game.DisplayName, fileName, arguments);
+        logger?.LogInformation("Launching {Game}: {File} {Args}", game.DisplayName, fileName, arguments);
         return new LaunchPlan(fileName, arguments, workingDirectory, environment);
     }
 
@@ -65,7 +65,7 @@ public sealed class GameLauncherService(IProcessRunner processRunner, ILogger? l
         command = command.Trim();
         if (command.Length == 0)
         {
-            throw new ArgumentException("命令为空。", nameof(command));
+            throw new ArgumentException("Command is empty.", nameof(command));
         }
 
         if (command.StartsWith('"'))
