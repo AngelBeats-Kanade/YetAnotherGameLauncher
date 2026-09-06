@@ -38,7 +38,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `id` | string | ✔ | 唯一标识，仅允许字母/数字/`-`/`_`/`.`；写入本地状态文件用于校验 |
 | `displayName` | string | ✔ | 界面显示名（列表图标取首字） |
 | `channel` | string | ✔ | 渠道实现键：`"kuro"`（鸣潮及库洛系）、`"hypergryph"`（终末地/GRYPHLINE） |
-| `icon` | string | | 图标路径（当前 UI 用显示名首字，字段预留） |
+| `icon` | string | | 官方游戏图标：http(s) URL 或本地路径；加载失败回退显示名首字 |
 | `backgroundImage` | string | | 详情页背景大图：http(s) URL 或本地路径；留空或加载失败回退主题渐变 |
 | `installDir` | string | ✔ | 安装目录；相对 `settings.installRoot`，也可为绝对路径 |
 | `executable` | string | ✔ | 游戏可执行文件，相对 `installDir`（`/` 或 `\` 均可） |

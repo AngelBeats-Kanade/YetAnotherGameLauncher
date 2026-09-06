@@ -70,6 +70,15 @@
             <Setter Property="Foreground" Value="{DynamicResource AppTextSecondary}"/>
         </Style>
 
+        <!-- 主内容面板：圆角 + 毛玻璃底 -->
+        <Style Selector="Border.content-panel">
+            <Setter Property="Background" Value="{DynamicResource AppGlassStrong}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppCardBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="18"/>
+            <Setter Property="ClipToBounds" Value="True"/>
+        </Style>
+
         <!-- 图标按钮 -->
         <Style Selector="Button.icon-btn">
             <Setter Property="Background" Value="Transparent"/>
@@ -114,11 +123,6 @@
         </Style>
         <Style Selector="ToggleButton.card-toggle Path.chev">
             <Setter Property="RenderTransform" Value="rotate(0deg)"/>
-            <Setter Property="Transitions">
-                <Transitions>
-                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.15"/>
-                </Transitions>
-            </Setter>
         </Style>
         <Style Selector="ToggleButton.card-toggle:checked Path.chev">
             <Setter Property="RenderTransform" Value="rotate(180deg)"/>
@@ -153,13 +157,9 @@
     <!-- ==================== 窗口级结构：背景 → 遮罩 → 主布局 ==================== -->
     <Panel>
 
-        <!-- 背景大图（当前选中游戏，模糊后铺满整窗） -->
+        <!-- 背景大图（当前选中游戏，清晰铺满整窗；模糊只发生在内容面板层） -->
         <Panel IsVisible="{Binding SelectedGame.HasBackgroundImage}">
-            <Image Source="{Binding SelectedGame.BackgroundImage}" Stretch="UniformToFill">
-                <Image.Effect>
-                    <BlurEffect Radius="45"/>
-                </Image.Effect>
-            </Image>
+            <Image Source="{Binding SelectedGame.BackgroundImage}" Stretch="UniformToFill"/>
         </Panel>
 
         <!-- 遮罩：顶部透出背景、底部压实内容，保证任何背景下文字可读 -->
@@ -266,11 +266,16 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:GameItemViewModel">
                                 <Grid ColumnDefinitions="Auto,*,Auto">
-                                    <Border Width="38" Height="38" CornerRadius="10"
+                                    <Border Width="38" Height="38" CornerRadius="10" ClipToBounds="True"
                                             Background="{DynamicResource AppAccentBrush}">
-                                        <TextBlock Text="{Binding IconText}" FontSize="17" FontWeight="SemiBold"
-                                                   Foreground="White"
-                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Panel>
+                                            <Image Source="{Binding GameIcon}" Stretch="UniformToFill"
+                                                   IsVisible="{Binding HasGameIcon}"/>
+                                            <TextBlock Text="{Binding IconText}" FontSize="17" FontWeight="SemiBold"
+                                                       Foreground="White"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       IsVisible="{Binding !HasGameIcon}"/>
+                                        </Panel>
                                     </Border>
                                     <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" Spacing="1"
                                                 IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsSidebarExpanded}">
@@ -291,8 +296,18 @@
                 </DockPanel>
             </Border>
 
-            <!-- ==================== 主内容 ==================== -->
-            <Grid Grid.Column="1" Margin="32,26,32,22">
+            <!-- ==================== 主内容（圆角面板 + 毛玻璃） ==================== -->
+            <Grid Grid.Column="1" Margin="22,20,22,20">
+                <Border Classes="content-panel">
+                <Panel>
+                <!-- 面板毛玻璃层：同一背景图的模糊副本，裁切在圆角内 -->
+                <Panel IsVisible="{Binding SelectedGame.HasBackgroundImage}">
+                    <Image Source="{Binding SelectedGame.BackgroundImage}" Stretch="UniformToFill" Opacity="0.55">
+                        <Image.Effect>
+                            <BlurEffect Radius="40"/>
+                        </Image.Effect>
+                    </Image>
+                </Panel>
                 <ContentControl x:Name="PageHost" Content="{Binding CurrentPage}">
                     <ContentControl.DataTemplates>
 
@@ -304,12 +319,17 @@
 
                                         <!-- 标题区 -->
                                         <StackPanel Orientation="Horizontal" Spacing="18" Margin="0,6,0,0">
-                                            <Border Width="76" Height="76" CornerRadius="18"
+                                            <Border Width="76" Height="76" CornerRadius="18" ClipToBounds="True"
                                                     Background="{DynamicResource AppAccentBrush}"
                                                     BoxShadow="0 8 24 #40000000">
-                                                <TextBlock Text="{Binding IconText}" FontSize="34" FontWeight="SemiBold"
-                                                           Foreground="White"
-                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                <Panel>
+                                                    <Image Source="{Binding GameIcon}" Stretch="UniformToFill"
+                                                           IsVisible="{Binding HasGameIcon}"/>
+                                                    <TextBlock Text="{Binding IconText}" FontSize="34" FontWeight="SemiBold"
+                                                               Foreground="White"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                               IsVisible="{Binding !HasGameIcon}"/>
+                                                </Panel>
                                             </Border>
                                             <StackPanel VerticalAlignment="Center" Spacing="10">
                                                 <TextBlock Text="{Binding DisplayName}" FontSize="30" FontWeight="Bold"/>
@@ -396,6 +416,11 @@
                                                 </ToggleButton>
                                                 <StackPanel IsVisible="{Binding #LaunchToggle.IsChecked}"
                                                             Margin="10,8,10,12" Spacing="12">
+                                                    <StackPanel Spacing="4">
+                                                        <TextBlock Text="{Binding Loc[launch_installDir]}" Classes="card-caption"/>
+                                                        <TextBox Text="{Binding LaunchSettings.InstallDirDraft}"/>
+                                                        <TextBlock Text="{Binding Loc[launch_installDirHint]}" Classes="card-caption"/>
+                                                    </StackPanel>
                                                     <StackPanel Spacing="4">
                                                         <TextBlock Text="{Binding Loc[launch_commandTemplate]}" Classes="card-caption"/>
                                                         <TextBox Text="{Binding LaunchSettings.CommandTemplate}"
@@ -606,6 +631,8 @@
 
                     </ContentControl.DataTemplates>
                 </ContentControl>
+                </Panel>
+                </Border>
             </Grid>
         </Grid>
     </Panel>

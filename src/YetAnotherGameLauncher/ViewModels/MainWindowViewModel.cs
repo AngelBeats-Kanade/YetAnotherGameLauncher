@@ -332,6 +332,12 @@ public partial class MainWindowViewModel : ViewModelBase
                 {
                     game.BackgroundImage = sampleGame.BackgroundImage;
                 }
+
+                if (string.IsNullOrWhiteSpace(game.Icon)
+                    && !string.IsNullOrWhiteSpace(sampleGame.Icon))
+                {
+                    game.Icon = sampleGame.Icon;
+                }
             }
 
             if (added.Count > 0)

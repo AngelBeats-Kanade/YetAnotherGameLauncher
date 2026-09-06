@@ -10,7 +10,7 @@
     {
       "id": "wuthering-waves",
       "displayName": "鸣潮",
-      "icon": "",
+      "icon": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/af/1b/4d/af1b4d3b-da02-5189-357d-b4cd21a2a3a6/AppIcon-0-0-1x_U007emarketing-0-8-0-85-220.png/512x512bb.jpg",
       "backgroundImage": "https://mc.kurogames.com/website-preface/assets/01-14094cfc.webp",
       "channel": "kuro",
       "installDir": "WutheringWaves",
@@ -47,7 +47,7 @@
     {
       "id": "arknights-endfield",
       "displayName": "明日方舟：终末地",
-      "icon": "",
+      "icon": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/dd/af/42/ddaf42c8-5bea-adf0-e6e7-b67f291868aa/AppIcon-0-0-1x_U007emarketing-0-8-0-85-220.png/512x512bb.jpg",
       "backgroundImage": "https://web.hycdn.cn/upload/image/20260411/dde7c30f64cb985113539ec6c7a03c38.jpg",
       "channel": "hypergryph",
       "installDir": "ArknightsEndfield",

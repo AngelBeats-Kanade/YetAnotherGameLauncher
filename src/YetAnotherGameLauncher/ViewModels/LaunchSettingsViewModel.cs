@@ -13,21 +13,30 @@ namespace YetAnotherGameLauncher.ViewModels;
 public partial class LaunchSettingsViewModel : ViewModelBase
 {
     private readonly GameDefinition _game;
+    private readonly GameItemViewModel _owner;
     private readonly GameCatalogService _catalogService;
     private readonly ILocalizationService _loc;
 
     public LaunchSettingsViewModel(
         GameDefinition game,
+        string installDir,
         GameCatalogService catalogService,
-        ILocalizationService loc)
+        ILocalizationService loc,
+        GameItemViewModel owner)
     {
         _game = game;
+        _owner = owner;
         _catalogService = catalogService;
         _loc = loc;
+        _installDirDraft = installDir;
         _commandTemplate = game.Launch.CommandTemplate;
         _workingDirectory = game.Launch.WorkingDirectory;
         _environmentText = SerializeEnvironment(game.Launch.Environment);
     }
+
+    /// <summary>安装目录草稿（绝对路径；与启动参数共用同一保存按钮）。</summary>
+    [ObservableProperty]
+    private string _installDirDraft;
 
     public ILocalizationService Loc => _loc;
 
@@ -60,11 +69,25 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             return;
         }
 
+        var installDir = InstallDirDraft.Trim();
+        if (installDir.Length == 0)
+        {
+            SaveFailed = true;
+            SaveMessage = _loc["launch_installDirRequired"];
+            return;
+        }
+
         if (!TryParseEnvironment(EnvironmentText, out var environment, out var badLine))
         {
             SaveFailed = true;
             SaveMessage = _loc.Format("launch_invalidEnvLine", badLine);
             return;
+        }
+
+        var installDirChanged = !string.Equals(installDir, _owner.InstallDirPath, StringComparison.Ordinal);
+        if (installDirChanged)
+        {
+            _game.InstallDir = installDir; // 支持绝对路径，直接写回
         }
 
         _game.Launch = new LaunchOptions
@@ -79,6 +102,11 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         try
         {
             await _catalogService.SaveAsync(cancellationToken);
+            if (installDirChanged)
+            {
+                _owner.UpdateInstallDir(installDir); // 路径就地重解析 + 状态刷新
+            }
+
             SaveMessage = _loc["launch_saved"];
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

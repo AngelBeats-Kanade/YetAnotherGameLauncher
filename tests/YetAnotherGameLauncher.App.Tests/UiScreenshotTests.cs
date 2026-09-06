@@ -42,6 +42,8 @@ public class UiScreenshotTests
         var endfieldBgUrl = "https://web.hycdn.cn/upload/image/20260411/dde7c30f64cb985113539ec6c7a03c38.jpg";
         var endfieldBg = await new HttpClient().GetByteArrayAsync(endfieldBgUrl);
         ctx.BackgroundHandler.Map(endfieldBgUrl, endfieldBg);
+        var endfieldIconUrl = "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/dd/af/42/ddaf42c8-5bea-adf0-e6e7-b67f291868aa/AppIcon-0-0-1x_U007emarketing-0-8-0-85-220.png/512x512bb.jpg";
+        ctx.BackgroundHandler.Map(endfieldIconUrl, await new HttpClient().GetByteArrayAsync(endfieldIconUrl));
 
         await HeadlessSession.Instance.Dispatch(async () =>
         {
@@ -52,7 +54,8 @@ public class UiScreenshotTests
 
             void Capture(string name)
             {
-                Thread.Sleep(300); // 等页面淡入/chevron 旋转等动画完成，避免截到中间帧
+                Thread.Sleep(150); // headless 动画时钟靠手动 tick 推进：先等真实时钟，再显式推进
+                Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
                 var frame = window.CaptureRenderedFrame();
                 Assert.NotNull(frame);
                 frame.Save(Path.Combine(outDir, name), new PngBitmapEncoderOptions());
@@ -89,6 +92,7 @@ public class UiScreenshotTests
             // 暗色 · 第二个游戏（终末地，官方远程背景图，验证 URL 加载链路）
             ctx.Vm.SelectedTheme = dark;
             ctx.Vm.Games[1].Game.BackgroundImage = endfieldBgUrl;
+            ctx.Vm.Games[1].Game.Icon = endfieldIconUrl;
             ctx.Vm.SelectedGame = ctx.Vm.Games[1];
             await ctx.Vm.Games[1].RefreshAsync();
             window.UpdateLayout();

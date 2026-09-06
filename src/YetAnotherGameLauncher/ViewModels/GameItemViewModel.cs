@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
+using Avalonia;
 using Avalonia.Media;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using YetAnotherGameLauncher.Core;
@@ -24,11 +26,15 @@ public partial class GameItemViewModel(
     private readonly GameUpdateService _updateService = updateService;
     private readonly GameLauncherService _launcherService = launcherService;
     private readonly IGameChannelApi _channel = channel;
-    private readonly string _installDir = installDir;
+    private string _installDir = installDir;
     private readonly ILocalizationService _loc = loc;
+    private readonly GameCatalogService _catalogService = catalogService;
+
+    private LaunchSettingsViewModel? _launchSettings;
 
     /// <summary>启动设置编辑卡（保存走 GameCatalogService 整文件原子写）。</summary>
-    public LaunchSettingsViewModel LaunchSettings { get; } = new(game, catalogService, loc);
+    public LaunchSettingsViewModel LaunchSettings => _launchSettings ??= new(
+        Game, _installDir, _catalogService, _loc, this);
 
     public GameDefinition Game { get; } = game;
 
@@ -37,8 +43,15 @@ public partial class GameItemViewModel(
 
     public string DisplayName => Game.DisplayName;
 
-    /// <summary>列表图标：显示名首字（无外部资源依赖）。</summary>
+    /// <summary>列表图标：显示名首字（icon 加载失败/未配置时的回退）。</summary>
     public string IconText => string.IsNullOrEmpty(Game.DisplayName) ? "?" : Game.DisplayName[..1];
+
+    /// <summary>官方游戏图标（games.json 的 icon 字段；异步加载，失败回退首字）。</summary>
+    [ObservableProperty]
+    private IImage? _gameIcon;
+
+    [ObservableProperty]
+    private bool _hasGameIcon;
 
     public ObservableCollection<GameServer> Servers { get; } = [.. game.Servers];
 
@@ -129,9 +142,38 @@ public partial class GameItemViewModel(
 
     private async Task LoadBackgroundImageAsync(CancellationToken cancellationToken)
     {
-        var image = await backgroundImageService.LoadAsync(Game.BackgroundImage, cancellationToken);
-        BackgroundImage = image;
-        HasBackgroundImage = image is not null;
+        try
+        {
+            var iconTask = backgroundImageService.LoadAsync(Game.Icon, cancellationToken);
+            var image = await backgroundImageService.LoadAsync(Game.BackgroundImage, cancellationToken);
+            var icon = await iconTask;
+
+            // 图像属性的赋值必须回到 UI 线程（加载续延可能在池线程上）
+            Dispatcher.UIThread.Post(() =>
+            {
+                GameIcon = icon;
+                HasGameIcon = icon is not null;
+                BackgroundImage = image;
+                HasBackgroundImage = image is not null;
+            });
+        }
+        catch (Exception)
+        {
+            // 与 BackgroundImageService 的静默回退一致：装饰性资源失败不影响功能
+        }
+    }
+
+    /// <summary>安装目录变更（设置卡保存后）就地生效：路径重解析 + 状态刷新，不重建列表。</summary>
+    internal void UpdateInstallDir(string installDir)
+    {
+        if (string.Equals(_installDir, installDir, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _installDir = installDir;
+        OnPropertyChanged(nameof(InstallDirPath));
+        _ = RefreshAsync();
     }
 
     [RelayCommand]
