@@ -100,7 +100,9 @@
             <Setter Property="Background" Value="{DynamicResource AppSidebarHover}"/>
         </Style>
 
-        <!-- 插画上的玻璃按钮：固定暗色半透明底 + 浅色字（详情页暗遮罩方案，两主题一致） -->
+        <!-- 插画上的玻璃按钮：固定暗色半透明底 + 浅色字（详情页暗遮罩方案，两主题一致）。
+             前景必须设在模板 presenter 层：Fluent 的 :pointerover/:pressed/:disabled 状态样式
+             都在 presenter 上写主题前景（亮色主题为黑/灰），会压过 Button 本体上的浅色字 -->
         <Style Selector="Button.glass-onart">
             <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
@@ -108,9 +110,19 @@
         <Style Selector="Button.glass-onart /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
             <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
         </Style>
         <Style Selector="Button.glass-onart:pointerover /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AppOnArtworkCardHover}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
+        </Style>
+        <Style Selector="Button.glass-onart:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
+        </Style>
+        <Style Selector="Button.glass-onart:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkSecondary}"/>
         </Style>
 
         <!-- 图标按钮 -->
@@ -209,6 +221,19 @@
         <Style Selector="Border.content-card.maximized">
             <Setter Property="Margin" Value="0"/>
             <Setter Property="CornerRadius" Value="0"/>
+        </Style>
+        <!-- 游戏详情页：全出血——顶部低于右上标题按钮行（46），右/下/左零边距贴边；
+             置于 maximized 之后：最大化时同样保留 46 顶距（按钮行始终存在） -->
+        <Style Selector="Border.content-card.detail">
+            <Setter Property="Margin" Value="0,46,0,0"/>
+            <Setter Property="CornerRadius" Value="0"/>
+        </Style>
+        <!-- 标题拖拽区：默认 40；详情页时整条暴露区（至 46）都可拖拽 -->
+        <Style Selector="Border.title-drag">
+            <Setter Property="Height" Value="40"/>
+        </Style>
+        <Style Selector="Border.title-drag.detail">
+            <Setter Property="Height" Value="46"/>
         </Style>
 
         <!-- 自绘标题栏按钮：最小化/最大化/关闭（关闭悬停红色，Win11 习惯） -->
@@ -372,9 +397,9 @@
                     </ListBox>
                     </DockPanel>
 
-                    <!-- 侧栏选中指示点：静止为左缘小点，选中项变更时"朝反方向拉长 → 平移 → 行进侧收缩"（编舞在代码后置） -->
-                    <Border x:Name="NavIndicator"
-                            Width="4" CornerRadius="2"
+            <!-- 侧栏选中指示点：静止为左缘小点，选中项变更时"朝反方向拉长 → 平移 → 行进侧收缩"（编舞在代码后置） -->
+            <Border x:Name="NavIndicator"
+                    Width="4" CornerRadius="2"
                             HorizontalAlignment="Left" VerticalAlignment="Top"
                             Background="{DynamicResource AppAccentBrush}"
                             IsHitTestVisible="False" IsVisible="False"
@@ -393,9 +418,11 @@
                 </Panel>
             </Border>
 
-            <!-- ==================== 主内容浮卡（圆角、裁剪游戏插画；顶部为自绘标题栏拖拽区） ==================== -->
+            <!-- ==================== 主内容浮卡（圆角、裁剪游戏插画；顶部为自绘标题栏拖拽区）
+                 详情页切 detail 类：全出血（顶 46 低于标题按钮行、右/下/左贴边） ==================== -->
             <Grid Grid.Column="1">
-                <Border x:Name="ContentCard" Classes="content-card">
+                <Border x:Name="ContentCard" Classes="content-card"
+                        Classes.detail="{Binding IsGameDetailPage}">
                     <ContentControl x:Name="PageHost" Content="{Binding CurrentPage}"
                                     Classes.nav-forward="{Binding !IsNavBack}"
                                     Classes.nav-back="{Binding IsNavBack}">
@@ -863,8 +890,10 @@
                         </ContentControl.DataTemplates>
                     </ContentControl>
                 </Border>
-                <!-- 自绘标题栏拖拽区：只覆盖内容列顶部（按钮在下层无交互内容；侧栏 logo 区拖拽挂在 logo 网格上） -->
-                <Border Classes="title-drag" Height="40" VerticalAlignment="Top" Background="Transparent"
+                <!-- 自绘标题栏拖拽区：只覆盖内容列顶部（按钮在下层无交互内容；侧栏 logo 区拖拽挂在 logo 网格上）；
+                     详情页时拉高到 46，让卡片上方的整条暴露区都可拖拽 -->
+                <Border x:Name="TitleDrag" Classes="title-drag" VerticalAlignment="Top" Background="Transparent"
+                        Classes.detail="{Binding IsGameDetailPage}"
                         PointerPressed="OnTitlePointerPressed" DoubleTapped="OnTitleDoubleTapped"/>
             </Grid>
         </Grid>
