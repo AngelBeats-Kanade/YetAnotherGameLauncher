@@ -303,6 +303,32 @@ public class SidebarNavHeadlessTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task CustomTitleBar_ButtonsPresent_AndMaximizedClassToggles()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            window.Show();
+            window.UpdateLayout();
+
+            Assert.NotNull(window.FindControl<Button>("CaptionMinimize"));
+            Assert.NotNull(window.FindControl<Button>("CaptionMaximize"));
+            Assert.NotNull(window.FindControl<Button>("CaptionClose"));
+            Assert.NotNull(window.FindControl<Border>("ContentCard"));
+            Assert.DoesNotContain("maximized", window.ContentCard.Classes);
+
+            // 最大化：内容卡片去圆角与边距（样式消费 maximized 类）
+            window.WindowState = WindowState.Maximized;
+            window.UpdateLayout();
+            Assert.Contains("maximized", window.ContentCard.Classes);
+            window.WindowState = WindowState.Normal;
+            window.Close();
+        }, CancellationToken.None);
+    }
+
     /// <summary>
     /// 读取指示点的"渲染合成中心 Y"：用实际变换矩阵变换元素中心点。
     /// 首个版本的 bug 是基值正确但组内子顺序（先 Translate 后 Scale）导致渲染错位——

@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Styling;
@@ -83,7 +84,73 @@ public partial class MainWindow : Window
         GamesList.LayoutUpdated += (_, _) => QueueIndicatorMove();
         DataContextChanged += OnDataContextChanged;
         Opened += (_, _) => QueueIndicatorMove(); // 首次上屏后按当前选中项直接落位
+        PropertyChanged += OnWindowPropertyChanged; // 窗口状态 → 圆角/卡片边距与标题栏图标
+        SizeChanged += OnWindowSizeChanged; // 窗口宽度 → 侧栏阈值自适应收放
     }
+
+    /// <summary>窗口状态变化：最大化时去圆角与卡片边距，并切换最大化/还原图标。</summary>
+    private void OnWindowPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property != Window.WindowStateProperty)
+        {
+            return;
+        }
+
+        var maximized = WindowState == WindowState.Maximized;
+        ContentCard.Classes.Set("maximized", maximized);
+        MaximizeIcon.IsVisible = !maximized;
+        RestoreIcon.IsVisible = maximized;
+    }
+
+    /// <summary>窗口尺寸变化：转发 VM 做侧栏阈值自适应（穿越阈值自动收放，宽度过渡自带动画）。</summary>
+    private void OnWindowSizeChanged(object? sender, SizeChangedEventArgs e) =>
+        (DataContext as MainWindowViewModel)?.SetWindowWidth(e.NewSize.Width);
+
+    /// <summary>自绘标题栏拖拽：按钮命中不拖拽；最大化时忽略。</summary>
+    private void OnTitlePointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (IsWithinCaptionButton(e.Source as Visual) || WindowState == WindowState.Maximized)
+        {
+            return;
+        }
+
+        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        {
+            BeginMoveDrag(e);
+        }
+    }
+
+    /// <summary>自绘标题栏双击：切换最大化/还原（按钮命中除外）。</summary>
+    private void OnTitleDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (IsWithinCaptionButton(e.Source as Visual))
+        {
+            return;
+        }
+
+        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+    }
+
+    /// <summary>按下命中的元素是否在某个按钮内（按钮自身处理点击，不触发标题栏拖拽）。</summary>
+    private static bool IsWithinCaptionButton(Visual? source)
+    {
+        for (var v = source; v is not null; v = v.GetVisualParent())
+        {
+            if (v is Button)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void OnMinimizeClick(object? sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+
+    private void OnMaximizeClick(object? sender, RoutedEventArgs e) =>
+        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+
+    private void OnCloseClick(object? sender, RoutedEventArgs e) => Close();
 
     /// <summary>监听 VM 属性变化：高亮归属（游戏↔设置↔关于）与侧栏收放（行高变化）都影响落位。</summary>
     private void OnDataContextChanged(object? sender, EventArgs e)

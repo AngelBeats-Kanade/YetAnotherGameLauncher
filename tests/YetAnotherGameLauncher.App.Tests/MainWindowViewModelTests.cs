@@ -341,6 +341,26 @@ public class SidebarNavigationTests : IDisposable
     }
 
     [Fact]
+    public async Task SetWindowWidth_AutoTogglesSidebarWithHysteresis()
+    {
+        await _ctx.Vm.InitializeAsync();
+        Assert.True(_ctx.Vm.IsSidebarExpanded); // 前置：默认展开
+
+        _ctx.Vm.SetWindowWidth(920); // 低于收起阈值 → 自动收起
+        Assert.False(_ctx.Vm.IsSidebarExpanded);
+
+        _ctx.Vm.SetWindowWidth(1040); // 滞回区间内 → 保持现状
+        Assert.False(_ctx.Vm.IsSidebarExpanded);
+
+        _ctx.Vm.SetWindowWidth(1120); // 高于展开阈值 → 自动展开
+        Assert.True(_ctx.Vm.IsSidebarExpanded);
+
+        _ctx.Vm.ToggleSidebarCommand.Execute(null); // 手动收起后宽窗口再次确认 → 以窗口宽度为准
+        _ctx.Vm.SetWindowWidth(1120);
+        Assert.True(_ctx.Vm.IsSidebarExpanded);
+    }
+
+    [Fact]
     public async Task ShowGameSettings_KeepsGameHighlightedInSidebar()
     {
         await _ctx.Vm.InitializeAsync();

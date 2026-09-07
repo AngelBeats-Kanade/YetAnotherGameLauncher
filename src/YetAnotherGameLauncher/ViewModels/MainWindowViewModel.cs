@@ -244,6 +244,26 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>侧栏收起时的窄条宽度。</summary>
     private const double SidebarCollapsedWidth = 68;
 
+    /// <summary>窗口宽度阈值（滞回）：低于下限自动收起侧栏、高于上限自动展开，区间内保持现状。</summary>
+    internal const double SidebarCollapseThreshold = 1000;
+    internal const double SidebarExpandThreshold = 1080;
+
+    /// <summary>
+    /// 窗口尺寸变化（MainWindow.SizeChanged 转发）：穿越阈值时自动切换侧栏展开态，
+    /// 宽度过渡走现有 0.2s 动画；手动收放仍可用，阈值再次穿越时以窗口宽度为准。
+    /// </summary>
+    public void SetWindowWidth(double width)
+    {
+        if (width < SidebarCollapseThreshold && IsSidebarExpanded)
+        {
+            IsSidebarExpanded = false;
+        }
+        else if (width > SidebarExpandThreshold && !IsSidebarExpanded)
+        {
+            IsSidebarExpanded = true;
+        }
+    }
+
     /// <summary>侧栏是否展开（持久化到 games.json，启动时恢复）。</summary>
     [ObservableProperty]
     private bool _isSidebarExpanded = true;
