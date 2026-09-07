@@ -309,7 +309,7 @@ public class SidebarNavigationTests : IDisposable
 
         Assert.Same(_ctx.Vm.Games[0], _ctx.Vm.CurrentPage);
         Assert.True(_ctx.Vm.IsGameNavActive);
-        Assert.False(_ctx.Vm.IsNavBack); // 视为前进：页面自右滑入
+        Assert.True(_ctx.Vm.IsNavBack); // 返回游戏库：后退方向，页面自左滑入
     }
 
     [Fact]
@@ -324,6 +324,20 @@ public class SidebarNavigationTests : IDisposable
 
         Assert.Same(_ctx.Vm.Games[1], _ctx.Vm.CurrentPage);
         Assert.False(_ctx.Vm.IsNavBack);
+    }
+
+    [Fact]
+    public async Task SelectingGameUpList_UsesBackDirection()
+    {
+        await _ctx.Vm.InitializeAsync();
+        Assert.Same(_ctx.Vm.Games[0], _ctx.Vm.SelectedGame);
+
+        _ctx.Vm.GameNavSelection = _ctx.Vm.Games[1];
+        Assert.False(_ctx.Vm.IsNavBack); // 向下切（索引变大）：自右滑入
+
+        _ctx.Vm.GameNavSelection = _ctx.Vm.Games[0];
+        Assert.Same(_ctx.Vm.Games[0], _ctx.Vm.CurrentPage);
+        Assert.True(_ctx.Vm.IsNavBack); // 向上切（索引变小）：自左滑入
     }
 
     [Fact]

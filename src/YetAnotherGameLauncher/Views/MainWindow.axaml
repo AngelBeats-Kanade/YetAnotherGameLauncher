@@ -159,7 +159,7 @@
                 <Animation Duration="0:0:0.3" FillMode="Forward" Easing="CubicEaseOut">
                     <KeyFrame Cue="0%">
                         <Setter Property="Opacity" Value="0"/>
-                        <Setter Property="TranslateTransform.X" Value="42"/>
+                        <Setter Property="TranslateTransform.X" Value="56"/>
                     </KeyFrame>
                     <KeyFrame Cue="100%">
                         <Setter Property="Opacity" Value="1"/>
@@ -173,7 +173,7 @@
                 <Animation Duration="0:0:0.3" FillMode="Forward" Easing="CubicEaseOut">
                     <KeyFrame Cue="0%">
                         <Setter Property="Opacity" Value="0"/>
-                        <Setter Property="TranslateTransform.X" Value="-42"/>
+                        <Setter Property="TranslateTransform.X" Value="-56"/>
                     </KeyFrame>
                     <KeyFrame Cue="100%">
                         <Setter Property="Opacity" Value="1"/>

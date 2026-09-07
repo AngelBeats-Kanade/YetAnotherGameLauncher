@@ -73,6 +73,9 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private GameItemViewModel? _selectedGame;
 
+    /// <summary>游戏间切换的滑动方向暂存：Changing 钩子按列表顺序计算，Changed 钩子消费后复位。</summary>
+    private bool _pendingGameNavBack;
+
     /// <summary>当前显示的页面（游戏详情/游戏设置/应用设置/关于）。</summary>
     [ObservableProperty]
     private object? _currentPage;
@@ -110,7 +113,9 @@ public partial class MainWindowViewModel : ViewModelBase
             }
             else
             {
-                NavigateTo(value);
+                // 停在设置/关于页时点击"仍是当前游戏"的列表项：不触发 SelectedGame 变化，
+                // 这里按"返回游戏库"方向直接导航回去
+                NavigateTo(value, back: true);
             }
         }
     }
@@ -299,13 +304,26 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// 选中游戏变化前按列表顺序计算滑动方向：向下切（索引变大）= 前进（自右滑入），
+    /// 向上切 = 后退（自左滑入）；初始选中/重建列表（旧值为空）走 Changed 里的默认前进。
+    /// </summary>
+    partial void OnSelectedGameChanging(GameItemViewModel? oldValue, GameItemViewModel? newValue)
+    {
+        if (oldValue is not null && newValue is not null)
+        {
+            _pendingGameNavBack = Games.IndexOf(newValue) < Games.IndexOf(oldValue);
+        }
+    }
+
     /// <summary>选中游戏变化时触发：转发侧栏选中通知，非空时导航到详情页并刷新状态。</summary>
     partial void OnSelectedGameChanged(GameItemViewModel? value)
     {
         OnPropertyChanged(nameof(GameNavSelection));
         if (value is not null)
         {
-            NavigateTo(value);
+            NavigateTo(value, back: _pendingGameNavBack);
+            _pendingGameNavBack = false;
             _ = value.RefreshAsync();
         }
 
