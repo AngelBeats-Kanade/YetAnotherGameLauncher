@@ -21,10 +21,6 @@
                     <!-- 详情页版本号贴片：自带对比底面，压在任何插画上都可读 -->
                     <SolidColorBrush x:Key="AppVersionChipBackground" Color="#C7FFFFFF"/>
                     <SolidColorBrush x:Key="AppVersionChipText" Color="#2A2F36"/>
-                    <!-- 详情页背景图上的暗化遮罩：顶部轻、中段压状态区、底部压实内容 -->
-                    <Color x:Key="AppBackdropScrimTopColor">#59EDF0F5</Color>
-                    <Color x:Key="AppBackdropScrimMidColor">#C0EDF0F5</Color>
-                    <Color x:Key="AppBackdropScrimBottomColor">#FFF7F8FA</Color>
                     <!-- 应用自有背景（设置/关于/侧栏底色）：浅色 = 淡雾蓝渐变 + 柔和光晕 -->
                     <LinearGradientBrush x:Key="AppBackdropBaseBrush" StartPoint="0%,0%" EndPoint="35%,100%">
                         <GradientStop Color="#EFF2F8" Offset="0"/>
@@ -53,9 +49,6 @@
                     <SolidColorBrush x:Key="AppStatusOk" Color="#3FB950"/>
                     <SolidColorBrush x:Key="AppVersionChipBackground" Color="#99000000"/>
                     <SolidColorBrush x:Key="AppVersionChipText" Color="#EEF1F6"/>
-                    <Color x:Key="AppBackdropScrimTopColor">#26101418</Color>
-                    <Color x:Key="AppBackdropScrimMidColor">#8C10141A</Color>
-                    <Color x:Key="AppBackdropScrimBottomColor">#D9121218</Color>
                     <!-- 应用自有背景：深空蓝黑渐变 + 蓝橙光晕（呼应应用图标） -->
                     <LinearGradientBrush x:Key="AppBackdropBaseBrush" StartPoint="0%,0%" EndPoint="35%,100%">
                         <GradientStop Color="#0C0F1D" Offset="0"/>
@@ -74,6 +67,13 @@
             </ResourceDictionary.ThemeDictionaries>
             <!-- 主题无关的资源 -->
             <SolidColorBrush x:Key="AppPredownloadBadge" Color="#E8930C"/>
+            <!-- 详情页遮罩（暗遮罩+白字方案，两主题一致）：顶部轻、中段压状态区、底部压实内容 -->
+            <Color x:Key="AppBackdropScrimTopColor">#14000000</Color>
+            <Color x:Key="AppBackdropScrimMidColor">#66000000</Color>
+            <Color x:Key="AppBackdropScrimBottomColor">#B3000000</Color>
+            <!-- 详情页"插画上"前景：标题/状态用主色，次要信息用次色 -->
+            <SolidColorBrush x:Key="AppOnArtworkBrush" Color="#F2F4F8"/>
+            <SolidColorBrush x:Key="AppOnArtworkSecondary" Color="#C9CED8"/>
         </ResourceDictionary>
     </Application.Resources>
 

@@ -390,9 +390,10 @@
 
                             <!-- ========== 游戏详情页（海报式：游戏当期背景铺满主区域，仅此页） ========== -->
                             <DataTemplate DataType="{x:Type vm:GameItemViewModel}">
-                                <Panel Classes="page">
+                                <!-- ClipToBounds：插画只属于内容卡片，不外溢到侧栏底下 -->
+                                <Panel Classes="page" ClipToBounds="True">
 
-                                    <!-- 游戏当期背景（清晰全幅）+ 三段式遮罩保证文字可读 -->
+                                    <!-- 游戏当期背景（清晰全幅）+ 三段式暗遮罩保证文字可读 -->
                                     <Panel IsVisible="{Binding HasBackgroundImage}">
                                         <Image Source="{Binding BackgroundImage}" Stretch="UniformToFill"/>
                                         <Border>
@@ -405,6 +406,16 @@
                                             </Border.Background>
                                         </Border>
                                     </Panel>
+
+                                    <!-- 无插画回退：固定深色渐变底，白字在两主题同样可读 -->
+                                    <Border IsVisible="{Binding !HasBackgroundImage}">
+                                        <Border.Background>
+                                            <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                                                <GradientStop Color="#232B3A" Offset="0"/>
+                                                <GradientStop Color="#0D1017" Offset="1"/>
+                                            </LinearGradientBrush>
+                                        </Border.Background>
+                                    </Border>
 
                                     <Grid RowDefinitions="Auto,*,Auto,Auto,Auto,Auto" Margin="42,36,42,34">
 
@@ -423,10 +434,11 @@
                                                 </Panel>
                                             </Border>
                                             <StackPanel VerticalAlignment="Center" Spacing="10">
-                                                <TextBlock Text="{Binding DisplayName}" FontSize="32" FontWeight="Bold"/>
+                                                <TextBlock Text="{Binding DisplayName}" FontSize="32" FontWeight="Bold"
+                                                       Foreground="{DynamicResource AppOnArtworkBrush}"/>
                                                 <StackPanel Orientation="Horizontal" Spacing="10">
                                                     <TextBlock Text="{Binding Loc[game_server]}" FontSize="12.5"
-                                                               Foreground="{DynamicResource AppTextSecondary}"
+                                                               Foreground="{DynamicResource AppOnArtworkSecondary}"
                                                                VerticalAlignment="Center"/>
                                                     <ComboBox ItemsSource="{Binding Servers}"
                                                               SelectedItem="{Binding SelectedServer}"
@@ -448,7 +460,8 @@
                                                 <Ellipse Classes="dot" Width="12" Height="12"
                                                          Classes.installed="{Binding IsInstalled}"
                                                          Classes.has-update="{Binding HasUpdate}"/>
-                                                <TextBlock Text="{Binding StatusText}" FontSize="19" FontWeight="SemiBold"/>
+                                                <TextBlock Text="{Binding StatusText}" FontSize="19" FontWeight="SemiBold"
+                                                         Foreground="{DynamicResource AppOnArtworkBrush}"/>
                                                 <Border Padding="10,3" CornerRadius="7" VerticalAlignment="Center"
                                                         Background="{DynamicResource AppPredownloadBadge}"
                                                         IsVisible="{Binding HasStagedPredownload}">
@@ -514,21 +527,21 @@
                                         <Grid Grid.Row="4" ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*" Opacity="0.75"
                                               HorizontalAlignment="Stretch" Margin="18,2,0,0">
                                             <TextBlock Grid.Column="0" Text="{Binding Loc[game_info_channel]}" FontSize="11.5"
-                                                       Foreground="{DynamicResource AppTextSecondary}"/>
+                                                       Foreground="{DynamicResource AppOnArtworkSecondary}"/>
                                             <TextBlock Grid.Column="1" Text="{Binding ChannelDisplayName}" FontSize="11.5" Margin="6,0,0,0"
-                                                       Foreground="{DynamicResource AppTextSecondary}"/>
+                                                       Foreground="{DynamicResource AppOnArtworkSecondary}"/>
                                             <TextBlock Grid.Column="2" Text="·" FontSize="11.5" Margin="8,0"
-                                                       Foreground="{DynamicResource AppTextSecondary}"/>
+                                                       Foreground="{DynamicResource AppOnArtworkSecondary}"/>
                                             <TextBlock Grid.Column="3" Text="{Binding Loc[game_server]}" FontSize="11.5"
-                                                       Foreground="{DynamicResource AppTextSecondary}"/>
+                                                       Foreground="{DynamicResource AppOnArtworkSecondary}"/>
                                             <TextBlock Grid.Column="4" Text="{Binding ServerCountText}" FontSize="11.5" Margin="6,0,0,0"
-                                                       Foreground="{DynamicResource AppTextSecondary}"/>
+                                                       Foreground="{DynamicResource AppOnArtworkSecondary}"/>
                                             <TextBlock Grid.Column="5" Text="·" FontSize="11.5" Margin="8,0"
-                                                       Foreground="{DynamicResource AppTextSecondary}"/>
+                                                       Foreground="{DynamicResource AppOnArtworkSecondary}"/>
                                             <TextBlock Grid.Column="6" Text="{Binding Loc[game_info_installDir]}" FontSize="11.5"
-                                                       Foreground="{DynamicResource AppTextSecondary}"/>
+                                                       Foreground="{DynamicResource AppOnArtworkSecondary}"/>
                                             <TextBlock Grid.Column="7" Text="{Binding InstallDirPath}" FontSize="11.5" Margin="6,0,0,0"
-                                                       Foreground="{DynamicResource AppTextSecondary}"
+                                                       Foreground="{DynamicResource AppOnArtworkSecondary}"
                                                        TextTrimming="CharacterEllipsis"
                                                        ToolTip.Tip="{Binding InstallDirPath}"/>
                                         </Grid>
