@@ -7,8 +7,8 @@ using Avalonia.Media.Imaging;
 // 运行：dotnet run --project tools/IconGen [-- <输出目录>]
 // 产物：app-icon.ico（窗口/exe 图标）+ app-icon.png（关于页/侧栏展示）。
 //
-// 设计：深空蓝底 + 45° 朝右上的白色火箭 + 橙色尾焰 + 星光点缀。
-// "Rocket" 呼应 launcher（发射器）语义，与启动器的深色 UI / 蓝色 accent 一脉相承。
+// 设计：深空蓝底 + 星光 + 原创扁平 chibi 蓝发少女头像（大眼睛、腮红、微笑、呆毛）。
+// 蓝发呼应启动器的蓝色 accent，可爱二次元风格契合"启动 anime game"的产品定位。
 
 _ = AppBuilder.Configure<IconGenApp>()
     .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
@@ -87,95 +87,69 @@ static RenderTargetBitmap RenderIcon(int size)
         DrawSparkle(dc, 428, 396, 20, 0.5);
         DrawSparkle(dc, 84, 402, 13, 0.45);
 
-        // ---- 火箭（设计空间内朝上绘制，整体绕中心转 45° 使机头朝右上）----
-        // 行向量约定：先平移到原点、旋转、再移回中心
-        using (dc.PushTransform(
-                   Matrix.CreateTranslation(-256, -256)
-                   * Matrix.CreateRotation(MathF.PI / 4f)
-                   * Matrix.CreateTranslation(256, 256)))
+        // ---- 蓝发少女 chibi（扁平二次元：后发→双马尾→脸→刘海→五官→呆毛）----
+        var hairBack = new LinearGradientBrush
         {
-            // 尾焰（先画，压在机身与尾翼之下）
-            dc.DrawGeometry(
-                new LinearGradientBrush
-                {
-                    StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-                    EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
-                    GradientStops =
-                    {
-                        new GradientStop(Color.FromRgb(0xFF, 0xC5, 0x5C), 0),
-                        new GradientStop(Color.FromRgb(0xFF, 0x6B, 0x35), 1),
-                    },
-                },
-                null,
-                StreamGeometry.Parse("M236 336 C246 372 256 400 256 400 C256 400 266 372 276 336 Z"));
+            StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+            EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
+            GradientStops =
+            {
+                new GradientStop(Color.FromRgb(0x2E, 0x62, 0xD8), 0),
+                new GradientStop(Color.FromRgb(0x1D, 0x41, 0x96), 1),
+            },
+        };
+        var hair = new LinearGradientBrush
+        {
+            StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+            EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
+            GradientStops =
+            {
+                new GradientStop(Color.FromRgb(0x5C, 0x96, 0xFF), 0),
+                new GradientStop(Color.FromRgb(0x2E, 0x62, 0xD8), 1),
+            },
+        };
+        var skin = new SolidColorBrush(Color.FromRgb(0xFF, 0xE9, 0xD9));
 
-            // 尾翼
-            dc.DrawGeometry(
-                new LinearGradientBrush
-                {
-                    StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-                    EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
-                    GradientStops =
-                    {
-                        new GradientStop(Color.FromRgb(0xD9, 0xE6, 0xF8), 0),
-                        new GradientStop(Color.FromRgb(0x9D, 0xB4, 0xD8), 1),
-                    },
-                },
-                null,
-                StreamGeometry.Parse("M208 226 C174 260 160 306 163 358 L209 336 Z"));
-            dc.DrawGeometry(
-                new LinearGradientBrush
-                {
-                    StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-                    EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
-                    GradientStops =
-                    {
-                        new GradientStop(Color.FromRgb(0xD9, 0xE6, 0xF8), 0),
-                        new GradientStop(Color.FromRgb(0x9D, 0xB4, 0xD8), 1),
-                    },
-                },
-                null,
-                StreamGeometry.Parse("M304 226 C338 260 352 306 349 358 L303 336 Z"));
+        // 后发大圆（压在脸后）+ 两侧低双马尾
+        dc.DrawEllipse(hairBack, null, new Point(256, 288), 158, 152);
+        dc.DrawGeometry(hairBack, null, StreamGeometry.Parse(
+            "M136 232 C88 300 84 390 114 456 C150 430 160 340 152 262 Z"));
+        dc.DrawGeometry(hairBack, null, StreamGeometry.Parse(
+            "M376 232 C424 300 428 390 398 456 C362 430 352 340 360 262 Z"));
 
-            // 机身（白→浅灰蓝的立体渐变）
-            dc.DrawGeometry(
-                new LinearGradientBrush
-                {
-                    StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-                    EndPoint = new RelativePoint(1, 0, RelativeUnit.Relative),
-                    GradientStops =
-                    {
-                        new GradientStop(Color.FromRgb(0xFF, 0xFF, 0xFF), 0),
-                        new GradientStop(Color.FromRgb(0xC6, 0xD5, 0xEC), 1),
-                    },
-                },
-                null,
-                StreamGeometry.Parse(
-                    "M256 84 C218 116 204 192 204 300 L204 338 L308 338 L308 300 C308 192 294 116 256 84 Z"));
+        // 脸
+        dc.DrawEllipse(skin, null, new Point(256, 314), 116, 110);
 
-            // 舷窗：白环 + 蓝色镜面
-            dc.DrawEllipse(Brushes.White, null, new Point(256, 198), 42, 42);
-            dc.DrawEllipse(
-                new LinearGradientBrush
-                {
-                    StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-                    EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
-                    GradientStops =
-                    {
-                        new GradientStop(Color.FromRgb(0x4C, 0x8D, 0xFF), 0),
-                        new GradientStop(Color.FromRgb(0x14, 0x3B, 0x7A), 1),
-                    },
-                },
-                null,
-                new Point(256, 198), 30, 30);
+        // 刘海：上弧盖住额头 + 右→左的四束尖刘海（尖朝下垂到眼上方）
+        dc.DrawGeometry(hair, null, StreamGeometry.Parse(
+            "M141 300 C141 192 194 138 256 138 C318 138 371 192 371 300 " +
+            "C366 324 358 338 348 346 C342 324 330 296 316 270 C310 304 298 332 284 348 " +
+            "C278 322 266 290 250 268 C244 300 232 328 218 346 C210 320 196 292 184 272 " +
+            "C170 284 152 292 141 300 Z"));
 
-            // 机腹分隔线（细节）
-            dc.DrawLine(
-                new Pen(new SolidColorBrush(Color.FromArgb(0x66, 0x8F, 0xA6, 0xC8)), 6),
-                new Point(212, 306), new Point(300, 306));
+        // 眼睛：深蓝大眼 + 双高光
+        foreach (var x in new[] { 204.0, 308.0 })
+        {
+            dc.DrawEllipse(new SolidColorBrush(Color.FromRgb(0x16, 0x29, 0x4D)), null, new Point(x, 326), 27, 37);
+            dc.DrawEllipse(Brushes.White, null, new Point(x - 9, 311), 9, 9);
+            dc.DrawEllipse(new SolidColorBrush(Color.FromArgb(0xB4, 0xFF, 0xFF, 0xFF)), null, new Point(x + 8, 340), 4, 4);
         }
-    }
 
+        // 腮红 + 微笑小嘴
+        var blush = new SolidColorBrush(Color.FromArgb(0x8C, 0xFF, 0xA8, 0xC0));
+        dc.DrawEllipse(blush, null, new Point(164, 366), 25, 14);
+        dc.DrawEllipse(blush, null, new Point(348, 366), 25, 14);
+        dc.DrawGeometry(
+            new SolidColorBrush(Color.FromRgb(0xD4, 0x54, 0x7A)), null,
+            StreamGeometry.Parse("M238 376 A18 18 0 0 0 274 376 Z"));
+
+        // 呆毛（顶部的卷曲发丝）+ 发丝高光
+        var ahogePen = new Pen(new SolidColorBrush(Color.FromRgb(0x5C, 0x96, 0xFF)), 12, lineCap: PenLineCap.Round);
+        dc.DrawGeometry(null, ahogePen, StreamGeometry.Parse("M250 144 C240 112 256 94 290 90"));
+        dc.DrawLine(
+            new Pen(new SolidColorBrush(Color.FromArgb(0xB4, 0x9E, 0xC8, 0xFF)), 13, lineCap: PenLineCap.Round),
+            new Point(178, 206), new Point(236, 176));
+    }
     return bitmap;
 
     static void DrawSparkle(DrawingContext dc, double x, double y, double r, double opacity)
