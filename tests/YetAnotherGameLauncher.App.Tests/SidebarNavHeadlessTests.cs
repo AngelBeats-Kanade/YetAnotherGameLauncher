@@ -279,34 +279,37 @@ public class SidebarNavHeadlessTests : IDisposable
     }
 
     [Fact]
-    public void TransferCues_StretchOppositeThenRetractOnArrival()
+    public void TransferCues_TwoPhase_GrowOnOldItem_Hop_RetractOnNewItem()
     {
         const double height = 46;
         const double oldCenter = 200;
-        var top0 = oldCenter - MainWindow.DotHeight / 2; // 静息小点顶边
+        const double gap = 100;
+        var dot = MainWindow.DotHeight;
+        var top0 = oldCenter - dot / 2; // 静息小点顶边
+        var s0 = dot / height;
+        var s1 = dot * 2 / height;
 
-        // 向上切：顶沿固定（前两帧 t 相同）向下拉长 → 整体上滑 → 底部收缩到新点
-        var (upT, upS) = MainWindow.BuildTransferCues(oldCenter, 100, height);
-        // 向下切（镜像）：底沿固定向上拉长 → 整体下滑 → 顶部收缩到新点
-        var (downT, downS) = MainWindow.BuildTransferCues(oldCenter, 300, height);
+        // 向下切：①顶沿固定向下变长一倍 → 跳到新项（向上探出一倍形态落位）→ 收缩
+        var (downT, downS) = MainWindow.BuildTransferCues(oldCenter, oldCenter + gap, height);
+        // 向上切（镜像）：底沿固定向上变长
+        var (upT, upS) = MainWindow.BuildTransferCues(oldCenter, oldCenter - gap, height);
 
-        var expectedUpT = new[] { top0, top0, top0 - 100, top0 - 100 };
-        var expectedDownT = new[] { top0, top0 - 100, top0, top0 + 100 };
-        var upSpans = new[] { (top0, top0 + 16), (top0, top0 + 116), (top0 - 100, top0 + 16), (top0 - 100, top0 - 84) };
-        var downSpans = new[] { (top0, top0 + 16), (top0 - 100, top0 + 16), (top0, top0 + 116), (top0 + 100, top0 + 116) };
+        var expectedDownT = new[] { top0, top0, top0 + gap - dot, top0 + gap };
+        var expectedUpT = new[] { top0, top0 - dot, top0 - gap, top0 - gap };
+        var downSpans = new[] { (top0, top0 + 16), (top0, top0 + 32), (top0 + 84, top0 + 116), (top0 + 100, top0 + 116) };
+        var upSpans = new[] { (top0, top0 + 16), (top0 - 16, top0 + 16), (top0 - 100, top0 - 68), (top0 - 100, top0 - 84) };
         for (var i = 0; i < 4; i++)
         {
-            Assert.Equal(expectedUpT[i], upT[i], 6);
             Assert.Equal(expectedDownT[i], downT[i], 6);
-            // 拉长长度 = 点高(16) + 行进距离(100)；两端帧收回小点
-            var expectedScale = i is 1 or 2 ? (MainWindow.DotHeight + 100) / height : MainWindow.DotHeight / height;
-            Assert.Equal(expectedScale, upS[i], 6);
+            Assert.Equal(expectedUpT[i], upT[i], 6);
+            var expectedScale = i is 1 or 2 ? s1 : s0; // 两端小点，中间 2 倍长
             Assert.Equal(expectedScale, downS[i], 6);
-            // 渲染区间 [t, t+H·s]：起点小点 → 覆盖两行间的长条 → 终点小点
-            Assert.Equal(upSpans[i].Item1, upT[i], 6);
-            Assert.Equal(upSpans[i].Item2, upT[i] + height * upS[i], 6);
+            Assert.Equal(expectedScale, upS[i], 6);
+            // 渲染区间 [t, t+H·s]：每帧长度 ≤ 2×点高——任何帧都不会把两行连成一条
             Assert.Equal(downSpans[i].Item1, downT[i], 6);
             Assert.Equal(downSpans[i].Item2, downT[i] + height * downS[i], 6);
+            Assert.Equal(upSpans[i].Item1, upT[i], 6);
+            Assert.Equal(upSpans[i].Item2, upT[i] + height * upS[i], 6);
         }
     }
 

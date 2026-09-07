@@ -18,8 +18,9 @@ namespace YetAnotherGameLauncher.Views;
 /// 指示点是覆盖在侧栏上的共享 Border，展开态位于选中项内部左缘（收起态贴侧栏左缘——
 /// 收起行内被图标占满，内置会压图标）；RenderTransform 为 TransformGroup
 /// （先 Scale 后 Translate、原点 0,0）→ 视觉区间 = [TranslateY, TranslateY+Height×ScaleY]。
-/// 选中项变更时写入最终基值并播放方向感知编舞——朝行进反方向拉长、整体平移、行进侧收缩
-/// （动画进行中动画值覆盖基值，结束后回落到基值即终态；headless 会话不执行动画，
+/// 选中项变更时写入最终基值并播放两段式编舞：①旧项上朝行进方向变长一倍 → 快速跳到新项 →
+/// ②以逆向拉长形态落位后收缩回小点（两段各自贴着新旧项，不把两行连成一条；
+/// 动画进行中动画值覆盖基值，结束后回落到基值即终态；headless 会话不执行动画，
 /// 基值始终可见，测试因此可直接断言渲染位置）。
 /// </summary>
 public partial class MainWindow : Window
@@ -33,7 +34,7 @@ public partial class MainWindow : Window
     /// <summary>收起态下指示点贴侧栏左缘的位置（px）。</summary>
     private const double CollapsedEdgeX = 3;
 
-    /// <summary>迁移动画总时长：0-35% 原位拉长、35-65% 平移、65-100% 缩短。</summary>
+    /// <summary>迁移动画总时长：0-45% 旧项上变长、45-55% 跳变、55-100% 新项上收缩。</summary>
     private static readonly TimeSpan TransferDuration = TimeSpan.FromMilliseconds(420);
 
     /// <summary>平移段的缓入缓出贝塞尔样条（标准 ease-in-out 控制点）。</summary>
@@ -340,8 +341,9 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 迁移编舞（方向感知）：指示点先朝行进的反方向拉长（远端边固定）、再整体滑到新选中项、
-    /// 最后行进侧收缩回小点——像被橡皮筋拽过去。平移与缩放各一条 keyframe 动画并行驱动
+    /// 迁移编舞（两段式）：①旧项上朝行进方向变长一倍（远端边固定）→ 45-55% 以 2 倍长形态
+    /// 快速跳到新选中项（长度固定 2×点高，与行距无关，不会把两行连成一条）→
+    /// ②在新疆界以逆向拉长形态落位并收缩回小点。平移与缩放各一条 keyframe 动画并行驱动
     /// RenderTransform 组内的对应子变换（目标必须是控件，TransformAnimator 才能找到子变换）。
     /// </summary>
     private void RunTransferAnimation(double oldCenter, double newCenter, double height)
@@ -351,8 +353,9 @@ public partial class MainWindow : Window
         var ct = _indicatorCts.Token;
 
         var (translateValues, scaleValues) = BuildTransferCues(oldCenter, newCenter, height);
-        var cues = new[] { 0.0, 0.35, 0.65, 1.0 };
-        var splines = new KeySpline?[] { null, EaseOutSpline, EaseInOutSpline, EaseOutSpline };
+        var cues = new[] { 0.0, 0.45, 0.55, 1.0 };
+        // 跳变段（帧1）线性：46ms 内原样平移，观感为"跳"而非"滑"
+        var splines = new KeySpline?[] { EaseOutSpline, null, EaseOutSpline, null };
         var translate = new Animation { Duration = TransferDuration };
         var scale = new Animation { Duration = TransferDuration };
         for (var i = 0; i < cues.Length; i++)
@@ -366,22 +369,22 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 计算迁移编舞的 4 组关键帧值（对应 0%/35%/65%/100%）。视觉区间为 [t, t+H·s]
-    /// （组内先 Scale 后 Translate、原点 0,0）：向上切换时顶沿固定、向下拉长到旧点、
-    /// 整体上滑后底部收缩；向下切换镜像（底沿固定、向上拉长、顶部收缩）。
+    /// 计算迁移编舞的 4 组关键帧值（对应 0%/45%/55%/100%）。视觉区间为 [t, t+H·s]
+    /// （组内先 Scale 后 Translate、原点 0,0）：向下切换时①顶沿固定向下变长一倍 → 跳到新项、
+    /// 以向上探出 1 倍长的形态落位 → 收缩回小点；向上切换镜像（底沿固定向上变长）。
+    /// 拉长长度固定为 2×点高，与两行间距无关。
     /// </summary>
     internal static (double[] Translate, double[] Scale) BuildTransferCues(
         double oldCenter, double newCenter, double elementHeight)
     {
-        var gap = Math.Abs(newCenter - oldCenter);
         var top0 = oldCenter - DotHeight / 2;
         var top1 = newCenter - DotHeight / 2;
-        var stretched = (DotHeight + gap) / elementHeight;
         var dotScale = DotHeight / elementHeight;
+        var stretchedScale = DotHeight * 2 / elementHeight;
         var translate = newCenter < oldCenter
-            ? new[] { top0, top0, top1, top1 }
-            : new[] { top0, top0 - gap, top0, top1 };
-        return (translate, new[] { dotScale, stretched, stretched, dotScale });
+            ? new[] { top0, top0 - DotHeight, top1, top1 }      // 向上：底沿固定向上变长
+            : new[] { top0, top0, top1 - DotHeight, top1 };     // 向下：顶沿固定向下变长
+        return (translate, new[] { dotScale, stretchedScale, stretchedScale, dotScale });
     }
 
     /// <summary>构建单个 Transform 子属性 keyframe（默认线性；显式传入 KeySpline 的段落做平滑过渡，

@@ -23,10 +23,10 @@
     </Window.Resources>
 
     <Window.Styles>
-        <!-- 侧栏列表项：圆角、悬停/选中为弱化强调 -->
+        <!-- 侧栏列表项：圆角、悬停/选中为弱化强调（左内边距给选中指示点留位，图标不贴点） -->
         <Style Selector="ListBoxItem">
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-            <Setter Property="Padding" Value="8"/>
+            <Setter Property="Padding" Value="14,8"/>
             <Setter Property="CornerRadius" Value="10"/>
             <Setter Property="Margin" Value="0,2"/>
         </Style>
@@ -333,7 +333,7 @@
                         <Button x:Name="SettingsNavButton" Classes="icon-btn pressable nav-item" Command="{Binding ShowSettingsCommand}"
                                 Classes.selected="{Binding IsSettingsNavActive}"
                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                Padding="12,8"
+                                Padding="14,8"
                                 ToolTip.Tip="{Binding Loc[common_settings]}">
                             <StackPanel Orientation="Horizontal" Spacing="12">
                                 <Path Data="{StaticResource GearIconGeo}"
@@ -348,7 +348,7 @@
                         <Button x:Name="AboutNavButton" Classes="icon-btn pressable nav-item" Command="{Binding ShowAboutCommand}"
                                 Classes.selected="{Binding IsAboutNavActive}"
                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                Padding="12,8"
+                                Padding="14,8"
                                 ToolTip.Tip="{Binding Loc[common_about]}">
                             <StackPanel Orientation="Horizontal" Spacing="12">
                                 <Path Data="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"
