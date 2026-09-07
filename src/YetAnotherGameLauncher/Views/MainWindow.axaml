@@ -210,7 +210,8 @@
                         <DoubleTransition Property="Width" Duration="0:0:0.2" Easing="CubicEaseOut"/>
                     </Transitions>
                 </Border.Transitions>
-                <DockPanel Margin="12,16,12,12" LastChildFill="True">
+                <Panel>
+                    <DockPanel Margin="12,16,12,12" LastChildFill="True">
 
                     <!-- 顶部：展开态 = logo + 标题 + 折叠；收起态 = 仅居中的展开按钮 -->
                     <StackPanel DockPanel.Dock="Top">
@@ -250,9 +251,9 @@
                                    Foreground="{DynamicResource AppTextSecondary}" IsVisible="{Binding ShowStatusAsHint}"/>
                     </StackPanel>
 
-                    <!-- 底部：设置 / 关于 -->
+                    <!-- 底部：设置 / 关于（x:Name 供选中指示点定位） -->
                     <StackPanel DockPanel.Dock="Bottom" Spacing="4" Margin="0,10,0,0">
-                        <Button Classes="icon-btn pressable nav-item" Command="{Binding ShowSettingsCommand}"
+                        <Button x:Name="SettingsNavButton" Classes="icon-btn pressable nav-item" Command="{Binding ShowSettingsCommand}"
                                 Classes.selected="{Binding IsSettingsNavActive}"
                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                                 Padding="12,8"
@@ -267,7 +268,7 @@
                                            IsVisible="{Binding IsSidebarExpanded}"/>
                             </StackPanel>
                         </Button>
-                        <Button Classes="icon-btn pressable nav-item" Command="{Binding ShowAboutCommand}"
+                        <Button x:Name="AboutNavButton" Classes="icon-btn pressable nav-item" Command="{Binding ShowAboutCommand}"
                                 Classes.selected="{Binding IsAboutNavActive}"
                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                                 Padding="12,8"
@@ -320,7 +321,25 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-                </DockPanel>
+                    </DockPanel>
+
+                    <!-- 侧栏选中指示点：静止为左缘小点，选中项变更时"拉长 → 平移 → 缩短"（动画在代码后置） -->
+                    <Border x:Name="NavIndicator"
+                            Width="4" CornerRadius="2"
+                            HorizontalAlignment="Left" VerticalAlignment="Top"
+                            Background="{DynamicResource AppAccentBrush}"
+                            IsHitTestVisible="False" IsVisible="False"
+                            RenderTransformOrigin="0.5,0.5"
+                            BoxShadow="0 0 8 #592E7CF6">
+                        <Border.RenderTransform>
+                            <!-- 变换不生成 x:Name 字段（AVLN2000），代码后置按声明顺序解析 -->
+                            <TransformGroup>
+                                <TranslateTransform/>
+                                <ScaleTransform/>
+                            </TransformGroup>
+                        </Border.RenderTransform>
+                    </Border>
+                </Panel>
             </Border>
 
             <!-- ==================== 主内容（游戏详情页自带全幅背景；设置/关于透出应用自有背景） ==================== -->

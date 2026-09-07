@@ -51,6 +51,8 @@ public class UiScreenshotTests
         {
             await ctx.Vm.InitializeAsync();
             var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
+            // headless 中迁移动画冻结在首帧会遮盖基值：截图需要指示点的终态位置
+            window.NavIndicatorAnimationEnabled = false;
             window.Show();
             window.UpdateLayout();
 

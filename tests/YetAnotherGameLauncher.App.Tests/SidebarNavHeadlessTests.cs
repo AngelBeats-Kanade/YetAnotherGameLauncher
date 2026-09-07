@@ -2,6 +2,8 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.Media;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using YetAnotherGameLauncher.AppTests;
 using YetAnotherGameLauncher.Views;
@@ -144,4 +146,148 @@ public class SidebarNavHeadlessTests : IDisposable
             window.Close();
         }, CancellationToken.None);
     }
+
+    [Fact]
+    public async Task NavIndicator_PlacesAtSelectedGameRow_AndFollowsSelection()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            // headless 动画冻结在首帧：关闭迁移动画后基值即终态，断言几何落位逻辑
+            window.NavIndicatorAnimationEnabled = false;
+            window.Show();
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs(); // 冲刷 Background 优先级的落位任务
+
+            var indicator = window.FindControl<Border>("NavIndicator")!;
+            var overlay = (Panel)indicator.Parent!;
+            var rows = window.GetVisualDescendants().OfType<ListBoxItem>().ToList();
+
+            // 静止形态：可见小点，顶点对齐选中行中心的半高
+            var (y, scale) = Pose(indicator);
+            Assert.True(indicator.IsVisible);
+            Assert.Equal(rows[0].Bounds.Height - 8, indicator.Height, 1);
+            Assert.Equal(RowCenterY(rows[0], overlay) - indicator.Height / 2, y, 1);
+            Assert.Equal(10 / indicator.Height, scale, 2); // DotHeight=10 的静态小点
+
+            // 选中第二个游戏：指示点落到第二行（先推进时钟让迁移动画播完，
+            // 动画结束后属性回落到基值 = 终态）
+            _ctx.Vm.GameNavSelection = _ctx.Vm.Games[1];
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+
+            (y, _) = Pose(indicator);
+            Assert.Equal(RowCenterY(rows[1], overlay) - indicator.Height / 2, y, 1);
+            window.Close();
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task NavIndicator_FollowsSettingsAndAboutEntries()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            window.NavIndicatorAnimationEnabled = false; // 同上：直接断言落位
+            window.Show();
+            window.UpdateLayout();
+
+            var indicator = window.FindControl<Border>("NavIndicator")!;
+            var overlay = (Panel)indicator.Parent!;
+            var navButtons = window.GetVisualDescendants()
+                .OfType<Button>().Where(b => b.Classes.Contains("nav-item")).ToList();
+
+            _ctx.Vm.ShowSettingsCommand.Execute(null);
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+            var (y, _) = Pose(indicator);
+            Assert.True(indicator.IsVisible);
+            Assert.Equal(ButtonCenterY(navButtons[0], overlay) - indicator.Height / 2, y, 1);
+
+            _ctx.Vm.ShowAboutCommand.Execute(null);
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+            (y, _) = Pose(indicator);
+            Assert.Equal(ButtonCenterY(navButtons[1], overlay) - indicator.Height / 2, y, 1);
+            window.Close();
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task NavIndicator_RecomputesWhenSidebarCollapses()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            window.NavIndicatorAnimationEnabled = false;
+            window.Show();
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+
+            var indicator = window.FindControl<Border>("NavIndicator")!;
+            var expandedHeight = indicator.Height;
+
+            // 收起侧栏：行内文本隐藏 + 内边距收窄，行高变小，指示点随之重算
+            _ctx.Vm.ToggleSidebarCommand.Execute(null);
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+
+            var row = window.GetVisualDescendants().OfType<ListBoxItem>().First();
+            Assert.True(indicator.IsVisible);
+            Assert.Equal(row.Bounds.Height - 8, indicator.Height, 1);
+            Assert.True(indicator.Height < expandedHeight);
+            window.Close();
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task NavIndicator_RapidSwitches_SettleOnFinalTarget()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            window.NavIndicatorAnimationEnabled = false;
+            window.Show();
+            window.UpdateLayout();
+
+            var indicator = window.FindControl<Border>("NavIndicator")!;
+            var overlay = (Panel)indicator.Parent!;
+            var rows = window.GetVisualDescendants().OfType<ListBoxItem>().ToList();
+
+            // 快速连点：在途动画被取消接管，最终落位必须正确
+            _ctx.Vm.GameNavSelection = _ctx.Vm.Games[1];
+            _ctx.Vm.GameNavSelection = _ctx.Vm.Games[0];
+            _ctx.Vm.GameNavSelection = _ctx.Vm.Games[1];
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+
+            var (y, _) = Pose(indicator);
+            Assert.True(indicator.IsVisible);
+            Assert.Equal(RowCenterY(rows[1], overlay) - indicator.Height / 2, y, 1);
+            window.Close();
+        }, CancellationToken.None);
+    }
+
+    /// <summary>读取指示点的平移 Y 与缩放（Transform 不生成 x:Name 字段，按声明顺序解析）。</summary>
+    private static (double Y, double Scale) Pose(Border indicator)
+    {
+        var group = (TransformGroup)indicator.RenderTransform!;
+        return (((TranslateTransform)group.Children[0]).Y, ((ScaleTransform)group.Children[1]).ScaleY);
+    }
+
+    /// <summary>列表行中心在指示点覆盖层坐标系下的 Y。</summary>
+    private static double RowCenterY(ListBoxItem row, Visual overlay) =>
+        row.TranslatePoint(new Point(0, row.Bounds.Height / 2), overlay)!.Value.Y;
+
+    /// <summary>导航按钮中心在指示点覆盖层坐标系下的 Y。</summary>
+    private static double ButtonCenterY(Button button, Visual overlay) =>
+        button.TranslatePoint(new Point(0, button.Bounds.Height / 2), overlay)!.Value.Y;
 }

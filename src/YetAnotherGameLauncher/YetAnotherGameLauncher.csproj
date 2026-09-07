@@ -11,6 +11,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- 无头测试工程访问 internal 成员（如指示点动画测试开关） -->
+    <InternalsVisibleTo Include="YetAnotherGameLauncher.App.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- 默认配置模板：首次运行无 games.json 时写入用户配置目录（单一来源为 samples/games.json） -->
     <EmbeddedResource Include="..\..\samples\games.json" LogicalName="games.sample.json" />
     <!-- 界面文案资源：文件名用下划线（strings_zh-CN.json）避免 MSBuild AssignCulture
