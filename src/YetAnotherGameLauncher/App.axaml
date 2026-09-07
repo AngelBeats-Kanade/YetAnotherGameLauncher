@@ -74,6 +74,8 @@
             <!-- 详情页"插画上"前景：标题/状态用主色，次要信息用次色 -->
             <SolidColorBrush x:Key="AppOnArtworkBrush" Color="#F2F4F8"/>
             <SolidColorBrush x:Key="AppOnArtworkSecondary" Color="#C9CED8"/>
+            <SolidColorBrush x:Key="AppOnArtworkCard" Color="#B3202029"/>
+            <SolidColorBrush x:Key="AppOnArtworkCardHover" Color="#D9323040"/>
         </ResourceDictionary>
     </Application.Resources>
 

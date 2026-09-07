@@ -100,6 +100,19 @@
             <Setter Property="Background" Value="{DynamicResource AppSidebarHover}"/>
         </Style>
 
+        <!-- 插画上的玻璃按钮：固定暗色半透明底 + 浅色字（详情页暗遮罩方案，两主题一致） -->
+        <Style Selector="Button.glass-onart">
+            <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
+        </Style>
+        <Style Selector="Button.glass-onart /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+            <Setter Property="CornerRadius" Value="10"/>
+        </Style>
+        <Style Selector="Button.glass-onart:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppOnArtworkCardHover}"/>
+        </Style>
+
         <!-- 图标按钮 -->
         <Style Selector="Button.icon-btn">
             <Setter Property="Background" Value="Transparent"/>
@@ -485,27 +498,29 @@
                                             <Button Command="{Binding PredownloadCommand}"
                                                     IsVisible="{Binding PredownloadAvailable}"
                                                     Content="{Binding Loc[game_predownload]}"
-                                                    Classes="pressable glass"
+                                                    Classes="pressable glass-onart"
                                                     Padding="20,11" VerticalAlignment="Center"/>
                                             <Button Command="{Binding ApplyPredownloadCommand}"
                                                     IsVisible="{Binding HasStagedPredownload}"
                                                     Content="{Binding Loc[game_applyPredownload]}"
-                                                    Classes="pressable glass"
+                                                    Classes="pressable glass-onart"
                                                     Padding="20,11" VerticalAlignment="Center"/>
                                             <Button Classes="pressable" Command="{Binding InstallOrUpdateCommand}"
                                                     Content="{Binding InstallButtonText}"
                                                     Classes.accent="{Binding !IsInstalled}"
-                                                    Classes.glass="{Binding IsInstalled}"
+                                                    Classes.glass-onart="{Binding IsInstalled}"
                                                     FontSize="15"
                                                     Padding="28,11" VerticalAlignment="Center"/>
                                             <Button Classes="pressable" Command="{Binding LaunchCommand}"
                                                     IsEnabled="{Binding CanLaunch}"
                                                     Classes.accent="{Binding IsInstalled}"
+                                                    Classes.glass-onart="{Binding !IsInstalled}"
                                                     Content="{Binding Loc[game_launch]}"
                                                     FontSize="17" FontWeight="SemiBold"
                                                     Padding="46,13"/>
                                             <Button Classes="icon-btn pressable" Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ShowGameSettingsCommand}"
                                                     VerticalAlignment="Center"
+                                                    Foreground="{DynamicResource AppOnArtworkBrush}"
                                                     ToolTip.Tip="{Binding Loc[game_settings_title]}">
                                                 <Path Data="{StaticResource GearIconGeo}"
                                                       Fill="{Binding $parent[Button].Foreground}"
