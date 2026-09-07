@@ -178,9 +178,9 @@
         <!-- 页面切换：Store 式横滑过渡（前进自右滑入、后退自左滑入，配淡入）；
              详情页根为 Panel 无边距，设置类页根为 Border.page 统一留边 -->
 
-        <!-- 设置类页面（设置/关于/游戏设置）的统一页边距 -->
+        <!-- 设置类页面（设置/关于/游戏设置）的统一页边距（顶部避开 46px 标题色带） -->
         <Style Selector="Border.page">
-            <Setter Property="Margin" Value="34,26,34,24"/>
+            <Setter Property="Margin" Value="34,48,34,24"/>
         </Style>
         <Style Selector="ContentControl.nav-forward :is(Control).page">
             <Style.Animations>
@@ -212,8 +212,9 @@
         </Style>
 
         <!-- 圆角内容浮卡（游戏插画等全部裁剪在内）；最大化时去圆角与边距 -->
+        <!-- 内容容器：透明底——设置类页面直接浮在应用背景（渐变+光晕）上；
+             详情页的插画在页面模板内自带背景。仅负责裁剪与（详情态）圆角 -->
         <Style Selector="Border.content-card">
-            <Setter Property="Background" Value="{DynamicResource AppPageBackground}"/>
             <Setter Property="CornerRadius" Value="10"/>
             <Setter Property="ClipToBounds" Value="True"/>
             <Setter Property="Margin" Value="0,6,6,6"/>
@@ -223,10 +224,11 @@
             <Setter Property="CornerRadius" Value="0"/>
         </Style>
         <!-- 游戏详情页：全出血——顶部低于右上标题按钮行（46），右/下/左零边距贴边；
+             左上角保留 10px 圆角，其余三角由窗口圆角负责。
              置于 maximized 之后：最大化时同样保留 46 顶距（按钮行始终存在） -->
         <Style Selector="Border.content-card.detail">
             <Setter Property="Margin" Value="0,46,0,0"/>
-            <Setter Property="CornerRadius" Value="0"/>
+            <Setter Property="CornerRadius" Value="10,0,0,0"/>
         </Style>
         <!-- 标题拖拽区：默认 40；详情页时整条暴露区（至 46）都可拖拽 -->
         <Style Selector="Border.title-drag">
@@ -262,11 +264,12 @@
     <!-- ==================== 窗口级结构：应用自有背景 → 主布局（游戏背景只在详情页模板内） ==================== -->
     <Panel>
 
-        <!-- 应用自有背景：主题感知渐变 + 柔光斑；设置里的自定义背景图覆盖其上 -->
+        <!-- 应用自有背景：主题感知渐变 + 柔光斑；设置里的自定义背景图覆盖其上。
+             光晕限制在标题色带（46px）以下，保证色带与侧栏颜色完全一致 -->
         <Panel>
             <Rectangle Fill="{DynamicResource AppBackdropBaseBrush}"/>
-            <Rectangle Fill="{DynamicResource AppBackdropGlowBrush}"/>
-            <Rectangle Fill="{DynamicResource AppBackdropGlowWarmBrush}"/>
+            <Rectangle Fill="{DynamicResource AppBackdropGlowBrush}" Margin="0,46,0,0"/>
+            <Rectangle Fill="{DynamicResource AppBackdropGlowWarmBrush}" Margin="0,46,0,0"/>
             <Image Source="{Binding AppBackgroundImage}" Stretch="UniformToFill"
                    IsVisible="{Binding HasCustomAppBackground}"/>
         </Panel>
@@ -419,9 +422,11 @@
                 </Panel>
             </Border>
 
-            <!-- ==================== 主内容浮卡（圆角、裁剪游戏插画；顶部为自绘标题栏拖拽区）
-                 详情页切 detail 类：全出血（顶 46 低于标题按钮行、右/下/左贴边） ==================== -->
+            <!-- ==================== 主内容列：顶部标题色带（与侧栏同色，自绘标题钮位于其上）+
+                 内容容器（透明底，详情页切 detail 类全出血并带左上圆角） ==================== -->
             <Grid Grid.Column="1">
+                <Border x:Name="TitleChrome" Height="46" VerticalAlignment="Top"
+                        Background="{DynamicResource AppSidebarBackground}" IsHitTestVisible="False"/>
                 <Border x:Name="ContentCard" Classes="content-card"
                         Classes.detail="{Binding IsGameDetailPage}">
                     <ContentControl x:Name="PageHost" Content="{Binding CurrentPage}"
@@ -434,9 +439,11 @@
                                 <!-- ClipToBounds：插画只属于内容卡片，不外溢到侧栏底下 -->
                                 <Panel Classes="page" ClipToBounds="True">
 
-                                    <!-- 游戏当期背景（清晰全幅）+ 三段式暗遮罩保证文字可读 -->
+                                    <!-- 游戏当期背景（清晰全幅）+ 三段式暗遮罩保证文字可读。
+                                         左上锚定：UniformToFill 的溢出只裁右侧/底部，海报左缘完整贴住侧栏不被裁切 -->
                                     <Panel IsVisible="{Binding HasBackgroundImage}">
-                                        <Image Source="{Binding BackgroundImage}" Stretch="UniformToFill"/>
+                                        <Image x:Name="PosterImage" Source="{Binding BackgroundImage}" Stretch="UniformToFill"
+                                               HorizontalAlignment="Left" VerticalAlignment="Top"/>
                                         <Border>
                                             <Border.Background>
                                                 <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">

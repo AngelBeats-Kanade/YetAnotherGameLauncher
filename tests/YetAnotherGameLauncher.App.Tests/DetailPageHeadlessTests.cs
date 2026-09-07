@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
 using Avalonia.Headless;
+using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
@@ -84,13 +85,17 @@ public class DetailPageHeadlessTests : IDisposable
 
             var card = window.FindControl<Border>("ContentCard")!;
             var drag = window.FindControl<Border>("TitleDrag")!;
+            var chrome = window.FindControl<Border>("TitleChrome")!;
 
-            // 详情页：全出血（顶 46 低于标题按钮行，右/下/左贴边），拖拽条拉高覆盖整条暴露区
+            // 详情页：全出血（顶 46 低于标题按钮行，右/下/左贴边），左上角保留圆角，
+            // 拖拽条拉高覆盖整条暴露区；标题色带恒为 46 高
             Assert.True(_ctx.Vm.IsGameDetailPage);
             Assert.Contains("detail", card.Classes);
             Assert.Contains("detail", drag.Classes);
             Assert.Equal(new Thickness(0, 46, 0, 0), card.Margin);
+            Assert.Equal(new CornerRadius(10, 0, 0, 0), card.CornerRadius);
             Assert.Equal(46, drag.Height);
+            Assert.Equal(46, chrome.Height);
 
             // 游戏设置页：属于游戏导航（高亮不丢）但不是详情页 → 浮卡不变
             _ctx.Vm.ShowGameSettingsCommand.Execute(null);
@@ -101,15 +106,38 @@ public class DetailPageHeadlessTests : IDisposable
             Assert.Equal(new Thickness(0, 6, 6, 6), card.Margin);
             Assert.Equal(40, drag.Height);
 
-            // 应用设置页浮卡；返回详情页恢复全出血
+            // 应用设置页：内容卡透明露出应用背景，页边距避开标题色带
             _ctx.Vm.ShowSettingsCommand.Execute(null);
             window.UpdateLayout();
             Assert.DoesNotContain("detail", card.Classes);
+            Assert.Null(card.Background);
+            var page = window.GetVisualDescendants().OfType<Border>().First(b => b.Classes.Contains("page"));
+            Assert.Equal(new Thickness(34, 48, 34, 24), page.Margin);
 
+            // 返回详情页恢复全出血
             _ctx.Vm.ShowGamesCommand.Execute(null);
             window.UpdateLayout();
             Assert.Contains("detail", card.Classes);
             Assert.Equal(new Thickness(0, 46, 0, 0), card.Margin);
+            window.Close();
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task GameDetailPage_PosterImage_IsLeftAnchored()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            window.Show();
+            window.UpdateLayout();
+
+            // 海报靠左上锚定：UniformToFill 的居中裁切曾吃掉海报左缘（被感知为"被侧边栏遮住"）
+            var poster = window.GetVisualDescendants().OfType<Image>().First(i => i.Name == "PosterImage");
+            Assert.Equal(HorizontalAlignment.Left, poster.HorizontalAlignment);
+            Assert.Equal(VerticalAlignment.Top, poster.VerticalAlignment);
             window.Close();
         }, CancellationToken.None);
     }
