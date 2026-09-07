@@ -397,9 +397,14 @@
                                                 <TextBlock Text="{Binding Loc[game_stagedBadge]}" FontSize="12" Foreground="White"/>
                                             </Border>
                                         </StackPanel>
-                                        <TextBlock Text="{Binding VersionText}" FontSize="14"
-                                                   Margin="22,0,0,0"
-                                                   Foreground="{DynamicResource AppTextSecondary}"/>
+                                        <!-- 版本号贴片：自带对比底面，压在背景插画上仍清晰可读 -->
+                                        <Border HorizontalAlignment="Left" Margin="22,0,0,0"
+                                                Padding="9,3" CornerRadius="7"
+                                                Background="{DynamicResource AppVersionChipBackground}">
+                                            <TextBlock Text="{Binding VersionText}" FontSize="13"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource AppVersionChipText}"/>
+                                        </Border>
                                     </StackPanel>
 
                                     <!-- 主操作行（底部，右对齐，对标官方启动器的"进入游戏"） -->
