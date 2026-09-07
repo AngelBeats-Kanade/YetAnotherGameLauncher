@@ -15,7 +15,8 @@ namespace YetAnotherGameLauncher.Views;
 
 /// <summary>
 /// 主窗口代码后置：侧栏选中指示点动画。
-/// 指示点是覆盖在侧栏左缘的共享 Border：RenderTransform 为 TransformGroup
+/// 指示点是覆盖在侧栏上的共享 Border，展开态位于选中项内部左缘（收起态贴侧栏左缘——
+/// 收起行内被图标占满，内置会压图标）；RenderTransform 为 TransformGroup
 /// （先 Scale 后 Translate、原点 0,0）→ 视觉区间 = [TranslateY, TranslateY+Height×ScaleY]。
 /// 选中项变更时写入最终基值并播放方向感知编舞——朝行进反方向拉长、整体平移、行进侧收缩
 /// （动画进行中动画值覆盖基值，结束后回落到基值即终态；headless 会话不执行动画，
@@ -23,8 +24,14 @@ namespace YetAnotherGameLauncher.Views;
 /// </summary>
 public partial class MainWindow : Window
 {
-    /// <summary>静态"小点"的视觉高度（px）。</summary>
-    private const double DotHeight = 10;
+    /// <summary>静态"小点"的视觉高度（px）。须小于最小的导航行高，保证静息时完整落在选中项内。</summary>
+    internal const double DotHeight = 16;
+
+    /// <summary>展开态下指示点相对选中项左缘的内缩距离（px）：完全进入项内、不压内容。</summary>
+    private const double InsideItemInsetX = 3;
+
+    /// <summary>收起态下指示点贴侧栏左缘的位置（px）。</summary>
+    private const double CollapsedEdgeX = 3;
 
     /// <summary>迁移动画总时长：0-35% 原位拉长、35-65% 平移、65-100% 缩短。</summary>
     private static readonly TimeSpan TransferDuration = TimeSpan.FromMilliseconds(420);
@@ -71,6 +78,9 @@ public partial class MainWindow : Window
 
     /// <summary>指示点当前基态顶边 t（视觉区间 [t, t+Height×ScaleY]，供无头测试断言渲染位置）。</summary>
     internal double IndicatorTop { get; private set; }
+
+    /// <summary>指示点当前基态左缘 X（供无头测试断言静息时完整落在选中项内）。</summary>
+    internal double IndicatorLeft { get; private set; }
 
     /// <summary>指示点当前基态纵向缩放（静态小点 = DotHeight/Height）。</summary>
     internal double IndicatorScaleY { get; private set; }
@@ -246,6 +256,11 @@ public partial class MainWindow : Window
             return true;
         }
 
+        // X 定位：展开态进入选中项内部左缘；收起态行内被图标占满，退回贴侧栏左缘。
+        // 各目标项左缘一致，X 无需参与迁移动画（仅布局校正时直接吸附）
+        var expanded = (DataContext as MainWindowViewModel)?.IsSidebarExpanded ?? true;
+        var newX = expanded ? point.X + InsideItemInsetX : CollapsedEdgeX;
+
         var height = Math.Max(DotHeight, target.Bounds.Height - 8);
         var newTop = point.Y - DotHeight / 2;
         var newScale = DotHeight / height;
@@ -261,12 +276,15 @@ public partial class MainWindow : Window
         indicator.IsVisible = true;
         var changed = !indicator.IsVisible
             || !NearEqual(indicator.Height, height)
+            || !NearEqual(IndicatorTranslate.X, newX)
             || !NearEqual(IndicatorTranslate.Y, newTop)
             || !NearEqual(IndicatorScale.ScaleY, newScale);
         indicator.Height = height;
+        IndicatorTranslate.X = newX;
         IndicatorTranslate.Y = newTop;
         IndicatorScale.ScaleY = newScale;
         IndicatorTop = newTop;
+        IndicatorLeft = newX;
         IndicatorScaleY = newScale;
         _indicatorPlaced = true;
         _lastTarget = target;

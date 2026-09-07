@@ -165,11 +165,12 @@ public class SidebarNavHeadlessTests : IDisposable
             var overlay = (Panel)indicator.Parent!;
             var rows = window.GetVisualDescendants().OfType<ListBoxItem>().ToList();
 
-            // 静止形态：可见小点，渲染中心对齐选中行中心
+            // 静止形态：可见小点，渲染中心对齐选中行中心，且完整落在选中行内部
             Assert.True(indicator.IsVisible);
             Assert.Equal(rows[0].Bounds.Height - 8, indicator.Height, 1);
-            Assert.Equal(10 / indicator.Height, window.IndicatorScaleY, 2); // DotHeight=10 的静态小点
+            Assert.Equal(MainWindow.DotHeight / indicator.Height, window.IndicatorScaleY, 2);
             Assert.Equal(RowCenterY(rows[0], overlay), RenderedCenterY(window, indicator), 1);
+            AssertRestingInsideTarget(window, indicator, rows[0], overlay);
 
             // 选中第二个游戏：指示点渲染中心落到第二行
             _ctx.Vm.GameNavSelection = _ctx.Vm.Games[1];
@@ -177,6 +178,7 @@ public class SidebarNavHeadlessTests : IDisposable
             Dispatcher.UIThread.RunJobs();
 
             Assert.Equal(RowCenterY(rows[1], overlay), RenderedCenterY(window, indicator), 1);
+            AssertRestingInsideTarget(window, indicator, rows[1], overlay);
             window.Close();
         }, CancellationToken.None);
     }
@@ -203,11 +205,13 @@ public class SidebarNavHeadlessTests : IDisposable
             Dispatcher.UIThread.RunJobs();
             Assert.True(indicator.IsVisible);
             Assert.Equal(ButtonCenterY(navButtons[0], overlay), RenderedCenterY(window, indicator), 1);
+            AssertRestingInsideTarget(window, indicator, navButtons[0], overlay);
 
             _ctx.Vm.ShowAboutCommand.Execute(null);
             window.UpdateLayout();
             Dispatcher.UIThread.RunJobs();
             Assert.Equal(ButtonCenterY(navButtons[1], overlay), RenderedCenterY(window, indicator), 1);
+            AssertRestingInsideTarget(window, indicator, navButtons[1], overlay);
             window.Close();
         }, CancellationToken.None);
     }
@@ -239,6 +243,8 @@ public class SidebarNavHeadlessTests : IDisposable
             Assert.Equal(row.Bounds.Height - 8, indicator.Height, 1);
             Assert.True(indicator.Height < expandedHeight);
             Assert.Equal(RowCenterY(row, overlay), RenderedCenterY(window, indicator), 1);
+            // 收起态例外：行内被图标占满，指示点退回贴侧栏左缘（不进项内）
+            Assert.Equal(3, window.IndicatorLeft, 1);
             window.Close();
         }, CancellationToken.None);
     }
@@ -277,22 +283,23 @@ public class SidebarNavHeadlessTests : IDisposable
     {
         const double height = 46;
         const double oldCenter = 200;
+        var top0 = oldCenter - MainWindow.DotHeight / 2; // 静息小点顶边
 
         // 向上切：顶沿固定（前两帧 t 相同）向下拉长 → 整体上滑 → 底部收缩到新点
         var (upT, upS) = MainWindow.BuildTransferCues(oldCenter, 100, height);
         // 向下切（镜像）：底沿固定向上拉长 → 整体下滑 → 顶部收缩到新点
         var (downT, downS) = MainWindow.BuildTransferCues(oldCenter, 300, height);
 
-        var expectedUpT = new[] { 195.0, 195.0, 95.0, 95.0 };
-        var expectedDownT = new[] { 195.0, 95.0, 195.0, 295.0 };
-        var upSpans = new[] { (195.0, 205.0), (195.0, 305.0), (95.0, 205.0), (95.0, 105.0) };
-        var downSpans = new[] { (195.0, 205.0), (95.0, 205.0), (195.0, 305.0), (295.0, 305.0) };
+        var expectedUpT = new[] { top0, top0, top0 - 100, top0 - 100 };
+        var expectedDownT = new[] { top0, top0 - 100, top0, top0 + 100 };
+        var upSpans = new[] { (top0, top0 + 16), (top0, top0 + 116), (top0 - 100, top0 + 16), (top0 - 100, top0 - 84) };
+        var downSpans = new[] { (top0, top0 + 16), (top0 - 100, top0 + 16), (top0, top0 + 116), (top0 + 100, top0 + 116) };
         for (var i = 0; i < 4; i++)
         {
             Assert.Equal(expectedUpT[i], upT[i], 6);
             Assert.Equal(expectedDownT[i], downT[i], 6);
-            // 拉长长度 = 点高(10) + 行进距离(100)；两端帧收回小点
-            var expectedScale = i is 1 or 2 ? 110 / height : 10 / height;
+            // 拉长长度 = 点高(16) + 行进距离(100)；两端帧收回小点
+            var expectedScale = i is 1 or 2 ? (MainWindow.DotHeight + 100) / height : MainWindow.DotHeight / height;
             Assert.Equal(expectedScale, upS[i], 6);
             Assert.Equal(expectedScale, downS[i], 6);
             // 渲染区间 [t, t+H·s]：起点小点 → 覆盖两行间的长条 → 终点小点
@@ -340,6 +347,18 @@ public class SidebarNavHeadlessTests : IDisposable
         var rendered = matrix.Transform(new Point(indicator.Width / 2, indicator.Height / 2));
         Assert.Equal(window.IndicatorTop + window.IndicatorScaleY * indicator.Height / 2, rendered.Y, 1);
         return rendered.Y;
+    }
+
+    /// <summary>
+    /// 断言静息指示点的视觉矩形（[Top, Top+DotHeight] × [Left, Left+Width]）完整落在目标项内——
+    /// 指示点进入选中项内部后防止溢出/压线的回归防线。
+    /// </summary>
+    private static void AssertRestingInsideTarget(
+        MainWindow window, Border indicator, Control target, Visual overlay)
+    {
+        var origin = target.TranslatePoint(new Point(0, 0), overlay)!.Value;
+        Assert.InRange(window.IndicatorTop, origin.Y, origin.Y + target.Bounds.Height - MainWindow.DotHeight);
+        Assert.InRange(window.IndicatorLeft, origin.X, origin.X + target.Bounds.Width - indicator.Width);
     }
 
     /// <summary>列表行中心在指示点覆盖层坐标系下的 Y。</summary>

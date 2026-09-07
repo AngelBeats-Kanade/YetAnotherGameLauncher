@@ -397,9 +397,10 @@
                     </ListBox>
                     </DockPanel>
 
-            <!-- 侧栏选中指示点：静止为左缘小点，选中项变更时"朝反方向拉长 → 平移 → 行进侧收缩"（编舞在代码后置） -->
+            <!-- 侧栏选中指示点：展开态静息于选中项内部左缘（收起态贴侧栏左缘），选中项变更时
+                 "朝反方向拉长 → 平移 → 行进侧收缩"（编舞在代码后置，X 由 MoveNavIndicator 直接定位） -->
             <Border x:Name="NavIndicator"
-                    Width="4" CornerRadius="2"
+                    Width="5" CornerRadius="2.5"
                             HorizontalAlignment="Left" VerticalAlignment="Top"
                             Background="{DynamicResource AppAccentBrush}"
                             IsHitTestVisible="False" IsVisible="False"
