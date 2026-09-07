@@ -323,19 +323,21 @@
                     </ListBox>
                     </DockPanel>
 
-                    <!-- 侧栏选中指示点：静止为左缘小点，选中项变更时"拉长 → 平移 → 缩短"（动画在代码后置） -->
+                    <!-- 侧栏选中指示点：静止为左缘小点，选中项变更时"朝反方向拉长 → 平移 → 行进侧收缩"（编舞在代码后置） -->
                     <Border x:Name="NavIndicator"
                             Width="4" CornerRadius="2"
                             HorizontalAlignment="Left" VerticalAlignment="Top"
                             Background="{DynamicResource AppAccentBrush}"
                             IsHitTestVisible="False" IsVisible="False"
-                            RenderTransformOrigin="0.5,0.5"
+                            RenderTransformOrigin="0,0"
                             BoxShadow="0 0 8 #592E7CF6">
                         <Border.RenderTransform>
-                            <!-- 变换不生成 x:Name 字段（AVLN2000），代码后置按声明顺序解析 -->
+                            <!-- 子顺序即语义：先 Scale 后 Translate（原点 0,0）→ 视觉区间 [TranslateY, TranslateY+Height×ScaleY]；
+                                 若反过来写，平移量会被缩放系数压缩（指示点首个版本错位的根因）。
+                                 变换不生成 x:Name 字段（AVLN2000），代码后置按声明顺序解析 -->
                             <TransformGroup>
-                                <TranslateTransform/>
                                 <ScaleTransform/>
+                                <TranslateTransform/>
                             </TransformGroup>
                         </Border.RenderTransform>
                     </Border>

@@ -14,11 +14,11 @@ namespace YetAnotherGameLauncher.Views;
 
 /// <summary>
 /// 主窗口代码后置：侧栏选中指示点动画。
-/// 指示点是覆盖在侧栏左缘的共享 Border：位置走 TranslateTransform.Y、"小点 ↔ 长条"
-/// 形态走 ScaleTransform.ScaleY（RenderTransformOrigin 0.5,0.5 使缩放以自身中心为准）。
-/// 选中项变更时写入最终基值并播放"拉长 → 平移 → 缩短"迁移动画——
-/// 动画进行中动画值覆盖基值，结束后回落到基值即终态（headless 会话不执行动画，
-/// 基值始终可见，测试因此可直接断言落位）。
+/// 指示点是覆盖在侧栏左缘的共享 Border：RenderTransform 为 TransformGroup
+/// （先 Scale 后 Translate、原点 0,0）→ 视觉区间 = [TranslateY, TranslateY+Height×ScaleY]。
+/// 选中项变更时写入最终基值并播放方向感知编舞——朝行进反方向拉长、整体平移、行进侧收缩
+/// （动画进行中动画值覆盖基值，结束后回落到基值即终态；headless 会话不执行动画，
+/// 基值始终可见，测试因此可直接断言渲染位置）。
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -61,12 +61,18 @@ public partial class MainWindow : Window
     /// <summary>列表内部 ScrollViewer（模板应用后捕获一次，滚动时跟随重算落位）。</summary>
     private ScrollViewer? _gamesScroll;
 
-    // XAML 编译器只给控件生成 x:Name 字段，Transform 需按 AXAML 中的声明顺序解析
-    private TranslateTransform IndicatorTranslate =>
-        (TranslateTransform)((TransformGroup)NavIndicator.RenderTransform!).Children[0];
-
+    // XAML 编译器只给控件生成 x:Name 字段，Transform 需按 AXAML 中的声明顺序解析（Scale 在前、Translate 在后）
     private ScaleTransform IndicatorScale =>
-        (ScaleTransform)((TransformGroup)NavIndicator.RenderTransform!).Children[1];
+        (ScaleTransform)((TransformGroup)NavIndicator.RenderTransform!).Children[0];
+
+    private TranslateTransform IndicatorTranslate =>
+        (TranslateTransform)((TransformGroup)NavIndicator.RenderTransform!).Children[1];
+
+    /// <summary>指示点当前基态顶边 t（视觉区间 [t, t+Height×ScaleY]，供无头测试断言渲染位置）。</summary>
+    internal double IndicatorTop { get; private set; }
+
+    /// <summary>指示点当前基态纵向缩放（静态小点 = DotHeight/Height）。</summary>
+    internal double IndicatorScaleY { get; private set; }
 
     public MainWindow()
     {
@@ -174,17 +180,15 @@ public partial class MainWindow : Window
         }
 
         var height = Math.Max(DotHeight, target.Bounds.Height - 8);
-        var newTop = point.Y - height / 2;
+        var newTop = point.Y - DotHeight / 2;
         var newScale = DotHeight / height;
 
         // 迁移动画只在"选中目标变化"时播放；布局校正（初次落位、收起侧栏、滚动等）
         // 目标未变，直接吸附到最新几何，避免误播迁移
         var targetChanged = !ReferenceEquals(target, _lastTarget);
-        var oldTop = IndicatorTranslate.Y;
-        var oldScale = IndicatorScale.ScaleY;
         if (_indicatorPlaced && targetChanged && NavIndicatorAnimationEnabled)
         {
-            RunTransferAnimation(oldTop, newTop, oldScale, newScale);
+            RunTransferAnimation(IndicatorTop + DotHeight / 2, point.Y, height);
         }
 
         indicator.IsVisible = true;
@@ -195,6 +199,8 @@ public partial class MainWindow : Window
         indicator.Height = height;
         IndicatorTranslate.Y = newTop;
         IndicatorScale.ScaleY = newScale;
+        IndicatorTop = newTop;
+        IndicatorScaleY = newScale;
         _indicatorPlaced = true;
         _lastTarget = target;
         return changed;
@@ -249,41 +255,48 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 迁移动画：0-35% 在原位拉长（ScaleY 小点 → 1）、35-65% 平移到新选中项（EaseInOut）、
-    /// 65-100% 缩短回小点。Transform 动画的目标必须是控件本身（TransformAnimator
-    /// 会在其 RenderTransform 组内按属性属主类型找到子 Transform 驱动），
-    /// 平移与缩放各一条动画并行播放。
+    /// 迁移编舞（方向感知）：指示点先朝行进的反方向拉长（远端边固定）、再整体滑到新选中项、
+    /// 最后行进侧收缩回小点——像被橡皮筋拽过去。平移与缩放各一条 keyframe 动画并行驱动
+    /// RenderTransform 组内的对应子变换（目标必须是控件，TransformAnimator 才能找到子变换）。
     /// </summary>
-    private void RunTransferAnimation(double oldTop, double newTop, double oldScale, double newScale)
+    private void RunTransferAnimation(double oldCenter, double newCenter, double height)
     {
         _indicatorCts?.Cancel();
         _indicatorCts = new CancellationTokenSource();
         var ct = _indicatorCts.Token;
 
-        var translate = new Animation
+        var (translateValues, scaleValues) = BuildTransferCues(oldCenter, newCenter, height);
+        var cues = new[] { 0.0, 0.35, 0.65, 1.0 };
+        var splines = new KeySpline?[] { null, EaseOutSpline, EaseInOutSpline, EaseOutSpline };
+        var translate = new Animation { Duration = TransferDuration };
+        var scale = new Animation { Duration = TransferDuration };
+        for (var i = 0; i < cues.Length; i++)
         {
-            Duration = TransferDuration,
-            Children =
-            {
-                TransformCue(TranslateTransform.YProperty, 0, oldTop),
-                TransformCue(TranslateTransform.YProperty, 0.35, oldTop),
-                TransformCue(TranslateTransform.YProperty, 0.65, newTop, EaseInOutSpline),
-                TransformCue(TranslateTransform.YProperty, 1, newTop),
-            },
-        };
-        var scale = new Animation
-        {
-            Duration = TransferDuration,
-            Children =
-            {
-                TransformCue(ScaleTransform.ScaleYProperty, 0, oldScale),
-                TransformCue(ScaleTransform.ScaleYProperty, 0.35, 1, EaseOutSpline),
-                TransformCue(ScaleTransform.ScaleYProperty, 0.65, 1),
-                TransformCue(ScaleTransform.ScaleYProperty, 1, newScale, EaseOutSpline),
-            },
-        };
+            translate.Children.Add(TransformCue(TranslateTransform.YProperty, cues[i], translateValues[i], splines[i]));
+            scale.Children.Add(TransformCue(ScaleTransform.ScaleYProperty, cues[i], scaleValues[i], splines[i]));
+        }
+
         PlayAsync(translate, NavIndicator, ct);
         PlayAsync(scale, NavIndicator, ct);
+    }
+
+    /// <summary>
+    /// 计算迁移编舞的 4 组关键帧值（对应 0%/35%/65%/100%）。视觉区间为 [t, t+H·s]
+    /// （组内先 Scale 后 Translate、原点 0,0）：向上切换时顶沿固定、向下拉长到旧点、
+    /// 整体上滑后底部收缩；向下切换镜像（底沿固定、向上拉长、顶部收缩）。
+    /// </summary>
+    internal static (double[] Translate, double[] Scale) BuildTransferCues(
+        double oldCenter, double newCenter, double elementHeight)
+    {
+        var gap = Math.Abs(newCenter - oldCenter);
+        var top0 = oldCenter - DotHeight / 2;
+        var top1 = newCenter - DotHeight / 2;
+        var stretched = (DotHeight + gap) / elementHeight;
+        var dotScale = DotHeight / elementHeight;
+        var translate = newCenter < oldCenter
+            ? new[] { top0, top0, top1, top1 }
+            : new[] { top0, top0 - gap, top0, top1 };
+        return (translate, new[] { dotScale, stretched, stretched, dotScale });
     }
 
     /// <summary>构建单个 Transform 子属性 keyframe（默认线性；显式传入 KeySpline 的段落做平滑过渡，
