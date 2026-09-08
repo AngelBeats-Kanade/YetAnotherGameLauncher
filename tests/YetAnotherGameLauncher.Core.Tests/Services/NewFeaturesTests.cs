@@ -154,4 +154,54 @@ public class KuroLauncherBackgroundTests : IDisposable
 
         Assert.Null(KuroLauncherBackground.FindLatestFrame(installDir, ["Z:\\"]));
     }
+
+    [Fact]
+    public void FindLatestSwitchConfig_PicksNewestTimestampedResponse()
+    {
+        // 伪造 Chromium 缓存块文件：两份历史配置（旧投放与较新投放），必须取 _t 较大的一份
+        var cacheDir = _home.FilePath("KRLauncher", "G152", "C10003", "KRWebViewUserData", "EBWebView", "Default", "Cache_Data");
+        Directory.CreateDirectory(cacheDir);
+        var noise = new string(' ', 64); // simple-cache 二进制噪声
+        File.WriteAllText(
+            Path.Combine(cacheDir, "data_1"),
+            $"{noise}…/switch.json?_t=1742582942{noise}" +
+            """{"functionSwitch":1,"backgroundFile":"https://cdn.example.com/old.mp4","backgroundFileType":2,"firstFrameImage":"https://cdn.example.com/old.webp"}""" + noise);
+        File.WriteAllText(
+            Path.Combine(cacheDir, "data_2"),
+            $"{noise}…/switch.json?_t=1749488617{noise}" +
+            """{"functionSwitch":1,"backgroundFile":"https://cdn.example.com/new.mp4","backgroundFileType":2,"firstFrameImage":"https://cdn.example.com/new.webp"}""" + noise);
+
+        var config = KuroLauncherBackground.FindLatestSwitchConfig(
+            _home.FilePath("KRLauncher"), _home.FilePath("persist.json"));
+
+        Assert.Equal("https://cdn.example.com/new.mp4", config!.BackgroundFile);
+        Assert.Equal("https://cdn.example.com/new.webp", config.FirstFrameImage);
+        // 扫描结果已持久化（Chromium 缓存淘汰后的兜底）
+        Assert.True(File.Exists(_home.FilePath("persist.json")));
+    }
+
+    [Fact]
+    public void FindLatestSwitchConfig_CacheGone_FallsBackToPersisted()
+    {
+        var cacheDir = _home.FilePath("KRLauncher", "Cache_Data");
+        Directory.CreateDirectory(cacheDir);
+        var persistPath = _home.FilePath("persist.json");
+        KuroLauncherBackground.PersistSwitchConfig(
+            new KuroSwitchConfig("https://cdn.example.com/kept.mp4", "https://cdn.example.com/kept.webp", null),
+            persistPath);
+
+        // 缓存目录空（被 Chromium LRU 淘汰）：回退上次持久化的配置
+        var config = KuroLauncherBackground.FindLatestSwitchConfig(_home.FilePath("KRLauncher"), persistPath);
+
+        Assert.Equal("https://cdn.example.com/kept.mp4", config!.BackgroundFile);
+    }
+
+    [Fact]
+    public void FindLatestSwitchConfig_NothingAvailable_ReturnsNull()
+    {
+        Directory.CreateDirectory(_home.FilePath("KRLauncher"));
+
+        Assert.Null(KuroLauncherBackground.FindLatestSwitchConfig(
+            _home.FilePath("KRLauncher"), _home.FilePath("missing.json")));
+    }
 }

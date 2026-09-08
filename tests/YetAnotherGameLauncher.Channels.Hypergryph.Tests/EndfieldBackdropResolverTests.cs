@@ -32,7 +32,7 @@ public class EndfieldBackdropResolverTests
         });
 
     [Fact]
-    public async Task GetBackdrop_ParsesCurrentMainBgUrl()
+    public async Task GetBackdrop_EmptyVideoUrl_ReturnsImageBackdrop()
     {
         _handler.Map(WebBatchProxyUrl, """
             {
@@ -52,9 +52,37 @@ public class EndfieldBackdropResolverTests
             }
             """);
 
-        var url = await CreateResolver().GetBackdropUrlAsync(Request("cn"));
+        var source = await CreateResolver().GetBackdropUrlAsync(Request("cn"));
 
-        Assert.Equal("https://hg-utils-public.hycdn.cn/hg-utils/prod/x/current.png", url);
+        Assert.Equal("https://hg-utils-public.hycdn.cn/hg-utils/prod/x/current.png", source!.Url);
+        Assert.Equal(BackdropKind.Image, source.Kind);
+        Assert.Null(source.PosterUrl);
+    }
+
+    [Fact]
+    public async Task GetBackdrop_VideoUrl_Present_ReturnsVideoBackdropWithImagePoster()
+    {
+        _handler.Map(WebBatchProxyUrl, """
+            {
+              "proxy_rsps": [
+                {
+                  "kind": "get_main_bg_image",
+                  "get_main_bg_image_rsp": {
+                    "main_bg_image": {
+                      "url": "https://cdn.example.com/current.png",
+                      "video_url": "https://cdn.example.com/current.mp4"
+                    }
+                  }
+                }
+              ]
+            }
+            """);
+
+        var source = await CreateResolver().GetBackdropUrlAsync(Request("cn"));
+
+        Assert.Equal(BackdropKind.Video, source!.Kind);
+        Assert.Equal("https://cdn.example.com/current.mp4", source.Url);
+        Assert.Equal("https://cdn.example.com/current.png", source.PosterUrl);
     }
 
     [Fact]
@@ -86,10 +114,10 @@ public class EndfieldBackdropResolverTests
             },
         };
 
-        var url = await CreateResolver().GetBackdropUrlAsync(request);
+        var source = await CreateResolver().GetBackdropUrlAsync(request);
 
         // 缺省参数回退国际服实测值（与版本接口同源）
-        Assert.Equal("https://cdn.example.com/os.png", url);
+        Assert.Equal("https://cdn.example.com/os.png", source!.Url);
         var body = await ReadRequestBody("https://launcher.gryphline.com/api/proxy/web/batch_proxy");
         Assert.Contains("\"language\":\"en-us\"", body);
         Assert.Contains("\"appcode\":\"YDUTE5gscDZ229CW\"", body);

@@ -1,18 +1,45 @@
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Services;
+using Microsoft.Extensions.Logging;
 
 namespace YetAnotherGameLauncher.Channels.Kuro;
 
 /// <summary>
-/// 鸣潮的详情页背景解析：探测本机官方启动器的背景帧缓存（kr_game_cache/animate_bg，当期版本主视觉，
-/// 官方启动器更新时自动轮换）。库洛未开放免登录的当期卡池立绘接口（库街区相关接口需账号令牌），
-/// 官方启动器同款主视觉是可稳定获取的当期官方背景；每次打开都重新探测最新帧，即"检查更新"。
+/// 鸣潮详情页背景解析，优先级从高到低：
+/// ① 直连官方启动器运营配置（switch.json，含当期背景视频 + 首帧图，随官方投放即时更新）；
+/// ② 扫描本机 KRLauncher 的 WebView 缓存提取最后一份已知配置（官方启动器用过后即有，含持久化兜底）；
+/// ③ 游戏目录旁 kr_game_cache/animate_bg 的本地帧序列（末帧静态图，历史行为保留）。
 /// </summary>
-public sealed class KuroBackdropResolver : IBackdropResolver
+public sealed class KuroBackdropResolver(
+    KuroSwitchConfigClient switchConfigClient,
+    ILogger<KuroBackdropResolver>? logger = null) : IBackdropResolver
 {
-    public Task<string?> GetBackdropUrlAsync(BackdropRequest request, CancellationToken cancellationToken = default)
+    public async Task<BackdropSource?> GetBackdropUrlAsync(BackdropRequest request, CancellationToken cancellationToken = default)
     {
+        // ① 官方运营配置直连：拿到即是最新投放，顺手持久化（Chromium 缓存淘汰后的兜底）
+        var config = await switchConfigClient.FetchAsync(
+            request.ServerOptions.GetValueOrDefault(KuroChannelApi.IndexUrlOptionKey), cancellationToken).ConfigureAwait(false);
+        if (config is not null)
+        {
+            KuroLauncherBackground.PersistSwitchConfig(config);
+            return AsVideoSource(config);
+        }
+
+        // ② 本机 WebView 缓存扫描（内部已含持久化兜底）：离线/官方配置改版时仍能给出最后投放
+        var cached = KuroLauncherBackground.FindLatestSwitchConfig();
+        if (cached is not null)
+        {
+            logger?.LogDebug("Kuro backdrop from local launcher cache: {Url}", cached.BackgroundFile);
+            return AsVideoSource(cached);
+        }
+
+        // ③ 本地帧序列兜底
         var frame = KuroLauncherBackground.FindLatestFrame(request.InstallDir);
-        return Task.FromResult(frame);
+        return BackdropSource.ImageOrNullIfEmpty(frame);
     }
+
+    /// <summary>背景视频 + 首帧占位图（无首帧时由 UI 回退主题渐变，视频首帧到达后无缝替换）。</summary>
+    private static BackdropSource AsVideoSource(KuroSwitchConfig config) => new(
+        config.BackgroundFile, BackdropKind.Video,
+        string.IsNullOrWhiteSpace(config.FirstFrameImage) ? null : config.FirstFrameImage);
 }
