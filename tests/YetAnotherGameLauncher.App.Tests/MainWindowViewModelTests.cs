@@ -456,4 +456,47 @@ public class ConfigMigrationTests : IDisposable
 
         Assert.False(await _ctx.Vm.UpdateInstallRootAsync("   "));
     }
+
+    [Fact]
+    public async Task BrowseInstallRoot_PicksFolder_NormalizesAndSaves()
+    {
+        var picker = new FakeFilePicker { FolderResult = @"D:\Games\LauncherRoot" };
+        using var ctx = VmFactory.Build(filePicker: picker);
+        await ctx.Vm.InitializeAsync();
+        ctx.Vm.ShowSettingsCommand.Execute(null);
+        var settings = Assert.IsType<SettingsViewModel>(ctx.Vm.CurrentPage);
+        var originalDraft = settings.InstallRootDraft;
+
+        await settings.BrowseInstallRootCommand.ExecuteAsync(null);
+
+        // 选中路径反斜杠规范化为正斜杠并直接落盘
+        Assert.Equal("D:/Games/LauncherRoot", settings.InstallRootDraft);
+        Assert.Equal("D:/Games/LauncherRoot", ctx.Vm.InstallRoot);
+        Assert.True(settings.InstallRootSave.HasMessage);
+        Assert.False(settings.InstallRootSave.Failed);
+        // 起始位置为选择前的草稿
+        Assert.Equal(originalDraft, picker.LastFolderCall?.SuggestedPath);
+        var reloader = new GameCatalogService(ctx.ConfigPath);
+        await reloader.LoadAsync();
+        Assert.Equal("D:/Games/LauncherRoot", reloader.Catalog!.Settings.InstallRoot);
+    }
+
+    [Fact]
+    public async Task BrowseInstallRoot_Cancel_LeavesDraftAndConfigUntouched()
+    {
+        var picker = new FakeFilePicker { FolderResult = null };
+        using var ctx = VmFactory.Build(filePicker: picker);
+        await ctx.Vm.InitializeAsync();
+        ctx.Vm.ShowSettingsCommand.Execute(null);
+        var settings = Assert.IsType<SettingsViewModel>(ctx.Vm.CurrentPage);
+        var originalDraft = settings.InstallRootDraft;
+
+        await settings.BrowseInstallRootCommand.ExecuteAsync(null);
+
+        Assert.Equal(originalDraft, settings.InstallRootDraft);
+        Assert.False(settings.InstallRootSave.HasMessage);
+        var reloader = new GameCatalogService(ctx.ConfigPath);
+        await reloader.LoadAsync();
+        Assert.Equal(originalDraft, reloader.Catalog!.Settings.InstallRoot);
+    }
 }

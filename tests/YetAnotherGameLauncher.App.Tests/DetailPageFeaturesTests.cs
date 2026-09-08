@@ -158,4 +158,40 @@ public class LaunchSettingsTests : IDisposable
         Assert.Equal("{installDir}", settings.WorkingDirectory);
         Assert.Equal("", settings.EnvironmentText.Trim());
     }
+
+    [Fact]
+    public async Task BrowseInstallDir_PicksFolder_NormalizesAndSaves()
+    {
+        var picker = new FakeFilePicker { FolderResult = @"E:\Games\Endfield" };
+        using var ctx = VmFactory.Build(filePicker: picker);
+        await ctx.Vm.InitializeAsync();
+        var settings = ctx.Vm.Games[0].LaunchSettings;
+        var draftBefore = settings.InstallDirDraft;
+
+        await settings.BrowseInstallDirCommand.ExecuteAsync(null);
+
+        // 选中路径反斜杠规范化为正斜杠并触发保存（启动设置整卡保存）
+        Assert.Equal("E:/Games/Endfield", settings.InstallDirDraft);
+        Assert.False(settings.Save.Failed);
+        Assert.Equal("启动设置已保存", settings.Save.Message);
+        // 起始位置为选择前的草稿（初始草稿是解析后的本机斜杠绝对路径）
+        Assert.Equal(draftBefore, picker.LastFolderCall?.SuggestedPath);
+        var reloader = new YetAnotherGameLauncher.Core.Services.GameCatalogService(ctx.ConfigPath);
+        await reloader.LoadAsync();
+        Assert.Equal("E:/Games/Endfield", reloader.Catalog!.Games[0].InstallDir);
+    }
+
+    [Fact]
+    public async Task BrowseInstallDir_Cancel_LeavesDraftUntouched()
+    {
+        var picker = new FakeFilePicker { FolderResult = null };
+        using var ctx = VmFactory.Build(filePicker: picker);
+        await ctx.Vm.InitializeAsync();
+        var settings = ctx.Vm.Games[0].LaunchSettings;
+
+        await settings.BrowseInstallDirCommand.ExecuteAsync(null);
+
+        Assert.False(settings.Save.HasMessage);
+        Assert.False(settings.Save.Failed);
+    }
 }

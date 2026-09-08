@@ -70,7 +70,8 @@ public static class VmFactory
     public static Context Build(
         string? configJson = SampleConfigJson,
         Func<string?>? templateFactory = null,
-        IAutostartService? autostart = null)
+        IAutostartService? autostart = null,
+        IFilePickerService? filePicker = null)
     {
         var tempDir = new TempDir();
         var configPath = tempDir.FilePath("games.json");
@@ -114,7 +115,8 @@ public static class VmFactory
                 "hypergryph" => gryphline,
                 _ => null,
             },
-            templateFactory);
+            templateFactory,
+            filePicker);
 
         return new Context
         {

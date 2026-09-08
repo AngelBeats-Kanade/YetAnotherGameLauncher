@@ -425,7 +425,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 _loc,
                 _catalogService,
                 _backgroundImageService,
-                _backdropService));
+                _backdropService,
+                _filePicker));
         }
 
         return unknownChannels;
@@ -476,6 +477,17 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         return await _filePicker.PickImageFileAsync(_loc["settings_appBackground_pickTitle"]);
+    }
+
+    /// <summary>弹系统目录选择对话框（起始位置为建议目录）；未注册选择器（测试）时返回 null。</summary>
+    public async Task<string?> PickFolderAsync(string title, string? suggestedPath)
+    {
+        if (_filePicker is null)
+        {
+            return null;
+        }
+
+        return await _filePicker.PickFolderAsync(title, suggestedPath);
     }
 
     /// <summary>应用下载限速（字节/秒）并持久化；0 = 不限速。</summary>
@@ -739,6 +751,27 @@ public partial class SettingsViewModel : ViewModelBase
             InstallRootSave.SetFailure(_owner.StatusMessage);
         }
     }
+
+    /// <summary>
+    /// 弹系统目录选择对话框选安装根目录：选中即写入草稿并保存（替代原"保存"按钮），取消则不动草稿。
+    /// 未注册选择器（无头测试/服务缺失）时命令无副作用。
+    /// </summary>
+    [RelayCommand]
+    private async Task BrowseInstallRootAsync(CancellationToken cancellationToken)
+    {
+        InstallRootSave.Clear();
+        var path = await _owner.PickFolderAsync(Loc["settings_installRootPickTitle"], InstallRootDraft);
+        if (string.IsNullOrEmpty(path))
+        {
+            return;
+        }
+
+        InstallRootDraft = NormalizeDirectoryPath(path);
+        await SaveInstallRootAsync(cancellationToken);
+    }
+
+    /// <summary>目录路径统一为正斜杠（与示例配置一致；读取端 Path.GetFullPath 兼容两种斜杠）。</summary>
+    private static string NormalizeDirectoryPath(string path) => path.Replace('\\', '/');
 
     /// <summary>可选主题列表（转发主窗口，显示名随语言重建）。</summary>
     public IReadOnlyList<ThemeOption> ThemeModes => _owner.ThemeModes;

@@ -16,18 +16,21 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     private readonly GameItemViewModel _owner;
     private readonly GameCatalogService _catalogService;
     private readonly ILocalizationService _loc;
+    private readonly IFilePickerService? _filePicker;
 
     public LaunchSettingsViewModel(
         GameDefinition game,
         string installDir,
         GameCatalogService catalogService,
         ILocalizationService loc,
-        GameItemViewModel owner)
+        GameItemViewModel owner,
+        IFilePickerService? filePicker = null)
     {
         _game = game;
         _owner = owner;
         _catalogService = catalogService;
         _loc = loc;
+        _filePicker = filePicker;
         _installDirDraft = installDir;
         _commandTemplate = game.Launch.CommandTemplate;
         _workingDirectory = game.Launch.WorkingDirectory;
@@ -192,6 +195,32 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     /// <summary>保存结果提示（显示在游戏设置页位置卡内）。</summary>
     [ObservableProperty]
     private SaveMessageSlot _save = new();
+
+    /// <summary>
+    /// 弹系统目录选择对话框选游戏安装目录：选中即写入草稿并保存（替代原"保存"按钮），取消则不动草稿。
+    /// 未注册选择器（无头测试/服务缺失）时命令无副作用。
+    /// </summary>
+    [RelayCommand]
+    private async Task BrowseInstallDirAsync(CancellationToken cancellationToken)
+    {
+        Save.Clear();
+        if (_filePicker is null)
+        {
+            return;
+        }
+
+        var path = await _filePicker.PickFolderAsync(_loc["launch_installDirPickTitle"], InstallDirDraft);
+        if (string.IsNullOrEmpty(path))
+        {
+            return;
+        }
+
+        InstallDirDraft = NormalizeDirectoryPath(path);
+        await SaveAsync(cancellationToken);
+    }
+
+    /// <summary>目录路径统一为正斜杠（与示例配置一致；读取端 Path.GetFullPath 兼容两种斜杠）。</summary>
+    private static string NormalizeDirectoryPath(string path) => path.Replace('\\', '/');
 
     /// <summary>校验并保存启动设置回 games.json（含安装目录变更时就地生效）。</summary>
     [RelayCommand]

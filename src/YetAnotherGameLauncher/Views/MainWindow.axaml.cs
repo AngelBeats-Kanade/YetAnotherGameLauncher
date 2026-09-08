@@ -25,6 +25,37 @@ namespace YetAnotherGameLauncher.Views;
 /// </summary>
 public partial class MainWindow : Window
 {
+    static MainWindow()
+    {
+        // 设置类输入框按 Enter 保存：TextBox 会把 Enter 标记为已处理，
+        // 用类处理器（handledEventsToo）保证本窗口逻辑总能收到；按控件名过滤，
+        // 其余输入框不受影响（DragEnter/DragOver 无此需求）。
+        InputElement.KeyDownEvent.AddClassHandler<TextBox>(
+            static (box, e) => HandleSettingsEnterSave(box, e),
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
+    }
+
+    /// <summary>设置类输入框按 Enter 保存：安装根目录（设置页）与游戏安装目录（启动设置页）。</summary>
+    private static void HandleSettingsEnterSave(TextBox box, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter)
+        {
+            return;
+        }
+
+        switch (box.Name)
+        {
+            case "InstallRootBox" when box.DataContext is SettingsViewModel settings:
+                settings.SaveInstallRootCommand.Execute(null);
+                e.Handled = true;
+                break;
+            case "InstallDirBox" when box.DataContext is LaunchSettingsViewModel launch:
+                launch.SaveCommand.Execute(null);
+                e.Handled = true;
+                break;
+        }
+    }
     /// <summary>静态"小点"的视觉高度（px）。须小于最小的导航行高，保证静息时完整落在选中项内。</summary>
     internal const double DotHeight = 16;
 
