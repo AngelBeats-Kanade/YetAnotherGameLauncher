@@ -136,7 +136,8 @@ YetAnotherGameLauncher.slnx
 
 ## 许可与致谢
 
-- 下载/更新/预更新流程参考并致敬 [timetetng/wutheringwaves-cli-manager](https://github.com/timetetng/wutheringwaves-cli-manager)（鸣潮协议逆向）
+- 下载/更新/预更新流程与背景配置协议（switch.json / 启动器缓存）参考并致敬 [timetetng/wutheringwaves-cli-manager](https://github.com/timetetng/wutheringwaves-cli-manager)（鸣潮协议逆向）
 - 终末地协议参考 [LLauncher](https://github.com/AugustLigh/LLauncher) 与 [ak-endfield-api-archive](https://github.com/daydreamer-json/ak-endfield-api-archive)
 - 补丁工具为 [HDiffPatch](https://github.com/sisong/HDiffPatch)（MIT）
+- 背景视频解码基于 [FFmpeg](https://ffmpeg.org)（LGPL-2.1+，LGPL 共享构建，经 [FFmpeg.AutoGen](https://github.com/Ruslan-B/FFmpeg.AutoGen) 绑定），原生库缓存放置 `ffmpeg-Builds LGPL` 构建并在校验后解压；归档解压用 [SharpCompress](https://github.com/adamhathcock/sharpcompress)（MIT）
 - 本项目为社区工具，与库洛游戏、鹰角网络无任何关联
