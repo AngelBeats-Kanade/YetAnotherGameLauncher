@@ -38,7 +38,9 @@ public partial class App : Application
     {
         var services = new ServiceCollection();
 
-        services.AddLogging();
+        services.AddLogging(builder => builder
+            .SetMinimumLevel(LogLevel.Debug)
+            .AddSimpleConsole(options => options.SingleLine = true));
 
         // 基础设施
         services.AddSingleton(_ => new HttpClient(new HttpClientHandler
@@ -68,7 +70,12 @@ public partial class App : Application
         services.AddSingleton<BackgroundImageService>();
         services.AddSingleton<IFilePickerService, StorageProviderFilePicker>();
 
+        // 背景视频（FFmpeg 解码；原生库缺失时自动降级静态海报）
+        services.AddSingleton<FfmpegLibraryResolver>();
+        services.AddSingleton<IVideoBackdropPlayer, FfmpegVideoBackdropPlayer>();
+
         // 游戏背景解析（按渠道键注册；配置文件不携带背景地址，启动时向渠道确认当期背景）
+        services.AddSingleton<KuroSwitchConfigClient>();
         services.AddKeyedSingleton<IBackdropResolver, KuroBackdropResolver>("kuro");
         services.AddKeyedSingleton<IBackdropResolver, EndfieldBackdropResolver>("hypergryph");
         services.AddSingleton(sp => new GameBackdropService(
@@ -96,7 +103,8 @@ public partial class App : Application
                 sp.GetRequiredService<GameBackdropService>(),
                 channelKey => keyed.GetKeyedService<IGameChannelApi>(channelKey),
                 TryLoadEmbeddedSampleTemplate,
-                sp.GetRequiredService<IFilePickerService>());
+                sp.GetRequiredService<IFilePickerService>(),
+                sp.GetRequiredService<IVideoBackdropPlayer>());
         });
 
         return services.BuildServiceProvider();

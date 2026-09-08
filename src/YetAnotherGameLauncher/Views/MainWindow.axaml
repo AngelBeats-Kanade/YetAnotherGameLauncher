@@ -2,12 +2,12 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:YetAnotherGameLauncher.ViewModels"
         xmlns:models="using:YetAnotherGameLauncher.Core.Models"
+        xmlns:controls="using:YetAnotherGameLauncher.Controls"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="720"
         x:Class="YetAnotherGameLauncher.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        x:Name="RootWindow"
         Title="YetAnotherGameLauncher"
         Icon="avares://YetAnotherGameLauncher/Assets/app-icon.ico"
         Width="1120" Height="720" MinWidth="920" MinHeight="620"
@@ -257,15 +257,7 @@
     <!-- ==================== 窗口级结构：应用自有背景 → 主布局（游戏背景只在详情页模板内） ==================== -->
     <Panel>
 
-        <!-- 应用自有背景：主题感知渐变 + 柔光斑；设置里的自定义背景图覆盖其上。
-             光晕限制在标题色带（46px）以下，保证色带与侧栏颜色完全一致 -->
-        <Panel>
-            <Rectangle Fill="{DynamicResource AppBackdropBaseBrush}"/>
-            <Rectangle Fill="{DynamicResource AppBackdropGlowBrush}" Margin="0,46,0,0"/>
-            <Rectangle Fill="{DynamicResource AppBackdropGlowWarmBrush}" Margin="0,46,0,0"/>
-            <Image Source="{Binding AppBackgroundImage}" Stretch="UniformToFill"
-                   IsVisible="{Binding HasCustomAppBackground}"/>
-        </Panel>
+        <controls:AppBackdrop GlowMargin="0,46,0,0"/>
 
         <Grid ColumnDefinitions="Auto,*">
 
@@ -424,15 +416,8 @@
                         Background="{DynamicResource AppSidebarBackground}" IsHitTestVisible="False"/>
                 <Border x:Name="ContentCard" Classes="content-card">
                     <Panel>
-                        <!-- 页面底：应用背景（渐变 + 光晕 + 自定义背景图）随页面板圆角裁剪；
-                             详情页海报照旧覆盖全板。光晕以面板为坐标，位置与全窗版一致 -->
-                        <Panel>
-                            <Rectangle Fill="{DynamicResource AppBackdropBaseBrush}"/>
-                            <Rectangle Fill="{DynamicResource AppBackdropGlowBrush}"/>
-                            <Rectangle Fill="{DynamicResource AppBackdropGlowWarmBrush}"/>
-                            <Image Source="{Binding AppBackgroundImage}" Stretch="UniformToFill"
-                                   IsVisible="{Binding HasCustomAppBackground}"/>
-                        </Panel>
+                        <!-- 页面底：应用背景随页面板圆角裁剪，详情页海报照旧覆盖全板 -->
+                        <controls:AppBackdrop/>
                         <ContentControl x:Name="PageHost" Content="{Binding CurrentPage}"
                                         Classes.nav-forward="{Binding !IsNavBack}"
                                         Classes.nav-back="{Binding IsNavBack}">
@@ -443,21 +428,25 @@
                                 <!-- ClipToBounds：插画只属于内容卡片，不外溢到侧栏底下 -->
                                 <Panel Classes="page" ClipToBounds="True">
 
-                                    <!-- 游戏当期背景（清晰全幅）+ 三段式暗遮罩保证文字可读。
+                                    <!-- 游戏当期背景：静态海报（加载前占位）→ 视频层（首帧到达后接管）
+                                         + 三段式暗遮罩保证文字可读。
                                          左上锚定：UniformToFill 的溢出只裁右侧/底部，海报左缘完整贴住侧栏不被裁切 -->
-                                    <Panel IsVisible="{Binding HasBackgroundImage}">
-                                        <Image x:Name="PosterImage" Source="{Binding BackgroundImage}" Stretch="UniformToFill"
-                                               HorizontalAlignment="Left" VerticalAlignment="Top"/>
-                                        <Border>
-                                            <Border.Background>
-                                                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                                                    <GradientStop Color="{DynamicResource AppBackdropScrimTopColor}" Offset="0"/>
-                                                    <GradientStop Color="{DynamicResource AppBackdropScrimMidColor}" Offset="0.45"/>
-                                                    <GradientStop Color="{DynamicResource AppBackdropScrimBottomColor}" Offset="1"/>
-                                                </LinearGradientBrush>
-                                            </Border.Background>
-                                        </Border>
-                                    </Panel>
+                                    <Image x:Name="PosterImage" Source="{Binding BackgroundImage}" Stretch="UniformToFill"
+                                           HorizontalAlignment="Left" VerticalAlignment="Top"
+                                           IsVisible="{Binding HasBackgroundImage}"/>
+                                    <controls:FrameSurface Player="{Binding VideoPlayer}"
+                                                           IsVisible="{Binding HasBackgroundVideo}"
+                                                           HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                                    <!-- 遮罩：盖住海报/视频层，保证 UI 文字在两主题可读 -->
+                                    <Border IsVisible="{Binding HasBackgroundImage}">
+                                        <Border.Background>
+                                            <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                                                <GradientStop Color="{DynamicResource AppBackdropScrimTopColor}" Offset="0"/>
+                                                <GradientStop Color="{DynamicResource AppBackdropScrimMidColor}" Offset="0.45"/>
+                                                <GradientStop Color="{DynamicResource AppBackdropScrimBottomColor}" Offset="1"/>
+                                            </LinearGradientBrush>
+                                        </Border.Background>
+                                    </Border>
 
                                     <!-- 无插画回退：固定深色渐变底，白字在两主题同样可读 -->
                                     <Border IsVisible="{Binding !HasBackgroundImage}">
@@ -544,15 +533,15 @@
                                                     Content="{Binding Loc[game_applyPredownload]}"
                                                     Classes="pressable glass-onart"
                                                     Padding="20,11" VerticalAlignment="Center"/>
-                                            <Button Classes="pressable" Command="{Binding InstallOrUpdateCommand}"
+                                            <!-- 安装/更新/校验与启动、预下载同为海报操作按钮：常驻玻璃样式
+                                                 （此前按安装状态切换类，未安装时回退 Fluent 默认在海报上不可读） -->
+                                            <Button Classes="pressable glass-onart"
+                                                    Command="{Binding InstallOrUpdateCommand}"
                                                     Content="{Binding InstallButtonText}"
-                                                    Classes.accent="{Binding !IsInstalled}"
-                                                    Classes.glass-onart="{Binding IsInstalled}"
                                                     FontSize="15"
                                                     Padding="28,11" VerticalAlignment="Center"/>
                                             <Button Classes="pressable" Command="{Binding LaunchCommand}"
                                                     IsEnabled="{Binding CanLaunch}"
-                                                    Classes.accent="{Binding IsInstalled}"
                                                     Classes.glass-onart="{Binding !IsInstalled}"
                                                     Content="{Binding Loc[game_launch]}"
                                                     FontSize="17" FontWeight="SemiBold"
@@ -611,7 +600,7 @@
                             <!-- ========== 设置页 ========== -->
                             <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
                                 <Border Classes="page">
-                                    <ScrollViewer>
+                                    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                                         <StackPanel MaxWidth="720" HorizontalAlignment="Stretch" Spacing="18">
 
                                             <TextBlock Text="{Binding Loc[settings_title]}" FontSize="28" FontWeight="Bold" Margin="0,4,0,4"/>
@@ -660,7 +649,7 @@
                                                     <StackPanel Orientation="Horizontal" Spacing="12">
                                                         <Button Content="{Binding Loc[settings_appBackground_browse]}"
                                                                 Command="{Binding BrowseAppBackgroundCommand}"
-                                                                Classes="accent pressable btn-sm"/>
+                                                                Classes="pressable btn-sm"/>
                                                         <Button Content="{Binding Loc[settings_appBackground_reset]}"
                                                                 Command="{Binding ResetAppBackgroundCommand}"
                                                                 Classes="glass pressable btn-sm"/>
@@ -682,7 +671,7 @@
                                                     <StackPanel Orientation="Horizontal" Spacing="12">
                                                         <Button Content="{Binding Loc[settings_installRootBrowse]}"
                                                                 Command="{Binding BrowseInstallRootCommand}"
-                                                                Classes="accent pressable btn-sm"/>
+                                                                Classes="pressable btn-sm"/>
                                                         <TextBlock Classes="save-msg" VerticalAlignment="Center"
                                                                    Text="{Binding InstallRootSave.Message}"
                                                                    IsVisible="{Binding InstallRootSave.HasMessage}"
@@ -728,7 +717,7 @@
                                             </Border>
 
                                             <Button Content="{Binding Loc[common_backToGames]}" Command="{Binding ShowGamesCommand}"
-                                                    Classes="accent pressable back-btn"/>
+                                                    Classes="pressable back-btn"/>
                                         </StackPanel>
                                     </ScrollViewer>
                                 </Border>
@@ -737,7 +726,7 @@
                             <!-- ========== 关于页 ========== -->
                             <DataTemplate DataType="{x:Type vm:AboutViewModel}">
                                 <Border Classes="page">
-                                    <ScrollViewer>
+                                    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                                         <StackPanel MaxWidth="720" HorizontalAlignment="Stretch" Spacing="18">
 
                                             <TextBlock Text="{Binding Loc[about_title]}" FontSize="28" FontWeight="Bold" Margin="0,4,0,4"/>
@@ -789,7 +778,7 @@
                                             </Border>
 
                                             <Button Content="{Binding Loc[common_backToGames]}" Command="{Binding ShowGamesCommand}"
-                                                    Classes="accent pressable back-btn"/>
+                                                    Classes="pressable back-btn"/>
                                         </StackPanel>
                                     </ScrollViewer>
                                 </Border>
@@ -798,7 +787,7 @@
                             <!-- ========== 游戏设置页（Motrix 式分区） ========== -->
                             <DataTemplate DataType="{x:Type vm:GameSettingsViewModel}">
                                 <Border Classes="page">
-                                    <ScrollViewer>
+                                    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                                         <StackPanel MaxWidth="720" HorizontalAlignment="Stretch" Spacing="18">
 
                                             <StackPanel Orientation="Horizontal" Spacing="14" Margin="0,4,0,4">
@@ -818,7 +807,7 @@
                                                         <TextBox Grid.Column="0" x:Name="InstallDirBox" Text="{Binding LaunchSettings.InstallDirDraft}"/>
                                                         <Button Grid.Column="1" Content="{Binding Loc[launch_installDirBrowse]}"
                                                                 Command="{Binding LaunchSettings.BrowseInstallDirCommand}"
-                                                                Classes="accent pressable btn-sm"/>
+                                                                Classes="pressable btn-sm"/>
                                                     </Grid>
                                                     <TextBlock Text="{Binding Loc[launch_installDirHint]}" Classes="card-caption"/>
                                                     <TextBlock Classes="save-msg"
@@ -898,7 +887,7 @@
                                             </Border>
 
                                             <Button Content="{Binding Loc[common_backToGames]}" Command="{Binding BackToGameCommand}"
-                                                    Classes="accent pressable back-btn"/>
+                                                    Classes="pressable back-btn"/>
                                         </StackPanel>
                                     </ScrollViewer>
                                 </Border>

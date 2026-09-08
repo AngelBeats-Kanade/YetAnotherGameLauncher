@@ -163,17 +163,18 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         EnvironmentText = SerializeEnvironment(merged);
     }
 
-    /// <summary>宽松解析环境文本为字典（跳过无 "=" 的行，不报错）。</summary>
+    /// <summary>宽松解析环境文本为字典（跳过无 "=" 的行，不报错）；行级解析复用严格版，保证切分规则单一。</summary>
     private static Dictionary<string, string> ParseEnvironmentOrEmpty(string text)
     {
         var result = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var raw in text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
         {
-            var line = raw.Trim();
-            var sep = line.IndexOf('=');
-            if (sep > 0)
+            if (TryParseEnvironment(raw, out var single, out _))
             {
-                result[line[..sep].Trim()] = line[(sep + 1)..].Trim();
+                foreach (var (key, value) in single)
+                {
+                    result[key] = value;
+                }
             }
         }
 

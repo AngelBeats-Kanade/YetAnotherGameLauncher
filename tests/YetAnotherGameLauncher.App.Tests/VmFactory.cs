@@ -1,3 +1,4 @@
+using Avalonia.Media;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
@@ -56,10 +57,37 @@ public static class VmFactory
     public sealed class FakeBackdropResolver : IBackdropResolver
     {
         /// <summary>按区域返回背景来源；null = 解析失败。</summary>
-        public Func<string, string?>? Resolver { get; set; }
+        public Func<string, BackdropSource?>? Resolver { get; set; }
 
-        public Task<string?> GetBackdropUrlAsync(BackdropRequest request, CancellationToken cancellationToken = default) =>
+        public Task<BackdropSource?> GetBackdropUrlAsync(BackdropRequest request, CancellationToken cancellationToken = default) =>
             Task.FromResult(Resolver?.Invoke(request.Region));
+    }
+
+    /// <summary>可编程的视频播放器假实现：记录起播/停止调用，帧事件由测试手动触发。</summary>
+    public sealed class FakeVideoPlayer : IVideoBackdropPlayer
+    {
+        /// <summary>起播是否成功（默认 true）。</summary>
+        public Func<string, bool>? PlayHandler { get; set; }
+
+        public List<string> PlayedPaths { get; } = [];
+
+        public int StopCount { get; private set; }
+
+        /// <summary>帧位图（测试可注入假帧）。</summary>
+        public IImage? Frame { get; set; }
+
+        public event EventHandler? FrameUpdated;
+
+        public Task<bool> PlayAsync(string videoPath, CancellationToken cancellationToken = default)
+        {
+            PlayedPaths.Add(videoPath);
+            return Task.FromResult(PlayHandler?.Invoke(videoPath) ?? true);
+        }
+
+        public void Stop() => StopCount++;
+
+        /// <summary>模拟解码器产出帧（测试手动驱动，UI 线程触发）。</summary>
+        public void RaiseFrame() => FrameUpdated?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -71,7 +99,8 @@ public static class VmFactory
         string? configJson = SampleConfigJson,
         Func<string?>? templateFactory = null,
         IAutostartService? autostart = null,
-        IFilePickerService? filePicker = null)
+        IFilePickerService? filePicker = null,
+        IVideoBackdropPlayer? videoPlayer = null)
     {
         var tempDir = new TempDir();
         var configPath = tempDir.FilePath("games.json");
@@ -116,7 +145,8 @@ public static class VmFactory
                 _ => null,
             },
             templateFactory,
-            filePicker);
+            filePicker,
+            videoPlayer);
 
         return new Context
         {

@@ -27,6 +27,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly BackgroundImageService _backgroundImageService;
     private readonly GameBackdropService _backdropService;
     private readonly IFilePickerService? _filePicker;
+    private readonly IVideoBackdropPlayer? _videoPlayer;
     private readonly Func<string?>? _defaultConfigTemplateFactory;
 
     public MainWindowViewModel(
@@ -41,7 +42,8 @@ public partial class MainWindowViewModel : ViewModelBase
         GameBackdropService backdropService,
         Func<string, IGameChannelApi?> channelResolver,
         Func<string?>? defaultConfigTemplateFactory = null,
-        IFilePickerService? filePicker = null)
+        IFilePickerService? filePicker = null,
+        IVideoBackdropPlayer? videoPlayer = null)
     {
         _catalogService = catalogService;
         _updateService = updateService;
@@ -55,6 +57,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _channelResolver = channelResolver;
         _defaultConfigTemplateFactory = defaultConfigTemplateFactory;
         _filePicker = filePicker;
+        _videoPlayer = videoPlayer;
         Loc = localization;
         LocBridge.Instance = localization; // 供 {svc:Loc key} 标记扩展取 Source
         _loc.PropertyChanged += OnLanguageChanged;
@@ -120,9 +123,19 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    /// <summary>页面切换时触发：转发通知给依赖 CurrentPage 的侧栏高亮与选中项绑定。</summary>
+    /// <summary>当前正在播放背景视频的详情页（切页时驱动播放/停止；页外不占用解码资源）。</summary>
+    private GameItemViewModel? _activeVideoPage;
+
+    /// <summary>页面切换时触发：转发通知给依赖 CurrentPage 的侧栏高亮与选中项绑定，并驱动背景视频起停。</summary>
     partial void OnCurrentPageChanged(object? value)
     {
+        if (!ReferenceEquals(_activeVideoPage, value))
+        {
+            _activeVideoPage?.SetDetailActive(false);
+            _activeVideoPage = value as GameItemViewModel;
+            _activeVideoPage?.SetDetailActive(true);
+        }
+
         OnPropertyChanged(nameof(IsGameNavActive));
         OnPropertyChanged(nameof(IsSettingsNavActive));
         OnPropertyChanged(nameof(IsAboutNavActive));
@@ -149,8 +162,8 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private bool _configError;
 
-    /// <summary>是否有待展示的状态提示（控制状态栏可见性）。</summary>
-    public bool HasStatusMessage => !string.IsNullOrEmpty(StatusMessage);
+    /// <summary>是否有待展示的状态提示（仅供同文件的状态样式派生使用）。</summary>
+    private bool HasStatusMessage => !string.IsNullOrEmpty(StatusMessage);
 
     /// <summary>应用自有背景图（设置/关于/侧栏底色，来自设置的背景图选项）；null = 内置主题渐变。</summary>
     [ObservableProperty]
@@ -422,6 +435,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 _catalogService,
                 _backgroundImageService,
                 _backdropService,
+                _videoPlayer,
                 _filePicker));
         }
 
@@ -919,8 +933,12 @@ public sealed partial class AboutViewModel(MainWindowViewModel owner) : ViewMode
         new("CommunityToolkit.Mvvm 8.4.2", "MIT"),
         new(".NET 10 / Microsoft.Extensions.*", "MIT"),
         new("HDiffPatch (hpatchz)", "Apache-2.0"),
+        new("FFmpeg (libavcodec/libavformat/libswscale)", "LGPL-2.1+"),
+        new("FFmpeg.AutoGen", "LGPL-2.1+"),
+        new("SharpCompress", "MIT"),
         new("ui-ux-pro-max design data", "MIT"),
         new("frontend-design skill", "Apache-2.0"),
+        new("timetetng/wutheringwaves-cli-manager", "协议逆向参考"),
     ];
 
     /// <summary>返回游戏页（转发主窗口命令）。</summary>

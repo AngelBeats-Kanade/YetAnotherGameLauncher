@@ -17,10 +17,15 @@
     <!-- MVVM -->
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
 
+    <!-- 背景视频解码（LGPL FFmpeg 共享库的 unsafe 绑定 + 原生包解压） -->
+    <PackageVersion Include="FFmpeg.AutoGen" Version="9.0.1.1" />
+    <PackageVersion Include="SharpCompress" Version="1.0.0" />
+
     <!-- Microsoft.Extensions (DI / Hosting / Http / Logging) -->
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
 
     <!-- Testing (xunit v3 per Avalonia.Headless.XUnit 12.x; .NET 10 SDK dotnet test uses MTP natively) -->

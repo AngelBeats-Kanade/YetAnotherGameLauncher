@@ -45,7 +45,7 @@ public class UiScreenshotTests
         var endfieldIconUrl = "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/dd/af/42/ddaf42c8-5bea-adf0-e6e7-b67f291868aa/AppIcon-0-0-1x_U007emarketing-0-8-0-85-220.png/512x512bb.jpg";
         ctx.BackgroundHandler.Map(endfieldIconUrl, await new HttpClient().GetByteArrayAsync(endfieldIconUrl));
         // 终末地背景走背景解析器（模拟 get_main_bg_image 返回的当期直链）
-        ctx.GryphlineBackdrop.Resolver = _ => endfieldBgUrl;
+        ctx.GryphlineBackdrop.Resolver = _ => new BackdropSource(endfieldBgUrl, BackdropKind.Image);
 
         await HeadlessSession.Instance.Dispatch(async () =>
         {
@@ -78,8 +78,9 @@ public class UiScreenshotTests
             var bgPath = ctx.TempDir.FilePath("kr_game_cache", "animate_bg", "h1", "home_1.jpg");
             Directory.CreateDirectory(Path.GetDirectoryName(bgPath)!);
             CreateTestBackground(bgPath);
-            ctx.KuroBackdrop.Resolver = _ => YetAnotherGameLauncher.Core.Services.KuroLauncherBackground
-                .FindLatestFrame(ctx.Vm.Games[0].InstallDirPath);
+            ctx.KuroBackdrop.Resolver = _ => new BackdropSource(
+                YetAnotherGameLauncher.Core.Services.KuroLauncherBackground
+                    .FindLatestFrame(ctx.Vm.Games[0].InstallDirPath)!, BackdropKind.Image);
             // headless 测试进程解析不了 app 的 avares:// 资源：图标走 stub http
             const string wuwaIconUrl = "https://is1-ssl.mzstatic.com/wuwa-icon.jpg";
             ctx.BackgroundHandler.Map(wuwaIconUrl, await new HttpClient().GetByteArrayAsync(endfieldIconUrl));

@@ -1,0 +1,19 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:YetAnotherGameLauncher.Controls"
+             xmlns:vm="using:YetAnotherGameLauncher.ViewModels"
+             x:Class="YetAnotherGameLauncher.Controls.AppBackdrop"
+             x:DataType="vm:MainWindowViewModel"
+             x:Name="BackdropRoot">
+    <!-- 应用自有背景：主题感知渐变 + 柔光斑（光晕上边距由宿主决定）；
+         设置里的自定义背景图覆盖其上，背景为空时回退内置渐变 -->
+    <Panel>
+        <Rectangle Fill="{DynamicResource AppBackdropBaseBrush}"/>
+        <Rectangle Fill="{DynamicResource AppBackdropGlowBrush}"
+                   Margin="{Binding #BackdropRoot.GlowMargin}"/>
+        <Rectangle Fill="{DynamicResource AppBackdropGlowWarmBrush}"
+                   Margin="{Binding #BackdropRoot.GlowMargin}"/>
+        <Image Source="{Binding AppBackgroundImage}" Stretch="UniformToFill"
+               IsVisible="{Binding HasCustomAppBackground}"/>
+    </Panel>
+</UserControl>

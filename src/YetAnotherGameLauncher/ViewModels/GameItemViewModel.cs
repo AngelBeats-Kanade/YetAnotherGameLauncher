@@ -21,11 +21,15 @@ public partial class GameItemViewModel(
     GameCatalogService catalogService,
     BackgroundImageService backgroundImageService,
     GameBackdropService backdropService,
+    IVideoBackdropPlayer? videoPlayer = null,
     IFilePickerService? filePicker = null) : ViewModelBase
 {
     private string _installDir = installDir;
 
     private readonly IFilePickerService? _filePicker = filePicker;
+
+    /// <summary>背景视频播放器（单例共享；null = 测试场景或平台无解码能力）。</summary>
+    public IVideoBackdropPlayer? VideoPlayer { get; } = videoPlayer;
 
     private LaunchSettingsViewModel? _launchSettings;
 
@@ -110,6 +114,19 @@ public partial class GameItemViewModel(
     [ObservableProperty]
     private bool _hasBackgroundImage;
 
+    /// <summary>背景视频首帧是否已就绪（就绪后视频层盖过静态海报淡入接管）。</summary>
+    [ObservableProperty]
+    private bool _hasBackgroundVideo;
+
+    /// <summary>已解析到、待播放（或播放中）的视频来源；null = 无视频背景。</summary>
+    private string? _pendingVideoPath;
+
+    /// <summary>详情页是否可见（切页驱动；控制视频只在页面上播放）。</summary>
+    private bool _detailActive;
+
+    /// <summary>播放器帧通知订阅状态（避免重复订阅）。</summary>
+    private bool _videoSubscribed;
+
     /// <summary>主操作按钮文案：未安装→安装，有更新→更新，否则校验。</summary>
     public string InstallButtonText => !IsInstalled ? Loc["game_install"] : HasUpdate ? Loc["game_update"] : Loc["game_verify"];
 
@@ -129,11 +146,6 @@ public partial class GameItemViewModel(
 
     /// <summary>刷新安装状态/版本/预下载可用性（语言或渠道数据变化后也会调用）。</summary>
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
-    {
-        await RefreshCoreAsync(cancellationToken);
-    }
-
-    private async Task RefreshCoreAsync(CancellationToken cancellationToken)
     {
         // 语言可能已切换：显示名/图标首字随语言重建
         OnPropertyChanged(nameof(DisplayName));
@@ -199,21 +211,93 @@ public partial class GameItemViewModel(
         try
         {
             // 背景来源（配置文件不携带背景地址，每次打开都向渠道确认当期背景）：
-            // 渠道背景服务（远程接口/官方启动器本地帧，含磁盘缓存）→ null 时回退主题渐变
+            // 渠道背景服务（远程接口/官方启动器缓存，含磁盘缓存）→ null 时回退主题渐变。
+            // 视频背景：先上海报（官方首帧图/静态兜底），首帧解码到达后视频层再接管
             var region = RegionForLanguage(Loc.EffectiveCulture);
-            var source = await backdropService.ResolveAsync(
+            var backdrop = await backdropService.ResolveAsync(
                 new BackdropRequest(Game.Id, Game.Channel, region, _installDir, SelectServerOptions(region)),
                 cancellationToken);
 
-            var image = await backgroundImageService.LoadAsync(source, cancellationToken);
-            BackgroundImage = image;
-            HasBackgroundImage = image is not null;
+            if (backdrop?.Kind == BackdropKind.Video && backdrop.Source is { } videoPath)
+            {
+                var poster = await backgroundImageService.LoadAsync(backdrop.PosterSource, cancellationToken);
+                BackgroundImage = poster;
+                HasBackgroundImage = poster is not null;
+
+                if (_detailActive)
+                {
+                    _ = StartVideoAsync(videoPath);
+                }
+                else
+                {
+                    _pendingVideoPath = videoPath;
+                }
+            }
+            else
+            {
+                StopVideo();
+                var image = await backgroundImageService.LoadAsync(backdrop?.Source, cancellationToken);
+                BackgroundImage = image;
+                HasBackgroundImage = image is not null;
+            }
         }
         catch (Exception)
         {
             // 与 BackgroundImageService 的静默回退一致：装饰性资源失败不影响功能
         }
     }
+
+    /// <summary>详情页可见性变化（MainWindowViewModel 切页驱动）：进页起播待播视频，离页停止。</summary>
+    internal void SetDetailActive(bool active)
+    {
+        _detailActive = active;
+        if (!active)
+        {
+            StopVideo();
+            return;
+        }
+
+        if (_pendingVideoPath is { } pending)
+        {
+            _ = StartVideoAsync(pending);
+        }
+    }
+
+    /// <summary>起播背景视频：订阅帧通知后交给播放器（后台起播，失败保持静态海报）。</summary>
+    private async Task StartVideoAsync(string videoPath)
+    {
+        if (VideoPlayer is null)
+        {
+            return;
+        }
+
+        StopVideo();
+        _pendingVideoPath = videoPath;
+        VideoPlayer.FrameUpdated += OnVideoFrameUpdated;
+        _videoSubscribed = true;
+
+        if (!await VideoPlayer.PlayAsync(videoPath))
+        {
+            StopVideo();
+        }
+    }
+
+    /// <summary>停止视频播放：退订通知、隐藏视频层（静态海报/渐变兜底立即显示）。</summary>
+    private void StopVideo()
+    {
+        _pendingVideoPath = null;
+        if (_videoSubscribed && VideoPlayer is not null)
+        {
+            VideoPlayer.FrameUpdated -= OnVideoFrameUpdated;
+            _videoSubscribed = false;
+        }
+
+        VideoPlayer?.Stop();
+        HasBackgroundVideo = false;
+    }
+
+    /// <summary>播放器帧就绪：首帧到达后隐藏海报、显示视频层（幂等，重设同值不触发通知）。</summary>
+    private void OnVideoFrameUpdated(object? sender, EventArgs e) => HasBackgroundVideo = true;
 
     /// <summary>界面语言决定背景区域：中文走国服渠道，其余走国际服渠道。</summary>
     private static string RegionForLanguage(string culture) =>
@@ -299,7 +383,7 @@ public partial class GameItemViewModel(
         finally
         {
             IsBusy = false;
-            await RefreshCoreAsync(cancellationToken);
+            await RefreshAsync(cancellationToken);
             StatusText = message;
         }
     }
@@ -342,7 +426,7 @@ public partial class GameItemViewModel(
         finally
         {
             IsBusy = false;
-            await RefreshCoreAsync(cancellationToken);
+            await RefreshAsync(cancellationToken);
             StatusText = message;
         }
     }
