@@ -418,7 +418,9 @@
             <!-- ==================== 主内容列：顶部标题色带（与侧栏同色，自绘标题钮位于其上）+
                  页面板（所有页面统一：色带下方开始、左上角圆角、贴边全出血） ==================== -->
             <Grid Grid.Column="1">
-                <Border x:Name="TitleChrome" Height="46" VerticalAlignment="Top"
+                <!-- 色带高 56 = 46 可见 + 10px 延伸到页面板圆角后方：
+                     圆角缺口处露出色带颜色而非更深的底层背景（暗色主题下曾呈"多一层"方角） -->
+                <Border x:Name="TitleChrome" Height="56" VerticalAlignment="Top"
                         Background="{DynamicResource AppSidebarBackground}" IsHitTestVisible="False"/>
                 <Border x:Name="ContentCard" Classes="content-card">
                     <Panel>

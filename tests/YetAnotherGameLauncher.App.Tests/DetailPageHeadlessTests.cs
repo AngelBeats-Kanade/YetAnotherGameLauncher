@@ -91,7 +91,7 @@ public class DetailPageHeadlessTests : IDisposable
             // 色带 46 高；拖拽条覆盖色带整条
             Assert.Equal(new Thickness(0, 46, 0, 0), card.Margin);
             Assert.Equal(new CornerRadius(10, 0, 0, 0), card.CornerRadius);
-            Assert.Equal(46, chrome.Height);
+            Assert.Equal(56, chrome.Height);
             Assert.Equal(46, drag.Height);
 
             // 游戏设置页 / 应用设置页：同一页面板布局，容器透明露出页面板内的应用背景
