@@ -48,19 +48,10 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
         IProgress<UpdateProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        var staging = IncrementalUpdateService.PredownloadDir(installDir);
-        if (Directory.Exists(staging))
-        {
-            Directory.Delete(staging, recursive: true);
-        }
-
-        Directory.CreateDirectory(staging);
+        var staging = IncrementalUpdateService.ResetStaging(installDir);
         await DownloadPackagesAsync(PackagesDir(installDir), packageManifest, progress, cancellationToken).ConfigureAwait(false);
 
-        await File.WriteAllTextAsync(
-            Path.Combine(staging, "manifest.json"),
-            JsonSerializer.Serialize(packageManifest, Json.Default),
-            cancellationToken).ConfigureAwait(false);
+        await IncrementalUpdateService.WriteStagedManifestAsync(staging, packageManifest, cancellationToken).ConfigureAwait(false);
 
         progress?.Report(new UpdateProgress(UpdatePhase.Done, 0, 0, packageManifest.Files.Count, packageManifest.Files.Count, null));
     }
@@ -82,10 +73,7 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
         progress?.Report(new UpdateProgress(UpdatePhase.Patching, 0, 0, 0, total, null));
         foreach (var (file, index) in packageManifest.Files.Select((f, i) => (f, i)))
         {
-            if (file.Url is null)
-            {
-                throw new UpdateException($"Package entry has no download URL: {file.Path}");
-            }
+            ManifestChecks.EnsureDownloadUrl(file.Url, "Package entry", file.Path);
 
             var archivePath = StagedArchivePath(stagedDir, file);
             if (!IsArchiveIntact(archivePath, file))
@@ -131,10 +119,7 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
 
         foreach (var (file, index) in packageManifest.Files.Select((f, i) => (f, i)))
         {
-            if (file.Url is null)
-            {
-                throw new UpdateException($"Package entry has no download URL: {file.Path}");
-            }
+            ManifestChecks.EnsureDownloadUrl(file.Url, "Package entry", file.Path);
 
             progress?.Report(new UpdateProgress(UpdatePhase.Downloading, totalBytes, downloaded, index, packageManifest.Files.Count, file.Path));
 

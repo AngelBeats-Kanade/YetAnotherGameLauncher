@@ -57,10 +57,7 @@ public sealed class GameInstallService(
             },
             async (file, token) =>
             {
-                if (file.Url is null)
-                {
-                    throw new UpdateException($"Manifest entry has no download URL: {file.Path}");
-                }
+                ManifestChecks.EnsureDownloadUrl(file.Url, "Manifest entry", file.Path);
 
                 var destination = ManifestVerifier.ResolveSafe(installDir, file.Path);
 

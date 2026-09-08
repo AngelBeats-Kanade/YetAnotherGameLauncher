@@ -9,9 +9,6 @@ public sealed class AppSettings
     /// <summary>界面主题（跟随系统/浅色/深色）。</summary>
     public ThemeMode Theme { get; set; } = ThemeMode.System;
 
-    /// <summary>下载时的最大文件级并发数。</summary>
-    public int MaxParallelDownloads { get; set; } = 8;
-
     /// <summary>全局限速（字节/秒），0 = 不限速。</summary>
     public long DownloadSpeedLimitBytes { get; set; }
 

@@ -43,7 +43,6 @@ public class GameCatalogJsonTests
         var catalog = GameCatalogService.Parse("""{ "settings": { "installRoot": "~/Games" }, "games": [ { "id": "a", "displayName": "A", "channel": "kuro", "installDir": "A", "executable": "a.exe", "servers": [ { "id": "s1", "name": "S1" } ] } ] }""");
 
         Assert.Equal(ThemeMode.System, catalog.Settings.Theme);
-        Assert.Equal(8, catalog.Settings.MaxParallelDownloads);
         Assert.Equal("{exe}", catalog.Games[0].Launch.CommandTemplate);
         Assert.Equal("{installDir}", catalog.Games[0].Launch.WorkingDirectory);
     }
@@ -56,7 +55,6 @@ public class GameCatalogJsonTests
         var settings = catalog.Settings;
         Assert.Equal("~/Games", settings.InstallRoot);
         Assert.Equal(ThemeMode.Dark, settings.Theme);
-        Assert.Equal(8, settings.MaxParallelDownloads);
         Assert.Equal("zh-CN", settings.Language);
 
         var game = Assert.Single(catalog.Games);
@@ -135,7 +133,7 @@ public class GameCatalogJsonTests
 
         Assert.Contains("\"installRoot\"", json);
         Assert.Contains("\"displayName\"", json);
-        Assert.Contains("\"maxParallelDownloads\"", json);
+        Assert.Contains("\"theme\"", json);
     }
 
     [Fact]

@@ -33,7 +33,13 @@ public sealed class StubHttpHandler : HttpMessageHandler
         var url = request.RequestUri!.ToString();
         if (!_responses.TryGetValue(url, out var content))
         {
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+            // 带 cache-buster 时间戳（…switch.json?_t=…）等动态 query 的请求：回退按无 query 的 URL 匹配
+            var query = request.RequestUri.Query;
+            var bare = query.Length > 0 ? url[..^query.Length] : null;
+            if (bare is null || !_responses.TryGetValue(bare, out content))
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+            }
         }
 
         var range = request.Headers.Range?.Ranges.FirstOrDefault();

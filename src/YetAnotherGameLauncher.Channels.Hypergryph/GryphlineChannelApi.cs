@@ -20,7 +20,7 @@ namespace YetAnotherGameLauncher.Channels.Hypergryph;
 /// </summary>
 public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger = null) : IGameChannelApi
 {
-    public const string ApiBaseOptionKey = "apiBase";
+    public const string ApiBaseOptionKey = GryphlineProtocol.ApiBaseOptionKey;
     public const string AppcodeOptionKey = "appcode";
     public const string ChannelOptionKey = "channel";
     public const string SubChannelOptionKey = "subChannel";

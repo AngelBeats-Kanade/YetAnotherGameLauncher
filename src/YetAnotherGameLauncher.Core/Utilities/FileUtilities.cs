@@ -16,4 +16,16 @@ public static class FileUtilities
         await File.WriteAllTextAsync(tempPath, content, cancellationToken).ConfigureAwait(false);
         File.Move(tempPath, path, overwrite: true);
     }
+
+    /// <summary>尽力删除文件：占用/权限等失败静默忽略，仅用于清理场景。</summary>
+    public static void DeleteQuiet(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
 }

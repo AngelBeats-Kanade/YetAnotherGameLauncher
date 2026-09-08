@@ -52,8 +52,6 @@ internal sealed class GameVersionResponse
     [JsonPropertyName("version")]
     public string Version { get; set; } = "";
 
-    [JsonPropertyName("action")]
-    public int Action { get; set; }
 
     [JsonPropertyName("pkg")]
     public PackageInfo? Pkg { get; set; }
@@ -68,14 +66,6 @@ internal sealed class PackageInfo
     [JsonPropertyName("packs")]
     public List<PackFile> Packs { get; set; } = [];
 
-    [JsonPropertyName("total_size")]
-    public string TotalSize { get; set; } = "";
-
-    [JsonPropertyName("game_files_md5")]
-    public string GameFilesMd5 { get; set; } = "";
-
-    [JsonPropertyName("file_path")]
-    public string FilePath { get; set; } = "";
 }
 
 internal sealed class PackFile

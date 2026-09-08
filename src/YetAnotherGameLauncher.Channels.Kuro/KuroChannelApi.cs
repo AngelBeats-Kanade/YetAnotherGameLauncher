@@ -4,6 +4,8 @@ using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Channels.Kuro.Models;
 using Microsoft.Extensions.Logging;
 
+using YetAnotherGameLauncher.Core.Utilities;
+
 namespace YetAnotherGameLauncher.Channels.Kuro;
 
 /// <summary>
@@ -106,13 +108,7 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         }
         finally
         {
-            try
-            {
-                File.Delete(tempPath);
-            }
-            catch (IOException)
-            {
-            }
+            FileUtilities.DeleteQuiet(tempPath);
         }
     }
 

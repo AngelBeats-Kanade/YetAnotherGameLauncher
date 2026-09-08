@@ -27,6 +27,31 @@ public sealed class IncrementalUpdateService(
     public static string PredownloadDir(string installDir) =>
         Path.Combine(installDir, LocalStateService.StateDirName, PredownloadDirName);
 
+    /// <summary>重建预下载暂存目录（清掉上次中断的残留）。</summary>
+    /// <param name="installDir">游戏安装目录。</param>
+    /// <returns>新建好的暂存目录路径。</returns>
+    public static string ResetStaging(string installDir)
+    {
+        var staging = PredownloadDir(installDir);
+        if (Directory.Exists(staging))
+        {
+            Directory.Delete(staging, recursive: true);
+        }
+
+        Directory.CreateDirectory(staging);
+        return staging;
+    }
+
+    /// <summary>把暂存对应的清单写入暂存目录（应用预下载时按此核对）；增量与包式预下载链路共用。</summary>
+    public static async Task WriteStagedManifestAsync(
+        string staging, GameManifest manifest, CancellationToken cancellationToken)
+    {
+        await File.WriteAllTextAsync(
+            Path.Combine(staging, "manifest.json"),
+            JsonSerializer.Serialize(manifest, Json.Default),
+            cancellationToken).ConfigureAwait(false);
+    }
+
     private static string PatchWorkDir(string installDir) =>
         Path.Combine(installDir, LocalStateService.StateDirName, PatchWorkDirName);
 
@@ -37,13 +62,7 @@ public sealed class IncrementalUpdateService(
         IProgress<UpdateProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        var staging = PredownloadDir(installDir);
-        if (Directory.Exists(staging))
-        {
-            Directory.Delete(staging, recursive: true);
-        }
-
-        Directory.CreateDirectory(staging);
+        var staging = ResetStaging(installDir);
 
         var totalBytes = incrementalManifest.Files.Sum(f => f.Size)
                          + incrementalManifest.Groups.Sum(g => g.PatchSize);
@@ -66,28 +85,19 @@ public sealed class IncrementalUpdateService(
 
         foreach (var file in incrementalManifest.Files)
         {
-            if (file.Url is null)
-            {
-                throw new UpdateException($"Incremental manifest entry has no download URL: {file.Path}");
-            }
+            ManifestChecks.EnsureDownloadUrl(file.Url, "Incremental manifest entry", file.Path);
 
             await DownloadStagedAsync(file.Url, file.Size, file.Md5, Path.Combine("files", file.Path), file.Path).ConfigureAwait(false);
         }
 
         foreach (var group in incrementalManifest.Groups)
         {
-            if (group.Url is null)
-            {
-                throw new UpdateException($"Patch group has no download URL: {group.PatchFile}");
-            }
+            ManifestChecks.EnsureDownloadUrl(group.Url, "Patch group", group.PatchFile);
 
             await DownloadStagedAsync(group.Url, group.PatchSize, group.PatchMd5, Path.Combine("patches", group.PatchFile), group.PatchFile).ConfigureAwait(false);
         }
 
-        await File.WriteAllTextAsync(
-            Path.Combine(staging, "manifest.json"),
-            JsonSerializer.Serialize(incrementalManifest, Json.Default),
-            cancellationToken).ConfigureAwait(false);
+        await WriteStagedManifestAsync(staging, incrementalManifest, cancellationToken).ConfigureAwait(false);
 
         logger?.LogInformation("Predownload finished: {Groups} patch groups, {Files} files", incrementalManifest.Groups.Count, incrementalManifest.Files.Count);
         progress?.Report(new UpdateProgress(UpdatePhase.Done, totalBytes, bytes, totalItems, totalItems, null));

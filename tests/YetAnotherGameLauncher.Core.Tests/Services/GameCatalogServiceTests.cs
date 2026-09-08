@@ -151,7 +151,6 @@ public class GameCatalogServiceTests : IDisposable
         Assert.NotNull(reloader.Catalog);
         Assert.Empty(reloader.Catalog.Games);
         Assert.Equal("~/Games", reloader.Catalog.Settings.InstallRoot);
-        Assert.Equal(8, reloader.Catalog.Settings.MaxParallelDownloads);
     }
 
     [Fact]

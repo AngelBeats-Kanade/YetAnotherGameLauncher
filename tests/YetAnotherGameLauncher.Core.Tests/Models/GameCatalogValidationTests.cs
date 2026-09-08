@@ -156,22 +156,6 @@ public class GameCatalogValidationTests
     }
 
     [Fact]
-    public void Validate_ZeroParallelDownloads_ReportsError()
-    {
-        var errors = Validate(c => c.Settings.MaxParallelDownloads = 0);
-
-        Assert.NotEmpty(errors);
-    }
-
-    [Fact]
-    public void Validate_ExcessiveParallelDownloads_ReportsError()
-    {
-        var errors = Validate(c => c.Settings.MaxParallelDownloads = 65);
-
-        Assert.NotEmpty(errors);
-    }
-
-    [Fact]
     public void Validate_AccumulatesErrorsFromMultipleGames()
     {
         var errors = Validate(c =>

@@ -51,7 +51,7 @@ public sealed class HttpFileDownloader(
             catch (DownloadVerificationException ex)
             {
                 // 内容不对：丢弃临时文件，从头重下
-                DeleteQuiet(tempPath);
+                FileUtilities.DeleteQuiet(tempPath);
                 lastError = ex;
                 logger?.LogWarning(ex, "Download verification failed (attempt {Attempt}/{Max}) ({Url})", attempt, _options.MaxAttempts, request.Url);
             }
@@ -150,18 +150,6 @@ public sealed class HttpFileDownloader(
                 throw new DownloadVerificationException(
                     $"MD5 mismatch for {request.DestinationPath}: expected {expectedMd5}, got {actualMd5}.");
             }
-        }
-    }
-
-    private static void DeleteQuiet(string path)
-    {
-        try
-        {
-            File.Delete(path);
-        }
-        catch (IOException)
-        {
-            // 尽力清理，失败不影响主流程
         }
     }
 }

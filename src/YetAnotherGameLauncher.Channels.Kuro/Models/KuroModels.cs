@@ -12,8 +12,6 @@ internal sealed class KuroLauncherIndex
     [JsonPropertyName("predownload")]
     public KuroResourceBlock? Predownload { get; set; }
 
-    [JsonPropertyName("predownloadSwitch")]
-    public int PredownloadSwitch { get; set; }
 }
 
 /// <summary>index.json 中 default / predownload 共用的资源块。</summary>
@@ -107,21 +105,6 @@ internal sealed class KuroResourceEntry
     [JsonPropertyName("fromFolder")]
     public string? FromFolder { get; set; }
 
-    [JsonPropertyName("chunkInfos")]
-    public List<KuroChunkInfo>? ChunkInfos { get; set; }
-}
-
-internal sealed class KuroChunkInfo
-{
-    [JsonPropertyName("start")]
-    public long Start { get; set; }
-
-    /// <summary>闭区间终点。</summary>
-    [JsonPropertyName("end")]
-    public long End { get; set; }
-
-    [JsonPropertyName("md5")]
-    public string Md5 { get; set; } = "";
 }
 
 /// <summary>一个 krpdiff 差分组。</summary>

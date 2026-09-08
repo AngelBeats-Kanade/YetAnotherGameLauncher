@@ -97,7 +97,6 @@ public sealed class GameCatalogService
         {
             InstallRoot = "~/Games",
             Theme = ThemeMode.System,
-            MaxParallelDownloads = 8,
             Language = "zh-CN",
         },
         Games = [],
@@ -134,11 +133,6 @@ public sealed class GameCatalogService
         if (string.IsNullOrWhiteSpace(settings.InstallRoot))
         {
             errors.Add("settings.installRoot must not be empty.");
-        }
-
-        if (settings.MaxParallelDownloads is < 1 or > 64)
-        {
-            errors.Add("settings.maxParallelDownloads must be between 1 and 64.");
         }
 
         var seenGameIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

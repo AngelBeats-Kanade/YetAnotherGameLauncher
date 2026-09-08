@@ -2,7 +2,6 @@
   "settings": {
     "installRoot": "~/Games",
     "theme": "System",
-    "maxParallelDownloads": 8,
     "language": "system",
     "schemaVersion": 3
   },
