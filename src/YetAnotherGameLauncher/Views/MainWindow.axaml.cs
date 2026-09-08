@@ -139,7 +139,6 @@ public partial class MainWindow : Window
         }
 
         var maximized = WindowState == WindowState.Maximized;
-        ContentCard.Classes.Set("maximized", maximized);
         MaximizeIcon.IsVisible = !maximized;
         RestoreIcon.IsVisible = maximized;
     }

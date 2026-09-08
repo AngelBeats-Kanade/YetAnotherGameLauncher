@@ -73,7 +73,7 @@ public class DetailPageHeadlessTests : IDisposable
     }
 
     [Fact]
-    public async Task GameDetailPage_TogglesFullBleedDetailClasses()
+    public async Task ContentCard_UniformPageSheet_BelowTitleBand()
     {
         await _ctx.Vm.InitializeAsync();
 
@@ -87,37 +87,27 @@ public class DetailPageHeadlessTests : IDisposable
             var drag = window.FindControl<Border>("TitleDrag")!;
             var chrome = window.FindControl<Border>("TitleChrome")!;
 
-            // 详情页：全出血（顶 46 低于标题按钮行，右/下/左贴边），左上角保留圆角，
-            // 拖拽条拉高覆盖整条暴露区；标题色带恒为 46 高
-            Assert.True(_ctx.Vm.IsGameDetailPage);
-            Assert.Contains("detail", card.Classes);
-            Assert.Contains("detail", drag.Classes);
+            // 页面板（所有页面统一，同详情页海报）：色带下方开始、左上角圆角、贴边全出血；
+            // 色带 46 高；拖拽条覆盖色带整条
             Assert.Equal(new Thickness(0, 46, 0, 0), card.Margin);
             Assert.Equal(new CornerRadius(10, 0, 0, 0), card.CornerRadius);
-            Assert.Equal(46, drag.Height);
             Assert.Equal(46, chrome.Height);
+            Assert.Equal(46, drag.Height);
 
-            // 游戏设置页：属于游戏导航（高亮不丢）但不是详情页 → 浮卡不变
+            // 游戏设置页 / 应用设置页：同一页面板布局，容器透明露出页面板内的应用背景
             _ctx.Vm.ShowGameSettingsCommand.Execute(null);
             window.UpdateLayout();
-            Assert.True(_ctx.Vm.IsGameNavActive);
-            Assert.False(_ctx.Vm.IsGameDetailPage);
-            Assert.DoesNotContain("detail", card.Classes);
-            Assert.Equal(new Thickness(0, 6, 6, 6), card.Margin);
-            Assert.Equal(40, drag.Height);
+            Assert.Equal(new Thickness(0, 46, 0, 0), card.Margin);
 
-            // 应用设置页：内容卡透明露出应用背景，页边距避开标题色带
             _ctx.Vm.ShowSettingsCommand.Execute(null);
             window.UpdateLayout();
-            Assert.DoesNotContain("detail", card.Classes);
             Assert.Null(card.Background);
             var page = window.GetVisualDescendants().OfType<Border>().First(b => b.Classes.Contains("page"));
             Assert.Equal(new Thickness(34, 48, 34, 24), page.Margin);
 
-            // 返回详情页恢复全出血
+            // 返回详情页：同板
             _ctx.Vm.ShowGamesCommand.Execute(null);
             window.UpdateLayout();
-            Assert.Contains("detail", card.Classes);
             Assert.Equal(new Thickness(0, 46, 0, 0), card.Margin);
             window.Close();
         }, CancellationToken.None);

@@ -87,9 +87,6 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>侧栏高亮归属：当前页属于游戏（详情/游戏设置）。</summary>
     public bool IsGameNavActive => CurrentPage is GameItemViewModel or GameSettingsViewModel;
 
-    /// <summary>当前页是否为游戏详情页（唯一全出血布局的页面；游戏设置页仍保持浮卡）。</summary>
-    public bool IsGameDetailPage => CurrentPage is GameItemViewModel;
-
     /// <summary>侧栏高亮归属：当前页是应用设置页。</summary>
     public bool IsSettingsNavActive => CurrentPage is SettingsViewModel;
 
@@ -127,7 +124,6 @@ public partial class MainWindowViewModel : ViewModelBase
     partial void OnCurrentPageChanged(object? value)
     {
         OnPropertyChanged(nameof(IsGameNavActive));
-        OnPropertyChanged(nameof(IsGameDetailPage));
         OnPropertyChanged(nameof(IsSettingsNavActive));
         OnPropertyChanged(nameof(IsAboutNavActive));
         OnPropertyChanged(nameof(GameNavSelection));

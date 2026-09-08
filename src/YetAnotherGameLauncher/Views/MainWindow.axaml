@@ -218,27 +218,16 @@
         <!-- 圆角内容浮卡（游戏插画等全部裁剪在内）；最大化时去圆角与边距 -->
         <!-- 内容容器：透明底——设置类页面直接浮在应用背景（渐变+光晕）上；
              详情页的插画在页面模板内自带背景。仅负责裁剪与（详情态）圆角 -->
+        <!-- 页面板（所有页面统一，同详情页海报）：从色带下方开始、左上角 10px 圆角、
+             右/下/左贴边全出血（其余角由窗口圆角负责）；内部自带应用背景层，
+             设置/关于的半透明卡片浮在它上面，详情页海报照旧覆盖全板 -->
         <Style Selector="Border.content-card">
-            <Setter Property="CornerRadius" Value="10"/>
-            <Setter Property="ClipToBounds" Value="True"/>
-            <Setter Property="Margin" Value="0,6,6,6"/>
-        </Style>
-        <Style Selector="Border.content-card.maximized">
-            <Setter Property="Margin" Value="0"/>
-            <Setter Property="CornerRadius" Value="0"/>
-        </Style>
-        <!-- 游戏详情页：全出血——顶部低于右上标题按钮行（46），右/下/左零边距贴边；
-             左上角保留 10px 圆角，其余三角由窗口圆角负责。
-             置于 maximized 之后：最大化时同样保留 46 顶距（按钮行始终存在） -->
-        <Style Selector="Border.content-card.detail">
-            <Setter Property="Margin" Value="0,46,0,0"/>
             <Setter Property="CornerRadius" Value="10,0,0,0"/>
+            <Setter Property="ClipToBounds" Value="True"/>
+            <Setter Property="Margin" Value="0,46,0,0"/>
         </Style>
-        <!-- 标题拖拽区：默认 40；详情页时整条暴露区（至 46）都可拖拽 -->
+        <!-- 标题拖拽区：覆盖色带整条（46px），所有页面一致 -->
         <Style Selector="Border.title-drag">
-            <Setter Property="Height" Value="40"/>
-        </Style>
-        <Style Selector="Border.title-drag.detail">
             <Setter Property="Height" Value="46"/>
         </Style>
 
@@ -427,15 +416,24 @@
             </Border>
 
             <!-- ==================== 主内容列：顶部标题色带（与侧栏同色，自绘标题钮位于其上）+
-                 内容容器（透明底，详情页切 detail 类全出血并带左上圆角） ==================== -->
+                 页面板（所有页面统一：色带下方开始、左上角圆角、贴边全出血） ==================== -->
             <Grid Grid.Column="1">
                 <Border x:Name="TitleChrome" Height="46" VerticalAlignment="Top"
                         Background="{DynamicResource AppSidebarBackground}" IsHitTestVisible="False"/>
-                <Border x:Name="ContentCard" Classes="content-card"
-                        Classes.detail="{Binding IsGameDetailPage}">
-                    <ContentControl x:Name="PageHost" Content="{Binding CurrentPage}"
-                                    Classes.nav-forward="{Binding !IsNavBack}"
-                                    Classes.nav-back="{Binding IsNavBack}">
+                <Border x:Name="ContentCard" Classes="content-card">
+                    <Panel>
+                        <!-- 页面底：应用背景（渐变 + 光晕 + 自定义背景图）随页面板圆角裁剪；
+                             详情页海报照旧覆盖全板。光晕以面板为坐标，位置与全窗版一致 -->
+                        <Panel>
+                            <Rectangle Fill="{DynamicResource AppBackdropBaseBrush}"/>
+                            <Rectangle Fill="{DynamicResource AppBackdropGlowBrush}"/>
+                            <Rectangle Fill="{DynamicResource AppBackdropGlowWarmBrush}"/>
+                            <Image Source="{Binding AppBackgroundImage}" Stretch="UniformToFill"
+                                   IsVisible="{Binding HasCustomAppBackground}"/>
+                        </Panel>
+                        <ContentControl x:Name="PageHost" Content="{Binding CurrentPage}"
+                                        Classes.nav-forward="{Binding !IsNavBack}"
+                                        Classes.nav-back="{Binding IsNavBack}">
                         <ContentControl.DataTemplates>
 
                             <!-- ========== 游戏详情页（海报式：游戏当期背景铺满主区域，仅此页） ========== -->
@@ -571,8 +569,13 @@
                                         <Border Grid.Row="3" Classes="card" Padding="16,12"
                                                 IsVisible="{Binding IsBusy}" Margin="0,0,0,8">
                                             <StackPanel Spacing="7">
-                                                <TextBlock Text="{Binding ProgressText}" FontSize="12.5"
-                                                           Foreground="{DynamicResource AppTextSecondary}"/>
+                                                <Grid ColumnDefinitions="*,Auto">
+                                                    <TextBlock Grid.Column="0" Text="{Binding ProgressText}" FontSize="12.5"
+                                                               Foreground="{DynamicResource AppTextSecondary}"/>
+                                                    <TextBlock Grid.Column="1" Text="{Binding ProgressPercent, StringFormat={}{0:0}%}"
+                                                               FontSize="12.5" FontWeight="SemiBold"
+                                                               Foreground="{DynamicResource AppOnArtworkBrush}"/>
+                                                </Grid>
                                                 <ProgressBar Maximum="100" Value="{Binding ProgressPercent}" Height="6"/>
                                             </StackPanel>
                                         </Border>
@@ -901,11 +904,10 @@
 
                         </ContentControl.DataTemplates>
                     </ContentControl>
+                    </Panel>
                 </Border>
-                <!-- 自绘标题栏拖拽区：只覆盖内容列顶部（按钮在下层无交互内容；侧栏 logo 区拖拽挂在 logo 网格上）；
-                     详情页时拉高到 46，让卡片上方的整条暴露区都可拖拽 -->
+                <!-- 自绘标题栏拖拽区：覆盖色带整条 46px（按钮在下层无交互内容；侧栏 logo 区拖拽挂在 logo 网格上） -->
                 <Border x:Name="TitleDrag" Classes="title-drag" VerticalAlignment="Top" Background="Transparent"
-                        Classes.detail="{Binding IsGameDetailPage}"
                         PointerPressed="OnTitlePointerPressed" DoubleTapped="OnTitleDoubleTapped"/>
             </Grid>
         </Grid>

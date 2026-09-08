@@ -314,7 +314,7 @@ public class SidebarNavHeadlessTests : IDisposable
     }
 
     [Fact]
-    public async Task CustomTitleBar_ButtonsPresent_AndMaximizedClassToggles()
+    public async Task CustomTitleBar_ButtonsPresent_AndMaximizeIconToggles()
     {
         await _ctx.Vm.InitializeAsync();
 
@@ -328,12 +328,13 @@ public class SidebarNavHeadlessTests : IDisposable
             Assert.NotNull(window.FindControl<Button>("CaptionMaximize"));
             Assert.NotNull(window.FindControl<Button>("CaptionClose"));
             Assert.NotNull(window.FindControl<Border>("ContentCard"));
-            Assert.DoesNotContain("maximized", window.ContentCard.Classes);
+            Assert.NotNull(window.FindControl<Border>("TitleChrome"));
 
-            // 最大化：内容卡片去圆角与边距（样式消费 maximized 类）
+            // 最大化：标题钮图标切换为还原，页面板布局不变（统一 0,46,0,0 + 左上圆角）
             window.WindowState = WindowState.Maximized;
             window.UpdateLayout();
-            Assert.Contains("maximized", window.ContentCard.Classes);
+            Assert.True(window.FindControl<Control>("RestoreIcon")!.IsVisible);
+            Assert.False(window.FindControl<Control>("MaximizeIcon")!.IsVisible);
             window.WindowState = WindowState.Normal;
             window.Close();
         }, CancellationToken.None);
