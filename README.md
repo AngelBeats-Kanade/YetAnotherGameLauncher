@@ -21,7 +21,7 @@
 | 预更新（预下载） | 两段式：先"预下载"暂存到 `.yagl/predownload`，官方开放后一键"应用"；鸣潮走差分包、终末地走整包 |
 | 校验修复 | 按清单事后校验（MD5），自动修复缺失/损坏文件，清理游离文件（保留 `Saved/` 存档） |
 | 多服务器 | 鸣潮国服/B服/国际服、终末地国际服/国服/B服 一键切换（全部配置驱动） |
-| 现代化 UI | 海报式详情页：游戏当期背景全幅铺满主区域（侧边栏为应用自有渐变底色）+ 渐变遮罩，玻璃质感卡片；亮/暗/跟随系统三态主题；可折叠侧栏；页面切换与按钮微动效；设置页可自定义应用背景 |
+| 现代化 UI | 圆角无边框窗口 + 自绘标题栏（拖拽区 / 最小化 / 最大化 / 关闭）；海报式详情页：当期海报全幅铺满主区域（左缘完整不裁切）+ 渐变遮罩 + 左上圆角全出血布局；侧栏选中指示点两段式动效；窗口宽度穿越阈值侧栏自动收放（带滞回防抖）；亮/暗/跟随系统三态主题；页面切换与按钮微动效；设置页可自定义应用背景 |
 | 界面语言 | 简体中文 / English，跟随系统可选，切换即时生效（设置页调整） |
 | 启动设置 | 游戏详情页内直接编辑命令模板 / 工作目录 / 环境变量并保存回配置文件 |
 | 存储路径可视化配置 | 设置页可改安装根目录；详情页"启动设置"内可单独修改每个游戏的安装目录，保存即时生效 |
@@ -55,7 +55,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（190 个）
+### 运行测试（242 个）
 
 ```bash
 dotnet test
@@ -64,6 +64,7 @@ dotnet test
 测试覆盖：配置解析/校验、下载器（续传/重试/MD5）、清单校验、版本计划、
 全量同步、增量应用（含回滚）、包式安装、更新编排、渠道解析（鸣潮/终末地国服/国际服参数）、
 启动命令解析、本地化服务与语言切换、侧栏折叠/页面切换/关于页、主题切换、
+指示点几何落位与迁移编舞、详情页布局状态、玻璃按钮四态前景、
 ViewModel 状态机、以及 Avalonia.Headless 真实窗口集成测试。
 另附视觉自检截图工具（`artifacts/ui-review/`，见 docs/DEVELOPMENT.md）。
 
@@ -104,7 +105,6 @@ ViewModel 状态机、以及 Avalonia.Headless 真实窗口集成测试。
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) —— 架构总览、模块依赖图、全部核心流程图（mermaid）
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) —— 开发说明：环境、TDD 工作流、测试布局、如何新增渠道/游戏
 - [docs/GAME_CONFIG.md](docs/GAME_CONFIG.md) —— games.json 配置参考与教程
-- [PLAN.md](PLAN.md) —— 立项计划与开发里程碑（已全部完成）
 
 ## 目录结构
 
@@ -116,8 +116,8 @@ YetAnotherGameLauncher.slnx
 │   ├── YetAnotherGameLauncher.Core/                   # 领域层（下载/清单/同步/增量/包式/编排/启动）
 │   ├── YetAnotherGameLauncher.Channels.Kuro/          # 库洛渠道（鸣潮）+ hpatchz 补丁器
 │   ├── YetAnotherGameLauncher.Channels.Hypergryph/    # GRYPHLINE 渠道（终末地）
-│   ├── YetAnotherGameLauncher/                        # Avalonia UI（MVVM）
-│   └── tools/IconGen/                                 # 应用图标生成工具（headless 渲染 → ICO）
+│   └── YetAnotherGameLauncher/                        # Avalonia UI（MVVM）
+├── tools/IconGen/                                     # 应用图标生成工具（原创二次元形象，headless 渲染 → 多尺寸 ICO）
 ├── tests/                                             # xunit.v3（MTP）+ Avalonia.Headless
 ├── samples/games.json                                 # 示例配置
 └── docs/                                              # 开发/架构/配置文档

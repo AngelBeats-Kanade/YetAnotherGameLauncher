@@ -31,14 +31,14 @@ src/
     GryphlineChannelApi（batch_proxy get_latest_game）
   YetAnotherGameLauncher/                       # Avalonia UI（MVVM）
     Program.cs / App.axaml(.cs)（DI 组合根）、Themes/ThemeService、
-    ViewModels/（MainWindowViewModel、GameItemViewModel、SettingsViewModel）、Views/MainWindow
+    ViewModels/（MainWindowViewModel、GameItemViewModel、GameSettingsViewModel、LaunchSettingsViewModel）、Views/MainWindow
 tests/
   YetAnotherGameLauncher.TestSupport/           # 共享测试设施（可复用的替身与工具）
     FakeDownloader / FakePatchApplier / FakeProcessRunner / FakeChannel / StubHttpHandler / TempDir / TestZip
-  YetAnotherGameLauncher.Core.Tests/            # 领域层 119 个测试
+  YetAnotherGameLauncher.Core.Tests/            # 领域层 141 个测试
   YetAnotherGameLauncher.Channels.Kuro.Tests/   # 13 个测试
-  YetAnotherGameLauncher.Channels.Hypergryph.Tests/ # 8 个测试
-  YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口 14 个测试
+  YetAnotherGameLauncher.Channels.Hypergryph.Tests/ # 15 个测试
+  YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口 73 个测试
 ```
 
 构建约定（`Directory.Build.props`）：`net10.0`、`Nullable=enable`、`ImplicitUsings`、
@@ -53,7 +53,7 @@ tests/
 3. **实现最小代码**让测试通过。
 4. **全绿后提交**：`git commit`，再进入下一个模块。
 
-本项目实际开发顺序（每步全绿后才进入下一步，见 [PLAN.md](../PLAN.md)）：
+本项目实际开发顺序（每步全绿后才进入下一步）：
 
 ```
 配置模型/校验 → 下载器 → 清单校验/版本计划 → 安装同步 → 增量应用 → 更新编排
@@ -108,13 +108,13 @@ tests/
 
 ### 5.4 应用图标与视觉自检
 
-- 应用图标由 `tools/IconGen` 生成（headless Avalonia 渲染渐变圆角方块 + 播放三角，
-  导出 16–256px PNG 并打包 ICO）：
+- 应用图标由 `tools/IconGen` 生成（headless Avalonia 绘制原创二次元少女形象——
+  蓝发双马尾 + 呆毛 + 星光点缀，深蓝渐变圆角底；512 设计空间导出 16–256px PNG 并打包 ICO）：
   ```bash
   dotnet run --project tools/IconGen    # 产物写入 src/YetAnotherGameLauncher/Assets/
   ```
   窗口图标在 `MainWindow.axaml`（`Icon="avares://..."`），exe 图标在 csproj 的
-  `<ApplicationIcon>`，关于页展示 `app-icon.png`。
+  `<ApplicationIcon>`，关于页展示 `app-icon.png`，预览图输出到 `artifacts/ui-review/app-icon-preview.png`。
 - UI 视觉自检循环：`UiScreenshotTests.Export_UiScreenshots_ForReview` 把真实窗口
   渲染成 PNG 输出到 `artifacts/ui-review/`（gitignore），逐张检查后再交付；
   换页后的模板构建发生在下一轮布局，截图断言前需 `window.UpdateLayout()`。
