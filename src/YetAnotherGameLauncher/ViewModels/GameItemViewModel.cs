@@ -106,6 +106,12 @@ public partial class GameItemViewModel(
     /// <summary>当前操作进度文案（下载/校验/打补丁等阶段）。</summary>
     [ObservableProperty] private string _progressText = "";
 
+    /// <summary>校验修复确认条可见性（包式渠道修复 = 整包重下覆盖安装，需用户确认）。</summary>
+    [ObservableProperty] private bool _showRepairConfirm;
+
+    /// <summary>校验修复确认条文案（含预计重下体积）。</summary>
+    [ObservableProperty] private string _repairConfirmText = "";
+
     /// <summary>详情页背景图（异步加载；null = 回退主题渐变）。</summary>
     [ObservableProperty]
     private IImage? _backgroundImage;
@@ -138,6 +144,21 @@ public partial class GameItemViewModel(
 
     /// <summary>是否库洛渠道（鸣潮专属功能如唤取记录按此显示入口）。</summary>
     public bool IsKuro => Game.Channel == "kuro";
+
+    /// <summary>唤取记录入口可见性：仅鸣潮且已安装（游戏本体不在时抽卡数据无从谈起）。</summary>
+    public bool HasGachaEntry => IsKuro && IsInstalled;
+
+    /// <summary>
+    /// 侧栏/状态点与状态行的预下载提示：已安装、无更新且渠道开放预下载窗口
+    /// （PredownloadAvailable 已排除"已暂存待应用"的情形，避免与徽章重复提示）。
+    /// </summary>
+    public bool ShowPredownloadCue => IsInstalled && !HasUpdate && PredownloadAvailable;
+
+    /// <summary>
+    /// 渠道清单是否为包式（仅整包校验值，无解压后逐文件清单）。当前只有库洛是文件式；
+    /// 未知渠道按包式处理——校验修复前先确认，宁可多问一次也不默默重下几十 GB。
+    /// </summary>
+    public bool UsesPackageManifest => !IsKuro;
 
     /// <summary>渠道显示名（已知渠道给中文名，未知原样）。</summary>
     public string ChannelDisplayName => Game.Channel switch
@@ -182,6 +203,8 @@ public partial class GameItemViewModel(
             PredownloadAvailable = false;
             CanLaunch = IsInstalled && ExecutableExists();
             OnPropertyChanged(nameof(InstallButtonText));
+            OnPropertyChanged(nameof(HasGachaEntry));
+            OnPropertyChanged(nameof(ShowPredownloadCue));
             return;
         }
 
@@ -196,11 +219,16 @@ public partial class GameItemViewModel(
                 ? Loc.Format("version_canUpdate", state.Version, info.LatestVersion)
                 : Loc.Format("version_local", state.Version);
 
+        // 第四态：已安装且无更新且开放预下载窗口——预下载是限时动作，状态行与侧栏点都要提示
         StatusText = !IsInstalled
             ? Loc["status_notInstalled"]
-            : HasUpdate ? Loc["status_hasUpdate"] : Loc["status_upToDate"];
+            : HasUpdate
+                ? Loc["status_hasUpdate"]
+                : PredownloadAvailable ? Loc["status_predownload"] : Loc["status_upToDate"];
 
         OnPropertyChanged(nameof(InstallButtonText));
+        OnPropertyChanged(nameof(HasGachaEntry));
+        OnPropertyChanged(nameof(ShowPredownloadCue));
     }
 
     private async Task LoadBackgroundImageAsync(CancellationToken cancellationToken)
@@ -363,14 +391,55 @@ public partial class GameItemViewModel(
         }
     }
 
-    /// <summary>主操作：未安装时全新安装，已安装时更新到最新版。</summary>
+    /// <summary>
+    /// 主操作：未安装时全新安装，有更新时更新；已安装且已是最新即"校验修复"——
+    /// 文件式渠道直接扫描并修复缺失/损坏文件；包式渠道无逐文件清单，先弹确认再整包重下。
+    /// </summary>
     [RelayCommand]
     public async Task InstallOrUpdateAsync(CancellationToken cancellationToken = default)
     {
+        if (IsInstalled && !HasUpdate && UsesPackageManifest)
+        {
+            // 校验修复语义下的包式渠道：拉整包清单算体积，交确认条（拉不到清单给通用文案）
+            var version = new LocalStateService(_installDir).Load(Game.Id, SelectedServer.Id)?.Version ?? "";
+            var totalBytes = 0L;
+            try
+            {
+                var manifest = await channel.GetManifestAsync(SelectedServer, version, cancellationToken);
+                totalBytes = manifest.Files.Sum(f => f.Size);
+            }
+            catch (Exception)
+            {
+                // 尺寸仅用于确认文案，失败不阻断
+            }
+
+            RepairConfirmText = totalBytes > 0
+                ? Loc.Format("verify_confirm_msg", FormatBytes(totalBytes))
+                : Loc["verify_confirm_msg_nosize"];
+            ShowRepairConfirm = true;
+            return;
+        }
+
         await RunUpdateAsync(
             () => updateService.UpdateAsync(_installDir, Game, SelectedServer, channel, Progress, cancellationToken),
+            isVerify: IsInstalled && !HasUpdate,
             cancellationToken);
     }
+
+    /// <summary>确认整包重下校验修复（包式渠道）：隐藏确认条后走完整更新流程。</summary>
+    [RelayCommand]
+    public async Task ConfirmRepairAsync(CancellationToken cancellationToken = default)
+    {
+        ShowRepairConfirm = false;
+        await RunUpdateAsync(
+            () => updateService.UpdateAsync(_installDir, Game, SelectedServer, channel, Progress, cancellationToken),
+            isVerify: true,
+            cancellationToken);
+    }
+
+    /// <summary>取消校验修复确认条，不改任何文件。</summary>
+    [RelayCommand]
+    public void CancelRepair() => ShowRepairConfirm = false;
 
     /// <summary>下载预下载包到暂存区（不覆盖现有安装），结束后刷新状态并给出结果提示。</summary>
     [RelayCommand]
@@ -412,11 +481,17 @@ public partial class GameItemViewModel(
 
         await RunUpdateAsync(
             () => updateService.ApplyPredownloadAsync(_installDir, Game, SelectedServer, channel, Progress, cancellationToken),
+            isVerify: false,
             cancellationToken);
     }
 
-    /// <summary>更新类操作通用骨架：忙碌互斥、进度归零、异常转提示、完成后刷新状态。</summary>
-    private async Task RunUpdateAsync(Func<Task<UpdateOutcome>> action, CancellationToken cancellationToken)
+    /// <summary>
+    /// 更新类操作通用骨架：忙碌互斥、进度归零、异常转提示、完成后刷新状态。
+    /// 校验语义（isVerify）完成时按修复文件数给出结果消息；其余成功操作不覆盖
+    /// RefreshAsync 算出的状态行（如"可预下载新版本"），完成反馈由进度卡消失承担。
+    /// </summary>
+    private async Task RunUpdateAsync(
+        Func<Task<UpdateOutcome>> action, bool isVerify, CancellationToken cancellationToken)
     {
         if (IsBusy)
         {
@@ -430,7 +505,12 @@ public partial class GameItemViewModel(
         try
         {
             var outcome = await action();
-            message = Loc.Format("progress_done", outcome.FromVersion, outcome.ToVersion);
+            if (isVerify)
+            {
+                message = outcome.RepairedFiles > 0
+                    ? Loc.Format("verify_repaired", outcome.RepairedFiles)
+                    : UsesPackageManifest ? Loc["verify_reinstalled"] : Loc["verify_ok"];
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -440,7 +520,10 @@ public partial class GameItemViewModel(
         {
             IsBusy = false;
             await RefreshAsync(cancellationToken);
-            StatusText = message;
+            if (!string.IsNullOrEmpty(message))
+            {
+                StatusText = message;
+            }
         }
     }
 
@@ -469,12 +552,13 @@ public partial class GameItemViewModel(
         };
     }
 
+    /// <summary>字节数格式化（数字与单位间用不换行空格，避免文案在数值与单位间断行）。</summary>
     private static string FormatBytes(long bytes) => bytes switch
     {
-        >= 1L << 30 => $"{bytes / (double)(1L << 30):F2} GB",
-        >= 1L << 20 => $"{bytes / (double)(1L << 20):F1} MB",
-        >= 1L << 10 => $"{bytes / (double)(1L << 10):F1} KB",
-        _ => $"{bytes} B",
+        >= 1L << 30 => $"{bytes / (double)(1L << 30):F2}\u00A0GB",
+        >= 1L << 20 => $"{bytes / (double)(1L << 20):F1}\u00A0MB",
+        >= 1L << 10 => $"{bytes / (double)(1L << 10):F1}\u00A0KB",
+        _ => $"{bytes}\u00A0B",
     };
 
     /// <summary>游戏可执行文件是否存在于安装目录。</summary>

@@ -87,7 +87,8 @@ public class MainWindowViewModelTests : IDisposable
 
         var wuwa = _ctx.Vm.Games[0];
         Assert.True(wuwa.IsInstalled);
-        Assert.Equal("完成： → 3.6.0", wuwa.StatusText);
+        // 成功的安装/更新不覆盖状态行：保留刷新后的真实状态（完成反馈由进度卡消失承担）
+        Assert.Equal("已是最新版本", wuwa.StatusText);
         Assert.Contains("https://cdn/game.exe", _ctx.Downloader.Requests);
     }
 

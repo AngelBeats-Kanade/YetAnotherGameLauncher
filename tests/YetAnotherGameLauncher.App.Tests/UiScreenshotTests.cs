@@ -8,6 +8,8 @@ using Avalonia.Media.Imaging;
 using YetAnotherGameLauncher.AppTests;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
+using YetAnotherGameLauncher.Core.Utilities;
+using YetAnotherGameLauncher.TestSupport;
 using YetAnotherGameLauncher.Themes;
 using YetAnotherGameLauncher.Views;
 using Xunit;
@@ -139,6 +141,35 @@ public class UiScreenshotTests
             ctx.Vm.Loc.SetLanguage("en-US");
             window.UpdateLayout();
             Capture("07-game-detail-en.png");
+
+            // 回中文 · 暗色 · 已安装的鸣潮：抽卡图标入口 + 预下载提示（琥珀点/状态行/描边按钮）
+            ctx.Vm.Loc.SetLanguage("zh-CN");
+            var wuwaZip = TestZip.Create(("Client/game.exe", "MZ"));
+            ctx.Kuro.Manifests["3.6.0"] = new GameManifest
+            {
+                Version = "3.6.0",
+                Files = [new ManifestFile("Client/game.exe", wuwaZip.Length, Hashing.Md5Hex(wuwaZip), Url: "https://cdn/wuwa-full.zip")],
+            };
+            ctx.Downloader.Responses["https://cdn/wuwa-full.zip"] = wuwaZip;
+            await ctx.Vm.Games[0].InstallOrUpdateCommand.ExecuteAsync(null);
+            window.UpdateLayout();
+            Capture("08-game-detail-installed-dark.png");
+
+            // 暗色 · 终末地校验修复确认条（包式渠道：重下整包前需确认）
+            var efZip = TestZip.Create(("bin/ef.exe", "MZ"));
+            ctx.Gryphline.Manifests["1.2.0"] = new GameManifest
+            {
+                Version = "1.2.0",
+                EntriesAreArchives = true,
+                Files = [new ManifestFile("ef-full.zip", efZip.Length, Hashing.Md5Hex(efZip), Url: "https://cdn/ef-full.zip")],
+            };
+            ctx.Downloader.Responses["https://cdn/ef-full.zip"] = efZip;
+            ctx.Vm.SelectedGame = ctx.Vm.Games[1];
+            await ctx.Vm.Games[1].RefreshAsync();
+            await ctx.Vm.Games[1].InstallOrUpdateCommand.ExecuteAsync(null); // 安装
+            await ctx.Vm.Games[1].InstallOrUpdateCommand.ExecuteAsync(null); // 校验 → 确认条
+            window.UpdateLayout();
+            Capture("09-repair-confirm-dark.png");
 
             window.Close();
             return 0;

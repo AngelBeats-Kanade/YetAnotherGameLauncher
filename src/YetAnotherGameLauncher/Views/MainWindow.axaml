@@ -20,6 +20,8 @@
     <Window.Resources>
         <!-- 齿轮图标（侧栏设置入口与详情页游戏设置入口共用） -->
         <StreamGeometry x:Key="GearIconGeo">M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z</StreamGeometry>
+        <!-- 唤取记录图标（星芒，Material auto_awesome；详情页操作行图标组与齿轮并列） -->
+        <StreamGeometry x:Key="GachaIconGeo">M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zM11.5 9.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z</StreamGeometry>
     </Window.Resources>
 
     <Window.Styles>
@@ -43,7 +45,7 @@
             <Setter Property="Background" Value="{DynamicResource AppSidebarSelected}"/>
         </Style>
 
-        <!-- 状态点：默认灰，已安装绿，有更新强调蓝 -->
+        <!-- 状态点：默认灰，已安装绿，有更新强调蓝，预下载窗口琥珀（限时的可选动作） -->
         <Style Selector="Ellipse.dot">
             <Setter Property="Width" Value="10"/>
             <Setter Property="Height" Value="10"/>
@@ -55,6 +57,9 @@
         </Style>
         <Style Selector="Ellipse.dot.has-update">
             <Setter Property="Fill" Value="{DynamicResource AppAccentBrush}"/>
+        </Style>
+        <Style Selector="Ellipse.dot.predownload">
+            <Setter Property="Fill" Value="{DynamicResource AppPredownloadBadge}"/>
         </Style>
 
         <!-- 玻璃卡片（浮在窗口背景上） -->
@@ -149,6 +154,36 @@
         </Style>
         <Style Selector="Button.accent-onart:disabled /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkSecondary}"/>
+        </Style>
+
+        <!-- 预下载专用按钮：琥珀描边（AppPredownloadBadge 语义色，与已暂存徽章同源），
+             悬停染琥珀底——预下载窗口期内"弹出"提示，又不与启动/安装的实心 accent 抢主 CTA。
+             四态同样下沉 presenter 层（同 glass-onart 规则） -->
+        <Style Selector="Button.predownload-onart">
+            <Setter Property="Background" Value="#26000000"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppPredownloadBadge}"/>
+            <Setter Property="BorderThickness" Value="1.5"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
+        </Style>
+        <Style Selector="Button.predownload-onart /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#26000000"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppPredownloadBadge}"/>
+            <Setter Property="BorderThickness" Value="1.5"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
+        </Style>
+        <Style Selector="Button.predownload-onart:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#5CE8930C"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="Button.predownload-onart:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#80E8930C"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="Button.predownload-onart:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
             <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkSecondary}"/>
         </Style>
 
@@ -432,7 +467,8 @@
                                     <Ellipse Grid.Column="2" Classes="dot" VerticalAlignment="Center"
                                              IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsSidebarExpanded}"
                                              Classes.installed="{Binding IsInstalled}"
-                                             Classes.has-update="{Binding HasUpdate}"/>
+                                             Classes.has-update="{Binding HasUpdate}"
+                                             Classes.predownload="{Binding ShowPredownloadCue}"/>
                                 </Grid>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
@@ -556,7 +592,8 @@
                                             <StackPanel Orientation="Horizontal" Spacing="10">
                                                 <Ellipse Classes="dot" Width="12" Height="12"
                                                          Classes.installed="{Binding IsInstalled}"
-                                                         Classes.has-update="{Binding HasUpdate}"/>
+                                                         Classes.has-update="{Binding HasUpdate}"
+                                                         Classes.predownload="{Binding ShowPredownloadCue}"/>
                                                 <TextBlock Text="{Binding StatusText}" FontSize="19" FontWeight="SemiBold"
                                                          Foreground="{DynamicResource AppOnArtworkBrush}"/>
                                                 <Border Padding="10,3" CornerRadius="7" VerticalAlignment="Center"
@@ -575,21 +612,15 @@
                                             </Border>
                                         </StackPanel>
 
-                                        <!-- 主操作行（底部，右对齐，对标官方启动器的"进入游戏"） -->
+                                        <!-- 主操作行（底部，右对齐，对标官方启动器的"进入游戏"）：
+                                             两个文字 CTA + 末尾图标组（唤取/齿轮），次级功能收敛为图标 -->
                                         <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="12"
                                                     HorizontalAlignment="Right" VerticalAlignment="Bottom"
                                                     Margin="0,0,4,10">
-                                            <!-- 鸣潮专属：唤取记录页入口 -->
-                                            <Button Classes="pressable glass-onart"
-                                                    IsVisible="{Binding IsKuro}"
-                                                    Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ShowGachaCommand}"
-                                                    CommandParameter="{Binding}"
-                                                    Content="{Binding Loc[gacha_entry]}"
-                                                    Padding="20,11" VerticalAlignment="Center"/>
                                             <Button Command="{Binding PredownloadCommand}"
                                                     IsVisible="{Binding PredownloadAvailable}"
                                                     Content="{Binding Loc[game_predownload]}"
-                                                    Classes="pressable glass-onart"
+                                                    Classes="pressable predownload-onart"
                                                     Padding="20,11" VerticalAlignment="Center"/>
                                             <Button Command="{Binding ApplyPredownloadCommand}"
                                                     IsVisible="{Binding HasStagedPredownload}"
@@ -612,6 +643,18 @@
                                                     Content="{Binding Loc[game_launch]}"
                                                     FontSize="17" FontWeight="SemiBold"
                                                     Padding="46,13"/>
+                                            <!-- 鸣潮专属：唤取记录入口（仅已安装时），图标与齿轮组成次级操作组 -->
+                                            <Button Classes="icon-btn pressable"
+                                                    IsVisible="{Binding HasGachaEntry}"
+                                                    Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ShowGachaCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    VerticalAlignment="Center"
+                                                    Foreground="{DynamicResource AppOnArtworkBrush}"
+                                                    ToolTip.Tip="{Binding Loc[gacha_entry]}">
+                                                <Path Data="{StaticResource GachaIconGeo}"
+                                                      Fill="{Binding $parent[Button].Foreground}"
+                                                      Stretch="Uniform" Width="19" Height="19"/>
+                                            </Button>
                                             <Button Classes="icon-btn pressable" Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ShowGameSettingsCommand}"
                                                     VerticalAlignment="Center"
                                                     Foreground="{DynamicResource AppOnArtworkBrush}"
@@ -621,6 +664,29 @@
                                                       Stretch="Uniform" Width="19" Height="19"/>
                                             </Button>
                                         </StackPanel>
+
+                                        <!-- 校验修复确认条（包式渠道无逐文件清单：修复=整包重下覆盖安装，需确认）。
+                                             悬在状态区右下、主按钮上方，与触发它的按钮同侧 -->
+                                        <Border Grid.Row="1" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                                Margin="0,0,4,12" Padding="16,12" CornerRadius="12"
+                                                Background="{DynamicResource AppOnArtworkCard}"
+                                                BoxShadow="0 8 24 #40000000"
+                                                IsVisible="{Binding ShowRepairConfirm}">
+                                            <StackPanel Orientation="Horizontal" Spacing="14">
+                                                <TextBlock Text="{Binding RepairConfirmText}" MaxWidth="430"
+                                                           TextWrapping="Wrap" FontSize="12.5"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource AppOnArtworkBrush}"/>
+                                                <Button Classes="btn-sm pressable accent-onart"
+                                                        Content="{Binding Loc[verify_confirm_yes]}"
+                                                        Command="{Binding ConfirmRepairCommand}"
+                                                        VerticalAlignment="Center"/>
+                                                <Button Classes="btn-sm pressable glass-onart"
+                                                        Content="{Binding Loc[verify_confirm_no]}"
+                                                        Command="{Binding CancelRepairCommand}"
+                                                        VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Border>
 
                                         <!-- 进度（busy 时，横贯） -->
                                         <Border Grid.Row="3" Classes="card" Padding="16,12"
