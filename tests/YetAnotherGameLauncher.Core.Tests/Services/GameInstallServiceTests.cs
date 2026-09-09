@@ -71,6 +71,24 @@ public class GameInstallServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task SyncAsync_SameSizeCorruption_RepairedOnSecondPass()
+    {
+        // 快速校验只比存在性与大小：同尺寸但内容损坏的文件由 MD5 事后校验兜底补下载修复
+        var a = "content-a"u8.ToArray();
+        var corrupt = "corrupt-X"u8.ToArray(); // 与 a 同为 9 字节
+        Assert.Equal(a.Length, corrupt.Length);
+        await File.WriteAllBytesAsync(_tempDir.FilePath("a.txt"), corrupt);
+        _downloader.Responses[Url("a.txt")] = a;
+        var service = new GameInstallService(_downloader);
+
+        var repaired = await service.SyncAsync(_tempDir.Path, Manifest(FileEntry("a.txt", a)));
+
+        Assert.Equal(1, repaired);
+        Assert.Equal([Url("a.txt")], _downloader.Requests);
+        Assert.Equal(a, await File.ReadAllBytesAsync(_tempDir.FilePath("a.txt")));
+    }
+
+    [Fact]
     public async Task SyncAsync_PostVerificationFailure_Throws()
     {
         // 下载器写入的内容与清单 MD5 不符 → 事后校验必须失败

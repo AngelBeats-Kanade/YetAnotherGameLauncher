@@ -147,8 +147,7 @@ public sealed class GameUpdateService(
         }
 
         var installer = new GameInstallService(downloader, options, logger);
-        await installer.SyncAsync(installDir, manifest, progress, cancellationToken).ConfigureAwait(false);
-        return 0;
+        return await installer.SyncAsync(installDir, manifest, progress, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<int> UpdateIncrementalAsync(
@@ -188,8 +187,7 @@ public sealed class GameUpdateService(
         }
 
         var installer = new GameInstallService(downloader, options, logger);
-        await installer.SyncAsync(installDir, manifest, progress, cancellationToken).ConfigureAwait(false);
-        return before.NeedsDownload.Count;
+        return await installer.SyncAsync(installDir, manifest, progress, cancellationToken).ConfigureAwait(false);
     }
 
     private static string? GetLocalVersion(LocalStateService state, GameDefinition game, GameServer server) =>

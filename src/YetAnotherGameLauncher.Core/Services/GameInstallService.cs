@@ -25,31 +25,75 @@ public sealed class GameInstallService(
     /// <summary>不在清单内也要保留的顶层目录与文件（存档、启动器自身数据、官方启动器兼容文件）。</summary>
     private static readonly IReadOnlyList<string> PreservedEntries = [".yagl", "Saved", "launcherDownloadConfig.json"];
 
-    /// <summary>对照清单把安装目录补齐到目标版本：快速校验 → 只并行下载缺失/损坏文件 → 全量 MD5 校验 → 清理游离文件。</summary>
-    public async Task SyncAsync(
+    /// <summary>
+    /// 对照清单把安装目录补齐到目标版本：快速校验 → 只并行下载缺失/损坏文件 → 全量 MD5 校验
+    /// （尺寸相同但内容损坏的文件逃得过快速校验，在此按 MD5 结论补下载一轮再验）→ 清理游离文件。
+    /// 返回实际下载的文件数（即修复数）。
+    /// </summary>
+    public async Task<int> SyncAsync(
         string installDir,
         GameManifest manifest,
         IProgress<UpdateProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        Report(progress, UpdatePhase.Checking, 0, 0, 0, manifest.Files.Count, null);
+        progress?.Report(new UpdateProgress(UpdatePhase.Checking, 0, 0, 0, manifest.Files.Count, null));
 
         var verification = ManifestVerifier.VerifyFast(installDir, manifest);
-        var needed = verification.NeedsDownload
-            .Join(manifest.Files, n => n.Path, f => f.Path, (_, f) => f)
-            .ToList();
-        var totalBytes = needed.Sum(f => f.Size);
+        var state = new SyncProgressState();
+        await DownloadBatchAsync(
+            installDir,
+            verification.NeedsDownload
+                .Join(manifest.Files, n => n.Path, f => f.Path, (_, f) => f)
+                .ToList(),
+            progress, state, cancellationToken).ConfigureAwait(false);
 
-        logger?.LogInformation("Sync {Version}: {Needed} of {Total} files to download",
-            manifest.Version, needed.Count, manifest.Files.Count);
+        Report(progress, UpdatePhase.Verifying, state, null);
 
-        long downloadedBytes = 0;
-        var filesDone = 0;
+        var post = ManifestVerifier.VerifyFull(installDir, manifest);
+        if (!post.IsComplete)
+        {
+            // 快速校验只比存在性与大小：按 MD5 结论补下载一轮（多数情况为 0 个）后复验
+            var broken = post.NeedsDownload
+                .Join(manifest.Files, n => n.Path, f => f.Path, (_, f) => f)
+                .ToList();
+            logger?.LogInformation("Sync {Version}: {Broken} file(s) failed md5 verification, re-downloading",
+                manifest.Version, broken.Count);
+            await DownloadBatchAsync(installDir, broken, progress, state, cancellationToken).ConfigureAwait(false);
+
+            post = ManifestVerifier.VerifyFull(installDir, manifest);
+            if (!post.IsComplete)
+            {
+                var details = string.Join("、", post.NeedsDownload.Select(n => $"{n.Path}({n.Status})"));
+                throw new UpdateException($"Post-download verification failed. Broken files: {details}");
+            }
+        }
+
+        Report(progress, UpdatePhase.CleaningUp, state, null);
+        CleanupStaleFiles(installDir, manifest);
+        Report(progress, UpdatePhase.Done, state, null);
+        return state.FilesDone;
+    }
+
+    /// <summary>并行下载一批清单文件，进度累计进共享状态（多轮下载共用同一进度骨架）。</summary>
+    private async Task DownloadBatchAsync(
+        string installDir,
+        IReadOnlyList<ManifestFile> files,
+        IProgress<UpdateProgress>? progress,
+        SyncProgressState state,
+        CancellationToken cancellationToken)
+    {
+        if (files.Count == 0)
+        {
+            return;
+        }
+
+        state.TotalBytes += files.Sum(f => f.Size);
+        state.FilesTotal += files.Count;
+        Report(progress, UpdatePhase.Downloading, state, null);
+
         var gate = new object();
-        Report(progress, UpdatePhase.Downloading, totalBytes, 0, 0, needed.Count, null);
-
         await Parallel.ForEachAsync(
-            needed,
+            files,
             new ParallelOptions
             {
                 MaxDegreeOfParallelism = _options.MaxParallelFiles,
@@ -63,11 +107,11 @@ public sealed class GameInstallService(
 
                 // 并行下载共享计数：per-file 字节回调只在 lock 内读累计值，
                 // 文件完成时才累加并上报（避免每字节回调高频打散 UI 进度条）
-                var perFile = new Progress<long>(bytes =>
+                var perFile = new Progress<long>(_ =>
                 {
                     lock (gate)
                     {
-                        Report(progress, UpdatePhase.Downloading, totalBytes, downloadedBytes, filesDone, needed.Count, file.Path);
+                        Report(progress, UpdatePhase.Downloading, state, file.Path);
                     }
                 });
 
@@ -78,26 +122,21 @@ public sealed class GameInstallService(
 
                 lock (gate)
                 {
-                    downloadedBytes += file.Size;
-                    filesDone++;
+                    state.DownloadedBytes += file.Size;
+                    state.FilesDone++;
                 }
 
-                Report(progress, UpdatePhase.Downloading, totalBytes, downloadedBytes, filesDone, needed.Count, file.Path);
+                Report(progress, UpdatePhase.Downloading, state, file.Path);
             }).ConfigureAwait(false);
+    }
 
-        Report(progress, UpdatePhase.Verifying, totalBytes, downloadedBytes, needed.Count, needed.Count, null);
-
-        var post = ManifestVerifier.VerifyFull(installDir, manifest);
-        if (!post.IsComplete)
-        {
-            var broken = string.Join("、", post.NeedsDownload.Select(n => $"{n.Path}({n.Status})"));
-            throw new UpdateException($"Post-download verification failed. Broken files: {broken}");
-        }
-
-        Report(progress, UpdatePhase.CleaningUp, totalBytes, downloadedBytes, needed.Count, needed.Count, null);
-        CleanupStaleFiles(installDir, manifest);
-
-        Report(progress, UpdatePhase.Done, totalBytes, downloadedBytes, needed.Count, needed.Count, null);
+    /// <summary>一轮同步的进度累计（多轮下载共享：总字节/已完成字节/文件数随之增长）。</summary>
+    private sealed class SyncProgressState
+    {
+        public long TotalBytes;
+        public long DownloadedBytes;
+        public int FilesDone;
+        public int FilesTotal;
     }
 
     /// <summary>删除清单之外的游离文件（跳过存档与启动器数据目录）。</summary>
@@ -139,10 +178,7 @@ public sealed class GameInstallService(
     private static void Report(
         IProgress<UpdateProgress>? progress,
         UpdatePhase phase,
-        long totalBytes,
-        long downloadedBytes,
-        int filesDone,
-        int filesTotal,
+        SyncProgressState state,
         string? currentItem) => progress?.Report(
-        new UpdateProgress(phase, totalBytes, downloadedBytes, filesDone, filesTotal, currentItem));
+        new UpdateProgress(phase, state.TotalBytes, state.DownloadedBytes, state.FilesDone, state.FilesTotal, currentItem));
 }
