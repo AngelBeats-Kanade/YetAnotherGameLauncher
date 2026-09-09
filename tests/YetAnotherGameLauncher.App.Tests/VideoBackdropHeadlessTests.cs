@@ -72,6 +72,41 @@ public class VideoBackdropHeadlessTests : IDisposable
     }
 
     [Fact]
+    public async Task VideoSource_ReentersDetailPage_ResumesPlayback()
+    {
+        var localVideo = _ctx.TempDir.FilePath("cached", "backdrop.mp4");
+        Directory.CreateDirectory(Path.GetDirectoryName(localVideo)!);
+        await File.WriteAllTextAsync(localVideo, "fake");
+        _ctx.KuroBackdrop.Resolver = _ => new BackdropSource(localVideo, BackdropKind.Video);
+
+        await _ctx.Vm.InitializeAsync();
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            window.Show();
+            window.UpdateLayout();
+
+            var game = _ctx.Vm.Games[0];
+            _ctx.Vm.GameNavSelection = game;
+            window.UpdateLayout();
+            Assert.Equal([localVideo], _player.PlayedPaths);
+
+            // 切到设置页停播；再切回同一游戏详情：不重新解析背景也应凭已解析路径恢复播放
+            _ctx.Vm.ShowSettingsCommand.Execute(null);
+            window.UpdateLayout();
+            var playsAfterLeave = _player.PlayedPaths.Count;
+
+            _ctx.Vm.ShowGamesCommand.Execute(null);
+            window.UpdateLayout();
+            Assert.True(_player.PlayedPaths.Count > playsAfterLeave);
+            Assert.Equal(localVideo, _player.PlayedPaths[^1]);
+
+            window.Close();
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task ImageSource_PlayerNeverInvoked()
     {
         _ctx.KuroBackdrop.Resolver = _ => new BackdropSource("https://cdn.example.com/bg.png", BackdropKind.Image);

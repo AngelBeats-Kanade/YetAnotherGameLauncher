@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using Avalonia;
@@ -112,7 +113,7 @@ public sealed class FfmpegVideoBackdropPlayer(
         }
     }
 
-    /// <summary>解码主循环：打开 → 硬解优先 → 逐帧 swscale/BGRA → blit → EOF 回卷；退出时全部释放。</summary>
+    /// <summary>解码主循环：打开 → 硬解优先 → 逐帧按 PTS 节拍 swscale/BGRA → blit → EOF 回卷；退出时全部释放。</summary>
     private unsafe void RunLoop(string path, CancellationTokenSource cts, int generation)
     {
         AVFormatContext* formatContext = null;
@@ -135,7 +136,39 @@ public sealed class FfmpegVideoBackdropPlayer(
                 return;
             }
 
-            codecContext = OpenDecoder(formatContext->streams[streamIndex]->codecpar, ref hwDevice);
+            var stream = formatContext->streams[streamIndex];
+            var timeBase = ffmpeg.av_q2d(stream->time_base);
+            var fps = ffmpeg.av_q2d(stream->avg_frame_rate);
+            if (fps <= 0)
+            {
+                fps = ffmpeg.av_q2d(stream->r_frame_rate);
+            }
+
+            // PTS 节拍（解码多快播多快会呈数倍速快进）；pts 与帧率都拿不到时保持不节拍
+            var clock = timeBase > 0 || fps > 0 ? new PlaybackClock() : null;
+            long frameIndex = 0;
+
+            // 无 pts 帧的呈现时刻推算：优先 pts×time_base，缺失时回退 帧序号/平均帧率；-1 = 无节拍信息
+            double FramePtsSeconds(AVFrame* candidate)
+            {
+                if (timeBase > 0)
+                {
+                    var pts = candidate->best_effort_timestamp;
+                    if (pts == AV_NOPTS_VALUE || pts < 0)
+                    {
+                        pts = candidate->pts;
+                    }
+
+                    if (pts != AV_NOPTS_VALUE && pts >= 0)
+                    {
+                        return pts * timeBase;
+                    }
+                }
+
+                return fps > 0 ? frameIndex / fps : -1;
+            }
+
+            codecContext = OpenDecoder(stream->codecpar, ref hwDevice);
             packet = ffmpeg.av_packet_alloc();
             frame = ffmpeg.av_frame_alloc();
             softwareFrame = ffmpeg.av_frame_alloc();
@@ -158,6 +191,8 @@ public sealed class FfmpegVideoBackdropPlayer(
                         return; // 无法回卷（文件被删/流关闭）：结束循环
                     }
 
+                    clock?.Reset();
+                    frameIndex = 0;
                     continue;
                 }
 
@@ -191,7 +226,23 @@ public sealed class FfmpegVideoBackdropPlayer(
                             source = softwareFrame;
                         }
 
+                        // 按 PTS 等到目标呈现时刻再上屏（等待期间取消即退出）
+                        if (clock is not null)
+                        {
+                            var ptsSeconds = FramePtsSeconds(source);
+                            if (ptsSeconds >= 0)
+                            {
+                                var delayMs = clock.WaitDelayMs(ptsSeconds);
+                                if (delayMs is > 0
+                                    && token.WaitHandle.WaitOne(TimeSpan.FromMilliseconds(delayMs.Value)))
+                                {
+                                    break;
+                                }
+                            }
+                        }
+
                         RenderFrame(source, ref scaler, ref pixelBuffer, notify, failures);
+                        frameIndex++;
                         ffmpeg.av_frame_unref(frame);
                         ffmpeg.av_frame_unref(softwareFrame);
                     }
@@ -469,4 +520,59 @@ public sealed class FfmpegVideoBackdropPlayer(
 
     /// <inheritdoc/>
     public void Dispose() => StopCore();
+}
+
+/// <summary>
+/// PTS 实时节拍器：把帧呈现时刻（秒）映射到单调时钟，让视频按片源原生速度播放。
+/// 首帧立即渲染；大幅落后（EOF 回卷后 pts 归零、解码卡顿）时重定基线直接渲染，不做爆发追帧。
+/// internal 供单测（经 InternalsVisibleTo）。
+/// </summary>
+internal sealed class PlaybackClock
+{
+    /// <summary>落后超过该值（毫秒）即重定基线（回卷/卡顿后直接恢复，不爆发追赶）。</summary>
+    internal const double RebaseThresholdMs = 250;
+
+    private readonly Stopwatch _clock = new();
+
+    /// <summary>播放速率（1.0 = 片源原生速度；预留给未来调速，当前恒为原生）。</summary>
+    private readonly double _rate;
+
+    private double? _basePts;
+
+    private double _baseElapsedMs;
+
+    public PlaybackClock(double rate = 1.0) => _rate = rate > 0 ? rate : 1.0;
+
+    /// <summary>重置时钟（开始播放或 EOF 回卷后调用，下帧重新取基线）。</summary>
+    public void Reset() => _basePts = null;
+
+    /// <summary>
+    /// 计算当前帧距离目标呈现时刻的等待毫秒数：null = 立即渲染（首帧/重定基线）；
+    /// 0 = 时刻已到；正数 = 还需等待的毫秒（调用方以可取消等待消化）。
+    /// </summary>
+    public double? WaitDelayMs(double ptsSeconds)
+    {
+        if (!_clock.IsRunning)
+        {
+            _clock.Start();
+        }
+
+        if (_basePts is not { } basePts)
+        {
+            _basePts = ptsSeconds;
+            _baseElapsedMs = _clock.Elapsed.TotalMilliseconds;
+            return null;
+        }
+
+        var targetMs = _baseElapsedMs + (ptsSeconds - basePts) * 1000 / _rate;
+        var delayMs = targetMs - _clock.Elapsed.TotalMilliseconds;
+        if (delayMs < -RebaseThresholdMs)
+        {
+            _basePts = ptsSeconds;
+            _baseElapsedMs = _clock.Elapsed.TotalMilliseconds;
+            return null;
+        }
+
+        return Math.Max(0, delayMs);
+    }
 }

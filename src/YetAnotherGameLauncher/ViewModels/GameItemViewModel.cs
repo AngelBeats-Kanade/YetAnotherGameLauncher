@@ -121,6 +121,12 @@ public partial class GameItemViewModel(
     /// <summary>已解析到、待播放（或播放中）的视频来源；null = 无视频背景。</summary>
     private string? _pendingVideoPath;
 
+    /// <summary>
+    /// 本轮解析到的视频背景路径（与 pending 分离：离页停播不清除它，
+    /// 重新进页无需重新解析即可恢复播放）。
+    /// </summary>
+    private string? _videoPath;
+
     /// <summary>详情页是否可见（切页驱动；控制视频只在页面上播放）。</summary>
     private bool _detailActive;
 
@@ -226,6 +232,7 @@ public partial class GameItemViewModel(
                 var poster = await backgroundImageService.LoadAsync(backdrop.PosterSource, cancellationToken);
                 BackgroundImage = poster;
                 HasBackgroundImage = poster is not null;
+                _videoPath = videoPath;
 
                 if (_detailActive)
                 {
@@ -239,6 +246,7 @@ public partial class GameItemViewModel(
             else
             {
                 StopVideo();
+                _videoPath = null;
                 var image = await backgroundImageService.LoadAsync(backdrop?.Source, cancellationToken);
                 BackgroundImage = image;
                 HasBackgroundImage = image is not null;
@@ -250,7 +258,7 @@ public partial class GameItemViewModel(
         }
     }
 
-    /// <summary>详情页可见性变化（MainWindowViewModel 切页驱动）：进页起播待播视频，离页停止。</summary>
+    /// <summary>详情页可见性变化（MainWindowViewModel 切页驱动）：进页起播待播视频（无需重新解析），离页停止。</summary>
     internal void SetDetailActive(bool active)
     {
         _detailActive = active;
@@ -260,9 +268,11 @@ public partial class GameItemViewModel(
             return;
         }
 
-        if (_pendingVideoPath is { } pending)
+        // 离页会清掉 pending，但已解析路径保留：同游戏切走再切回时据此恢复播放
+        var path = _pendingVideoPath ?? _videoPath;
+        if (path is { } videoPath)
         {
-            _ = StartVideoAsync(pending);
+            _ = StartVideoAsync(videoPath);
         }
     }
 

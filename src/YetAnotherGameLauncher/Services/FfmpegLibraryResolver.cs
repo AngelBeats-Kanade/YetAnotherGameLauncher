@@ -34,8 +34,14 @@ public sealed partial class FfmpegLibraryResolver(
     /// <summary>下载大文件（约 50MB）不能复用全局 30 秒超时的 HttpClient：专用慢速超时。</summary>
     private static readonly TimeSpan DownloadTimeout = TimeSpan.FromMinutes(15);
 
-    /// <summary>绑定注入与首次调用是一次性的：进程内只探测/绑定一轮，结果缓存。</summary>
-    private int _resolved;
+    // 解析状态：0=未尝试（下载失败后停留于此，允许下次重试）/ 1=已就绪 / 2=永久失败（绑定已实际尝试，
+    // ffmpeg 类型的静态初始化只有一次机会，失败后的函数委托是不可重试的 throw stub）
+    private const int ResolveNotAttempted = 0;
+    private const int ResolveReady = 1;
+    private const int ResolveFailedPermanently = 2;
+
+    /// <summary>解析状态（原子读写，见 <see cref="ResolveNotAttempted"/> 等常量）。</summary>
+    private int _resolveState;
 
     /// <summary>解析器单例：必须在 ffmpeg 类型首次触碰前注入，目录随后设置。</summary>
     private DirectoryFunctionResolver? _sharedResolver;
@@ -54,11 +60,17 @@ public sealed partial class FfmpegLibraryResolver(
 
     /// <summary>
     /// 确保解码能力就绪（必要时在后台执行首运下载）。返回 false = 本机无系统库且下载失败/不支持，
-    /// 调用方保持静态海报。绑定初始化不可重试：失败后本次进程内不再尝试。
+    /// 调用方保持静态海报。绑定一旦实际尝试过就不可重试（成败均锁定）；仅下载失败允许下次再试。
     /// </summary>
     public bool EnsureReady(CancellationToken cancellationToken)
     {
-        if (Volatile.Read(ref _resolved) == 1)
+        var state = Volatile.Read(ref _resolveState);
+        if (state == ResolveReady)
+        {
+            return true;
+        }
+
+        if (state == ResolveFailedPermanently)
         {
             return false;
         }
@@ -86,7 +98,7 @@ public sealed partial class FfmpegLibraryResolver(
         if (BtbnAsset is null)
         {
             logger?.LogInformation("No FFmpeg download support on this platform");
-            Volatile.Write(ref _resolved, 1);
+            Volatile.Write(ref _resolveState, ResolveFailedPermanently);
             return false;
         }
 
@@ -100,20 +112,21 @@ public sealed partial class FfmpegLibraryResolver(
             or TaskCanceledException or InvalidDataException
             or System.Security.Cryptography.CryptographicException)
         {
+            // 下载/解压失败尚未触碰 ffmpeg 类型（TryBind 未执行），保持"未尝试"以便下次调用重试
             logger?.LogInformation(ex, "FFmpeg library download failed");
-            Volatile.Write(ref _resolved, 1);
             return false;
         }
     }
 
-    /// <summary>设定库目录并实际调用一次 FFmpeg API：全部导入可解析即版本配套。</summary>
+    /// <summary>设定库目录并实际调用一次 FFmpeg API：全部导入可解析即版本配套。绑定只有一次机会，成败均锁定。</summary>
     private bool TryBind(string? directory)
     {
-        Volatile.Write(ref _resolved, 1); // 无论成败，绑定只有一次机会
+        Volatile.Write(ref _resolveState, ResolveFailedPermanently); // 先锁死：绑定尝试即烧掉一次性初始化
         _sharedResolver!.SetDirectory(directory);
         try
         {
             _ = av_version_info();
+            Volatile.Write(ref _resolveState, ResolveReady);
             logger?.LogInformation("FFmpeg libraries ready ({Source})", directory ?? "system");
             return true;
         }
