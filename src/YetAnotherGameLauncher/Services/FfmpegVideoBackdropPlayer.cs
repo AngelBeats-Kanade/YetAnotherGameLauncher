@@ -21,8 +21,9 @@ public sealed class FfmpegVideoBackdropPlayer(
     FfmpegLibraryResolver libraryResolver,
     ILogger<FfmpegVideoBackdropPlayer>? logger = null) : IVideoBackdropPlayer, IDisposable
 {
-    /// <summary>帧通知节流间隔（≤30fps，背景不需要满帧率刷新）。</summary>
-    private static readonly TimeSpan NotifyInterval = TimeSpan.FromMilliseconds(33);
+    /// <summary>帧通知合并阈值（只合并极短突发）：正常 PTS 节拍下每帧都送达 UI——
+    /// 阈值若与视频帧间隔同频（30fps≈33ms），节拍抖动会把通知成对吞掉，画面呈 15fps 且不连贯。</summary>
+    private static readonly TimeSpan NotifyInterval = TimeSpan.FromMilliseconds(16);
 
     /// <summary>背景渲染尺寸上限：解码与 blit 都按此裁剪，超出部分纯浪费。</summary>
     private const int MaxWidth = 1920;
