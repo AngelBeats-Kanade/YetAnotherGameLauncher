@@ -10,7 +10,7 @@
         x:DataType="vm:MainWindowViewModel"
         Title="YetAnotherGameLauncher"
         Icon="avares://YetAnotherGameLauncher/Assets/app-icon.ico"
-        Width="1120" Height="720" MinWidth="920" MinHeight="620"
+        Width="1280" Height="720" MinWidth="920" MinHeight="620"
         ExtendClientAreaToDecorationsHint="True"
         WindowDecorations="BorderOnly"
         TransparencyLevelHint="Transparent"
@@ -547,8 +547,7 @@
                                 <!-- ClipToBounds：插画只属于内容卡片，不外溢到侧栏底下 -->
                                 <Panel Classes="page" ClipToBounds="True">
 
-                                    <!-- 游戏当期背景：静态海报（加载前占位）→ 视频层（首帧到达后接管）
-                                         + 三段式暗遮罩保证文字可读。
+                                    <!-- 游戏当期背景：静态海报（加载前占位）→ 视频层（首帧到达后接管），无遮罩完整呈现。
                                          左上锚定：UniformToFill 的溢出只裁右侧/底部，海报左缘完整贴住侧栏不被裁切 -->
                                     <Image x:Name="PosterImage" Source="{Binding BackgroundImage}" Stretch="UniformToFill"
                                            HorizontalAlignment="Left" VerticalAlignment="Top"
@@ -557,16 +556,6 @@
                                          对齐会测量出 0×0，Render 永远画不出（曾致视频不显示） -->
                                     <controls:FrameSurface Player="{Binding VideoPlayer}"
                                                            IsVisible="{Binding HasBackgroundVideo}"/>
-                                    <!-- 遮罩：盖住海报/视频层，保证 UI 文字在两主题可读 -->
-                                    <Border IsVisible="{Binding HasBackgroundImage}">
-                                        <Border.Background>
-                                            <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                                                <GradientStop Color="{DynamicResource AppBackdropScrimTopColor}" Offset="0"/>
-                                                <GradientStop Color="{DynamicResource AppBackdropScrimMidColor}" Offset="0.45"/>
-                                                <GradientStop Color="{DynamicResource AppBackdropScrimBottomColor}" Offset="1"/>
-                                            </LinearGradientBrush>
-                                        </Border.Background>
-                                    </Border>
 
                                     <!-- 无插画回退：固定深色渐变底，白字在两主题同样可读 -->
                                     <Border IsVisible="{Binding !HasBackgroundImage}">
@@ -578,25 +567,36 @@
                                         </Border.Background>
                                     </Border>
 
-                                    <Grid RowDefinitions="Auto,*,Auto" Margin="42,36,42,30">
+                                    <Grid RowDefinitions="*,Auto" Margin="42,36,42,30">
 
-                                        <!-- 标题区（左上）：游戏名 + 状态行 + 服务器，状态不再中段漂浮 -->
-                                        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="18" Margin="14,10,0,0">
-                                            <Border Width="76" Height="76" CornerRadius="18" ClipToBounds="True"
-                                                    Background="{DynamicResource AppAccentBrush}"
-                                                    BoxShadow="0 8 24 #40000000">
-                                                <Panel>
-                                                    <Image Source="{Binding GameIcon}" Stretch="UniformToFill"
-                                                           IsVisible="{Binding HasGameIcon}"/>
-                                                    <TextBlock Text="{Binding IconText}" FontSize="34" FontWeight="SemiBold"
-                                                               Foreground="White"
-                                                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                               IsVisible="{Binding !HasGameIcon}"/>
-                                                </Panel>
+                                        <!-- 状态区（页中下方居中）：状态胶囊自带对比底，无遮罩也可读；确认条悬其上方 -->
+                                        <StackPanel Grid.Row="0" VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                                                    Margin="0,0,0,18" Spacing="12">
+                                            <!-- 校验修复确认条（包式渠道无逐文件清单：修复=整包重下覆盖安装，需确认） -->
+                                            <Border HorizontalAlignment="Center"
+                                                    Padding="16,12" CornerRadius="12"
+                                                    Background="{DynamicResource AppOnArtworkCard}"
+                                                    BoxShadow="0 8 24 #40000000"
+                                                    IsVisible="{Binding ShowRepairConfirm}">
+                                                <StackPanel Orientation="Horizontal" Spacing="14">
+                                                    <TextBlock Text="{Binding RepairConfirmText}" MaxWidth="430"
+                                                               TextWrapping="Wrap" FontSize="12.5"
+                                                               VerticalAlignment="Center"
+                                                               Foreground="{DynamicResource AppOnArtworkBrush}"/>
+                                                    <Button Classes="btn-sm pressable accent-onart"
+                                                            Content="{Binding Loc[verify_confirm_yes]}"
+                                                            Command="{Binding ConfirmRepairCommand}"
+                                                            VerticalAlignment="Center"/>
+                                                    <Button Classes="btn-sm pressable glass-onart"
+                                                            Content="{Binding Loc[verify_confirm_no]}"
+                                                            Command="{Binding CancelRepairCommand}"
+                                                            VerticalAlignment="Center"/>
+                                                </StackPanel>
                                             </Border>
-                                            <StackPanel VerticalAlignment="Center" Spacing="9">
-                                                <TextBlock Text="{Binding DisplayName}" FontSize="32" FontWeight="Bold"
-                                                       Foreground="{DynamicResource AppOnArtworkBrush}"/>
+                                            <!-- 状态胶囊：点 + 状态文案 + 预下载徽章 + 版本贴片 -->
+                                            <Border HorizontalAlignment="Center"
+                                                    Background="{DynamicResource AppOnArtworkCard}"
+                                                    CornerRadius="12" Padding="16,9">
                                                 <StackPanel Orientation="Horizontal" Spacing="10">
                                                     <Ellipse Classes="dot" Width="11" Height="11" VerticalAlignment="Center"
                                                              Classes.installed="{Binding CanLaunch}"
@@ -618,21 +618,7 @@
                                                                    Foreground="{DynamicResource AppVersionChipText}"/>
                                                     </Border>
                                                 </StackPanel>
-                                                <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,2,0,0">
-                                                    <TextBlock Text="{Binding Loc[game_server]}" FontSize="12.5"
-                                                               Foreground="{DynamicResource AppOnArtworkSecondary}"
-                                                               VerticalAlignment="Center"/>
-                                                    <ComboBox ItemsSource="{Binding Servers}"
-                                                              SelectedItem="{Binding SelectedServer}"
-                                                              MinWidth="200" Height="30">
-                                                        <ComboBox.ItemTemplate>
-                                                            <DataTemplate x:DataType="models:GameServer">
-                                                                <TextBlock Text="{Binding Name}"/>
-                                                            </DataTemplate>
-                                                        </ComboBox.ItemTemplate>
-                                                    </ComboBox>
-                                                </StackPanel>
-                                            </StackPanel>
+                                            </Border>
                                         </StackPanel>
 
                                         <!-- 底部操作坞（通栏玻璃条）：左列渠道/目录信息（busy 时变进度条），
@@ -725,29 +711,6 @@
                                                     </Button>
                                                 </StackPanel>
                                             </Grid>
-                                        </Border>
-
-                                        <!-- 校验修复确认条（包式渠道无逐文件清单：修复=整包重下覆盖安装，需确认）。
-                                             悬在状态区右下、主按钮上方，与触发它的按钮同侧 -->
-                                        <Border Grid.Row="1" HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                                                Margin="0,0,4,12" Padding="16,12" CornerRadius="12"
-                                                Background="{DynamicResource AppOnArtworkCard}"
-                                                BoxShadow="0 8 24 #40000000"
-                                                IsVisible="{Binding ShowRepairConfirm}">
-                                            <StackPanel Orientation="Horizontal" Spacing="14">
-                                                <TextBlock Text="{Binding RepairConfirmText}" MaxWidth="430"
-                                                           TextWrapping="Wrap" FontSize="12.5"
-                                                           VerticalAlignment="Center"
-                                                           Foreground="{DynamicResource AppOnArtworkBrush}"/>
-                                                <Button Classes="btn-sm pressable accent-onart"
-                                                        Content="{Binding Loc[verify_confirm_yes]}"
-                                                        Command="{Binding ConfirmRepairCommand}"
-                                                        VerticalAlignment="Center"/>
-                                                <Button Classes="btn-sm pressable glass-onart"
-                                                        Content="{Binding Loc[verify_confirm_no]}"
-                                                        Command="{Binding CancelRepairCommand}"
-                                                        VerticalAlignment="Center"/>
-                                            </StackPanel>
                                         </Border>
 
                                     </Grid>
@@ -1085,7 +1048,17 @@
                                             <Border Classes="card">
                                                 <StackPanel Spacing="8">
                                                     <TextBlock Text="{Binding Loc[settings_section_location]}" FontSize="15" FontWeight="SemiBold"/>
-                                                    <TextBlock Text="{Binding Loc[launch_installDir]}" Classes="card-caption"/>
+                                                    <TextBlock Text="{Binding Loc[game_server]}" Classes="card-caption"/>
+                                                    <ComboBox ItemsSource="{Binding Game.Servers}"
+                                                              SelectedItem="{Binding Game.SelectedServer}"
+                                                              MinWidth="200" HorizontalAlignment="Left">
+                                                        <ComboBox.ItemTemplate>
+                                                            <DataTemplate x:DataType="models:GameServer">
+                                                                <TextBlock Text="{Binding Name}"/>
+                                                            </DataTemplate>
+                                                        </ComboBox.ItemTemplate>
+                                                    </ComboBox>
+                                                    <TextBlock Text="{Binding Loc[launch_installDir]}" Classes="card-caption" Margin="0,4,0,0"/>
                                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                                                         <TextBox Grid.Column="0" x:Name="InstallDirBox" Text="{Binding LaunchSettings.InstallDirDraft}"/>
                                                         <Button Grid.Column="1" Content="{Binding Loc[launch_installDirBrowse]}"

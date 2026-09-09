@@ -13,6 +13,9 @@
     <PackageReference Include="Avalonia.Headless" />
     <PackageReference Include="Avalonia.Headless.XUnit" />
     <PackageReference Include="xunit.v3" />
+    <!-- coverlet：覆盖率采集，用法 dotnet test 加 collect 参数（XPlat Code Coverage） -->
+    <PackageReference Include="coverlet.collector" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>

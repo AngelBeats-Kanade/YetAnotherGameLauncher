@@ -39,4 +39,22 @@ public class SystemProcessRunnerTests
 
         Assert.Equal(7, result.ExitCode);
     }
+
+    [Fact]
+    public async Task RunAsync_Timeout_KillsProcessAndReportsCancellation()
+    {
+        // 等待模式超时：杀进程树并抛取消（长 sleep + 极短超时）
+        var (fileName, arguments) = OperatingSystem.IsWindows()
+            ? ("ping", "127.0.0.1 -n 30")
+            : ("sleep", "30");
+
+        var runner = new SystemProcessRunner();
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runner.RunAsync(
+            new ProcessStartSpec(fileName, arguments, TimeoutMilliseconds: 500)));
+
+        stopwatch.Stop();
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(10), $"超时应及时触发，实际 {stopwatch.Elapsed}");
+    }
 }

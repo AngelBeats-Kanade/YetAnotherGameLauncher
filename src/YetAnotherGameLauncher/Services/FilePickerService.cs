@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Platform.Storage;
@@ -17,6 +18,7 @@ public interface IFilePickerService
     Task<string?> PickExecutableFileAsync(string title, string? suggestedDirectory);
 }
 
+[ExcludeFromCodeCoverage]
 /// <summary>基于主窗口 StorageProvider 的实现。</summary>
 public sealed class StorageProviderFilePicker : IFilePickerService
 {

@@ -12,8 +12,14 @@ namespace YetAnotherGameLauncher.Channels.Kuro;
 /// </summary>
 public sealed class KuroBackdropResolver(
     KuroSwitchConfigClient switchConfigClient,
-    ILogger<KuroBackdropResolver>? logger = null) : IBackdropResolver
+    ILogger<KuroBackdropResolver>? logger = null,
+    Func<KuroSwitchConfig?>? cachedConfigLookup = null,
+    Func<string?, string?>? frameLookup = null) : IBackdropResolver
 {
+    // ②/③ 的静态扫描依赖本机 KRLauncher 缓存路径，测试经委托注入隔离
+    private readonly Func<KuroSwitchConfig?>? _cachedConfigLookup = cachedConfigLookup;
+    private readonly Func<string?, string?>? _frameLookup = frameLookup;
+
     public async Task<BackdropSource?> GetBackdropUrlAsync(BackdropRequest request, CancellationToken cancellationToken = default)
     {
         // ① 官方运营配置直连：拿到即是最新投放，顺手持久化（Chromium 缓存淘汰后的兜底）
@@ -25,16 +31,21 @@ public sealed class KuroBackdropResolver(
             return AsVideoSource(config);
         }
 
-        // ② 本机 WebView 缓存扫描（内部已含持久化兜底）：离线/官方配置改版时仍能给出最后投放
-        var cached = KuroLauncherBackground.FindLatestSwitchConfig();
+        // ② 本机 WebView 缓存扫描（内部已含持久化兜底）：离线/官方配置改版时仍能给出最后投放；
+        //    注入的查找委托（测试）完全接管本分支，不再回退真机缓存
+        var cached = _cachedConfigLookup is not null
+            ? _cachedConfigLookup()
+            : KuroLauncherBackground.FindLatestSwitchConfig();
         if (cached is not null)
         {
             logger?.LogDebug("Kuro backdrop from local launcher cache: {Url}", cached.BackgroundFile);
             return AsVideoSource(cached);
         }
 
-        // ③ 本地帧序列兜底
-        var frame = KuroLauncherBackground.FindLatestFrame(request.InstallDir);
+        // ③ 本地帧序列兜底（注入委托同样完全接管）
+        var frame = _frameLookup is not null
+            ? _frameLookup(request.InstallDir)
+            : KuroLauncherBackground.FindLatestFrame(request.InstallDir);
         return BackdropSource.ImageOrNullIfEmpty(frame);
     }
 

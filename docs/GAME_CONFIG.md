@@ -45,6 +45,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `executable` | string | ✔ | 游戏可执行文件，相对 `installDir`（`/` 或 `\` 均可） |
 | `launch` | object | | 启动方式，见下 |
 | `servers[]` | array | ✔（≥1） | 服务器/渠道入口列表，见下 |
+  服务器在启动器内通过「游戏设置 → 位置」卡的"服务器"下拉切换（详情页不再展示）；切换即时刷新版本/安装状态。
 
 ### games[].launch（LaunchOptions）
 

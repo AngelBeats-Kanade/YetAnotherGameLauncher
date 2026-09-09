@@ -67,10 +67,6 @@
             </ResourceDictionary.ThemeDictionaries>
             <!-- 主题无关的资源 -->
             <SolidColorBrush x:Key="AppPredownloadBadge" Color="#E8930C"/>
-            <!-- 详情页遮罩（暗遮罩+白字方案，两主题一致）：顶部轻、中段压状态区、底部压实内容 -->
-            <Color x:Key="AppBackdropScrimTopColor">#14000000</Color>
-            <Color x:Key="AppBackdropScrimMidColor">#66000000</Color>
-            <Color x:Key="AppBackdropScrimBottomColor">#B3000000</Color>
             <!-- 详情页"插画上"前景：标题/状态用主色，次要信息用次色 -->
             <SolidColorBrush x:Key="AppOnArtworkBrush" Color="#F2F4F8"/>
             <SolidColorBrush x:Key="AppOnArtworkSecondary" Color="#C9CED8"/>

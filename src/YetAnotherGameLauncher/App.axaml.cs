@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
@@ -15,6 +16,7 @@ using YetAnotherGameLauncher.Views;
 
 namespace YetAnotherGameLauncher;
 
+[ExcludeFromCodeCoverage]
 public partial class App : Application
 {
     public override void Initialize() => AvaloniaXamlLoader.Load(this);

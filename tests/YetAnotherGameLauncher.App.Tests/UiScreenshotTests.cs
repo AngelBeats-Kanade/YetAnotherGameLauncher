@@ -119,9 +119,14 @@ public class UiScreenshotTests
             Capture("02b-game-settings-dark.png");
             ctx.Vm.ShowGamesCommand.Execute(null);
 
-            // 暗色 · 第二个游戏（终末地，官方远程背景图，验证 URL 加载链路）
+            // 暗色 · 第二个游戏（终末地，官方远程背景图，验证 URL 加载链路；
+            // 并构造"检测到游戏文件"态：有主程序但未登记版本 → 状态胶囊提示 + 登记版本按钮）
             ctx.Vm.SelectedTheme = dark;
             ctx.Vm.Games[1].Game.Icon = endfieldIconUrl;
+            var endfieldExe = Path.Combine(
+                ctx.Vm.Games[1].InstallDirPath, "ArknightsEndfield", "Binaries", "Win64", "ArknightsEndfield.exe");
+            Directory.CreateDirectory(Path.GetDirectoryName(endfieldExe)!);
+            await File.WriteAllBytesAsync(endfieldExe, "MZ"u8.ToArray());
             ctx.Vm.SelectedGame = ctx.Vm.Games[1];
             await ctx.Vm.Games[1].RefreshAsync();
             window.UpdateLayout();

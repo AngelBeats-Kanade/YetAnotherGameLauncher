@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -12,6 +13,7 @@ using static FFmpeg.AutoGen.ffmpeg;
 
 namespace YetAnotherGameLauncher.Services;
 
+[ExcludeFromCodeCoverage]
 /// <summary>
 /// FFmpeg 原生库准备器（FFmpeg.AutoGen 绑定 ↔ 原生库的版本必须配套，且绑定初始化只有一次机会）：
 /// ① 复用应用数据目录里已下载的库；② 探测系统已安装的同版本 FFmpeg（Linux 桌面发行版常见，命中即零下载）；

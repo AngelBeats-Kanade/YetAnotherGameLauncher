@@ -1,5 +1,8 @@
 namespace YetAnotherGameLauncher.Core.Services;
 
+using System.Globalization;
+using System.Text.RegularExpressions;
+
 /// <summary>Linux 下的启动方式（与 UI 的选择器一一对应）。</summary>
 public enum LaunchMode
 {
@@ -88,8 +91,9 @@ public static class CompatTools
     }
 
     /// <summary>
-    /// 挑选推荐 Proton 版本：GE-Proton 取字典序最新（终末地需 10-31+，鸣潮需 10-9+），
-    /// 其次内置默认 dw-proton，再次任意第一个；无可用版本返回 null。
+    /// 挑选推荐 Proton 版本：GE-Proton 取数字最新（终末地需 10-31+，鸣潮需 10-9+，
+    /// 按数字段自然比较——字典序会把 10-9 排到 10-31 之后），其次内置默认 dw-proton，
+    /// 再次任意第一个；无可用版本返回 null。
     /// </summary>
     public static string? PickRecommendedProton(IReadOnlyList<string> versions)
     {
@@ -103,9 +107,14 @@ public static class CompatTools
                 : v.Equals(DefaultProton, StringComparison.OrdinalIgnoreCase) ? 1
                 : v.StartsWith("Proton", StringComparison.OrdinalIgnoreCase) ? 0
                 : -1)
-            .ThenByDescending(v => v, StringComparer.OrdinalIgnoreCase)
+            .ThenByDescending(NumericSortKey, StringComparer.Ordinal)
             .First();
     }
+
+    /// <summary>自然排序键：把字符串里的数字段左侧补零成定长（"GE-Proton10-31" → …000010000031），
+    /// 使数字比较正确（"10-31" &gt; "10-9"）。</summary>
+    internal static string NumericSortKey(string version) =>
+        string.Concat(Regex.Matches(version, @"\d+").Select(m => m.Value.PadLeft(6, '0')));
 
     /// <summary>
     /// 按游戏给出的社区推荐环境变量（ACE 反作弊最佳实践）：

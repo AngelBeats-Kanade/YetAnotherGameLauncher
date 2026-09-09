@@ -143,3 +143,14 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64   --self-contain
 - 鸣潮预下载仅在官方窗口期可用；差分入口按版本串精确匹配，跳版本更新自动走全量。
 - 包式渠道的"校验修复"粒度是压缩包（无逐文件清单），依赖解压覆盖语义。
 - 终末地国服参数来自社区持续归档（ak-endfield-api-archive）而非官方文档，官方若调整协议以归档 fixture 为准修渠道层。
+
+## 9. 测试覆盖率政策
+
+- 四个测试工程均接入 `coverlet.collector` + `Microsoft.Testing.Extensions.CodeCoverage`；
+  采集：`dotnet-coverage collect -f cobertura -o out.xml <测试exe>`（或 dotnet test --collect）。
+- **政策内 100% 目标**：Core / Channels / ViewModels / Services 的全部业务逻辑。
+- **政策排除**（不计入目标，均有结构性理由）：`Program.cs` 与 `App.axaml.cs`（组合根）、
+  `FilePickerService`（系统对话框封装）、`FfmpegVideoBackdropPlayer` 与 `FfmpegLibraryResolver`
+  （原生库 unsafe 互操作，已由 `[ExcludeFromCodeCoverage]` 标注）、平台条件分支
+  （如 AutostartService 的 Linux XDG 路径仅在 Linux 运行时可达）。
+- 现状与缺口清单见 `artifacts/coverage/`（本地生成，不入库）；每轮功能改动应顺带补齐所触达文件的缺口。
