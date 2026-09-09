@@ -43,6 +43,24 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 ? CompatTools.DefaultProton
                 : ProtonVersions[0];
         }
+
+        // Linux 默认最佳配置：裸 {exe} 无法运行 Windows 客户端 → 应用社区推荐（进草稿，保存后才落盘；
+        // 用户已有任何自定义模板则完全不动）
+        if (IsLinux && _selectedLaunchMode.Mode == LaunchMode.Direct)
+        {
+            var recommended = CompatTools.PickRecommendedProton(ProtonVersions);
+            if (recommended is not null)
+            {
+                SelectedLaunchMode = LaunchModes.First(m => m.Mode == LaunchMode.Proton);
+                _selectedProtonVersion = recommended;
+                ApplyGenerated(CompatTools.BuildProtonLaunch(recommended));
+                AppendEnvironment(CompatTools.RecommendedEnvironment(_game.Id));
+            }
+            else
+            {
+                SelectedLaunchMode = LaunchModes.First(m => m.Mode == LaunchMode.Wine);
+            }
+        }
     }
 
     /// <summary>从命令模板推断当前启动方式（启发式：含 proton/wine 关键词；{exe} 原样视为直接运行）。</summary>
@@ -143,6 +161,21 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         foreach (var (key, value) in generated.Environment)
         {
             merged[key] = value;
+        }
+
+        EnvironmentText = SerializeEnvironment(merged);
+    }
+
+    /// <summary>把推荐环境变量合并进环境文本（既有同名值以用户为准）。</summary>
+    private void AppendEnvironment(Dictionary<string, string> extra)
+    {
+        var merged = ParseEnvironmentOrEmpty(EnvironmentText);
+        foreach (var (key, value) in extra)
+        {
+            if (!merged.ContainsKey(key))
+            {
+                merged[key] = value;
+            }
         }
 
         EnvironmentText = SerializeEnvironment(merged);

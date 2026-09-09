@@ -1,4 +1,5 @@
 using YetAnotherGameLauncher.Core.Abstractions;
+using YetAnotherGameLauncher.Core.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -16,7 +17,8 @@ public static class HypergryphServiceCollectionExtensions
         {
             client.Timeout = TimeSpan.FromSeconds(30);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("YetAnotherGameLauncher/0.1");
-        });
+        }).ConfigurePrimaryHttpMessageHandler(sp =>
+            sp.GetRequiredService<NetworkProxyManager>().Handler);
 
         services.AddKeyedTransient<IGameChannelApi>(ChannelKey, (serviceProvider, _) =>
             new GryphlineChannelApi(

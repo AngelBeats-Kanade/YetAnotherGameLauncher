@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using YetAnotherGameLauncher.Channels.Kuro;
 using YetAnotherGameLauncher.Core;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
@@ -28,6 +29,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly GameBackdropService _backdropService;
     private readonly IFilePickerService? _filePicker;
     private readonly IVideoBackdropPlayer? _videoPlayer;
+    private readonly KuroGachaService? _gachaService;
+    private readonly Core.Services.NetworkProxyManager? _proxyManager;
     private readonly Func<string?>? _defaultConfigTemplateFactory;
 
     public MainWindowViewModel(
@@ -43,7 +46,9 @@ public partial class MainWindowViewModel : ViewModelBase
         Func<string, IGameChannelApi?> channelResolver,
         Func<string?>? defaultConfigTemplateFactory = null,
         IFilePickerService? filePicker = null,
-        IVideoBackdropPlayer? videoPlayer = null)
+        IVideoBackdropPlayer? videoPlayer = null,
+        KuroGachaService? gachaService = null,
+        Core.Services.NetworkProxyManager? proxyManager = null)
     {
         _catalogService = catalogService;
         _updateService = updateService;
@@ -58,6 +63,8 @@ public partial class MainWindowViewModel : ViewModelBase
         _defaultConfigTemplateFactory = defaultConfigTemplateFactory;
         _filePicker = filePicker;
         _videoPlayer = videoPlayer;
+        _gachaService = gachaService;
+        _proxyManager = proxyManager;
         Loc = localization;
         LocBridge.Instance = localization; // 供 {svc:Loc key} 标记扩展取 Source
         _loc.PropertyChanged += OnLanguageChanged;
@@ -71,6 +78,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>游戏列表（按配置顺序构建；侧栏与导航的数据源）。</summary>
     public ObservableCollection<GameItemViewModel> Games { get; } = [];
+
+    /// <summary>窗口是否最大化（最大化铺满屏幕时应去掉窗口顶部两角的圆角）。</summary>
+    [ObservableProperty]
+    private bool _isWindowMaximized;
 
     /// <summary>当前选中的游戏；变化时导航到详情页并刷新状态。</summary>
     [ObservableProperty]
@@ -87,8 +98,8 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isNavBack;
 
-    /// <summary>侧栏高亮归属：当前页属于游戏（详情/游戏设置）。</summary>
-    public bool IsGameNavActive => CurrentPage is GameItemViewModel or GameSettingsViewModel;
+    /// <summary>侧栏高亮归属：当前页属于游戏（详情/游戏设置/唤取记录）。</summary>
+    public bool IsGameNavActive => CurrentPage is GameItemViewModel or GameSettingsViewModel or GachaViewModel;
 
     /// <summary>侧栏高亮归属：当前页是应用设置页。</summary>
     public bool IsSettingsNavActive => CurrentPage is SettingsViewModel;
@@ -248,6 +259,30 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>当前安装根目录（供设置页草稿初始化与展示）。</summary>
     public string InstallRoot => _catalogService.Catalog?.Settings.InstallRoot ?? "";
 
+    /// <summary>当前代理模式（设置页草稿初始化）。</summary>
+    public ProxyMode ProxyMode => _catalogService.Catalog?.Settings.ProxyMode ?? ProxyMode.System;
+
+    /// <summary>当前手动代理地址（设置页草稿初始化）。</summary>
+    public string ProxyAddress => _catalogService.Catalog?.Settings.ProxyAddress ?? "";
+
+    /// <summary>
+    /// 应用代理设置：写回 games.json 持久化，并对共享 SocketsHttpHandler 热改代理（保存即时生效）。
+    /// </summary>
+    /// <param name="mode">代理模式。</param>
+    /// <param name="address">手动代理地址（非 Manual 忽略）。</param>
+    public async Task ApplyProxySettingsAsync(ProxyMode mode, string address)
+    {
+        if (_catalogService.Catalog is not { } catalog)
+        {
+            return;
+        }
+
+        catalog.Settings.ProxyMode = mode;
+        catalog.Settings.ProxyAddress = string.IsNullOrWhiteSpace(address) ? null : address;
+        _proxyManager?.Apply(catalog.Settings);
+        await TrySaveCatalogAsync();
+    }
+
     /// <summary>侧栏游戏计数文案（随语言切换刷新）。</summary>
     public string GameCountText => _loc.Format("sidebar_games_count", Games.Count);
 
@@ -392,6 +427,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         await MigrateFromSampleAsync(catalog, cancellationToken);
         _downloader.Limiter.BytesPerSecond = catalog.Settings.DownloadSpeedLimitBytes;
+        _proxyManager?.Apply(catalog.Settings);
 
         _loc.SetLanguage(catalog.Settings.Language);
         _themeService.Apply(catalog.Settings.Theme);
@@ -654,7 +690,23 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [RelayCommand]
     private void ShowGames() => NavigateTo(SelectedGame, back: true);
+
+    /// <summary>进入鸣潮唤取记录页（详情页入口；kuro 渠道专属功能）。</summary>
+    /// <param name="game">来源游戏（当前仅鸣潮）。</param>
+    [RelayCommand]
+    private void ShowGacha(GameItemViewModel game)
+    {
+        if (_gachaService is not null)
+        {
+            NavigateTo(new GachaViewModel(this, game, _gachaService));
+        }
+    }
 }
+
+/// <summary>代理模式下拉项。</summary>
+/// <param name="Mode">代理模式。</param>
+/// <param name="Name">显示名（本地化）。</param>
+public sealed record ProxyModeOption(ProxyMode Mode, string Name);
 
 /// <summary>设置页：外观（主题/语言）、配置文件与下载设置（其余编辑走 games.json）。</summary>
 public partial class SettingsViewModel : ViewModelBase
@@ -667,6 +719,15 @@ public partial class SettingsViewModel : ViewModelBase
         _installRootDraft = owner.InstallRoot;
         _speedLimitMbDraft = FormatSpeed(owner.DownloadSpeedLimitBytes);
         _appBackgroundPath = owner.ConfiguredAppBackground;
+
+        _proxyModes =
+        [
+            new(ProxyMode.System, Loc["settings_proxyMode_system"]),
+            new(ProxyMode.None, Loc["settings_proxyMode_none"]),
+            new(ProxyMode.Manual, Loc["settings_proxyMode_manual"]),
+        ];
+        _selectedProxyMode = _proxyModes.FirstOrDefault(p => p.Mode == owner.ProxyMode) ?? _proxyModes[0];
+        _proxyAddressDraft = owner.ProxyAddress;
     }
 
     private static string FormatSpeed(long bytes) =>
@@ -691,6 +752,53 @@ public partial class SettingsViewModel : ViewModelBase
     private SaveMessageSlot _speedLimitSave = new();
 
     partial void OnSpeedLimitMbDraftChanged(string value) => SpeedLimitSave.Clear();
+
+    /// <summary>代理模式选项（跟随系统/直连/手动，显示名已本地化）。</summary>
+    public IReadOnlyList<ProxyModeOption> ProxyModes { get; } = [];
+
+    private readonly List<ProxyModeOption> _proxyModes = [];
+
+    /// <summary>代理模式草稿。</summary>
+    [ObservableProperty]
+    private ProxyModeOption _selectedProxyMode;
+
+    /// <summary>手动代理地址草稿。</summary>
+    [ObservableProperty]
+    private string _proxyAddressDraft = "";
+
+    /// <summary>代理保存结果提示。</summary>
+    [ObservableProperty]
+    private SaveMessageSlot _proxySave = new();
+
+    partial void OnSelectedProxyModeChanged(ProxyModeOption value)
+    {
+        ProxySave.Clear();
+        OnPropertyChanged(nameof(IsProxyAddressEnabled));
+    }
+
+    partial void OnProxyAddressDraftChanged(string value) => ProxySave.Clear();
+
+    /// <summary>地址框仅手动模式可编辑。</summary>
+    public bool IsProxyAddressEnabled => SelectedProxyMode?.Mode == ProxyMode.Manual;
+
+    /// <summary>应用代理草稿：写回设置、即时生效（共享 handler 热改），并持久化。</summary>
+    [RelayCommand]
+    private async Task SaveProxyAsync(CancellationToken cancellationToken)
+    {
+        ProxySave.Clear();
+        var address = ProxyAddressDraft.Trim();
+        var mode = SelectedProxyMode?.Mode ?? ProxyMode.System;
+        var proxyValid = mode != ProxyMode.Manual
+            || (Uri.TryCreate(address, UriKind.Absolute, out var proxy) && proxy.Scheme is "http" or "https");
+        if (!proxyValid)
+        {
+            ProxySave.SetFailure(Loc["settings_proxyInvalid"]);
+            return;
+        }
+
+        await _owner.ApplyProxySettingsAsync(mode, address);
+        ProxySave.SetSuccess(Loc["settings_proxySaved"]);
+    }
 
     /// <summary>校验限速草稿（MB/s ≥ 0）并应用，结果写入独立消息位。</summary>
     [RelayCommand]
@@ -936,9 +1044,6 @@ public sealed partial class AboutViewModel(MainWindowViewModel owner) : ViewMode
         new("FFmpeg (libavcodec/libavformat/libswscale)", "LGPL-2.1+"),
         new("FFmpeg.AutoGen", "LGPL-2.1+"),
         new("SharpCompress", "MIT"),
-        new("ui-ux-pro-max design data", "MIT"),
-        new("frontend-design skill", "Apache-2.0"),
-        new("timetetng/wutheringwaves-cli-manager", "协议逆向参考"),
     ];
 
     /// <summary>返回游戏页（转发主窗口命令）。</summary>

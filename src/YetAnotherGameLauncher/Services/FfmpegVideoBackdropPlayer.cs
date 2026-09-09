@@ -141,20 +141,34 @@ public sealed class FfmpegVideoBackdropPlayer(
             softwareFrame = ffmpeg.av_frame_alloc();
 
             var notify = new NotifyThrottle();
+            var failures = new DecodeFailureLog(logger);
             while (!token.IsCancellationRequested)
             {
-                if (ffmpeg.av_read_frame(formatContext, packet) < 0)
+                var readResult = ffmpeg.av_read_frame(formatContext, packet);
+                if (readResult < 0)
                 {
+                    if (readResult != AVERROR_EOF)
+                    {
+                        failures.Log("demuxer read error {Code}", readResult);
+                    }
+
                     if (!Rewind(formatContext, codecContext, streamIndex))
                     {
+                        failures.Log("cannot rewind at end of stream, stopping loop");
                         return; // 无法回卷（文件被删/流关闭）：结束循环
                     }
 
                     continue;
                 }
 
-                if (packet->stream_index == streamIndex
-                    && ffmpeg.avcodec_send_packet(codecContext, packet) >= 0)
+                if (packet->stream_index != streamIndex)
+                {
+                    // 音频/字幕/封面等其他流：直接跳过（背景视频不解码音轨）
+                    ffmpeg.av_packet_unref(packet);
+                    continue;
+                }
+
+                if (ffmpeg.avcodec_send_packet(codecContext, packet) >= 0)
                 {
                     while (ffmpeg.avcodec_receive_frame(codecContext, frame) >= 0)
                     {
@@ -169,6 +183,7 @@ public sealed class FfmpegVideoBackdropPlayer(
                             // 硬解输出的是 GPU 帧：回读到系统内存再进统一管线（PCIe 回读开销极小）
                             if (ffmpeg.av_hwframe_transfer_data(softwareFrame, frame, 0) < 0)
                             {
+                                failures.Log("hw frame transfer failed");
                                 ffmpeg.av_frame_unref(frame);
                                 continue;
                             }
@@ -176,10 +191,14 @@ public sealed class FfmpegVideoBackdropPlayer(
                             source = softwareFrame;
                         }
 
-                        RenderFrame(source, ref scaler, ref pixelBuffer, notify);
+                        RenderFrame(source, ref scaler, ref pixelBuffer, notify, failures);
                         ffmpeg.av_frame_unref(frame);
                         ffmpeg.av_frame_unref(softwareFrame);
                     }
+                }
+                else
+                {
+                    failures.Log("packet rejected by decoder (stream {Stream})", packet->stream_index);
                 }
 
                 ffmpeg.av_packet_unref(packet);
@@ -289,11 +308,13 @@ public sealed class FfmpegVideoBackdropPlayer(
         AVFrame* source,
         ref SwsContext* scaler,
         ref byte* pixelBuffer,
-        NotifyThrottle notify)
+        NotifyThrottle notify,
+        DecodeFailureLog failures)
     {
         var (width, height) = ClampEven(source->width, source->height);
         if (width <= 0 || height <= 0)
         {
+            failures.Log("invalid frame size {Width}x{Height}", source->width, source->height);
             return;
         }
 
@@ -303,6 +324,7 @@ public sealed class FfmpegVideoBackdropPlayer(
             width, height, AVPixelFormat.AV_PIX_FMT_BGRA, SwsBilinear, null, null, null);
         if (scaler is null)
         {
+            failures.Log("cannot create swscale context");
             return;
         }
 
@@ -402,6 +424,28 @@ public sealed class FfmpegVideoBackdropPlayer(
     {
         var scale = Math.Min(1.0, Math.Min((double)MaxWidth / width, (double)MaxHeight / height));
         return (Math.Max(2, (int)(width * scale) & ~1), Math.Max(2, (int)(height * scale) & ~1));
+    }
+
+    /// <summary>解码失败的限频日志：同类失败只记首条与计数，避免坏文件刷爆日志。</summary>
+    private sealed class DecodeFailureLog
+    {
+        private readonly ILogger? _logger;
+        private readonly Dictionary<string, (int Count, object[] Args)> _seen = [];
+
+        public DecodeFailureLog(ILogger? logger) => _logger = logger;
+
+        /// <summary>记录失败：同模板首条立即输出，之后每 100 次再输出一次并带累计次数。</summary>
+        public void Log(string template, params object[] args)
+        {
+            var (count, _) = _seen.TryGetValue(template, out var seen) ? seen : (0, args);
+            count++;
+            _seen[template] = (count, args);
+            if (count == 1 || count % 100 == 0)
+            {
+                _logger?.LogInformation(
+                    "video decode failure #{Count}: " + template, [count, .. args]);
+            }
+        }
     }
 
     /// <summary>帧通知节流器：背景不需要满帧率重绘，按最小间隔合并通知。</summary>

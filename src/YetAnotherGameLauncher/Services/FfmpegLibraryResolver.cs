@@ -18,8 +18,16 @@ namespace YetAnotherGameLauncher.Services;
 /// ③ 都没有时从 BtbN FFmpeg-Builds 下载与绑定版本配套的 LGPL 共享构建（SHA256 校验后解压）。
 /// 就绪判定 = 通过自定义 <see cref="IFunctionResolver"/> 实际调通 FFmpeg 版本 API。
 /// </summary>
-public sealed partial class FfmpegLibraryResolver(HttpClient httpClient, ILogger<FfmpegLibraryResolver>? logger = null)
+public sealed partial class FfmpegLibraryResolver(
+    YetAnotherGameLauncher.Core.Services.NetworkProxyManager proxyManager,
+    ILogger<FfmpegLibraryResolver>? logger = null)
 {
+    /// <summary>大文件下载专用 client：共享底层 handler（代理设置同步生效），仅放宽超时。</summary>
+    private readonly HttpClient _downloadClient = new(proxyManager.Handler)
+    {
+        Timeout = DownloadTimeout,
+    };
+
     /// <summary>下载源：与 FFmpeg.AutoGen 9.0.x 绑定配套的 FFmpeg 9.0 LGPL 共享构建（双平台）。</summary>
     private const string BtbnBaseUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download";
 
@@ -140,7 +148,7 @@ public sealed partial class FfmpegLibraryResolver(HttpClient httpClient, ILogger
             using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
             {
                 timeout.CancelAfter(DownloadTimeout);
-                using var response = await httpClient.GetAsync(
+                using var response = await _downloadClient.GetAsync(
                     $"{BtbnBaseUrl}/{asset}", HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
                 await using var http = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false);
@@ -162,7 +170,7 @@ public sealed partial class FfmpegLibraryResolver(HttpClient httpClient, ILogger
     private async Task<string> FetchExpectedSha256Async(
         string asset, string pattern, CancellationToken cancellationToken)
     {
-        using var response = await httpClient.GetAsync($"{BtbnBaseUrl}/checksums.sha256", cancellationToken).ConfigureAwait(false);
+        using var response = await _downloadClient.GetAsync($"{BtbnBaseUrl}/checksums.sha256", cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         var match = Regex.Match(text, pattern, RegexOptions.Multiline);

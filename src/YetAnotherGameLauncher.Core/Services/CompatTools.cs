@@ -87,6 +87,45 @@ public static class CompatTools
         return (command, environment);
     }
 
+    /// <summary>
+    /// 挑选推荐 Proton 版本：GE-Proton 取字典序最新（终末地需 10-31+，鸣潮需 10-9+），
+    /// 其次内置默认 dw-proton，再次任意第一个；无可用版本返回 null。
+    /// </summary>
+    public static string? PickRecommendedProton(IReadOnlyList<string> versions)
+    {
+        if (versions.Count == 0)
+        {
+            return null;
+        }
+
+        return versions
+            .OrderByDescending(v => v.StartsWith("GE-Proton", StringComparison.OrdinalIgnoreCase) ? 2
+                : v.Equals(DefaultProton, StringComparison.OrdinalIgnoreCase) ? 1
+                : v.StartsWith("Proton", StringComparison.OrdinalIgnoreCase) ? 0
+                : -1)
+            .ThenByDescending(v => v, StringComparer.OrdinalIgnoreCase)
+            .First();
+    }
+
+    /// <summary>
+    /// 按游戏给出的社区推荐环境变量（ACE 反作弊最佳实践）：
+    /// 鸣潮需伪装 SteamOS 才能过反作弊，NVIDIA 显卡补 DXVK-NVAPI；终末地无必填项。
+    /// </summary>
+    public static Dictionary<string, string> RecommendedEnvironment(string gameId)
+    {
+        var environment = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (gameId.Contains("wuthering", StringComparison.OrdinalIgnoreCase))
+        {
+            environment["SteamOS"] = "1";
+            if (File.Exists("/proc/driver/nvidia/version"))
+            {
+                environment["PROTON_ENABLE_NVAPI"] = "1";
+            }
+        }
+
+        return environment;
+    }
+
     /// <summary>按优先级在已知目录中定位指定 Proton 版本；找不到返回 null。</summary>
     public static string? LocateProton(string protonVersion, string? home = null)
     {

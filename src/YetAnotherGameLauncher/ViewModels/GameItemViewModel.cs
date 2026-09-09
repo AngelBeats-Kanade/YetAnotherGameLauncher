@@ -130,6 +130,9 @@ public partial class GameItemViewModel(
     /// <summary>主操作按钮文案：未安装→安装，有更新→更新，否则校验。</summary>
     public string InstallButtonText => !IsInstalled ? Loc["game_install"] : HasUpdate ? Loc["game_update"] : Loc["game_verify"];
 
+    /// <summary>是否库洛渠道（鸣潮专属功能如唤取记录按此显示入口）。</summary>
+    public bool IsKuro => Game.Channel == "kuro";
+
     /// <summary>渠道显示名（已知渠道给中文名，未知原样）。</summary>
     public string ChannelDisplayName => Game.Channel switch
     {

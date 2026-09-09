@@ -135,6 +135,17 @@ public sealed class GameCatalogService
             errors.Add("settings.installRoot must not be empty.");
         }
 
+        // 手动代理必须给出可解析的 http(s) 地址；其它模式地址可有可无
+        if (settings.ProxyMode == ProxyMode.Manual)
+        {
+            var proxyValid = Uri.TryCreate(settings.ProxyAddress, UriKind.Absolute, out var proxy)
+                && proxy.Scheme is "http" or "https";
+            if (!proxyValid)
+            {
+                errors.Add("settings.proxyAddress must be an http(s)://host:port URL when proxyMode is manual.");
+            }
+        }
+
         var seenGameIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < catalog.Games.Count; i++)
         {

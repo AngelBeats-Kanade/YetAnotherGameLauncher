@@ -24,6 +24,25 @@ public sealed class AppSettings
     /// </summary>
     public string? AppBackgroundImage { get; set; }
 
+    /// <summary>出站网络代理模式（跟随系统/直连/手动指定）。</summary>
+    public ProxyMode ProxyMode { get; set; } = ProxyMode.System;
+
+    /// <summary>手动代理服务器地址（ProxyMode=Manual 时生效，如 http://127.0.0.1:7890）。</summary>
+    public string? ProxyAddress { get; set; }
+
     /// <summary>配置结构版本：升级启动器时据此做一次性迁移（如补全新增的官方服务器）。</summary>
     public int SchemaVersion { get; set; }
+}
+
+/// <summary>出站网络代理模式。</summary>
+public enum ProxyMode
+{
+    /// <summary>跟随系统代理设置（默认，与未提供该设置前行为一致）。</summary>
+    System,
+
+    /// <summary>直连（显式绕过任何系统代理）。</summary>
+    None,
+
+    /// <summary>使用用户指定的代理服务器地址（http://host:port）。</summary>
+    Manual,
 }
