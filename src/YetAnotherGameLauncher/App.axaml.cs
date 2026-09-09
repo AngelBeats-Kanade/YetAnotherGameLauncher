@@ -42,13 +42,15 @@ public partial class App : Application
             .SetMinimumLevel(LogLevel.Debug)
             .AddSimpleConsole(options => options.SingleLine = true));
 
-        // 基础设施
-        services.AddSingleton(_ => new HttpClient(new HttpClientHandler
+        // 基础设施（代理管理器持有共享 SocketsHttpHandler：设置保存后代理即时生效）
+        services.AddSingleton<NetworkProxyManager>();
+        services.AddSingleton(sp =>
         {
-            AutomaticDecompression = System.Net.DecompressionMethods.All,
-        })
-        {
-            Timeout = TimeSpan.FromSeconds(30),
+            var proxyManager = sp.GetRequiredService<NetworkProxyManager>();
+            return new HttpClient(proxyManager.Handler)
+            {
+                Timeout = TimeSpan.FromSeconds(30),
+            };
         });
         services.AddSingleton<SpeedLimiter>();
         services.AddSingleton<HttpFileDownloader>();
@@ -76,6 +78,7 @@ public partial class App : Application
 
         // 游戏背景解析（按渠道键注册；配置文件不携带背景地址，启动时向渠道确认当期背景）
         services.AddSingleton<KuroSwitchConfigClient>();
+        services.AddSingleton<KuroGachaService>();
         services.AddKeyedSingleton<IBackdropResolver, KuroBackdropResolver>("kuro");
         services.AddKeyedSingleton<IBackdropResolver, EndfieldBackdropResolver>("hypergryph");
         services.AddSingleton(sp => new GameBackdropService(
@@ -104,7 +107,8 @@ public partial class App : Application
                 channelKey => keyed.GetKeyedService<IGameChannelApi>(channelKey),
                 TryLoadEmbeddedSampleTemplate,
                 sp.GetRequiredService<IFilePickerService>(),
-                sp.GetRequiredService<IVideoBackdropPlayer>());
+                sp.GetRequiredService<IVideoBackdropPlayer>(),
+                sp.GetRequiredService<KuroGachaService>());
         });
 
         return services.BuildServiceProvider();

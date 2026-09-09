@@ -9,6 +9,7 @@
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">
                     <SolidColorBrush x:Key="AppAccentBrush" Color="#2E7CF6"/>
+                    <SolidColorBrush x:Key="AppAccentHoverBrush" Color="#1E66D6"/>
                     <SolidColorBrush x:Key="AppSidebarBackground" Color="#E2EDEFF3"/>
                     <SolidColorBrush x:Key="AppSidebarHover" Color="#B4FFFFFF"/>
                     <SolidColorBrush x:Key="AppSidebarSelected" Color="#C8D8E4FB"/>
@@ -37,6 +38,7 @@
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <SolidColorBrush x:Key="AppAccentBrush" Color="#4C8DFF"/>
+                    <SolidColorBrush x:Key="AppAccentHoverBrush" Color="#3B7BE8"/>
                     <SolidColorBrush x:Key="AppSidebarBackground" Color="#D9191920"/>
                     <SolidColorBrush x:Key="AppSidebarHover" Color="#5C2E2E38"/>
                     <SolidColorBrush x:Key="AppSidebarSelected" Color="#99304978"/>
