@@ -6,17 +6,22 @@ namespace YetAnotherGameLauncher.Core.Services;
 /// <summary>基于 System.Diagnostics.Process 的进程运行器：捕获输出、超时杀死、传播取消。</summary>
 public sealed class SystemProcessRunner : IProcessRunner
 {
-    /// <summary>启动进程并等待退出，捕获 stdout/stderr；超时或取消时杀死整个进程树并抛出取消。</summary>
+    /// <summary>
+    /// 启动进程并等待退出，捕获 stdout/stderr；超时或取消时杀死整个进程树并抛出取消。
+    /// WaitForExit=false 时即启即走（游戏启动用）：不重定向输出、不等待、不受超时影响。
+    /// </summary>
     public async Task<ProcessResult> RunAsync(ProcessStartSpec spec, CancellationToken cancellationToken = default)
     {
+        var waitForExit = spec.WaitForExit;
         var startInfo = new ProcessStartInfo
         {
             FileName = spec.FileName,
             Arguments = spec.Arguments,
             WorkingDirectory = spec.WorkingDirectory ?? Environment.CurrentDirectory,
             UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
+            // 即启即走时无人读取管道，重定向会因缓冲区写满卡死目标进程
+            RedirectStandardOutput = waitForExit,
+            RedirectStandardError = waitForExit,
             CreateNoWindow = true,
         };
 
@@ -30,6 +35,10 @@ public sealed class SystemProcessRunner : IProcessRunner
 
         using var process = new Process { StartInfo = startInfo };
         process.Start();
+        if (!waitForExit)
+        {
+            return new ProcessResult(0, "", "");
+        }
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(spec.TimeoutMilliseconds);

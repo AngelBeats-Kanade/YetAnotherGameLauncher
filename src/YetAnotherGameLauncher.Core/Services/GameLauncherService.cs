@@ -42,22 +42,28 @@ public sealed class GameLauncherService(IProcessRunner processRunner, ILogger? l
         return new LaunchPlan(fileName, arguments, workingDirectory, environment);
     }
 
-    /// <summary>解析并启动游戏进程。</summary>
+    /// <summary>解析并启动游戏进程（即启即走：启动器不随游戏进程阻塞，更不会超时杀掉游戏）。</summary>
     public async Task<int> LaunchAsync(
         GameDefinition game, string installDir, string effectiveExecutable, CancellationToken cancellationToken = default)
     {
         var plan = BuildPlan(game, installDir, effectiveExecutable);
         var result = await processRunner.RunAsync(
-            new ProcessStartSpec(plan.FileName, plan.Arguments, plan.WorkingDirectory, plan.Environment),
+            new ProcessStartSpec(
+                plan.FileName, plan.Arguments, plan.WorkingDirectory, plan.Environment, WaitForExit: false),
             cancellationToken).ConfigureAwait(false);
         return result.ExitCode;
     }
 
-    /// <summary>替换模板占位符。</summary>
-    public static string Expand(string template, string exePath, string installDir) =>
-        template
-            .Replace("{exe}", exePath, StringComparison.OrdinalIgnoreCase)
+    /// <summary>替换模板占位符。{exe} 展开为带引号的路径——命令按空格切分，
+    /// 路径含空格（如 D:\Wuthering Waves）不加引号会被截断成不存在的文件；兼容已手写引号的 "{exe}"。</summary>
+    public static string Expand(string template, string exePath, string installDir)
+    {
+        var quoted = $"\"{exePath}\"";
+        return template
+            .Replace("\"{exe}\"", quoted, StringComparison.OrdinalIgnoreCase)
+            .Replace("{exe}", quoted, StringComparison.OrdinalIgnoreCase)
             .Replace("{installDir}", installDir, StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>按引号感知规则把命令行拆分为文件名与参数（Windows 风格引号）。</summary>
     public static (string FileName, string Arguments) SplitCommand(string command)

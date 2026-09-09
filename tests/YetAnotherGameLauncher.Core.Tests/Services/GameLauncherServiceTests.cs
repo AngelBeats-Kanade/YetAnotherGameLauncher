@@ -53,6 +53,22 @@ public class GameLauncherServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task BuildPlan_BareExeTemplate_QuotesSpacedPaths()
+    {
+        // 用户场景：裸 {exe} 模板 + 含空格的安装路径——不加引号会在按空格切分时被截断
+        var spacedDir = _tempDir.FilePath("Wuthering Waves Games");
+        Directory.CreateDirectory(spacedDir);
+        var exePath = Path.Combine(spacedDir, "game.exe");
+        await File.WriteAllTextAsync(exePath, "stub");
+
+        var plan = Service().BuildPlan(Game("{exe}"), _tempDir.Path, "Wuthering Waves Games/game.exe");
+
+        Assert.Equal(exePath, plan.FileName);
+        Assert.Equal("", plan.Arguments);
+        Assert.Equal(_tempDir.Path, plan.WorkingDirectory);
+    }
+
+    [Fact]
     public async Task BuildPlan_WineTemplate_SplitsCommandAndArgs()
     {
         await CreateExecutable();
@@ -103,6 +119,18 @@ public class GameLauncherServiceTests : IDisposable
         Assert.Equal(7, exitCode);
         var spec = Assert.Single(_runner.Specs);
         Assert.Equal(_tempDir.Path, spec.WorkingDirectory);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_IsFireAndForget()
+    {
+        // 游戏启动不得等待进程退出：等 10 分钟超时后整个游戏进程树会被启动器杀死
+        await CreateExecutable();
+
+        await Service().LaunchAsync(Game("\"{exe}\""), _tempDir.Path, "bin/game.exe");
+
+        var spec = Assert.Single(_runner.Specs);
+        Assert.False(spec.WaitForExit);
     }
 
     [Theory]
