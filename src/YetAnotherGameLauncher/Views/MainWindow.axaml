@@ -10,7 +10,7 @@
         x:DataType="vm:MainWindowViewModel"
         Title="YetAnotherGameLauncher"
         Icon="avares://YetAnotherGameLauncher/Assets/app-icon.ico"
-        Width="1280" Height="720" MinWidth="920" MinHeight="620"
+        Width="1464" Height="720" MinWidth="920" MinHeight="620"
         ExtendClientAreaToDecorationsHint="True"
         WindowDecorations="BorderOnly"
         TransparencyLevelHint="Transparent"
@@ -569,9 +569,9 @@
 
                                     <Grid RowDefinitions="*,Auto" Margin="42,36,42,30">
 
-                                        <!-- 状态区（页中下方居中）：状态胶囊自带对比底，无遮罩也可读；确认条悬其上方 -->
-                                        <StackPanel Grid.Row="0" VerticalAlignment="Bottom" HorizontalAlignment="Center"
-                                                    Margin="0,0,0,18" Spacing="12">
+                                        <!-- 状态区（页中上方居中）：状态胶囊自带对比底，无遮罩也可读；确认条悬其上方 -->
+                                        <StackPanel Grid.Row="0" VerticalAlignment="Top" HorizontalAlignment="Center"
+                                                    Margin="0,18,0,0" Spacing="12">
                                             <!-- 校验修复确认条（包式渠道无逐文件清单：修复=整包重下覆盖安装，需确认） -->
                                             <Border HorizontalAlignment="Center"
                                                     Padding="16,12" CornerRadius="12"
@@ -1044,11 +1044,10 @@
                                                            VerticalAlignment="Center"/>
                                             </StackPanel>
 
-                                            <!-- 位置 -->
-                                            <Border Classes="card">
+                                            <!-- 服务器独立卡（先选区、再选目录）：切换即时刷新版本与安装状态 -->
+                                            <Border Classes="card" Margin="0,0,0,4">
                                                 <StackPanel Spacing="8">
-                                                    <TextBlock Text="{Binding Loc[settings_section_location]}" FontSize="15" FontWeight="SemiBold"/>
-                                                    <TextBlock Text="{Binding Loc[game_server]}" Classes="card-caption"/>
+                                                    <TextBlock Text="{Binding Loc[game_server]}" FontSize="15" FontWeight="SemiBold"/>
                                                     <ComboBox ItemsSource="{Binding Game.Servers}"
                                                               SelectedItem="{Binding Game.SelectedServer}"
                                                               MinWidth="200" HorizontalAlignment="Left">
@@ -1058,6 +1057,14 @@
                                                             </DataTemplate>
                                                         </ComboBox.ItemTemplate>
                                                     </ComboBox>
+                                                    <TextBlock Text="{Binding Loc[launch_serverHint]}" Classes="card-caption"/>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- 位置 -->
+                                            <Border Classes="card">
+                                                <StackPanel Spacing="8">
+                                                    <TextBlock Text="{Binding Loc[settings_section_location]}" FontSize="15" FontWeight="SemiBold"/>
                                                     <TextBlock Text="{Binding Loc[launch_installDir]}" Classes="card-caption" Margin="0,4,0,0"/>
                                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                                                         <TextBox Grid.Column="0" x:Name="InstallDirBox" Text="{Binding LaunchSettings.InstallDirDraft}"/>

@@ -46,6 +46,7 @@ public static class VmFactory
         public required FakeChannel Gryphline { get; init; }
         public required FakeDownloader Downloader { get; init; }
         public required string ConfigPath { get; init; }
+        public required GameCatalogService CatalogService { get; init; }
         public required FakeBackdropResolver KuroBackdrop { get; init; }
         public required FakeBackdropResolver GryphlineBackdrop { get; init; }
         public StubHttpHandler BackgroundHandler { get; init; } = new();
@@ -134,12 +135,13 @@ public static class VmFactory
             },
             cacheRoot: tempDir.FilePath("backdrops"));
 
+        var catalogService = new GameCatalogService(configPath);
         var vm = new MainWindowViewModel(
-            new GameCatalogService(configPath),
+            catalogService,
             new GameUpdateService(downloader, new FakePatchApplier()),
             new GameLauncherService(new FakeProcessRunner()),
             httpDownloader,
-            autostart ?? new AutostartService(new FakeProcessRunner()),
+            autostart ?? new WindowsAutostartService(new FakeProcessRunner()),
             new ThemeService(),
             new LocalizationService(),
             new BackgroundImageService(new HttpClient(backgroundHandler)),
@@ -158,6 +160,7 @@ public static class VmFactory
         {
             Vm = vm,
             TempDir = tempDir,
+            CatalogService = catalogService,
             Kuro = kuro,
             Gryphline = gryphline,
             Downloader = downloader,

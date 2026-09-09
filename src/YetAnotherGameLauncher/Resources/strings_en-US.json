@@ -34,6 +34,7 @@
   "launch_compat": "Launch method",
   "launch_environment": "Environment variables",
   "launch_environmentHint": "One KEY=VALUE per line; values support the {installDir} placeholder.",
+  "launch_serverHint": "Switching servers refreshes version and install state instantly (each server keeps its own install directory)",
   "launch_installDir": "Install directory",
   "launch_installDirBrowse": "Choose folder…",
   "launch_installDirHint": "Absolute path, or relative to the install root; applies on save.",

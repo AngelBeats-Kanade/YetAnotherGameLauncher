@@ -34,6 +34,7 @@
   "launch_compat": "启动方式",
   "launch_environment": "环境变量",
   "launch_environmentHint": "每行一条 KEY=VALUE，值支持 {installDir} 占位符。",
+  "launch_serverHint": "切换服务器即时刷新版本与安装状态（各服务器安装目录相互独立）",
   "launch_installDir": "安装目录",
   "launch_installDirBrowse": "选择目录…",
   "launch_installDirHint": "绝对路径，或相对安装根目录；保存后立即生效。",

@@ -94,7 +94,7 @@ public class AutostartContentTests
     [Fact]
     public void BuildDesktopContent_QuotesExecPath()
     {
-        var content = AutostartService.BuildDesktopContent("/opt/yagl/YetAnotherGameLauncher");
+        var content = LinuxAutostartService.BuildDesktopContent("/opt/yagl/YetAnotherGameLauncher");
 
         Assert.Contains("[Desktop Entry]", content);
         Assert.Contains("Exec=\"/opt/yagl/YetAnotherGameLauncher\"", content);
@@ -104,7 +104,7 @@ public class AutostartContentTests
     [Fact]
     public void DesktopFilePath_UnderXdgAutostart()
     {
-        var path = AutostartService.DesktopFilePath("/home/user");
+        var path = LinuxAutostartService.DesktopFilePath("/home/user");
 
         Assert.StartsWith("/home/user", path);
         Assert.EndsWith(System.IO.Path.Combine(".config", "autostart", "yetanothergamelauncher.desktop"), path);

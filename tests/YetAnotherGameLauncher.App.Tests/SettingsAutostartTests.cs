@@ -17,7 +17,7 @@ public class SettingsAutostartTests
     [Fact]
     public async Task ShowSettings_WithRealRegistryQuery_InitializesAutostartState()
     {
-        using var ctx = VmFactory.Build(autostart: new AutostartService(new SystemProcessRunner()));
+        using var ctx = VmFactory.Build(autostart: new WindowsAutostartService(new SystemProcessRunner()));
         await ctx.Vm.InitializeAsync();
 
         ctx.Vm.ShowSettingsCommand.Execute(null);
@@ -36,7 +36,7 @@ public class SettingsAutostartTests
     public async Task AutostartService_QueryRealRegistry_Completes()
     {
         // 只读查询：测试环境未写自启键，应返回 false（键不存在 = exit 1）
-        var service = new AutostartService(new SystemProcessRunner());
+        var service = new WindowsAutostartService(new SystemProcessRunner());
         Assert.False(await service.IsEnabledAsync());
     }
 
