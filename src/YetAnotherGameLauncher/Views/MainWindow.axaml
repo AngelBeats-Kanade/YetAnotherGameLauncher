@@ -45,7 +45,7 @@
             <Setter Property="Background" Value="{DynamicResource AppSidebarSelected}"/>
         </Style>
 
-        <!-- 状态点：默认灰，已安装绿，有更新强调蓝，预下载窗口琥珀（限时的可选动作） -->
+        <!-- 状态点：默认灰，可启动绿，有更新强调蓝，预下载窗口琥珀（限时的可选动作） -->
         <Style Selector="Ellipse.dot">
             <Setter Property="Width" Value="10"/>
             <Setter Property="Height" Value="10"/>
@@ -458,7 +458,7 @@
                                     </StackPanel>
                                     <Ellipse Grid.Column="2" Classes="dot" VerticalAlignment="Center"
                                              IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsSidebarExpanded}"
-                                             Classes.installed="{Binding IsInstalled}"
+                                             Classes.installed="{Binding CanLaunch}"
                                              Classes.has-update="{Binding HasUpdate}"
                                              Classes.predownload="{Binding ShowPredownloadCue}"/>
                                 </Grid>
@@ -583,7 +583,7 @@
                                                     HorizontalAlignment="Left">
                                             <StackPanel Orientation="Horizontal" Spacing="10">
                                                 <Ellipse Classes="dot" Width="12" Height="12"
-                                                         Classes.installed="{Binding IsInstalled}"
+                                                         Classes.installed="{Binding CanLaunch}"
                                                          Classes.has-update="{Binding HasUpdate}"
                                                          Classes.predownload="{Binding ShowPredownloadCue}"/>
                                                 <TextBlock Text="{Binding StatusText}" FontSize="19" FontWeight="SemiBold"
@@ -1060,6 +1060,14 @@
                                                                 Classes="pressable btn-sm"/>
                                                     </Grid>
                                                     <TextBlock Text="{Binding Loc[launch_installDirHint]}" Classes="card-caption"/>
+                                                    <TextBlock Text="{Binding Loc[launch_executable]}" Classes="card-caption" Margin="0,4,0,0"/>
+                                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                                        <TextBox Grid.Column="0" Text="{Binding LaunchSettings.ExecutableDraft}"/>
+                                                        <Button Grid.Column="1" Content="{Binding Loc[launch_executableBrowse]}"
+                                                                Command="{Binding LaunchSettings.BrowseExecutableCommand}"
+                                                                Classes="pressable btn-sm"/>
+                                                    </Grid>
+                                                    <TextBlock Text="{Binding Loc[launch_executableHint]}" Classes="card-caption"/>
                                                     <TextBlock Classes="save-msg"
                                                                Text="{Binding LaunchSettings.Save.Message}"
                                                                IsVisible="{Binding LaunchSettings.Save.HasMessage}"

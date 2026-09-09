@@ -91,8 +91,10 @@ public partial class GameItemViewModel(
     [ObservableProperty] private string _versionText = "";
     /// <summary>当前服务器是否已安装。</summary>
     [ObservableProperty] private bool _isInstalled;
-    /// <summary>是否满足启动条件（已安装且可执行文件存在）。</summary>
+    /// <summary>是否满足启动条件（游戏可执行文件存在——无论是否由启动器安装登记）。</summary>
     [ObservableProperty] private bool _canLaunch;
+
+    partial void OnCanLaunchChanged(bool value) => OnPropertyChanged(nameof(HasGachaEntry));
     /// <summary>本地版本落后于远端最新版。</summary>
     [ObservableProperty] private bool _hasUpdate;
     /// <summary>渠道提供预下载且尚未暂存。</summary>
@@ -145,8 +147,8 @@ public partial class GameItemViewModel(
     /// <summary>是否库洛渠道（鸣潮专属功能如唤取记录按此显示入口）。</summary>
     public bool IsKuro => Game.Channel == "kuro";
 
-    /// <summary>唤取记录入口可见性：仅鸣潮且已安装（游戏本体不在时抽卡数据无从谈起）。</summary>
-    public bool HasGachaEntry => IsKuro && IsInstalled;
+    /// <summary>唤取记录入口可见性：仅鸣潮且游戏文件在本地（日志就在安装目录里，无需登记版本）。</summary>
+    public bool HasGachaEntry => IsKuro && CanLaunch;
 
     /// <summary>
     /// 侧栏/状态点与状态行的预下载提示：已安装、无更新且渠道开放预下载窗口
@@ -201,15 +203,14 @@ public partial class GameItemViewModel(
             IsInstalled = state is not null;
             HasUpdate = false;
             PredownloadAvailable = false;
-            CanLaunch = IsInstalled && ExecutableExists();
+            CanLaunch = ExecutableExists();
             OnPropertyChanged(nameof(InstallButtonText));
-            OnPropertyChanged(nameof(HasGachaEntry));
             OnPropertyChanged(nameof(ShowPredownloadCue));
             return;
         }
 
         IsInstalled = state is not null;
-        CanLaunch = IsInstalled && ExecutableExists();
+        CanLaunch = ExecutableExists();
         HasUpdate = VersionComparison.IsNewer(info.LatestVersion, state?.Version);
         PredownloadAvailable = info.PredownloadAvailable && !HasStagedPredownload;
 
@@ -219,15 +220,15 @@ public partial class GameItemViewModel(
                 ? Loc.Format("version_canUpdate", state.Version, info.LatestVersion)
                 : Loc.Format("version_local", state.Version);
 
-        // 第四态：已安装且无更新且开放预下载窗口——预下载是限时动作，状态行与侧栏点都要提示
+        // 状态优先级：未登记但文件在 → 可直接启动（官启等来源的既有安装）；
+        // 已登记 → 有更新 / 可预下载 / 已是最新
         StatusText = !IsInstalled
-            ? Loc["status_notInstalled"]
+            ? CanLaunch ? Loc["status_detected"] : Loc["status_notInstalled"]
             : HasUpdate
                 ? Loc["status_hasUpdate"]
                 : PredownloadAvailable ? Loc["status_predownload"] : Loc["status_upToDate"];
 
         OnPropertyChanged(nameof(InstallButtonText));
-        OnPropertyChanged(nameof(HasGachaEntry));
         OnPropertyChanged(nameof(ShowPredownloadCue));
     }
 

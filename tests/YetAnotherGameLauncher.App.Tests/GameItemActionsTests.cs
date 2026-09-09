@@ -1,3 +1,4 @@
+using System.Text.Json;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Utilities;
 using YetAnotherGameLauncher.TestSupport;
@@ -16,7 +17,7 @@ public class GameItemActionsTests : IDisposable
 
     public void Dispose() => _ctx.TempDir.Dispose();
 
-    /// <summary>给鸣潮渠道配置"已安装即最新"的假清单与下载内容。</summary>
+    /// <summary>给鸣潮渠道配置"已安装即最新"的假清单与下载内容（含真实 exe 路径，安装后即可启动）。</summary>
     private void SetupKuroUpToDate()
     {
         var zipBytes = TestZip.Create(("Client/game.exe", "MZ"));
@@ -24,7 +25,11 @@ public class GameItemActionsTests : IDisposable
         _ctx.Kuro.Manifests["3.6.0"] = new GameManifest
         {
             Version = "3.6.0",
-            Files = [new ManifestFile("Client/game.exe", zipBytes.Length, Hashing.Md5Hex(zipBytes), Url: "https://cdn/game.exe")],
+            Files =
+            [
+                new ManifestFile("Client/game.exe", zipBytes.Length, Hashing.Md5Hex(zipBytes), Url: "https://cdn/game.exe"),
+                new ManifestFile("Client/Binaries/Win64/Client-Win64-Shipping.exe", zipBytes.Length, Hashing.Md5Hex(zipBytes), Url: "https://cdn/game.exe"),
+            ],
         };
         _ctx.Downloader.Responses["https://cdn/game.exe"] = zipBytes;
     }
@@ -111,6 +116,113 @@ public class GameItemActionsTests : IDisposable
 
         Assert.Equal("发现并修复 1 个文件", wuwa.StatusText);
         Assert.Equal(original, await File.ReadAllBytesAsync(exePath));
+    }
+
+    [Fact]
+    public async Task DetectExistingInstall_AllowsDirectLaunch()
+    {
+        await _ctx.Vm.InitializeAsync();
+        var wuwa = _ctx.Vm.Games[0];
+
+        // 未登记（无 .yagl/state.json）且无游戏文件：不可启动
+        Assert.False(wuwa.CanLaunch);
+        Assert.Equal("尚未安装", wuwa.StatusText);
+
+        // 模拟"来自官方启动器的既有安装"：游戏文件在，但没有启动器登记
+        var exePath = Path.Combine(wuwa.InstallDirPath, "Client", "Binaries", "Win64", "Client-Win64-Shipping.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(exePath)!);
+        await File.WriteAllBytesAsync(exePath, "MZ"u8.ToArray());
+        await wuwa.RefreshAsync();
+
+        Assert.False(wuwa.IsInstalled);
+        Assert.True(wuwa.CanLaunch);
+        Assert.Equal("检测到游戏文件，可直接启动", wuwa.StatusText);
+        Assert.True(wuwa.HasGachaEntry);
+        Assert.Equal("安装游戏", wuwa.InstallButtonText); // 想纳入版本管理仍可点
+    }
+
+    [Fact]
+    public async Task ExecutableDraft_PickedPathSavedRelativeAndDetected()
+    {
+        var picker = new FakeFilePicker();
+        using var ctx = VmFactory.Build(filePicker: picker);
+        await ctx.Vm.InitializeAsync();
+        var wuwa = ctx.Vm.Games[0];
+
+        // 选一个与配置默认值不同的主程序路径，制造真实的"可执行文件变更"
+        var exePath = Path.Combine(wuwa.InstallDirPath, "bin", "MyGame.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(exePath)!);
+        await File.WriteAllBytesAsync(exePath, "MZ"u8.ToArray());
+        picker.ExecutableResult = exePath;
+
+        // 初始尚未登记（无 state.json）：不可启动
+        Assert.False(wuwa.CanLaunch);
+
+        await wuwa.LaunchSettings.BrowseExecutableCommand.ExecuteAsync(null);
+
+        // 安装目录内的绝对路径换算为相对路径写回 games.json，可启动性即时刷新
+        Assert.Equal("bin/MyGame.exe", wuwa.Game.Executable);
+        Assert.True(wuwa.CanLaunch);
+        Assert.True(wuwa.HasGachaEntry);
+        Assert.Equal(exePath.Replace('\\', '/'), Path.GetFullPath(Path.Combine(wuwa.InstallDirPath, wuwa.Game.Executable.Replace('\\', '/'))).Replace('\\', '/'));
+        var json = await File.ReadAllTextAsync(ctx.ConfigPath);
+        Assert.Contains("bin/MyGame.exe", json);
+    }
+
+    [Fact]
+    public async Task ProxyRadios_MapToModesAndPersist()
+    {
+        await _ctx.Vm.InitializeAsync();
+        _ctx.Vm.ShowSettingsCommand.Execute(null);
+        var settings = (SettingsViewModel)_ctx.Vm.CurrentPage!;
+
+        // 默认跟随系统：地址框禁用
+        Assert.True(settings.ProxyFollowSystem);
+        Assert.False(settings.IsProxyAddressEnabled);
+
+        // radio 互斥
+        settings.ProxyDirect = true;
+        Assert.False(settings.ProxyFollowSystem);
+        Assert.False(settings.ProxyManual);
+        settings.ProxyManual = true;
+        Assert.False(settings.ProxyDirect);
+        Assert.True(settings.IsProxyAddressEnabled);
+
+        settings.ProxyAddressDraft = "http://127.0.0.1:7890";
+        await settings.SaveProxyCommand.ExecuteAsync(null);
+        Assert.False(settings.ProxySave.Failed);
+        Assert.Equal("Manual", ReadProxyMode(_ctx.ConfigPath), ignoreCase: true);
+        Assert.Equal("http://127.0.0.1:7890", ReadProxyAddress(_ctx.ConfigPath));
+
+        // 直连：忽略地址草稿
+        settings.ProxyDirect = true;
+        await settings.SaveProxyCommand.ExecuteAsync(null);
+        Assert.Equal("None", ReadProxyMode(_ctx.ConfigPath), ignoreCase: true);
+        Assert.Equal("", ReadProxyAddress(_ctx.ConfigPath));
+
+        // 无效地址：手动保存失败
+        settings.ProxyManual = true;
+        settings.ProxyAddressDraft = "not-a-proxy";
+        await settings.SaveProxyCommand.ExecuteAsync(null);
+        Assert.True(settings.ProxySave.Failed);
+        Assert.Equal("None", ReadProxyMode(_ctx.ConfigPath), ignoreCase: true);
+    }
+
+    private static string? ReadProxyMode(string configPath) =>
+        ReadSettings(configPath)?.GetProperty("proxyMode").GetString();
+
+    private static string ReadProxyAddress(string configPath)
+    {
+        var settings = ReadSettings(configPath);
+        return settings is { } value && value.TryGetProperty("proxyAddress", out var address)
+            ? address.GetString() ?? ""
+            : "";
+    }
+
+    private static JsonElement? ReadSettings(string configPath)
+    {
+        var catalog = JsonDocument.Parse(File.ReadAllText(configPath)).RootElement;
+        return catalog.TryGetProperty("settings", out var settings) ? settings : null;
     }
 
     [Fact]

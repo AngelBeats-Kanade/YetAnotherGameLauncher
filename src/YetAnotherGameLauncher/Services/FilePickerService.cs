@@ -12,6 +12,9 @@ public interface IFilePickerService
 
     /// <summary>弹出目录选择对话框（起始位置为建议目录），返回选中的本地路径；取消返回 null。</summary>
     Task<string?> PickFolderAsync(string title, string? suggestedPath);
+
+    /// <summary>弹出游戏可执行文件选择对话框，返回选中的本地路径；取消返回 null。</summary>
+    Task<string?> PickExecutableFileAsync(string title, string? suggestedDirectory);
 }
 
 /// <summary>基于主窗口 StorageProvider 的实现。</summary>
@@ -67,5 +70,38 @@ public sealed class StorageProviderFilePicker : IFilePickerService
 
         var folders = await desktop.MainWindow.StorageProvider.OpenFolderPickerAsync(options);
         return folders.Count > 0 ? folders[0].TryGetLocalPath() : null;
+    }
+
+    /// <summary>弹出游戏可执行文件选择对话框（Windows 过滤 .exe；Linux 不过滤——Proton/Wine 运行的同样是 .exe），取消返回 null。</summary>
+    public async Task<string?> PickExecutableFileAsync(string title, string? suggestedDirectory)
+    {
+        if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop
+            || desktop.MainWindow is null)
+        {
+            return null;
+        }
+
+        var options = new FilePickerOpenOptions
+        {
+            Title = title,
+            AllowMultiple = false,
+            FileTypeFilter = OperatingSystem.IsWindows()
+                ? [new FilePickerFileType("Executable") { Patterns = ["*.exe"] }]
+                : null,
+        };
+        if (!string.IsNullOrWhiteSpace(suggestedDirectory))
+        {
+            try
+            {
+                options.SuggestedStartLocation = await desktop.MainWindow.StorageProvider
+                    .TryGetFolderFromPathAsync(suggestedDirectory);
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or IOException)
+            {
+            }
+        }
+
+        var files = await desktop.MainWindow.StorageProvider.OpenFilePickerAsync(options);
+        return files.Count > 0 ? files[0].TryGetLocalPath() : null;
     }
 }

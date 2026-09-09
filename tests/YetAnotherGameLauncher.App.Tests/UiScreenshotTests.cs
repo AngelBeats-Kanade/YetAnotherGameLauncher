@@ -159,7 +159,11 @@ public class UiScreenshotTests
             ctx.Kuro.Manifests["3.6.0"] = new GameManifest
             {
                 Version = "3.6.0",
-                Files = [new ManifestFile("Client/game.exe", wuwaZip.Length, Hashing.Md5Hex(wuwaZip), Url: "https://cdn/wuwa-full.zip")],
+                Files =
+                [
+                    new ManifestFile("Client/game.exe", wuwaZip.Length, Hashing.Md5Hex(wuwaZip), Url: "https://cdn/wuwa-full.zip"),
+                    new ManifestFile("Client/Binaries/Win64/Client-Win64-Shipping.exe", wuwaZip.Length, Hashing.Md5Hex(wuwaZip), Url: "https://cdn/wuwa-full.zip"),
+                ],
             };
             ctx.Downloader.Responses["https://cdn/wuwa-full.zip"] = wuwaZip;
             await ctx.Vm.Games[0].InstallOrUpdateCommand.ExecuteAsync(null);

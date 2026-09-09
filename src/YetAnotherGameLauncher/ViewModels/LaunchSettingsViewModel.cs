@@ -32,6 +32,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         _loc = loc;
         _filePicker = filePicker;
         _installDirDraft = installDir;
+        _executableDraft = game.Executable;
         _commandTemplate = game.Launch.CommandTemplate;
         _workingDirectory = game.Launch.WorkingDirectory;
         _environmentText = SerializeEnvironment(game.Launch.Environment);
@@ -85,6 +86,10 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     /// <summary>安装目录草稿（绝对路径；与启动参数共用同一保存按钮）。</summary>
     [ObservableProperty]
     private string _installDirDraft;
+
+    /// <summary>游戏可执行文件草稿（相对安装目录或绝对路径，'/' 分隔）。</summary>
+    [ObservableProperty]
+    private string _executableDraft;
 
     /// <summary>当前系统是否为 Linux（决定是否显示兼容层选择）。</summary>
     public bool IsLinux => OperatingSystem.IsLinux();
@@ -253,8 +258,42 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         await SaveAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// 弹系统文件选择对话框选游戏主程序：选中即换算为相对路径（在安装目录内时）写入草稿并保存；
+    /// 目录外则存绝对路径。未注册选择器（无头测试/服务缺失）时命令无副作用。
+    /// </summary>
+    [RelayCommand]
+    private async Task BrowseExecutableAsync(CancellationToken cancellationToken)
+    {
+        Save.Clear();
+        if (_filePicker is null)
+        {
+            return;
+        }
+
+        var path = await _filePicker.PickExecutableFileAsync(
+            _loc["launch_executablePickTitle"], InstallDirDraft);
+        if (string.IsNullOrEmpty(path))
+        {
+            return;
+        }
+
+        ExecutableDraft = RelativeToInstallDir(NormalizeDirectoryPath(path));
+        await SaveAsync(cancellationToken);
+    }
+
     /// <summary>目录路径统一为正斜杠（与示例配置一致；读取端 Path.GetFullPath 兼容两种斜杠）。</summary>
     private static string NormalizeDirectoryPath(string path) => path.Replace('\\', '/');
+
+    /// <summary>把位于安装目录内的绝对路径换算为相对路径；目录外保持绝对（Path.Combine 对两者都兼容）。</summary>
+    private string RelativeToInstallDir(string normalizedPath)
+    {
+        var root = NormalizeDirectoryPath(InstallDirDraft).TrimEnd('/');
+        var separator = root.Length == 0 ? "" : "/";
+        return normalizedPath.StartsWith(root + separator, StringComparison.Ordinal)
+            ? normalizedPath[(root.Length + separator.Length)..]
+            : normalizedPath;
+    }
 
     /// <summary>校验并保存启动设置回 games.json（含安装目录变更时就地生效）。</summary>
     [RelayCommand]
@@ -275,6 +314,13 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             return;
         }
 
+        var executable = NormalizeDirectoryPath(ExecutableDraft.Trim());
+        if (executable.Length == 0)
+        {
+            Save.SetFailure(_loc["launch_executableRequired"]);
+            return;
+        }
+
         if (!TryParseEnvironment(EnvironmentText, out var environment, out var badLine))
         {
             Save.SetFailure(_loc.Format("launch_invalidEnvLine", badLine));
@@ -282,10 +328,13 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         }
 
         var installDirChanged = !string.Equals(installDir, _owner.InstallDirPath, StringComparison.Ordinal);
+        var executableChanged = !string.Equals(executable, _game.Executable, StringComparison.Ordinal);
         if (installDirChanged)
         {
             _game.InstallDir = installDir; // 支持绝对路径，直接写回
         }
+
+        _game.Executable = executable;
 
         _game.Launch = new LaunchOptions
         {
@@ -302,6 +351,10 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             if (installDirChanged)
             {
                 _owner.UpdateInstallDir(installDir); // 路径就地重解析 + 状态刷新
+            }
+            else if (executableChanged)
+            {
+                await _owner.RefreshAsync(cancellationToken); // 可启动性/状态行随之刷新
             }
 
             Save.SetSuccess(_loc["launch_saved"]);
