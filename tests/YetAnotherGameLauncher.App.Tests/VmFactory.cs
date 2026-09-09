@@ -76,6 +76,12 @@ public static class VmFactory
         /// <summary>帧位图（测试可注入假帧）。</summary>
         public IImage? Frame { get; set; }
 
+        /// <summary>循环淡化层（测试桩恒为 null）。</summary>
+        public IImage? FadeFrame => null;
+
+        /// <summary>循环淡化不透明度（测试桩恒为 0）。</summary>
+        public double FadeOpacity => 0;
+
         public event EventHandler? FrameUpdated;
 
         public Task<bool> PlayAsync(string videoPath, CancellationToken cancellationToken = default)

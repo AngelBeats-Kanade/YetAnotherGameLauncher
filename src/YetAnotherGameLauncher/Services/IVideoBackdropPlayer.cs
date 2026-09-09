@@ -4,13 +4,19 @@ namespace YetAnotherGameLauncher.Services;
 
 /// <summary>
 /// 详情页背景视频播放器抽象：把解码后的帧以 <see cref="IImage"/>（WriteableBitmap）形式暴露给
-/// 自绘渲染控件。实现负责探测解码能力（原生库缺失时 <see cref="IsAvailable"/>=false，调用方回退静态海报）。
+/// 自绘渲染控件。实现负责按需准备原生库（必要时含首运下载）。
 /// 测试用假实现替换，headless 不触达真实解码器。
 /// </summary>
 public interface IVideoBackdropPlayer
 {
     /// <summary>当前帧（视频尺寸确定后创建，内容随播放持续更新）；未播放为 null。</summary>
     IImage? Frame { get; }
+
+    /// <summary>循环回卷的淡化层：上一循环的最后一帧，随播放逐帧淡出（消除循环接缝）；非淡化期为 null。</summary>
+    IImage? FadeFrame { get; }
+
+    /// <summary>淡化层当前不透明度（0-1，逐帧递减至 0）；非淡化期为 0。</summary>
+    double FadeOpacity { get; }
 
     /// <summary>新帧就绪通知（UI 线程触发；渲染控件订阅它触发重绘）。</summary>
     event EventHandler? FrameUpdated;

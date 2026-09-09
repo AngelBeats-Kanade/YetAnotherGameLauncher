@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -11,6 +12,7 @@ using static FFmpeg.AutoGen.ffmpeg;
 
 namespace YetAnotherGameLauncher.Services;
 
+[ExcludeFromCodeCoverage]
 /// <summary>
 /// 基于 FFmpeg 的背景视频播放器：后台线程循环解码（软解为基线，D3D11VA/VAAPI 硬解自动启用），
 /// 帧经 swscale 转成 BGRA 后逐行拷进 WriteableBitmap，UI 线程节流触发 <see cref="FrameUpdated"/>
@@ -39,6 +41,18 @@ public sealed class FfmpegVideoBackdropPlayer(
     /// <summary>当前帧位图（解码线程写、UI 渲染线程读，位图内部缓冲自身同步）。</summary>
     private WriteableBitmap? _frame;
 
+    /// <summary>循环回卷的淡化层：上一循环的末帧位图，随新循环逐帧淡出后释放。</summary>
+    private WriteableBitmap? _fadeFrame;
+
+    /// <summary>淡化层当前不透明度。</summary>
+    private double _fadeOpacity;
+
+    /// <summary>每帧递减的淡化步长（按帧率与淡化时长折算）。</summary>
+    private double _fadeStep;
+
+    /// <summary>淡化时长（秒）：覆盖循环接缝的交叉淡化窗口。</summary>
+    private const double FadeSeconds = 0.6;
+
     /// <summary>当前播放的取消源与代际（旧代循环的输出一律丢弃，避免 Stop/Play 竞争）。</summary>
     private CancellationTokenSource? _cts;
     private int _generation;
@@ -51,6 +65,30 @@ public sealed class FfmpegVideoBackdropPlayer(
             lock (_gate)
             {
                 return _frame;
+            }
+        }
+    }
+
+    /// <inheritdoc/>
+    public IImage? FadeFrame
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _fadeFrame;
+            }
+        }
+    }
+
+    /// <inheritdoc/>
+    public double FadeOpacity
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _fadeOpacity;
             }
         }
     }
@@ -194,6 +232,7 @@ public sealed class FfmpegVideoBackdropPlayer(
 
                     clock?.Reset();
                     frameIndex = 0;
+                    PrepareLoopCrossfade(fps);
                     continue;
                 }
 
@@ -355,6 +394,44 @@ public sealed class FfmpegVideoBackdropPlayer(
         return context;
     }
 
+    /// <summary>
+    /// 循环回卷的交叉淡化准备：旧循环末帧保留为淡化层（整体淡出掩盖接缝），
+    /// 新循环写全新位图不受旧层覆盖；淡化步长按帧率折算（约 <see cref="FadeSeconds"/> 秒淡完）。
+    /// </summary>
+    private void PrepareLoopCrossfade(double fps)
+    {
+        lock (_gate)
+        {
+            if (_frame is null)
+            {
+                return;
+            }
+
+            _fadeFrame = _frame;
+            _fadeStep = fps > 0 ? 1.0 / (fps * FadeSeconds) : 0.25;
+            _fadeOpacity = 1;
+            _frame = null;
+        }
+    }
+
+    /// <summary>每渲染一帧推进一次淡化；归零后释放淡化层。</summary>
+    private void AdvanceLoopCrossfade()
+    {
+        lock (_gate)
+        {
+            if (_fadeFrame is null)
+            {
+                return;
+            }
+
+            _fadeOpacity = Math.Max(0, _fadeOpacity - _fadeStep);
+            if (_fadeOpacity <= 0)
+            {
+                _fadeFrame = null;
+            }
+        }
+    }
+
     /// <summary>单帧处理：确保缩放器与缓冲匹配源格式 → swscale 到 BGRA → blit 进位图 → 节流通知。</summary>
     private unsafe void RenderFrame(
         AVFrame* source,
@@ -405,6 +482,7 @@ public sealed class FfmpegVideoBackdropPlayer(
             Buffer.MemoryCopy(pixelBuffer + (nint)y * stride, target + (nint)y * locked.RowBytes, locked.RowBytes, stride);
         }
 
+        AdvanceLoopCrossfade();
         notify.Post(NotifyFrame);
     }
 
@@ -440,6 +518,8 @@ public sealed class FfmpegVideoBackdropPlayer(
         lock (_gate)
         {
             _frame = null;
+            _fadeFrame = null;
+            _fadeOpacity = 0;
         }
 
         NotifyFrame();

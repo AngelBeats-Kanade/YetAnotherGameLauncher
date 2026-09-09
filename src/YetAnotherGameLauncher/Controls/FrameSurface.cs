@@ -66,7 +66,8 @@ public class FrameSurface : Control
 
     private void OnFrameUpdated(object? sender, EventArgs e) => InvalidateVisual();
 
-    /// <summary>UniformToFill + 左上锚定绘制当前帧（缩放取两轴较大者，溢出裁右侧/底部）。</summary>
+    /// <summary>UniformToFill + 左上锚定绘制当前帧（缩放取两轴较大者，溢出裁右侧/底部）；
+    /// 存在循环淡化层时，在新帧之上按递减不透明度叠画上一循环末帧，掩盖循环接缝。</summary>
     public override void Render(DrawingContext context)
     {
         if (Player?.Frame is not { } frame || Bounds.Width <= 0 || Bounds.Height <= 0)
@@ -81,6 +82,17 @@ public class FrameSurface : Control
         }
 
         var scale = Math.Max(Bounds.Width / size.Width, Bounds.Height / size.Height);
-        context.DrawImage(frame, new Rect(0, 0, size.Width * scale, size.Height * scale));
+        var destination = new Rect(0, 0, size.Width * scale, size.Height * scale);
+        context.DrawImage(frame, destination);
+
+        var fadeFrame = Player.FadeFrame;
+        var fadeOpacity = Player.FadeOpacity;
+        if (fadeFrame is not null && fadeOpacity > 0)
+        {
+            using (context.PushOpacity(fadeOpacity))
+            {
+                context.DrawImage(fadeFrame, destination);
+            }
+        }
     }
 }
