@@ -56,7 +56,8 @@ public partial class App : Application
         services.AddSingleton<HttpFileDownloader>();
         services.AddSingleton<IDownloader>(sp => sp.GetRequiredService<HttpFileDownloader>());
         services.AddSingleton<IAutostartService, AutostartService>();
-        services.AddSingleton<IProcessRunner, SystemProcessRunner>();
+        services.AddSingleton<IProcessRunner>(sp =>
+            new SystemProcessRunner(sp.GetRequiredService<ILoggerFactory>().CreateLogger<SystemProcessRunner>()));
         services.AddSingleton<IPatchApplier>(sp => new HpatchzApplier(sp.GetRequiredService<IProcessRunner>()));
 
         // 渠道（keyed by games.json 的 game.channel）
