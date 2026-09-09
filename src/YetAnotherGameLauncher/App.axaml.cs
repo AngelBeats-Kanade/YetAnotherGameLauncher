@@ -57,9 +57,17 @@ public partial class App : Application
         services.AddSingleton<SpeedLimiter>();
         services.AddSingleton<HttpFileDownloader>();
         services.AddSingleton<IDownloader>(sp => sp.GetRequiredService<HttpFileDownloader>());
-        services.AddSingleton<IAutostartService, AutostartService>();
         services.AddSingleton<IProcessRunner>(sp =>
-            new SystemProcessRunner(sp.GetRequiredService<ILoggerFactory>().CreateLogger<SystemProcessRunner>()));
+            new SystemProcessRunner(
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger<SystemProcessRunner>(),
+                supportsElevationRetry: OperatingSystem.IsWindows()));
+        services.AddSingleton<Core.Abstractions.IPlatformInfo>(sp =>
+            OperatingSystem.IsLinux()
+                ? new Core.Services.LinuxPlatformInfo()
+                : new Core.Services.WindowsPlatformInfo());
+        services.AddSingleton<IAutostartService>(sp => OperatingSystem.IsLinux()
+            ? new Core.Services.LinuxAutostartService()
+            : new Core.Services.WindowsAutostartService(sp.GetRequiredService<IProcessRunner>()));
         services.AddSingleton<IPatchApplier>(sp => new HpatchzApplier(sp.GetRequiredService<IProcessRunner>()));
 
         // 渠道（keyed by games.json 的 game.channel）

@@ -6,10 +6,16 @@ using YetAnotherGameLauncher.Core.Abstractions;
 namespace YetAnotherGameLauncher.Core.Services;
 
 /// <summary>基于 System.Diagnostics.Process 的进程运行器：捕获输出、超时杀死、传播取消。</summary>
-public sealed class SystemProcessRunner(ILogger<SystemProcessRunner>? logger = null) : IProcessRunner
+/// <param name="logger">日志（进程秒退/提升回退记录）。</param>
+/// <param name="supportsElevationRetry">是否支持 740 提升回退（ShellExecute 弹 UAC 为 Windows 专属行为）。</param>
+public sealed class SystemProcessRunner(
+    ILogger<SystemProcessRunner>? logger = null,
+    bool supportsElevationRetry = true) : IProcessRunner
 {
     /// <summary>Windows 错误码 740：ERROR_ELEVATION_REQUIRED（可执行文件清单要求管理员权限）。</summary>
     private const int ErrorElevationRequired = 740;
+
+    private readonly bool _supportsElevationRetry = supportsElevationRetry;
 
     /// <summary>
     /// 启动进程并等待退出，捕获 stdout/stderr；超时或取消时杀死整个进程树并抛出取消。
@@ -49,7 +55,7 @@ public sealed class SystemProcessRunner(ILogger<SystemProcessRunner>? logger = n
         }
         catch (Win32Exception ex) when (!waitForExit
             && ex.NativeErrorCode == ErrorElevationRequired
-            && OperatingSystem.IsWindows())
+            && _supportsElevationRetry)
         {
             // 游戏 exe 清单要求管理员权限（requireAdministrator）：CreateProcess 无法自提升。
             // 改走 ShellExecute 由系统弹 UAC；该路径不支持按进程注入环境变量，
@@ -61,14 +67,7 @@ public sealed class SystemProcessRunner(ILogger<SystemProcessRunner>? logger = n
                     spec.FileName, spec.Environment.Count);
             }
 
-            process.StartInfo = new ProcessStartInfo
-            {
-                FileName = spec.FileName,
-                Arguments = spec.Arguments,
-                WorkingDirectory = startInfo.WorkingDirectory,
-                UseShellExecute = true,
-                CreateNoWindow = true,
-            };
+            process.StartInfo = CreateElevatedStartInfo(startInfo);
             process.Start();
             logger?.LogInformation("Process {File} started via shell execute (elevation prompt)", spec.FileName);
         }
@@ -127,4 +126,18 @@ public sealed class SystemProcessRunner(ILogger<SystemProcessRunner>? logger = n
         var stderr = await stderrTask.ConfigureAwait(false);
         return new ProcessResult(process.ExitCode, stdout, stderr);
     }
+
+    /// <summary>
+    /// 构造提升（ShellExecute）启动描述：不支持按进程注入环境变量（会抛），
+    /// 因此返回全新 StartInfo——文件名/参数/工作目录保留，其余（重定向等）按 ShellExecute 语义。
+    /// internal 供单测（经 InternalsVisibleTo）。
+    /// </summary>
+    internal static ProcessStartInfo CreateElevatedStartInfo(ProcessStartInfo original) => new()
+    {
+        FileName = original.FileName,
+        Arguments = original.Arguments,
+        WorkingDirectory = original.WorkingDirectory,
+        UseShellExecute = true,
+        CreateNoWindow = true,
+    };
 }

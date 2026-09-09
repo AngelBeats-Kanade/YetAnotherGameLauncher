@@ -17,6 +17,8 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     private readonly GameCatalogService _catalogService;
     private readonly ILocalizationService _loc;
     private readonly IFilePickerService? _filePicker;
+    private readonly Core.Abstractions.IPlatformInfo _platform;
+    private readonly IReadOnlyList<string> _protonVersions;
 
     public LaunchSettingsViewModel(
         GameDefinition game,
@@ -24,15 +26,21 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         GameCatalogService catalogService,
         ILocalizationService loc,
         GameItemViewModel owner,
-        IFilePickerService? filePicker = null)
+        IFilePickerService? filePicker = null,
+        Core.Abstractions.IPlatformInfo? platformInfo = null,
+        IReadOnlyList<string>? protonVersions = null)
     {
         _game = game;
         _owner = owner;
         _catalogService = catalogService;
         _loc = loc;
         _filePicker = filePicker;
+        _platform = platformInfo ?? (OperatingSystem.IsLinux()
+            ? new Core.Services.LinuxPlatformInfo()
+            : new Core.Services.WindowsPlatformInfo());
         _installDirDraft = installDir;
         _executableDraft = game.Executable;
+        _protonVersions = protonVersions ?? (_platform.IsLinux ? CompatTools.FindProtonVersions() : []);
         _commandTemplate = game.Launch.CommandTemplate;
         _workingDirectory = game.Launch.WorkingDirectory;
         _environmentText = SerializeEnvironment(game.Launch.Environment);
@@ -55,7 +63,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 SelectedLaunchMode = LaunchModes.First(m => m.Mode == LaunchMode.Proton);
                 _selectedProtonVersion = recommended;
                 ApplyGenerated(CompatTools.BuildProtonLaunch(recommended));
-                AppendEnvironment(CompatTools.RecommendedEnvironment(_game.Id));
+                AppendEnvironment(CompatTools.RecommendedEnvironment(_game.Id, _platform.IsNvidiaGpuPresent));
             }
             else
             {
@@ -91,8 +99,8 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     [ObservableProperty]
     private string _executableDraft;
 
-    /// <summary>当前系统是否为 Linux（决定是否显示兼容层选择）。</summary>
-    public bool IsLinux => OperatingSystem.IsLinux();
+    /// <summary>当前系统是否为 Linux（决定是否显示兼容层选择；平台信息注入，测试可控）。</summary>
+    public bool IsLinux => _platform.IsLinux;
 
     public IReadOnlyList<LaunchModeOption> LaunchModes { get; } =
     [
@@ -108,8 +116,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     /// <summary>是否处于 Proton 启动方式（决定版本选择器可见性）。</summary>
     public bool IsProtonMode => SelectedLaunchMode?.Mode == LaunchMode.Proton;
 
-    public IReadOnlyList<string> ProtonVersions { get; } =
-        OperatingSystem.IsLinux() ? CompatTools.FindProtonVersions() : [];
+    public IReadOnlyList<string> ProtonVersions => _protonVersions;
 
     [ObservableProperty]
     private string? _selectedProtonVersion;

@@ -118,15 +118,15 @@ public static class CompatTools
 
     /// <summary>
     /// 按游戏给出的社区推荐环境变量（ACE 反作弊最佳实践）：
-    /// 鸣潮需伪装 SteamOS 才能过反作弊，NVIDIA 显卡补 DXVK-NVAPI；终末地无必填项。
+    /// 鸣潮需伪装 SteamOS 才能过反作弊，NVIDIA 显卡补 DXVK-NVAPI（探测结果由平台注入）；终末地无必填项。
     /// </summary>
-    public static Dictionary<string, string> RecommendedEnvironment(string gameId)
+    public static Dictionary<string, string> RecommendedEnvironment(string gameId, bool nvidiaGpuPresent = false)
     {
         var environment = new Dictionary<string, string>(StringComparer.Ordinal);
         if (gameId.Contains("wuthering", StringComparison.OrdinalIgnoreCase))
         {
             environment["SteamOS"] = "1";
-            if (File.Exists("/proc/driver/nvidia/version"))
+            if (nvidiaGpuPresent)
             {
                 environment["PROTON_ENABLE_NVAPI"] = "1";
             }

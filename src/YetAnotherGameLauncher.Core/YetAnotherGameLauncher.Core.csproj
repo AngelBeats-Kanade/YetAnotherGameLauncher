@@ -4,4 +4,8 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- 覆盖率与内部逻辑单测 -->
+    <InternalsVisibleTo Include="YetAnotherGameLauncher.Core.Tests" />
+  </ItemGroup>
 </Project>

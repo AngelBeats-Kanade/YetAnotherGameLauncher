@@ -22,7 +22,8 @@ public partial class GameItemViewModel(
     BackgroundImageService backgroundImageService,
     GameBackdropService backdropService,
     IVideoBackdropPlayer? videoPlayer = null,
-    IFilePickerService? filePicker = null) : ViewModelBase
+    IFilePickerService? filePicker = null,
+    Core.Abstractions.IPlatformInfo? platformInfo = null) : ViewModelBase
 {
     private string _installDir = installDir;
 
@@ -33,9 +34,15 @@ public partial class GameItemViewModel(
 
     private LaunchSettingsViewModel? _launchSettings;
 
+    /// <summary>平台环境（Linux 兼容层能力等；透传给启动设置卡）。</summary>
+    public Core.Abstractions.IPlatformInfo Platform { get; } =
+        platformInfo ?? (OperatingSystem.IsLinux()
+            ? new Core.Services.LinuxPlatformInfo()
+            : new Core.Services.WindowsPlatformInfo());
+
     /// <summary>启动设置编辑卡（保存走 GameCatalogService 整文件原子写）。</summary>
     public LaunchSettingsViewModel LaunchSettings => _launchSettings ??= new(
-        Game, _installDir, catalogService, Loc, this, _filePicker);
+        Game, _installDir, catalogService, Loc, this, _filePicker, Platform);
 
     /// <summary>底层游戏配置（只读引用；名称/图标/服务器等以此为准）。</summary>
     public GameDefinition Game { get; } = game;

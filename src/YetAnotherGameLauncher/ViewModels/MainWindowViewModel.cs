@@ -30,6 +30,12 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IFilePickerService? _filePicker;
     private readonly IVideoBackdropPlayer? _videoPlayer;
     private readonly KuroGachaService? _gachaService;
+
+    /// <summary>平台环境（打开目录等 OS 差异的抽象）。</summary>
+    private readonly Core.Abstractions.IPlatformInfo _platform;
+
+    /// <summary>平台环境（供子 ViewModel 复用，测试可注入假实现）。</summary>
+    internal Core.Abstractions.IPlatformInfo Platform => _platform;
     private readonly Core.Services.NetworkProxyManager? _proxyManager;
     private readonly Func<string?>? _defaultConfigTemplateFactory;
 
@@ -48,7 +54,8 @@ public partial class MainWindowViewModel : ViewModelBase
         IFilePickerService? filePicker = null,
         IVideoBackdropPlayer? videoPlayer = null,
         KuroGachaService? gachaService = null,
-        Core.Services.NetworkProxyManager? proxyManager = null)
+        Core.Services.NetworkProxyManager? proxyManager = null,
+        Core.Abstractions.IPlatformInfo? platformInfo = null)
     {
         _catalogService = catalogService;
         _updateService = updateService;
@@ -65,6 +72,10 @@ public partial class MainWindowViewModel : ViewModelBase
         _videoPlayer = videoPlayer;
         _gachaService = gachaService;
         _proxyManager = proxyManager;
+        _platform = platformInfo
+            ?? (OperatingSystem.IsLinux()
+                ? new Core.Services.LinuxPlatformInfo()
+                : new Core.Services.WindowsPlatformInfo());
         Loc = localization;
         LocBridge.Instance = localization; // 供 {svc:Loc key} 标记扩展取 Source
         _loc.PropertyChanged += OnLanguageChanged;
@@ -475,7 +486,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 _backgroundImageService,
                 _backdropService,
                 _videoPlayer,
-                _filePicker));
+                _filePicker,
+                _platform));
         }
 
         return unknownChannels;
@@ -1047,15 +1059,7 @@ public partial class SettingsViewModel : ViewModelBase
             return;
         }
 
-        var open = new ProcessStartInfo
-        {
-            FileName = OperatingSystem.IsWindows() ? "explorer.exe"
-                : OperatingSystem.IsMacOS() ? "open"
-                : "xdg-open",
-            Arguments = OperatingSystem.IsWindows() ? $"\"{directory}\"" : directory,
-            UseShellExecute = true,
-        };
-        Process.Start(open);
+        _owner.Platform.OpenDirectoryInFileManager(directory);
     }
 }
 
