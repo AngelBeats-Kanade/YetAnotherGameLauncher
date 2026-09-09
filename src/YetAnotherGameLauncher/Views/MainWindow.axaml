@@ -187,6 +187,29 @@
             <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkSecondary}"/>
         </Style>
 
+        <!-- 唤取入口图标钮：常显玻璃底胶囊——次级功能但需要被看见，不与主 CTA 争夺 -->
+        <Style Selector="Button.gacha-onart">
+            <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+            <Setter Property="Padding" Value="10"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
+        </Style>
+        <Style Selector="Button.gacha-onart /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
+        </Style>
+        <Style Selector="Button.gacha-onart:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppOnArtworkCardHover}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
+        </Style>
+        <Style Selector="Button.gacha-onart:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
+        </Style>
+
         <!-- 唤取记录稀有度：五星金 / 四星紫 -->
         <Style Selector="TextBlock.gacha-rare5">
             <Setter Property="Foreground" Value="Goldenrod"/>
@@ -619,24 +642,24 @@
                                                     Content="{Binding Loc[game_applyPredownload]}"
                                                     Classes="pressable glass-onart"
                                                     Padding="20,11" VerticalAlignment="Center"/>
-                                            <!-- 主次分明：未安装时"安装/更新"是主操作（accent）；
-                                                 已安装时"启动"升级为主操作，安装按钮变次操作 -->
+                                            <!-- 主次分明：什么都没有时"安装"是主操作（accent）；
+                                                 检测到游戏/已安装时"启动"升级为主操作，安装/校验钮变次操作 -->
                                             <Button Classes="pressable"
-                                                    Classes.glass-onart="{Binding IsInstalled}"
-                                                    Classes.accent-onart="{Binding !IsInstalled}"
+                                                    Classes.glass-onart="{Binding InstallIsSecondary}"
+                                                    Classes.accent-onart="{Binding InstallIsPrimary}"
                                                     Command="{Binding InstallOrUpdateCommand}"
                                                     Content="{Binding InstallButtonText}"
                                                     FontSize="15"
                                                     Padding="28,11" VerticalAlignment="Center"/>
                                             <Button Classes="pressable" Command="{Binding LaunchCommand}"
                                                     IsEnabled="{Binding CanLaunch}"
-                                                    Classes.glass-onart="{Binding !IsInstalled}"
-                                                    Classes.accent-onart="{Binding IsInstalled}"
+                                                    Classes.glass-onart="{Binding !CanLaunch}"
+                                                    Classes.accent-onart="{Binding CanLaunch}"
                                                     Content="{Binding Loc[game_launch]}"
                                                     FontSize="17" FontWeight="SemiBold"
                                                     Padding="46,13"/>
-                                            <!-- 鸣潮专属：唤取记录入口（仅已安装时），图标与齿轮组成次级操作组 -->
-                                            <Button Classes="icon-btn pressable"
+                                            <!-- 鸣潮专属：唤取记录入口（游戏文件在本地即可用），玻璃胶囊图标钮 -->
+                                            <Button Classes="gacha-onart pressable"
                                                     IsVisible="{Binding HasGachaEntry}"
                                                     Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ShowGachaCommand}"
                                                     CommandParameter="{Binding}"

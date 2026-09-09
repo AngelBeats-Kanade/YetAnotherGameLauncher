@@ -94,7 +94,13 @@ public partial class GameItemViewModel(
     /// <summary>是否满足启动条件（游戏可执行文件存在——无论是否由启动器安装登记）。</summary>
     [ObservableProperty] private bool _canLaunch;
 
-    partial void OnCanLaunchChanged(bool value) => OnPropertyChanged(nameof(HasGachaEntry));
+    partial void OnCanLaunchChanged(bool value)
+    {
+        OnPropertyChanged(nameof(HasGachaEntry));
+        OnPropertyChanged(nameof(InstallButtonText)); // 文案随"检测到游戏"状态翻转（安装 ↔ 校验修复）
+        OnPropertyChanged(nameof(InstallIsPrimary));
+        OnPropertyChanged(nameof(InstallIsSecondary));
+    }
     /// <summary>本地版本落后于远端最新版。</summary>
     [ObservableProperty] private bool _hasUpdate;
     /// <summary>渠道提供预下载且尚未暂存。</summary>
@@ -141,8 +147,16 @@ public partial class GameItemViewModel(
     /// <summary>播放器帧通知订阅状态（避免重复订阅）。</summary>
     private bool _videoSubscribed;
 
-    /// <summary>主操作按钮文案：未安装→安装，有更新→更新，否则校验。</summary>
-    public string InstallButtonText => !IsInstalled ? Loc["game_install"] : HasUpdate ? Loc["game_update"] : Loc["game_verify"];
+    /// <summary>主操作按钮文案：未安装→安装；检测到已有文件→校验修复（登记版本而非重装）；有更新→更新；已最新→校验修复。</summary>
+    public string InstallButtonText => !IsInstalled
+        ? CanLaunch ? Loc["game_verify"] : Loc["game_install"]
+        : HasUpdate ? Loc["game_update"] : Loc["game_verify"];
+
+    /// <summary>主操作按钮是否为主 CTA 形态（accent）：仅"什么都没有"的全新安装；检测到游戏/已安装时退为次级。</summary>
+    public bool InstallIsPrimary => !IsInstalled && !CanLaunch;
+
+    /// <summary>主操作按钮是否为次级形态（glass）：检测到游戏或已安装时为真。</summary>
+    public bool InstallIsSecondary => !InstallIsPrimary;
 
     /// <summary>是否库洛渠道（鸣潮专属功能如唤取记录按此显示入口）。</summary>
     public bool IsKuro => Game.Channel == "kuro";
@@ -205,6 +219,8 @@ public partial class GameItemViewModel(
             PredownloadAvailable = false;
             CanLaunch = ExecutableExists();
             OnPropertyChanged(nameof(InstallButtonText));
+            OnPropertyChanged(nameof(InstallIsPrimary));
+            OnPropertyChanged(nameof(InstallIsSecondary));
             OnPropertyChanged(nameof(ShowPredownloadCue));
             return;
         }
@@ -229,6 +245,8 @@ public partial class GameItemViewModel(
                 : PredownloadAvailable ? Loc["status_predownload"] : Loc["status_upToDate"];
 
         OnPropertyChanged(nameof(InstallButtonText));
+        OnPropertyChanged(nameof(InstallIsPrimary));
+        OnPropertyChanged(nameof(InstallIsSecondary));
         OnPropertyChanged(nameof(ShowPredownloadCue));
     }
 

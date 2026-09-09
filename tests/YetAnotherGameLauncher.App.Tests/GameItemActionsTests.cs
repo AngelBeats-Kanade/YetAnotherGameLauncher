@@ -138,7 +138,7 @@ public class GameItemActionsTests : IDisposable
         Assert.True(wuwa.CanLaunch);
         Assert.Equal("检测到游戏文件，可直接启动", wuwa.StatusText);
         Assert.True(wuwa.HasGachaEntry);
-        Assert.Equal("安装游戏", wuwa.InstallButtonText); // 想纳入版本管理仍可点
+        Assert.Equal("校验修复", wuwa.InstallButtonText); // "安装游戏"消失：校验登记即可，不会重装
     }
 
     [Fact]
