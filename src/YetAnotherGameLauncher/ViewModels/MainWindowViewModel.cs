@@ -278,7 +278,10 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         catalog.Settings.ProxyMode = mode;
-        catalog.Settings.ProxyAddress = string.IsNullOrWhiteSpace(address) ? null : address;
+        // 地址仅在"自定义代理"下有意义：其他选择清空持久化值，避免残留地址误导
+        catalog.Settings.ProxyAddress = mode == ProxyMode.Manual && !string.IsNullOrWhiteSpace(address)
+            ? address
+            : null;
         _proxyManager?.Apply(catalog.Settings);
         await TrySaveCatalogAsync();
     }
@@ -703,15 +706,13 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 }
 
-/// <summary>代理模式下拉项。</summary>
-/// <param name="Mode">代理模式。</param>
-/// <param name="Name">显示名（本地化）。</param>
-public sealed record ProxyModeOption(ProxyMode Mode, string Name);
-
 /// <summary>设置页：外观（主题/语言）、配置文件与下载设置（其余编辑走 games.json）。</summary>
 public partial class SettingsViewModel : ViewModelBase
 {
     private readonly MainWindowViewModel _owner;
+
+    /// <summary>radio 互斥协调的防重入守卫（级联清空其他项时不再反向触发）。</summary>
+    private bool _syncingProxyRadios;
 
     public SettingsViewModel(MainWindowViewModel owner)
     {
@@ -720,14 +721,20 @@ public partial class SettingsViewModel : ViewModelBase
         _speedLimitMbDraft = FormatSpeed(owner.DownloadSpeedLimitBytes);
         _appBackgroundPath = owner.ConfiguredAppBackground;
 
-        _proxyModes =
-        [
-            new(ProxyMode.System, Loc["settings_proxyMode_system"]),
-            new(ProxyMode.None, Loc["settings_proxyMode_none"]),
-            new(ProxyMode.Manual, Loc["settings_proxyMode_manual"]),
-        ];
-        _selectedProxyMode = _proxyModes.FirstOrDefault(p => p.Mode == owner.ProxyMode) ?? _proxyModes[0];
-        _proxyAddressDraft = owner.ProxyAddress;
+        // 地址草稿仅在"自定义代理"下回显历史值：其他选择下显示空框，
+        // 避免出现"填了值却禁用"的误导观感（配置本体不受影响，切回自定义即恢复）
+        _proxyAddressDraft = owner.ProxyMode == ProxyMode.Manual ? owner.ProxyAddress : "";
+        ApplyModeToRadios(owner.ProxyMode);
+    }
+
+    /// <summary>把代理选择映射到三个 radio（构造与回显用，守卫避免级联）。</summary>
+    private void ApplyModeToRadios(ProxyMode mode)
+    {
+        _syncingProxyRadios = true;
+        ProxyFollowSystem = mode == ProxyMode.System;
+        ProxyDirect = mode == ProxyMode.None;
+        ProxyManual = mode == ProxyMode.Manual;
+        _syncingProxyRadios = false;
     }
 
     private static string FormatSpeed(long bytes) =>
@@ -753,16 +760,19 @@ public partial class SettingsViewModel : ViewModelBase
 
     partial void OnSpeedLimitMbDraftChanged(string value) => SpeedLimitSave.Clear();
 
-    /// <summary>代理模式选项（跟随系统/直连/手动，显示名已本地化）。</summary>
-    public IReadOnlyList<ProxyModeOption> ProxyModes { get; } = [];
-
-    private readonly List<ProxyModeOption> _proxyModes = [];
-
-    /// <summary>代理模式草稿。</summary>
+    /// <summary>代理选择：跟随系统代理（默认）。</summary>
     [ObservableProperty]
-    private ProxyModeOption _selectedProxyMode;
+    private bool _proxyFollowSystem;
 
-    /// <summary>手动代理地址草稿。</summary>
+    /// <summary>代理选择：直连（不使用代理）。</summary>
+    [ObservableProperty]
+    private bool _proxyDirect;
+
+    /// <summary>代理选择：使用自定义代理。</summary>
+    [ObservableProperty]
+    private bool _proxyManual;
+
+    /// <summary>自定义代理地址草稿。</summary>
     [ObservableProperty]
     private string _proxyAddressDraft = "";
 
@@ -770,24 +780,64 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     private SaveMessageSlot _proxySave = new();
 
-    partial void OnSelectedProxyModeChanged(ProxyModeOption value)
+    /// <summary>地址框仅在"使用自定义代理"下可编辑。</summary>
+    public bool IsProxyAddressEnabled => ProxyManual;
+
+    partial void OnProxyFollowSystemChanged(bool value) => SyncProxyRadios(ProxyMode.System, value);
+    partial void OnProxyDirectChanged(bool value) => SyncProxyRadios(ProxyMode.None, value);
+    partial void OnProxyManualChanged(bool value)
     {
+        SyncProxyRadios(ProxyMode.Manual, value);
+        // 切入"自定义"时回显已保存的地址（草稿为空才填，不打断正在输入的内容）
+        if (value && ProxyAddressDraft.Length == 0)
+        {
+            _proxyAddressDraft = _owner.ProxyAddress ?? "";
+            OnPropertyChanged(nameof(ProxyAddressDraft));
+        }
+    }
+
+    /// <summary>勾选某项时清空另外两项（radio 语义）；取消勾选不做级联。</summary>
+    private void SyncProxyRadios(ProxyMode selected, bool value)
+    {
+        if (_syncingProxyRadios || !value)
+        {
+            return;
+        }
+
+        _syncingProxyRadios = true;
+        if (selected != ProxyMode.System)
+        {
+            ProxyFollowSystem = false;
+        }
+
+        if (selected != ProxyMode.None)
+        {
+            ProxyDirect = false;
+        }
+
+        if (selected != ProxyMode.Manual)
+        {
+            ProxyManual = false;
+        }
+
+        _syncingProxyRadios = false;
         ProxySave.Clear();
         OnPropertyChanged(nameof(IsProxyAddressEnabled));
     }
 
     partial void OnProxyAddressDraftChanged(string value) => ProxySave.Clear();
 
-    /// <summary>地址框仅手动模式可编辑。</summary>
-    public bool IsProxyAddressEnabled => SelectedProxyMode?.Mode == ProxyMode.Manual;
+    /// <summary>当前 radio 对应的代理选择。</summary>
+    private ProxyMode SelectedMode => ProxyManual ? ProxyMode.Manual
+        : ProxyDirect ? ProxyMode.None : ProxyMode.System;
 
     /// <summary>应用代理草稿：写回设置、即时生效（共享 handler 热改），并持久化。</summary>
     [RelayCommand]
     private async Task SaveProxyAsync(CancellationToken cancellationToken)
     {
         ProxySave.Clear();
+        var mode = SelectedMode;
         var address = ProxyAddressDraft.Trim();
-        var mode = SelectedProxyMode?.Mode ?? ProxyMode.System;
         var proxyValid = mode != ProxyMode.Manual
             || (Uri.TryCreate(address, UriKind.Absolute, out var proxy) && proxy.Scheme is "http" or "https");
         if (!proxyValid)

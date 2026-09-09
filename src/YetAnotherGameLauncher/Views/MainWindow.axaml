@@ -835,35 +835,34 @@
                                                 </StackPanel>
                                             </Border>
 
-                                            <!-- 网络（代理） -->
-                                            <Border Classes="card">
+                                            <!-- 网络（代理）：三个直白单选，去掉"模式"概念 -->
+                                            <Border Classes="card" x:Name="ProxyCard">
                                                 <StackPanel Spacing="8">
                                                     <TextBlock Text="{Binding Loc[settings_proxy]}" FontSize="15" FontWeight="SemiBold"/>
-                                                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,4,0,0">
-                                                        <TextBlock Text="{Binding Loc[settings_proxyMode]}" VerticalAlignment="Center"/>
-                                                        <ComboBox Grid.Column="1" MinWidth="170" HorizontalAlignment="Left"
-                                                                  Margin="12,0,0,0"
-                                                                  ItemsSource="{Binding ProxyModes}"
-                                                                  SelectedItem="{Binding SelectedProxyMode}">
-                                                            <ComboBox.ItemTemplate>
-                                                                <DataTemplate x:DataType="vm:ProxyModeOption">
-                                                                    <TextBlock Text="{Binding Name}"/>
-                                                                </DataTemplate>
-                                                            </ComboBox.ItemTemplate>
-                                                        </ComboBox>
-                                                        <Button Grid.Column="2" Classes="pressable glass"
-                                                                Command="{Binding SaveProxyCommand}"
-                                                                Content="{Binding Loc[settings_proxySave]}"
-                                                                Padding="18,8" VerticalAlignment="Center"/>
-                                                    </Grid>
-                                                    <TextBox PlaceholderText="{Binding Loc[settings_proxyAddress]}"
-                                                             Text="{Binding ProxyAddressDraft}"
-                                                             IsEnabled="{Binding IsProxyAddressEnabled}"/>
+                                                    <StackPanel Spacing="6" Margin="0,4,0,0">
+                                                        <RadioButton GroupName="proxy" Content="{Binding Loc[settings_proxy_method_system]}"
+                                                                     IsChecked="{Binding ProxyFollowSystem}"/>
+                                                        <RadioButton GroupName="proxy" Content="{Binding Loc[settings_proxy_method_direct]}"
+                                                                     IsChecked="{Binding ProxyDirect}"/>
+                                                        <RadioButton GroupName="proxy" x:Name="ProxyManualRadio"
+                                                                     Content="{Binding Loc[settings_proxy_method_manual]}"
+                                                                     IsChecked="{Binding ProxyManual}"/>
+                                                        <TextBox Margin="22,2,0,0"
+                                                                 PlaceholderText="{Binding Loc[settings_proxyAddress]}"
+                                                                 Text="{Binding ProxyAddressDraft}"
+                                                                 IsEnabled="{Binding IsProxyAddressEnabled}"/>
+                                                    </StackPanel>
                                                     <TextBlock Text="{Binding Loc[settings_proxyHint]}" FontSize="12"
                                                                Foreground="{DynamicResource AppTextSecondary}" TextWrapping="Wrap"/>
-                                                    <TextBlock Text="{Binding ProxySave.Message}" FontSize="12"
-                                                               IsVisible="{Binding ProxySave.HasMessage}"
-                                                               Classes.failed="{Binding ProxySave.Failed}"/>
+                                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                                        <Button Classes="pressable glass" Command="{Binding SaveProxyCommand}"
+                                                                Content="{Binding Loc[settings_proxySave]}"
+                                                                Padding="18,8"/>
+                                                        <TextBlock Text="{Binding ProxySave.Message}" FontSize="12"
+                                                                   VerticalAlignment="Center"
+                                                                   IsVisible="{Binding ProxySave.HasMessage}"
+                                                                   Classes.failed="{Binding ProxySave.Failed}"/>
+                                                    </StackPanel>
                                                 </StackPanel>
                                             </Border>
 

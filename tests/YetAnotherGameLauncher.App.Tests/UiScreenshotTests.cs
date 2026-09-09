@@ -76,6 +76,16 @@ public class UiScreenshotTests
                 frame.Save(Path.Combine(outDir, name), new PngBitmapEncoderOptions());
             }
 
+            void BringCardIntoView(Window host, string borderName)
+            {
+                // 设置页内容超出一屏：把目标卡滚进视口再截图（ BringIntoView 驱动祖先 ScrollViewer）
+                var card = host.GetVisualDescendants()
+                    .OfType<Border>()
+                    .FirstOrDefault(b => b.Name == borderName);
+                card?.BringIntoView();
+                host.UpdateLayout();
+            }
+
             // 模拟库洛官方启动器背景帧缓存：解析器走与 KuroBackdropResolver 相同的本地帧探测
             var bgPath = ctx.TempDir.FilePath("kr_game_cache", "animate_bg", "h1", "home_1.jpg");
             Directory.CreateDirectory(Path.GetDirectoryName(bgPath)!);
@@ -124,9 +134,10 @@ public class UiScreenshotTests
             ctx.Vm.ToggleSidebarCommand.Execute(null);
             window.UpdateLayout();
 
-            // 暗色 · 设置页（外观卡：主题 + 语言）
+            // 暗色 · 设置页（外观卡：主题 + 语言；滚动到网络代理卡展示单选组）
             ctx.Vm.ShowSettingsCommand.Execute(null);
             window.UpdateLayout();
+            BringCardIntoView(window, "ProxyCard");
             Capture("05-settings-dark.png");
 
             // 暗色 · 关于页
