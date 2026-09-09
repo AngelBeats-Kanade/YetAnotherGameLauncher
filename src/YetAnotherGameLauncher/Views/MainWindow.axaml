@@ -129,6 +129,37 @@
             <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkSecondary}"/>
         </Style>
 
+        <!-- 海报上的主题色主操作按钮：accent 底 + 白字；四态下沉 presenter（同 glass-onart 规则） -->
+        <Style Selector="Button.accent-onart">
+            <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="Button.accent-onart /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="Button.accent-onart:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppAccentHoverBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="Button.accent-onart:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppAccentHoverBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="Button.accent-onart:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkSecondary}"/>
+        </Style>
+
+        <!-- 唤取记录稀有度：五星金 / 四星紫 -->
+        <Style Selector="TextBlock.gacha-rare5">
+            <Setter Property="Foreground" Value="Goldenrod"/>
+        </Style>
+        <Style Selector="TextBlock.gacha-rare4">
+            <Setter Property="Foreground" Value="MediumPurple"/>
+        </Style>
+
         <!-- 图标按钮 -->
         <Style Selector="Button.icon-btn">
             <Setter Property="Background" Value="Transparent"/>
@@ -231,6 +262,20 @@
             <Setter Property="Height" Value="46"/>
         </Style>
 
+        <!-- 窗口顶部两角圆角（左上=侧栏、右上=标题色带）；最大化时铺满屏幕应去掉 -->
+        <Style Selector="Border.game-sidebar">
+            <Setter Property="CornerRadius" Value="10,0,0,0"/>
+        </Style>
+        <Style Selector="Border.game-sidebar.maximized">
+            <Setter Property="CornerRadius" Value="0"/>
+        </Style>
+        <Style Selector="Border#TitleChrome">
+            <Setter Property="CornerRadius" Value="0,10,0,0"/>
+        </Style>
+        <Style Selector="Border#TitleChrome.maximized">
+            <Setter Property="CornerRadius" Value="0"/>
+        </Style>
+
         <!-- 自绘标题栏按钮：最小化/最大化/关闭（关闭悬停红色，Win11 习惯） -->
         <Style Selector="Button.caption-btn">
             <Setter Property="Width" Value="46"/>
@@ -265,6 +310,7 @@
             <Border Grid.Column="0" Classes="game-sidebar"
                     Width="{Binding SidebarWidth}"
                     Classes.collapsed="{Binding !IsSidebarExpanded}"
+                    Classes.maximized="{Binding IsWindowMaximized}"
                     Background="{DynamicResource AppSidebarBackground}">
                 <Border.Transitions>
                     <Transitions>
@@ -293,6 +339,14 @@
                                       Stretch="Uniform" Width="16" Height="16"/>
                             </Button>
                         </Grid>
+                        <!-- 收起态顶部：app logo（点击展开侧栏） -->
+                        <Button Classes="icon-btn pressable" Command="{Binding ToggleSidebarCommand}"
+                                IsVisible="{Binding !IsSidebarExpanded}"
+                                HorizontalAlignment="Center" Padding="4"
+                                ToolTip.Tip="{Binding Loc[sidebar_collapsed_expand]}">
+                            <Image Width="38" Height="38"
+                                   Source="avares://YetAnotherGameLauncher/Assets/app-icon.png"/>
+                        </Button>
                         <Button Classes="icon-btn pressable" Command="{Binding ToggleSidebarCommand}"
                                 IsVisible="{Binding !IsSidebarExpanded}"
                                 HorizontalAlignment="Center"
@@ -413,6 +467,7 @@
                 <!-- 色带高 56 = 46 可见 + 10px 延伸到页面板圆角后方：
                      圆角缺口处露出色带颜色而非更深的底层背景（暗色主题下曾呈"多一层"方角） -->
                 <Border x:Name="TitleChrome" Height="56" VerticalAlignment="Top"
+                        Classes.maximized="{Binding IsWindowMaximized}"
                         Background="{DynamicResource AppSidebarBackground}" IsHitTestVisible="False"/>
                 <Border x:Name="ContentCard" Classes="content-card">
                     <Panel>
@@ -434,9 +489,10 @@
                                     <Image x:Name="PosterImage" Source="{Binding BackgroundImage}" Stretch="UniformToFill"
                                            HorizontalAlignment="Left" VerticalAlignment="Top"
                                            IsVisible="{Binding HasBackgroundImage}"/>
+                                    <!-- FrameSurface 必须保持默认 Stretch 铺满 Panel——裸控件设 Left/Top
+                                         对齐会测量出 0×0，Render 永远画不出（曾致视频不显示） -->
                                     <controls:FrameSurface Player="{Binding VideoPlayer}"
-                                                           IsVisible="{Binding HasBackgroundVideo}"
-                                                           HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                                                           IsVisible="{Binding HasBackgroundVideo}"/>
                                     <!-- 遮罩：盖住海报/视频层，保证 UI 文字在两主题可读 -->
                                     <Border IsVisible="{Binding HasBackgroundImage}">
                                         <Border.Background>
@@ -523,6 +579,13 @@
                                         <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="12"
                                                     HorizontalAlignment="Right" VerticalAlignment="Bottom"
                                                     Margin="0,0,4,10">
+                                            <!-- 鸣潮专属：唤取记录页入口 -->
+                                            <Button Classes="pressable glass-onart"
+                                                    IsVisible="{Binding IsKuro}"
+                                                    Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ShowGachaCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    Content="{Binding Loc[gacha_entry]}"
+                                                    Padding="20,11" VerticalAlignment="Center"/>
                                             <Button Command="{Binding PredownloadCommand}"
                                                     IsVisible="{Binding PredownloadAvailable}"
                                                     Content="{Binding Loc[game_predownload]}"
@@ -533,9 +596,11 @@
                                                     Content="{Binding Loc[game_applyPredownload]}"
                                                     Classes="pressable glass-onart"
                                                     Padding="20,11" VerticalAlignment="Center"/>
-                                            <!-- 安装/更新/校验与启动、预下载同为海报操作按钮：常驻玻璃样式
-                                                 （此前按安装状态切换类，未安装时回退 Fluent 默认在海报上不可读） -->
-                                            <Button Classes="pressable glass-onart"
+                                            <!-- 主次分明：未安装时"安装/更新"是主操作（accent）；
+                                                 已安装时"启动"升级为主操作，安装按钮变次操作 -->
+                                            <Button Classes="pressable"
+                                                    Classes.glass-onart="{Binding IsInstalled}"
+                                                    Classes.accent-onart="{Binding !IsInstalled}"
                                                     Command="{Binding InstallOrUpdateCommand}"
                                                     Content="{Binding InstallButtonText}"
                                                     FontSize="15"
@@ -543,6 +608,7 @@
                                             <Button Classes="pressable" Command="{Binding LaunchCommand}"
                                                     IsEnabled="{Binding CanLaunch}"
                                                     Classes.glass-onart="{Binding !IsInstalled}"
+                                                    Classes.accent-onart="{Binding IsInstalled}"
                                                     Content="{Binding Loc[game_launch]}"
                                                     FontSize="17" FontWeight="SemiBold"
                                                     Padding="46,13"/>
@@ -703,6 +769,38 @@
                                                 </StackPanel>
                                             </Border>
 
+                                            <!-- 网络（代理） -->
+                                            <Border Classes="card">
+                                                <StackPanel Spacing="8">
+                                                    <TextBlock Text="{Binding Loc[settings_proxy]}" FontSize="15" FontWeight="SemiBold"/>
+                                                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,4,0,0">
+                                                        <TextBlock Text="{Binding Loc[settings_proxyMode]}" VerticalAlignment="Center"/>
+                                                        <ComboBox Grid.Column="1" MinWidth="170" HorizontalAlignment="Left"
+                                                                  Margin="12,0,0,0"
+                                                                  ItemsSource="{Binding ProxyModes}"
+                                                                  SelectedItem="{Binding SelectedProxyMode}">
+                                                            <ComboBox.ItemTemplate>
+                                                                <DataTemplate x:DataType="vm:ProxyModeOption">
+                                                                    <TextBlock Text="{Binding Name}"/>
+                                                                </DataTemplate>
+                                                            </ComboBox.ItemTemplate>
+                                                        </ComboBox>
+                                                        <Button Grid.Column="2" Classes="pressable glass"
+                                                                Command="{Binding SaveProxyCommand}"
+                                                                Content="{Binding Loc[settings_proxySave]}"
+                                                                Padding="18,8" VerticalAlignment="Center"/>
+                                                    </Grid>
+                                                    <TextBox PlaceholderText="{Binding Loc[settings_proxyAddress]}"
+                                                             Text="{Binding ProxyAddressDraft}"
+                                                             IsEnabled="{Binding IsProxyAddressEnabled}"/>
+                                                    <TextBlock Text="{Binding Loc[settings_proxyHint]}" FontSize="12"
+                                                               Foreground="{DynamicResource AppTextSecondary}" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="{Binding ProxySave.Message}" FontSize="12"
+                                                               IsVisible="{Binding ProxySave.HasMessage}"
+                                                               Classes.failed="{Binding ProxySave.Failed}"/>
+                                                </StackPanel>
+                                            </Border>
+
                                             <!-- 配置文件 -->
                                             <Border Classes="card">
                                                 <StackPanel Spacing="8">
@@ -778,6 +876,101 @@
                                             </Border>
 
                                             <Button Content="{Binding Loc[common_backToGames]}" Command="{Binding ShowGamesCommand}"
+                                                    Classes="pressable back-btn"/>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </Border>
+                            </DataTemplate>
+
+                            <!-- ========== 唤取记录页（鸣潮专属） ========== -->
+                            <DataTemplate DataType="{x:Type vm:GachaViewModel}">
+                                <Border Classes="page">
+                                    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                                        <StackPanel MaxWidth="760" HorizontalAlignment="Stretch" Spacing="16">
+
+                                            <StackPanel Orientation="Horizontal" Spacing="14" Margin="0,4,0,4">
+                                                <TextBlock Text="{Binding Loc[gacha_title]}" FontSize="28" FontWeight="Bold"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Text="{Binding DisplayName}" FontSize="18"
+                                                           Foreground="{DynamicResource AppTextSecondary}"
+                                                           VerticalAlignment="Center"/>
+                                            </StackPanel>
+
+                                            <!-- 拉取与筛选 -->
+                                            <Border Classes="card" Padding="16,12">
+                                                <Grid ColumnDefinitions="*,Auto,Auto">
+                                                    <TextBlock Text="{Binding StatusText}" FontSize="12.5" TextWrapping="Wrap"
+                                                               Foreground="{DynamicResource AppTextSecondary}"
+                                                               VerticalAlignment="Center"/>
+                                                    <ComboBox Grid.Column="1" MinWidth="170" Margin="0,0,8,0"
+                                                              ItemsSource="{Binding Pools}"
+                                                              SelectedItem="{Binding SelectedPool}">
+                                                        <ComboBox.ItemTemplate>
+                                                            <DataTemplate x:DataType="vm:GachaPoolOption">
+                                                                <TextBlock Text="{Binding Name}"/>
+                                                            </DataTemplate>
+                                                        </ComboBox.ItemTemplate>
+                                                    </ComboBox>
+                                                    <Button Grid.Column="2" Classes="pressable glass-onart"
+                                                            Command="{Binding RefreshCommand}"
+                                                            Content="{Binding Loc[gacha_refresh]}"
+                                                            Padding="18,8" VerticalAlignment="Center"/>
+                                                </Grid>
+                                            </Border>
+
+                                            <!-- 统计卡行 -->
+                                            <Grid ColumnDefinitions="*,*,*,*" Margin="0,2,0,2">
+                                                <Border Classes="card" Margin="0,0,8,0" Padding="14,10">
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding Loc[gacha_stat_total]}" FontSize="12"
+                                                                   Foreground="{DynamicResource AppTextSecondary}"/>
+                                                        <TextBlock Text="{Binding TotalCount}" FontSize="24" FontWeight="Bold"/>
+                                                    </StackPanel>
+                                                </Border>
+                                                <Border Grid.Column="1" Classes="card" Margin="0,0,8,0" Padding="14,10">
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding Loc[gacha_stat_fiveStar]}" FontSize="12"
+                                                                   Foreground="{DynamicResource AppTextSecondary}"/>
+                                                        <TextBlock Text="{Binding FiveStarCount}" FontSize="24" FontWeight="Bold"
+                                                                   Foreground="Goldenrod"/>
+                                                    </StackPanel>
+                                                </Border>
+                                                <Border Grid.Column="2" Classes="card" Margin="0,0,8,0" Padding="14,10">
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding Loc[gacha_stat_fourStar]}" FontSize="12"
+                                                                   Foreground="{DynamicResource AppTextSecondary}"/>
+                                                        <TextBlock Text="{Binding FourStarCount}" FontSize="24" FontWeight="Bold"
+                                                                   Foreground="MediumPurple"/>
+                                                    </StackPanel>
+                                                </Border>
+                                                <Border Grid.Column="3" Classes="card" Padding="14,10">
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding Loc[gacha_stat_sinceFiveStar]}" FontSize="12"
+                                                                   Foreground="{DynamicResource AppTextSecondary}"/>
+                                                        <TextBlock Text="{Binding SinceLastFiveStar}" FontSize="24" FontWeight="Bold"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </Grid>
+
+                                            <!-- 记录列表（稀有度着色由样式 gacha-rare5/gacha-rare4 承担） -->
+                                            <Border Classes="card" Padding="6,4">
+                                                <ItemsControl ItemsSource="{Binding Records}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="vm:GachaRecordView">
+                                                            <Grid ColumnDefinitions="Auto,*,Auto" Margin="10,7">
+                                                                <TextBlock Text="{Binding QualityLevel}" Width="28" FontWeight="Bold"
+                                                                           Classes.gacha-rare5="{Binding Rare5}"
+                                                                           Classes.gacha-rare4="{Binding Rare4}"/>
+                                                                <TextBlock Grid.Column="1" Text="{Binding Name}"/>
+                                                                <TextBlock Grid.Column="2" Text="{Binding Time}"
+                                                                           Foreground="{DynamicResource AppTextSecondary}" FontSize="12"/>
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </Border>
+
+                                            <Button Content="{Binding Loc[common_backToGames]}" Command="{Binding ShowGameCommand}"
                                                     Classes="pressable back-btn"/>
                                         </StackPanel>
                                     </ScrollViewer>

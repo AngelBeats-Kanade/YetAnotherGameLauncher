@@ -50,8 +50,8 @@ public class VideoBackdropHeadlessTests : IDisposable
             window.UpdateLayout();
             Assert.Equal([localVideo], _player.PlayedPaths);
 
-            // 首帧到达：视频层可见
-            using var frame = new WriteableBitmap(
+            // 首帧到达：视频层可见（位图随播放器存续，不能 using 释放——Render 仍会访问）
+            var frame = new WriteableBitmap(
                 new Avalonia.PixelSize(4, 4), new Avalonia.Vector(96, 96),
                 Avalonia.Platform.PixelFormats.Bgra8888, Avalonia.Platform.AlphaFormat.Opaque);
             _player.Frame = frame;
@@ -111,7 +111,8 @@ public class VideoBackdropHeadlessTests : IDisposable
         }
 
         Assert.Equal(expected, surface.IsVisible);
-        Assert.Equal(Avalonia.Layout.HorizontalAlignment.Left, surface.HorizontalAlignment);
-        Assert.Equal(Avalonia.Layout.VerticalAlignment.Top, surface.VerticalAlignment);
+        // 回归守卫：FrameSurface 必须保持默认 Stretch 铺满（Left/Top 对齐会 0×0 导致视频不可见）
+        Assert.Equal(Avalonia.Layout.HorizontalAlignment.Stretch, surface.HorizontalAlignment);
+        Assert.Equal(Avalonia.Layout.VerticalAlignment.Stretch, surface.VerticalAlignment);
     }
 }

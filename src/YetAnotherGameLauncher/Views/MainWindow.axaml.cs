@@ -141,6 +141,10 @@ public partial class MainWindow : Window
         var maximized = WindowState == WindowState.Maximized;
         MaximizeIcon.IsVisible = !maximized;
         RestoreIcon.IsVisible = maximized;
+        if (DataContext is MainWindowViewModel viewModel)
+        {
+            viewModel.IsWindowMaximized = maximized;
+        }
     }
 
     /// <summary>窗口尺寸变化：转发 VM 做侧栏阈值自适应（穿越阈值自动收放，宽度过渡自带动画）。</summary>
