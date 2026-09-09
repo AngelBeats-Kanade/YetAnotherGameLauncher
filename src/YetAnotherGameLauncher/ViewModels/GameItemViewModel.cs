@@ -101,6 +101,9 @@ public partial class GameItemViewModel(
         OnPropertyChanged(nameof(InstallIsPrimary));
         OnPropertyChanged(nameof(InstallIsSecondary));
     }
+
+    /// <summary>切换服务器即刷新状态（不同服务器的安装目录/版本上下文相互独立）。</summary>
+    partial void OnSelectedServerChanged(GameServer value) => _ = RefreshAsync();
     /// <summary>本地版本落后于远端最新版。</summary>
     [ObservableProperty] private bool _hasUpdate;
     /// <summary>渠道提供预下载且尚未暂存。</summary>
@@ -147,9 +150,11 @@ public partial class GameItemViewModel(
     /// <summary>播放器帧通知订阅状态（避免重复订阅）。</summary>
     private bool _videoSubscribed;
 
-    /// <summary>主操作按钮文案：未安装→安装；检测到已有文件→校验修复（登记版本而非重装）；有更新→更新；已最新→校验修复。</summary>
+    /// <summary>主操作按钮文案：未安装→安装；检测到已有文件→文件式"校验修复"/包式"登记版本"；有更新→更新；已最新→校验修复。</summary>
     public string InstallButtonText => !IsInstalled
-        ? CanLaunch ? Loc["game_verify"] : Loc["game_install"]
+        ? CanLaunch
+            ? UsesPackageManifest ? Loc["game_register"] : Loc["game_verify"]
+            : Loc["game_install"]
         : HasUpdate ? Loc["game_update"] : Loc["game_verify"];
 
     /// <summary>主操作按钮是否为主 CTA 形态（accent）：仅"什么都没有"的全新安装；检测到游戏/已安装时退为次级。</summary>
@@ -413,10 +418,18 @@ public partial class GameItemViewModel(
     /// <summary>
     /// 主操作：未安装时全新安装，有更新时更新；已安装且已是最新即"校验修复"——
     /// 文件式渠道直接扫描并修复缺失/损坏文件；包式渠道无逐文件清单，先弹确认再整包重下。
+    /// 检测到游戏文件（未登记）的包式渠道则只登记版本，不下载任何文件。
     /// </summary>
     [RelayCommand]
     public async Task InstallOrUpdateAsync(CancellationToken cancellationToken = default)
     {
+        // 检测到游戏的包式渠道：没有逐文件清单可供校验，登记版本即可（重下整包没有意义）
+        if (!IsInstalled && CanLaunch && UsesPackageManifest)
+        {
+            await RegisterVersionAsync(cancellationToken);
+            return;
+        }
+
         if (IsInstalled && !HasUpdate && UsesPackageManifest)
         {
             // 校验修复语义下的包式渠道：拉整包清单算体积，交确认条（拉不到清单给通用文案）
@@ -443,6 +456,43 @@ public partial class GameItemViewModel(
             () => updateService.UpdateAsync(_installDir, Game, SelectedServer, channel, Progress, cancellationToken),
             isVerify: IsInstalled && !HasUpdate,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// 登记版本（检测到游戏文件、未登记的包式渠道）：把本地版本登记为渠道最新版，
+    /// 不下载任何文件——包式渠道没有逐文件清单可校验，整包重下交由已登记态的显式确认流程。
+    /// </summary>
+    [RelayCommand]
+    public async Task RegisterVersionAsync(CancellationToken cancellationToken = default)
+    {
+        if (IsBusy || !CanLaunch || IsInstalled)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        var failureMessage = "";
+        try
+        {
+            var info = await channel.GetVersionInfoAsync(SelectedServer, cancellationToken);
+            await new LocalStateService(_installDir).SaveAsync(
+                new LocalGameState { GameId = Game.Id, ServerId = SelectedServer.Id, Version = info.LatestVersion },
+                cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            failureMessage = Loc.Format("status_registerFailed", ex.Message);
+        }
+        finally
+        {
+            IsBusy = false;
+            await RefreshAsync(cancellationToken);
+            // 成功后刷新出的"已是最新版本"即最终状态；仅失败时覆盖
+            if (failureMessage.Length > 0)
+            {
+                StatusText = failureMessage;
+            }
+        }
     }
 
     /// <summary>确认整包重下校验修复（包式渠道）：隐藏确认条后走完整更新流程。</summary>

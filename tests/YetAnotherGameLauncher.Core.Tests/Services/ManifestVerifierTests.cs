@@ -24,6 +24,27 @@ public class ManifestVerifierTests : IDisposable
     }
 
     [Fact]
+    public void Verify_ReportsPerFileProgress()
+    {
+        // 大库全量 MD5 耗时数分钟：逐文件回调驱动进度条，防止"进度卡 0%"误判为卡死
+        var a = "hello"u8.ToArray();
+        var b = "world!!"u8.ToArray();
+        WriteFile(_tempDir.FilePath("a.txt"), a);
+        WriteFile(_tempDir.FilePath("sub", "b.txt"), b);
+        var manifest = new GameManifest
+        {
+            Version = "1.0.0",
+            Files = [FileEntry("a.txt", a), FileEntry("sub/b.txt", b)],
+        };
+        var seen = new List<(int Checked, int Total)>();
+
+        var result = ManifestVerifier.VerifyFull(_tempDir.Path, manifest, (c, t) => seen.Add((c, t)));
+
+        Assert.True(result.IsComplete);
+        Assert.Equal([(1, 2), (2, 2)], seen);
+    }
+
+    [Fact]
     public void VerifyFast_AllFilesOk()
     {
         var a = "hello"u8.ToArray();

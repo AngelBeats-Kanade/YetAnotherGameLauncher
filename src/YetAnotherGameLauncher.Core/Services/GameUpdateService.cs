@@ -180,7 +180,10 @@ public sealed class GameUpdateService(
         CancellationToken cancellationToken)
     {
         var manifest = await channel.GetManifestAsync(server, version, cancellationToken).ConfigureAwait(false);
-        var before = ManifestVerifier.VerifyFast(installDir, manifest);
+        var before = ManifestVerifier.VerifyFast(
+            installDir, manifest,
+            (checkedCount, total) => progress?.Report(
+                new UpdateProgress(UpdatePhase.Checking, 0, 0, checkedCount, total, null)));
         if (before.IsComplete)
         {
             return 0;

@@ -38,7 +38,13 @@ public sealed class GameInstallService(
     {
         progress?.Report(new UpdateProgress(UpdatePhase.Checking, 0, 0, 0, manifest.Files.Count, null));
 
-        var verification = ManifestVerifier.VerifyFast(installDir, manifest);
+        // 逐文件进度：大库扫描/MD5 动辄数分钟，没有增量反馈用户会以为卡死
+        void ReportChecked(int checkedCount, int total) =>
+            progress?.Report(new UpdateProgress(UpdatePhase.Checking, 0, 0, checkedCount, total, null));
+        void ReportVerified(int checkedCount, int total) =>
+            progress?.Report(new UpdateProgress(UpdatePhase.Verifying, 0, 0, checkedCount, total, null));
+
+        var verification = ManifestVerifier.VerifyFast(installDir, manifest, ReportChecked);
         var state = new SyncProgressState();
         await DownloadBatchAsync(
             installDir,
@@ -49,7 +55,7 @@ public sealed class GameInstallService(
 
         Report(progress, UpdatePhase.Verifying, state, null);
 
-        var post = ManifestVerifier.VerifyFull(installDir, manifest);
+        var post = ManifestVerifier.VerifyFull(installDir, manifest, ReportVerified);
         if (!post.IsComplete)
         {
             // 快速校验只比存在性与大小：按 MD5 结论补下载一轮（多数情况为 0 个）后复验

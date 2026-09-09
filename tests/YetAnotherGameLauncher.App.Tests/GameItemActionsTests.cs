@@ -226,6 +226,33 @@ public class GameItemActionsTests : IDisposable
     }
 
     [Fact]
+    public async Task RegisterVersion_OnPackageChannelDetected_RegistersWithoutDownload()
+    {
+        // 检测到官方安装的终末地（未登记、包式渠道无逐文件清单）：
+        // 主按钮 = "登记版本"，零下载写 state.json，之后状态与已登记游戏一致
+        await _ctx.Vm.InitializeAsync();
+        var endfield = _ctx.Vm.Games[1];
+
+        var exePath = Path.Combine(
+            endfield.InstallDirPath, "ArknightsEndfield", "Binaries", "Win64", "ArknightsEndfield.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(exePath)!);
+        await File.WriteAllBytesAsync(exePath, "MZ"u8.ToArray());
+        await endfield.RefreshAsync();
+
+        Assert.Equal("检测到游戏文件，可直接启动", endfield.StatusText);
+        Assert.Equal("登记版本", endfield.InstallButtonText);
+
+        var downloadsBefore = _ctx.Downloader.Requests.Count;
+        await endfield.InstallOrUpdateCommand.ExecuteAsync(null);
+
+        Assert.True(endfield.IsInstalled);
+        Assert.False(endfield.HasUpdate);
+        Assert.Equal("已是最新版本", endfield.StatusText);
+        Assert.Equal(downloadsBefore, _ctx.Downloader.Requests.Count); // 零下载
+        Assert.Equal("校验修复", endfield.InstallButtonText);
+    }
+
+    [Fact]
     public async Task Verify_OnPackageChannel_ConfirmThenReinstall()
     {
         SetupEndfieldUpToDate();
