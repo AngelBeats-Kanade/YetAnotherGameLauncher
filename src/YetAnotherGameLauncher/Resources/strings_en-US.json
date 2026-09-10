@@ -68,6 +68,7 @@
   "launch_workingDirectory": "Working directory",
   "launch_workingDirectoryHint": "Leave empty to use the game install directory.",
   "message_configCreated": "Default config created at {0}. See docs/GAME_CONFIG.md to add more games.",
+  "message_launchMigrated": "Linux launch templates upgraded to the community-recommended setup (umu-launcher → Proton → wine).",
   "message_saveFailed": "Failed to save config: {0}",
   "message_serversAdded": "Imported from built-in template: {0}",
   "message_unknownChannels": "Skipped games with unknown channels: {0}",

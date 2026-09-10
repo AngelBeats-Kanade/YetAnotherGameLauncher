@@ -462,6 +462,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         await MigrateFromSampleAsync(catalog, cancellationToken);
+        await MigrateLinuxBareLaunchTemplatesAsync(catalog, cancellationToken);
         _downloader.Limiter.BytesPerSecond = catalog.Settings.DownloadSpeedLimitBytes;
         _proxyManager?.Apply(catalog.Settings);
 
@@ -647,6 +648,36 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        if (UpgradeBareTemplatesToRecommended(catalog))
+        {
+            await _catalogService.SaveAsync(cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// schemaVersion 4 一次性迁移：首运升级功能上线**之前**物化的存量配置仍是裸 {exe}，
+    /// Linux 上同样批量升级为推荐链（判定条件与首运兜底一致：仅裸 {exe}，自定义模板不动）。
+    /// 版本号 ≥ 4 后永不执行；Windows 仅推进版本号作迁移标记，不动模板。
+    /// </summary>
+    private async Task MigrateLinuxBareLaunchTemplatesAsync(GameCatalog catalog, CancellationToken cancellationToken)
+    {
+        if (catalog.Settings.SchemaVersion >= 4)
+        {
+            return;
+        }
+
+        catalog.Settings.SchemaVersion = 4;
+        if (_platform.IsLinux && UpgradeBareTemplatesToRecommended(catalog))
+        {
+            StatusMessage = _loc["message_launchMigrated"];
+        }
+
+        await _catalogService.SaveAsync(cancellationToken);
+    }
+
+    /// <summary>把目录内所有裸 {exe} 模板升级为推荐链；有改动返回 true（版本清单单一来源：BuildRecommendedLaunch）。</summary>
+    private bool UpgradeBareTemplatesToRecommended(GameCatalog catalog)
+    {
         var versions = _linuxProtonVersions ?? Core.Services.CompatTools.FindProtonVersions();
         var umuPath = _linuxUmuPath ?? Core.Services.CompatTools.FindUmuRun();
         var winePath = _linuxWinePath ?? Core.Services.CompatTools.FindSystemWine();
@@ -671,10 +702,7 @@ public partial class MainWindowViewModel : ViewModelBase
             changed = true;
         }
 
-        if (changed)
-        {
-            await _catalogService.SaveAsync(cancellationToken);
-        }
+        return changed;
     }
 
     /// <summary>

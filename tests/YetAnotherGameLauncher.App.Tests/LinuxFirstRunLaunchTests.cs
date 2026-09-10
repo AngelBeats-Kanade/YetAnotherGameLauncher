@@ -122,6 +122,55 @@ public class LinuxFirstRunLaunchTests
         Assert.DoesNotContain("STEAM_COMPAT", saved, StringComparison.Ordinal);
     }
 
+    // ---------- schemaVersion 4 迁移：存量配置的裸 {exe} 一次性升级 ----------
+
+    [Fact]
+    public async Task Migration_Linux_OldBareTemplate_UpgradedToRecommendedChain()
+    {
+        // 存量配置（首运升级功能上线前物化）仍是裸 {exe}：Linux 上一次性升级，游戏才能真正启动
+        using var ctx = VmFactory.Build(
+            configJson: OldConfigJson,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            linuxProtonVersions: ["GE-Proton10-9"]);
+
+        await ctx.Vm.InitializeAsync();
+
+        var saved = await File.ReadAllTextAsync(ctx.ConfigPath);
+        Assert.Contains("GE-Proton10-9", saved, StringComparison.Ordinal);
+        Assert.Contains("\"schemaVersion\": 4", saved, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Migration_Linux_CustomTemplate_LeftUntouched_ButVersionBumped()
+    {
+        using var ctx = VmFactory.Build(
+            configJson: CustomTemplateJson,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            linuxProtonVersions: ["GE-Proton10-9"]);
+
+        await ctx.Vm.InitializeAsync();
+
+        var saved = await File.ReadAllTextAsync(ctx.ConfigPath);
+        Assert.Contains("steam -applaunch 2530", saved, StringComparison.Ordinal); // 自定义模板不动
+        Assert.DoesNotContain("GE-Proton", saved, StringComparison.Ordinal);
+        Assert.Contains("\"schemaVersion\": 4", saved, StringComparison.Ordinal); // 但迁移标记落盘
+    }
+
+    [Fact]
+    public async Task Migration_Schema4_NeverTouchesAgain()
+    {
+        using var ctx = VmFactory.Build(
+            configJson: MigratedConfigJson,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            linuxProtonVersions: ["GE-Proton10-9"]);
+
+        await ctx.Vm.InitializeAsync();
+
+        var saved = await File.ReadAllTextAsync(ctx.ConfigPath);
+        Assert.DoesNotContain("GE-Proton", saved, StringComparison.Ordinal);
+        Assert.Contains("{exe}", saved, StringComparison.Ordinal); // 裸模板保持原样
+    }
+
     /// <summary>与 SampleConfigJson 同构，但鸣潮条目带用户自定义启动模板。</summary>
     private const string CustomTemplateJson = """
         {
@@ -137,6 +186,52 @@ public class LinuxFirstRunLaunchTests
               "servers": [ { "id": "cn", "name": "国服" } ],
               "launch": {
                 "commandTemplate": "steam -applaunch 2530",
+                "workingDirectory": "{installDir}",
+                "environment": {}
+              }
+            }
+          ]
+        }
+        """;
+
+    /// <summary>存量旧版配置形态（无 schemaVersion 或 schemaVersion &lt; 4，模板裸 {exe}）。</summary>
+    private const string OldConfigJson = """
+        {
+          "settings": { "installRoot": "~/yagl-test-games", "theme": "Dark", "maxParallelDownloads": 4 },
+          "games": [
+            {
+              "id": "wuthering-waves",
+              "displayName": "鸣潮",
+              "nameLocalized": { "zh-CN": "鸣潮", "en-US": "Wuthering Waves" },
+              "channel": "kuro",
+              "installDir": "WutheringWaves",
+              "executable": "Client/Binaries/Win64/Client-Win64-Shipping.exe",
+              "servers": [ { "id": "cn", "name": "国服" } ],
+              "launch": {
+                "commandTemplate": "{exe}",
+                "workingDirectory": "{installDir}",
+                "environment": {}
+              }
+            }
+          ]
+        }
+        """;
+
+    /// <summary>已完成 schema 4 迁移的配置（裸 {exe} 保留 = 用户/迁移后的既成事实，不再触碰）。</summary>
+    private const string MigratedConfigJson = """
+        {
+          "settings": { "installRoot": "~/yagl-test-games", "theme": "Dark", "maxParallelDownloads": 4, "schemaVersion": 4 },
+          "games": [
+            {
+              "id": "wuthering-waves",
+              "displayName": "鸣潮",
+              "nameLocalized": { "zh-CN": "鸣潮", "en-US": "Wuthering Waves" },
+              "channel": "kuro",
+              "installDir": "WutheringWaves",
+              "executable": "Client/Binaries/Win64/Client-Win64-Shipping.exe",
+              "servers": [ { "id": "cn", "name": "国服" } ],
+              "launch": {
+                "commandTemplate": "{exe}",
                 "workingDirectory": "{installDir}",
                 "environment": {}
               }
