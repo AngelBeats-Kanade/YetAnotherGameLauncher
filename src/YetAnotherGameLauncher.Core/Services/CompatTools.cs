@@ -346,6 +346,12 @@ public static class CompatTools
             .FirstOrDefault(Directory.Exists);
     }
 
+    /// <summary>按 PATH 逐目录查找可执行文件；找不到返回 null（启动预检与运行时发现共用）。</summary>
+    /// <param name="name">要查找的命令名。</param>
+    /// <param name="pathValue">PATH 环境变量的值；null = 读真实环境（测试注入空串禁用 PATH 扫描）。</param>
+    public static string? FindOnPath(string name, string? pathValue = null) =>
+        SearchPath(pathValue ?? Environment.GetEnvironmentVariable("PATH") ?? "", name);
+
     /// <summary>按 PATH 逐目录查找名为 <paramref name="name"/> 的可执行文件；找不到返回 null。</summary>
     private static string? SearchPath(string pathValue, string name)
     {

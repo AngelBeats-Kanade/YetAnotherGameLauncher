@@ -7,7 +7,8 @@ public sealed record ProcessStartSpec(
     string? WorkingDirectory = null,
     IReadOnlyDictionary<string, string>? Environment = null,
     int TimeoutMilliseconds = 600_000,
-    bool WaitForExit = true);
+    bool WaitForExit = true,
+    string? OutputLogPath = null);
 
 /// <summary>进程执行结果。</summary>
 public sealed record ProcessResult(int ExitCode, string StandardOutput, string StandardError)

@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
@@ -16,7 +17,8 @@ public class GameLauncherServiceTests : IDisposable
 
     public void Dispose() => _tempDir.Dispose();
 
-    private GameLauncherService Service() => new(_runner);
+    private GameLauncherService Service(string? pathValue = null, string? logDir = null) =>
+        new(_runner, logDirectory: logDir ?? _tempDir.FilePath("logs"), pathValue: pathValue);
 
     private GameDefinition Game(string commandTemplate = "{exe}") => new()
     {
@@ -72,8 +74,11 @@ public class GameLauncherServiceTests : IDisposable
     public async Task BuildPlan_WineTemplate_SplitsCommandAndArgs()
     {
         await CreateExecutable();
+        var winePath = await CreatePathStub("wine");
 
-        var plan = Service().BuildPlan(Game("wine \"{exe}\""), _tempDir.Path, "bin/game.exe");
+        // 预检要能在注入的 PATH 里找到 wine
+        var plan = Service(pathValue: _tempDir.FilePath("pathbin"))
+            .BuildPlan(Game("wine \"{exe}\""), _tempDir.Path, "bin/game.exe");
 
         Assert.Equal("wine", plan.FileName);
         Assert.StartsWith("\"", plan.Arguments);
@@ -103,22 +108,91 @@ public class GameLauncherServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task BuildPlan_MissingExecutable_Throws()
+    public async Task BuildPlan_MissingExecutable_ThrowsCategorized()
     {
-        await Assert.ThrowsAsync<UpdateException>(
+        var ex = await Assert.ThrowsAsync<LaunchException>(
             () => Task.Run(() => Service().BuildPlan(Game("\"{exe}\""), _tempDir.Path, "bin/missing.exe")));
+
+        Assert.Equal(LaunchFailureKind.ExecutableMissing, ex.Kind);
+        Assert.Contains("不存在", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task LaunchAsync_ReturnsProcessExitCode()
+    public async Task BuildPlan_BareRuntimeMissingOnPath_ThrowsCategorized()
     {
         await CreateExecutable();
 
-        var exitCode = await Service().LaunchAsync(Game("\"{exe}\""), _tempDir.Path, "bin/game.exe");
+        // pathValue 空串 = PATH 扫描禁用 = wine 找不到
+        var ex = await Assert.ThrowsAsync<LaunchException>(() => Task.Run(() =>
+            Service(pathValue: "").BuildPlan(Game("wine \"{exe}\""), _tempDir.Path, "bin/game.exe")));
 
-        Assert.Equal(7, exitCode);
+        Assert.Equal(LaunchFailureKind.RuntimeMissing, ex.Kind);
+        Assert.Contains("wine", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task BuildPlan_AbsoluteRuntimeMissing_ThrowsCategorized()
+    {
+        await CreateExecutable();
+        var missingScript = _tempDir.FilePath("compat", "proton");
+
+        var ex = await Assert.ThrowsAsync<LaunchException>(() => Task.Run(() =>
+            Service().BuildPlan(
+                Game($"\"{missingScript}\" run {{exe}}"), _tempDir.Path, "bin/game.exe")));
+
+        Assert.Equal(LaunchFailureKind.RuntimeMissing, ex.Kind);
+    }
+
+    [Fact]
+    public async Task BuildPlan_AbsoluteRuntimeWithoutExecBit_IsFixedAutomatically()
+    {
+        // 从压缩包解出的 proton 脚本常缺执行位：预检自动补 +x 而不是直接报错
+        if (OperatingSystem.IsWindows())
+        {
+            return; // Windows 无执行位概念
+        }
+
+        await CreateExecutable();
+        var script = _tempDir.FilePath("compat", "proton");
+        Directory.CreateDirectory(Path.GetDirectoryName(script)!);
+        await File.WriteAllTextAsync(script, "#!/bin/sh");
+        File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+
+        Service().BuildPlan(Game($"\"{script}\" run {{exe}}"), _tempDir.Path, "bin/game.exe");
+
+        Assert.True(
+            File.GetUnixFileMode(script).HasFlag(UnixFileMode.UserExecute),
+            "预检应自动补上可执行位");
+    }
+
+    [Fact]
+    public async Task BuildPlan_CreatesWinePrefixDirectory()
+    {
+        // Proton 要求 STEAM_COMPAT_DATA_PATH 目录已存在；预检负责创建
+        await CreateExecutable();
+        var prefix = _tempDir.FilePath("prefix");
+        var game = Game("\"{exe}\"");
+        game.Launch.Environment["WINEPREFIX"] = prefix;
+
+        Service().BuildPlan(game, _tempDir.Path, "bin/game.exe");
+
+        Assert.True(Directory.Exists(prefix));
+    }
+
+    [Fact]
+    public async Task LaunchAsync_ReturnsProcessExitCodeAndLogPath()
+    {
+        await CreateExecutable();
+        var logDir = _tempDir.FilePath("logs");
+
+        var result = await Service(logDir: logDir).LaunchAsync(Game("\"{exe}\""), _tempDir.Path, "bin/game.exe");
+
+        Assert.Equal(7, result.ExitCode);
+        Assert.StartsWith(logDir, result.LogPath, StringComparison.Ordinal);
+        Assert.Contains("launch-test-", Path.GetFileName(result.LogPath!), StringComparison.Ordinal);
         var spec = Assert.Single(_runner.Specs);
         Assert.Equal(_tempDir.Path, spec.WorkingDirectory);
+        Assert.Equal(result.LogPath, spec.OutputLogPath);
     }
 
     [Fact]
@@ -133,6 +207,37 @@ public class GameLauncherServiceTests : IDisposable
         Assert.False(spec.WaitForExit);
     }
 
+    [Fact]
+    public async Task LaunchAsync_StartFailure_WrappedAsCategorizedError()
+    {
+        await CreateExecutable();
+        var runner = new FakeProcessRunner
+        {
+            Handler = _ => throw new Win32Exception(13, "Permission denied"),
+        };
+
+        var ex = await Assert.ThrowsAsync<LaunchException>(
+            () => new GameLauncherService(runner, logDirectory: _tempDir.FilePath("logs"))
+                .LaunchAsync(Game("\"{exe}\""), _tempDir.Path, "bin/game.exe"));
+
+        Assert.Equal(LaunchFailureKind.StartFailed, ex.Kind);
+    }
+
+    [Fact]
+    public async Task SanitizeGameId_UnsafeCharacters_ReplacedForLogFileName()
+    {
+        await CreateExecutable();
+        var game = Game("\"{exe}\"");
+        game.Id = "wuthering waves/global:cn";
+
+        var result = await Service().LaunchAsync(game, _tempDir.Path, "bin/game.exe");
+
+        var name = Path.GetFileName(result.LogPath!);
+        Assert.DoesNotContain("/", name);
+        Assert.DoesNotContain(":", name);
+        Assert.Matches(@"^launch-wuthering-waves-global-cn-\d{8}-\d{6}\.log$", name);
+    }
+
     [Theory]
     [InlineData("\"C:/Program Files/game.exe\" -dx11", "C:/Program Files/game.exe", "-dx11")]
     [InlineData("wine game.exe", "wine", "game.exe")]
@@ -143,5 +248,20 @@ public class GameLauncherServiceTests : IDisposable
 
         Assert.Equal(expectedFile, fileName);
         Assert.Equal(expectedArgs, arguments);
+    }
+
+    /// <summary>在注入 PATH 目录下创建一个带可执行位的桩命令，返回完整路径。</summary>
+    private async Task<string> CreatePathStub(string name)
+    {
+        var dir = _tempDir.FilePath("pathbin");
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, name);
+        await File.WriteAllTextAsync(path, "#!/bin/sh");
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        return path;
     }
 }

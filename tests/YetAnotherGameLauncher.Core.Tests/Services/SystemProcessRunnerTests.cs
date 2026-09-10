@@ -28,6 +28,47 @@ public class SystemProcessRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_FireAndForget_WritesOutputToLogFile()
+    {
+        // 启动日志：即启即走的进程输出（stdout/stderr）要落盘，秒退/报错可据此排查
+        if (OperatingSystem.IsWindows())
+        {
+            return; // 用 /bin/sh 构造双路输出，仅在 Linux 验证
+        }
+
+        using var tempDir = new TestSupport.TempDir();
+        var logPath = tempDir.FilePath("logs", "launch-test.log");
+        var runner = new SystemProcessRunner();
+        var result = await runner.RunAsync(new ProcessStartSpec(
+            "/bin/sh",
+            "-c \"echo out-line; echo err-line >&2; exit 7\"",
+            WaitForExit: false,
+            OutputLogPath: logPath));
+
+        Assert.Equal(0, result.ExitCode); // 即启即走恒 0
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        string content = "";
+        while (DateTime.UtcNow < deadline)
+        {
+            if (File.Exists(logPath))
+            {
+                content = await File.ReadAllTextAsync(logPath);
+                if (content.Contains("exited with code 7", StringComparison.Ordinal))
+                {
+                    break; // 退出脚注落盘 = 输出已排空
+                }
+            }
+
+            await Task.Delay(100);
+        }
+
+        Assert.Contains("# command: /bin/sh", content, StringComparison.Ordinal);
+        Assert.Contains("out-line", content, StringComparison.Ordinal);
+        Assert.Contains("[stderr] err-line", content, StringComparison.Ordinal);
+        Assert.Contains("exited with code 7", content, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RunAsync_WaitForExit_ReturnsExitCode()
     {
         var (fileName, arguments) = OperatingSystem.IsWindows()

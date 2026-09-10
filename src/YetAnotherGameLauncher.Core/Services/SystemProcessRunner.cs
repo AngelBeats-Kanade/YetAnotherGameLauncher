@@ -25,15 +25,40 @@ public sealed class SystemProcessRunner(
     public async Task<ProcessResult> RunAsync(ProcessStartSpec spec, CancellationToken cancellationToken = default)
     {
         var waitForExit = spec.WaitForExit;
+        // 即启即走 + 指定了日志文件：也要重定向（有人异步消费，不会卡满缓冲区）
+        var redirectOutput = waitForExit || (!waitForExit && spec.OutputLogPath is not null);
+        StreamWriter? logWriter = null;
+        if (!waitForExit && spec.OutputLogPath is { } logPath)
+        {
+            var logDir = Path.GetDirectoryName(logPath);
+            if (!string.IsNullOrEmpty(logDir))
+            {
+                Directory.CreateDirectory(logDir);
+            }
+
+            logWriter = new StreamWriter(logPath, append: false) { AutoFlush = true };
+            logWriter.WriteLine($"# YAGL launch log — {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            logWriter.WriteLine($"# command: {spec.FileName} {spec.Arguments}");
+            logWriter.WriteLine($"# working directory: {spec.WorkingDirectory}");
+            if (spec.Environment is { Count: > 0 } env)
+            {
+                logWriter.WriteLine("# environment:");
+                foreach (var (key, value) in env)
+                {
+                    logWriter.WriteLine($"#   {key}={value}");
+                }
+            }
+        }
+
         var startInfo = new ProcessStartInfo
         {
             FileName = spec.FileName,
             Arguments = spec.Arguments,
             WorkingDirectory = spec.WorkingDirectory ?? Environment.CurrentDirectory,
             UseShellExecute = false,
-            // 即启即走时无人读取管道，重定向会因缓冲区写满卡死目标进程
-            RedirectStandardOutput = waitForExit,
-            RedirectStandardError = waitForExit,
+            // 即启即走时无人读取管道，重定向会因缓冲区写满卡死目标进程（写日志路径除外：异步消费）
+            RedirectStandardOutput = redirectOutput,
+            RedirectStandardError = redirectOutput,
             CreateNoWindow = true,
         };
 
@@ -47,8 +72,13 @@ public sealed class SystemProcessRunner(
             }
         }
 
-        using var process = new Process { StartInfo = startInfo };
+        // 带输出日志的即启即走路径会在输出泵收尾后才 Dispose 进程句柄（管道随 Dispose 关闭，
+        // 提前 Dispose 会让泵立刻 EOF/异常）——所以这里不能用 using
+        var process = new Process { StartInfo = startInfo };
         var startedAt = Environment.TickCount64;
+        var elevated = false;
+        // stdout/stderr 事件来自不同线程，StreamWriter 非线程安全，所有写入串行化
+        object? logLock = logWriter is null ? null : new();
         try
         {
             process.Start();
@@ -68,63 +98,97 @@ public sealed class SystemProcessRunner(
             }
 
             process.StartInfo = CreateElevatedStartInfo(startInfo);
+            elevated = true;
             process.Start();
             logger?.LogInformation("Process {File} started via shell execute (elevation prompt)", spec.FileName);
+        }
+        catch
+        {
+            // 启动失败也要释放已打开的日志文件，否则 handle 泄漏
+            logWriter?.Dispose();
+            throw;
+        }
+
+        if (!waitForExit && logWriter is not null && redirectOutput && !elevated)
+        {
+            // 自管输出泵：直接从管道 ReadLine 到 EOF，保证 stdout/stderr 都完整落盘。
+            // 不用 BeginOutputReadLine 事件——WaitForExit() 只排空 stdout，stderr 事件会丢
+            var writer = logWriter;
+            var gate = logLock!;
+            var pumpStdout = PumpToLog(process.StandardOutput, writer, gate, null);
+            var pumpStderr = PumpToLog(process.StandardError, writer, gate, "[stderr] ");
+            var startedTicksCopy = startedAt;
+            var launchedFile = spec.FileName;
+            process.EnableRaisingEvents = true;
+            if (process.HasExited)
+            {
+                // 进程在布防前就退出了：Exited 事件不会再触发，直接收尾
+                ObserveFireAndForgetExit(process, pumpStdout, pumpStderr, writer, gate, launchedFile, startedTicksCopy, logger);
+            }
+            else
+            {
+                process.Exited += (_, _) => ObserveFireAndForgetExit(
+                    process, pumpStdout, pumpStderr, writer, gate, launchedFile, startedTicksCopy, logger);
+            }
+
+            return new ProcessResult(0, "", "");
         }
 
         if (!waitForExit)
         {
-            // 游戏秒退诊断：退出码与存活时长落日志（句柄随 using 释放，事件里只读必要字段）
-            var file = spec.FileName;
-            var startedTicks = startedAt;
+            // 无日志路径：仍然把"退出码 + 存活时长"写应用日志（游戏秒退排查线索）。
+            // 进程句柄不主动释放：Dispose 会解除 Exited 布防导致事件丢失，交给 SafeProcessHandle 终结器
+            var startedTicksCopy = startedAt;
+            var launchedFile = spec.FileName;
             process.EnableRaisingEvents = true;
-            process.Exited += (_, _) =>
+            if (process.HasExited)
             {
-                var exitCode = 0L;
-                try
-                {
-                    exitCode = process.ExitCode;
-                }
-                catch (Exception)
-                {
-                    // 句柄可能已释放
-                }
+                LogFireAndForgetExit(process, startedTicksCopy, launchedFile, logger);
+            }
+            else
+            {
+                process.Exited += (_, _) => LogFireAndForgetExit(process, startedTicksCopy, launchedFile, logger);
+            }
 
-                logger?.LogInformation("Launched process exited after {Seconds:F1}s with code {ExitCode}: {File}",
-                    (Environment.TickCount64 - startedTicks) / 1000.0, exitCode, file);
-            };
             return new ProcessResult(0, "", "");
         }
 
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(spec.TimeoutMilliseconds);
-
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
-        var stderrTask = process.StandardError.ReadToEndAsync(timeoutCts.Token);
-        var exitTask = process.WaitForExitAsync(timeoutCts.Token);
-
         try
         {
-            await exitTask.ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(spec.TimeoutMilliseconds);
+
+            var stdoutTask = process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
+            var stderrTask = process.StandardError.ReadToEndAsync(timeoutCts.Token);
+            var exitTask = process.WaitForExitAsync(timeoutCts.Token);
+
             try
             {
-                process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+                await exitTask.ConfigureAwait(false);
             }
-            catch (InvalidOperationException)
+            catch (OperationCanceledException)
             {
-                // 进程已退出
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException)
+                {
+                    // 进程已退出
+                }
+
+                throw;
             }
 
-            throw;
+            var stdout = await stdoutTask.ConfigureAwait(false);
+            var stderr = await stderrTask.ConfigureAwait(false);
+            return new ProcessResult(process.ExitCode, stdout, stderr);
         }
-
-        var stdout = await stdoutTask.ConfigureAwait(false);
-        var stderr = await stderrTask.ConfigureAwait(false);
-        return new ProcessResult(process.ExitCode, stdout, stderr);
+        finally
+        {
+            process.Dispose();
+        }
     }
 
     /// <summary>
@@ -140,4 +204,89 @@ public sealed class SystemProcessRunner(
         UseShellExecute = true,
         CreateNoWindow = true,
     };
+
+    /// <summary>即启即走 + 输出日志：等两个输出泵到 EOF 后写退出脚注、关闭日志并释放进程句柄。</summary>
+    private static void ObserveFireAndForgetExit(
+        Process process,
+        Task pumpStdout,
+        Task pumpStderr,
+        StreamWriter writer,
+        object gate,
+        string file,
+        long startedTicks,
+        ILogger? logger)
+    {
+        LogFireAndForgetExit(process, startedTicks, file, logger);
+        _ = Task.Run(async () =>
+        {
+            // 管道在进程退出后到达 EOF，两个泵收尾后写退出脚注并关闭日志
+            await Task.WhenAll(pumpStdout, pumpStderr).ConfigureAwait(false);
+            var seconds = AliveSeconds(process, startedTicks, out var exitCode);
+            lock (gate)
+            {
+                try
+                {
+                    writer.WriteLine($"# process exited with code {exitCode} after {seconds:F1}s");
+                    writer.Dispose();
+                }
+                catch (ObjectDisposedException)
+                {
+                }
+            }
+
+            try
+            {
+                process.Dispose(); // 泵已结束，日志路径专用的句柄在此收尾
+            }
+            catch (Exception)
+            {
+                // 句柄可能已释放
+            }
+        });
+    }
+
+    /// <summary>即启即走（无输出日志）：把"退出码 + 存活时长"写入应用日志（游戏秒退排查线索）。</summary>
+    private static void LogFireAndForgetExit(
+        Process process, long startedTicks, string file, ILogger? logger)
+    {
+        var seconds = AliveSeconds(process, startedTicks, out var exitCode);
+        logger?.LogInformation("Launched process exited after {Seconds:F1}s with code {ExitCode}: {File}",
+            seconds, exitCode, file);
+    }
+
+    /// <summary>读取已退出进程的存活时长与退出码；句柄不可用时回退 0/0。</summary>
+    private static double AliveSeconds(Process process, long startedTicks, out long exitCode)
+    {
+        exitCode = 0;
+        try
+        {
+            exitCode = process.ExitCode;
+        }
+        catch (Exception)
+        {
+            // 句柄可能已释放
+        }
+
+        return (Environment.TickCount64 - startedTicks) / 1000.0;
+    }
+
+    /// <summary>把一个输出流逐行写入日志直到 EOF；prefix 用于区分 stderr。行写入经 <paramref name="gate"/> 串行化。</summary>
+    private static async Task PumpToLog(
+        StreamReader reader, StreamWriter writer, object gate, string? prefix)
+    {
+        while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
+        {
+            lock (gate)
+            {
+                try
+                {
+                    writer.WriteLine(prefix is null ? line : $"{prefix}{line}");
+                }
+                catch (ObjectDisposedException)
+                {
+                    return; // 日志已关闭：停止泵
+                }
+            }
+        }
+    }
 }
