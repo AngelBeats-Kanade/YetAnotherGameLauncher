@@ -25,14 +25,14 @@ src/
     Models/         AppSettings（全局设置）、GameCatalog/GameDefinition/GameServer、GameManifest、UpdatePlan、
                     UpdateProgress、LocalGameState、ChannelVersionInfo、DownloadRequest（单文件下载请求）、
                     LaunchOptions（启动命令模板）、ThemeMode
-    Abstractions/   IGameChannelApi、IDownloader、IPatchApplier、IProcessRunner、异常类型、
-                    IPlatformInfo（平台环境：Linux/GPU 探测、文件管理器打开目录）、IBackdropResolver（详情页背景解析，含 BackdropKind/BackdropSource）
+    Abstractions/   IGameChannelApi、IDownloader、IPatchApplier、IProcessRunner、异常类型（UpdateException/LaunchException + LaunchFailureKind）、
+                    IPlatformInfo（平台环境：Linux/GPU 厂商探测、文件管理器打开目录，含 GpuVendor 枚举）、IBackdropResolver（详情页背景解析，含 BackdropKind/BackdropSource）
     Services/       GameCatalogService（含首次运行 CreateDefaultFileAsync）、HttpFileDownloader（+HttpFileDownloaderOptions）、
                     ManifestVerifier、UpdatePlanner、GameInstallService、IncrementalUpdateService、PackageInstallerService、
-                    GameUpdateService、GameLauncherService、LocalStateService、SystemProcessRunner、
+                    GameUpdateService、GameLauncherService（启动预检/类目化错误/启动日志）、LocalStateService、SystemProcessRunner（输出泵落盘启动日志）、
                     NetworkProxyManager（全局共享 SocketsHttpHandler，代理切换即时生效）、SpeedLimiter（泄漏桶全局限速）、
                     AutostartService.cs（IAutostartService + WindowsAutostartService（HKCU Run 注册表）/ LinuxAutostartService（XDG autostart）双实现）、
-                    CompatTools（Linux Proton 探测与启动命令/环境变量构建，含 LaunchMode 枚举）、
+                    CompatTools（Linux 兼容层单一来源：umu/wine/Lutris/Proton 发现、prefix 统一路径、推荐链 BuildRecommendedLaunch、含 LaunchMode 枚举与 CompatLaunch）、
                     GameBackdropService（详情页背景远程解析 + 本地缓存编排）、KuroLauncherBackground（KRLauncher 官方背景探测）、
                     WebViewCacheScanner（Chromium 磁盘缓存文本流式正则提取）、WindowsPlatformInfo / LinuxPlatformInfo（IPlatformInfo 双实现）
     Utilities/      Hashing（MD5 hex）、Json（统一序列化选项）、FileUtilities（原子写入/尽力删除）
@@ -50,9 +50,12 @@ src/
     Services/       LocalizationService/ILocalizationService + LocExtension/LocBridge（JSON 资源本地化与 XAML 标记扩展）；
                     FfmpegVideoBackdropPlayer/IVideoBackdropPlayer（FFmpeg 背景视频解码播放）+ FfmpegLibraryResolver（原生库准备/下载）；
                     SeamAnalyzer（循环接缝分析）+ PrerollHandoff（预卷零间隙交接状态机）实现无缝循环；
-                    BackgroundImageService（静态背景图加载与缓存）、FilePickerService/IFilePickerService（系统文件/目录选择器封装）
+                    BackgroundImageService（静态背景图加载与缓存，失败结果按 TTL 短暂缓存）、
+                    UmuLauncherInstaller（umu-launcher zipapp 引导安装：GitHub release 元数据 → 下载 → 解出 umu-run）、
+                    FilePickerService/IFilePickerService（系统文件/目录选择器封装）
     Controls/       AppBackdrop（应用背景层：主题渐变 + 光晕 + 自定义背景图）、FrameSurface（背景视频帧自绘渲染面）
     ViewModels/     MainWindowViewModel、GameItemViewModel、GameSettingsViewModel、LaunchSettingsViewModel、
+                    LaunchErrorViewModel（启动失败覆盖层：类目化原因/技术详情/日志入口/umu 一键安装）、
                     GachaViewModel（鸣潮唤取记录页）、SaveMessageSlot（表单保存结果消息槽）、ViewModelBase
     Views/MainWindow
 tests/

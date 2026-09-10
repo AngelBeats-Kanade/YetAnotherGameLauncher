@@ -9,7 +9,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 
 首次运行无配置时启动器会自动生成默认配置（`GameCatalogService.CreateDefaultFileAsync`
 写入内嵌的 [`samples/games.json`](../samples/games.json) 模板；Linux 上会顺带把默认
-`{exe}` 模板升级为推荐 Proton/wine，见下文 [launch 小节](#gameslaunchlaunchoptions)），
+`{exe}` 模板升级为社区推荐链（umu → Proton → wine），见下文 [launch 小节](#gameslaunchlaunchoptions)），
 也可手动复制该样例到上述位置；
 鸣潮与终末地均已内置国际服/国服/B 服三服的官方端点。
 文件支持注释（`//`）与尾逗号；保存后重启启动器生效。
@@ -68,9 +68,14 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 
 > [!NOTE]
 > Linux 首运生成默认配置时，裸 `{exe}` 模板（无法运行 Windows 客户端）会被自动升级为
-> 检测到的推荐 Proton 模板 + 兼容环境变量（未检测到 Proton 则 `wine {exe}`）并写盘
+> 社区推荐链 + 兼容环境变量并写盘：**umu-launcher**（`umu-run {exe}` + GAMEID/UMU_ID/WINEPREFIX，
+> 未装时先给模板、可在启动设置卡一键安装）→ **Proton**（STEAM_COMPAT 环境）→ **系统 wine**（WINEPREFIX）。
 > （`MainWindowViewModel.ApplyLinuxFirstRunLaunchDefaultsAsync`，推荐逻辑单一来源
-> `CompatTools.BuildRecommendedLaunch`）。仅在首运生成那一刻执行一次，此后配置以用户修改为准。
+> `CompatTools.BuildRecommendedLaunch`。）仅在首运生成那一刻执行一次，此后配置以用户修改为准。
+>
+> Wine prefix 由启动器统一放在 `{数据目录}/yagl/prefixes/<游戏id>`
+> （Linux `~/.local/share/yagl/prefixes/`），不写入游戏安装目录——
+> 安装同步的清单外清理不会误删 prefix；需要独立 prefix 时用 `WINEPREFIX`/`STEAM_COMPAT_DATA_PATH` 覆盖。
 
 ### games[].servers[]（GameServer）
 
@@ -133,21 +138,37 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 }
 ```
 
-## 3. Linux：wine / Proton 启动示例
+## 3. Linux：umu / wine / Proton 启动示例
 
-两款游戏均为 Windows 程序，Linux 上把 `launch` 改成包装命令即可：
+两款游戏均为 Windows 程序，Linux 上把 `launch` 改成包装命令即可。
+**推荐直接用启动器的 umu-launcher 引导安装**（启动设置卡或启动失败提示内一键安装），
+装完由启动器自动生成以下配置，无需手写：
 
 ```jsonc
-// wine（独立 prefix 示例）
-"launch": {
-  "commandTemplate": "wine \"{exe}\"",
-  "environment": { "WINEPREFIX": "~/Games/wuwa-prefix" }
-}
-
-// Steam Proton（通过 umu-launcher 等包装器）
+// umu-launcher（推荐：自动管理 Steam Runtime 容器与 Proton；prefix 由启动器统一管理）
 "launch": {
   "commandTemplate": "umu-run \"{exe}\"",
-  "environment": { "GAMEID": "wuwa", "WINEPREFIX": "~/Games/wuwa-umu" }
+  "environment": {
+    "GAMEID": "umu-wuthering-waves",   // 能命中 umu 数据库时自动套用社区修复
+    "UMU_ID": "umu-wuthering-waves",
+    "WINEPREFIX": "~/.local/share/yagl/prefixes/wuthering-waves"
+  }
+}
+
+// 系统 wine
+"launch": {
+  "commandTemplate": "wine \"{exe}\"",
+  "environment": { "WINEPREFIX": "~/.local/share/yagl/prefixes/wuthering-waves" }
+}
+
+// Proton 直启（自备 Steam + compatibilitytools.d；或 Steam 商店版本走协议启动）
+"launch": {
+  "commandTemplate": "\"~/.steam/steam/compatibilitytools.d/GE-Proton10-9/proton\" run {exe}",
+  "environment": {
+    "STEAM_COMPAT_DATA_PATH": "~/.local/share/yagl/prefixes/wuthering-waves",
+    "STEAM_COMPAT_CLIENT_INSTALL_PATH": "~/.steam/steam",
+    "SteamOS": "1"                      // 鸣潮过 ACE 反作弊需伪装 SteamOS；NVIDIA 卡再加 PROTON_ENABLE_NVAPI=1
+  }
 }
 
 // Steam 商店版本（用 steam 协议启动，忽略 exe）

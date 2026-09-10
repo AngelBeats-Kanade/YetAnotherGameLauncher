@@ -42,7 +42,14 @@ Avalonia 12（本项目 12.1.2）+ .NET 10。跨平台 XAML（.axaml）UI 框架
 - 主题相关刷子全部定义在 `App.axaml` 的 `ResourceDictionary.ThemeDictionaries`（`Light`/`Dark` 两个字典），键以 `App` 前缀命名（`AppAccentBrush`、`AppCardBackground`、`AppBackdropBaseBrush` + `AppBackdropGlowBrush`（窗口背景渐变与光晕）、`AppTextSecondary`、`AppErrorText`）。
 - 亮暗主题**必须成对**新增键；暗色不用纯黑，亮色不用纯白（见 `desktop-ui-design`）。
 - 切换主题：`Application.Current.RequestedThemeVariant = ThemeVariant.Default/Light/Dark`；跨线程设置需 `CheckAccess()`/`Dispatcher.Post`（见 `Themes/ThemeService.cs`）。
-- 字体回退链写在中文字体上：`FontFamily="Microsoft YaHei UI, Noto Sans CJK SC, Segoe UI, Inter"`。
+- 字体回退链写在中文字体上：`FontFamily="Microsoft YaHei UI, PingFang SC, Noto Sans CJK SC, Source Han Sans CN, Source Han Sans SC, WenQuanYi Zen Hei, Segoe UI, Inter"`（窗口 FontFamily 与 `Program.cs` 的 `FontManagerOptions.DefaultFamilyName` 两处保持一致）。**Linux 链上必须有发行版实际存在的黑体**（Noto CJK / 思源黑体）——只写 `Microsoft YaHei UI` 时 fontconfig 模糊匹配会落到楷体/宋体衬线体，正文全变形。
+
+## Linux 渲染（实踩）
+
+- **Avalonia 12 没有 Wayland 后端**：Linux 下一律 X11（Wayland 会话即 XWayland），`X11PlatformOptions` 是唯一的 Linux 平台选项。渲染模式显式 `RenderingMode = [Egl, Glx, Software]`——GLX 在 XWayland+NVIDIA 下是糊化/撕裂高发点。
+- **XWayland 拿不到合成器分数缩放**（X 恒报 96dpi）：4K+1.67 桌面上 UI 会按物理像素渲染（小字且糊）。`Program.TrySyncXftDpiWithCompositor` 启动时把 Hyprland 缩放写进 `Xft.dpi`（仅用户未设置时）。Avalonia 12 已无 `AVALONIA_SCREEN_SCALE_FACTORS` 环境变量。
+- **合成器会无视 `WindowDecorations="BorderOnly"` 给 X11 窗口画 SSD 标题条**：Linux 下在 `InitializeComponent()` 之后设 `WindowDecorations.None`（XAML 属性会覆盖构造函数先写的值）。
+- 长文案的状态胶囊/提示条必须 `MaxWidth + TextWrapping`，否则会横穿窗口被裁（judge 实锤）。
 
 ## 布局模式（本项目 MainWindow）
 

@@ -93,18 +93,30 @@ sequenceDiagram
 
     U->>VM: 点击"启动"
     VM->>LS: LaunchAsync(game, installDir, exe)
-    LS->>LS: 校验可执行文件存在
+    LS->>LS: 预检：主程序存在
     LS->>LS: 展开模板：{exe} {installDir}<br/>工作目录、环境变量
-    LS->>PR: RunAsync(spec，WaitForExit=false)
+    LS->>LS: 预检：运行时存在且可执行<br/>（缺执行位自动 chmod +x）<br/>创建 WINEPREFIX/STEAM_COMPAT 目录
+    LS->>PR: RunAsync(spec，WaitForExit=false，<br/>OutputLogPath=启动日志)
     PR-->>LS: 进程已启动（即启即走，立即返回）
-    LS-->>VM: 启动完成
-    VM->>U: "游戏已启动"
+    LS-->>VM: LaunchResult(退出码, 日志路径)
+    VM->>U: "游戏已启动" / 失败弹错误卡
 ```
 
 启动是**即启即走**（fire-and-forget）：`ProcessStartSpec.WaitForExit = false`，
-启动器不等待游戏退出、不杀进程树、也不重定向输出（即启即走时无人读取管道，
-重定向会因缓冲区写满卡死游戏）。游戏秒退的排查线索由 `SystemProcessRunner` 落日志：
-挂进程退出观察，记录退出码与存活时长。
+启动器不等待游戏退出、不杀进程树。游戏 stdout/stderr 经输出泵写入
+`~/.local/share/yagl/logs/launch-<游戏id>-<时间戳>.log`（逐行读取到 EOF——
+不用 `BeginOutputReadLine` 事件：`WaitForExit()` 只排空 stdout，stderr 会丢；
+日志路径模式的进程句柄在泵收尾后才释放，`using` 作用域提前 Dispose 会掐断管道）。
+游戏秒退的排查线索由日志尾注 + 应用日志共同记录：退出码与存活时长。
+
+**预检**（`BuildPlan` 内）：① 主程序存在（`ExecutableMissing`）；② 模板首段可执行——
+裸命令名按 PATH 解析（找不到 → `RuntimeMissing`），绝对路径缺执行位自动补
+`chmod +x`（从压缩包解出的 proton 脚本常见，补不上 → `RuntimeNotExecutable`）；
+③ `WINEPREFIX` / `STEAM_COMPAT_DATA_PATH` 目录创建（Proton 要求已存在，
+失败 → `PrefixCreateFailed`）。失败抛 `LaunchException`（`UpdateException` 子类，
+携带 `LaunchFailureKind` 与日志路径），UI 据此弹主题化错误覆盖层：
+类目化中文原因 + 可折叠技术详情 + 打开日志目录；umu 模板且 umu 未装时提供一键安装
+（`UmuLauncherInstaller` 从 GitHub release 拉 zipapp 解到应用数据目录）。
 
 Windows 上若游戏可执行文件的清单要求管理员权限（requireAdministrator），
 `CreateProcess` 抛 Win32Exception 740（ERROR_ELEVATION_REQUIRED，无法自提升）：
@@ -113,8 +125,13 @@ Windows 上若游戏可执行文件的清单要求管理员权限（requireAdmin
 配置了自定义环境时记警告放弃。
 
 命令模板支持引号包裹（含空格路径），例如 `wine "{exe}"`；
-Linux 上如何运行（原生/wine/Proton/steam）完全由配置决定，代码零平台假设
-（唯一例外是首运配置生成：Linux 会把默认 `{exe}` 升级为推荐 Proton/wine 再落盘，见 GAME_CONFIG.md）。
+Linux 上如何运行（原生/umu/wine/Proton）完全由配置决定，代码零平台假设。
+推荐链单一事实源在 `CompatTools.BuildRecommendedLaunch`：
+**umu-launcher（`umu-run {exe}` + GAMEID/UMU_ID/WINEPREFIX）→ Proton 直启 → 系统 wine**；
+三者皆无时仍生成裸 umu 模板（引导安装就位后即可启动）。
+Wine prefix 统一在 `{数据目录}/yagl/prefixes/<游戏id>`（`STEAM_COMPAT_DATA_PATH` 同址），
+绝不写入游戏安装目录——安装同步的清单外清理不会误删 prefix（`compatdata` 另在保留名单纵深防御）。
+（唯一例外是首运配置生成：Linux 会把默认 `{exe}` 升级为推荐链再落盘，见 GAME_CONFIG.md。）
 
 ### 3.2 全量同步（文件式）
 
@@ -208,11 +225,15 @@ flowchart LR
   `hypergryph`：官方启动器 `get_main_bg_image` 接口（视频优先、静态图兜底）。
   `GameBackdropService` 把远程背景流式下载缓存到 `%ConfigDirectory%/backdrops/<gameId>/`
   （`backdrop.*` + `poster.*` + `meta.json`），地址未变不重复下载，离线/下载失败回退上次缓存。
-- **播放**：`FfmpegVideoBackdropPlayer` 后台线程解码（Windows D3D11VA / Linux VAAPI 硬解，
-  设备创建失败自动回软解；硬解 GPU 帧经 `av_hwframe_transfer_data` 回读系统内存——
-  回读不拷贝帧属性，pts 必须在回读前从原始解码帧捕获），swscale 转 BGRA 后逐行 blit 进
+- **播放**：`FfmpegVideoBackdropPlayer` 后台线程解码（Windows D3D11VA / Linux VAAPI→CUDA(NVDEC)
+  硬解，按序尝试、设备创建失败自动落到下一项直至回软解；硬解 GPU 帧经 `av_hwframe_transfer_data`
+  回读系统内存——回读不拷贝帧属性，pts 必须在回读前从原始解码帧捕获），swscale 转 BGRA 后逐行 blit 进
   `WriteableBitmap`，16ms 节流通知 UI 重绘；`PlaybackClock` 按 PTS 实时节拍
   （落后超阈值重定基线，不做爆发追帧），渲染尺寸 clamp ≤1080p，静音不解码音轨。
+- **原生库供给**（`FfmpegLibraryResolver`，与 FFmpeg.AutoGen 9.0 绑定精确配套 = libavcodec 主版本 63）：
+  应用数据目录已下载库 → 系统库（Linux 探测 `libavcodec.so.63`——其它主版本 ABI 不配套会崩，宁缺毋滥；
+  旧实现拼出 `libavcodec-63.dll`/裸 `dlopen("avcodec")`，Linux 上永远失败，是"背景视频没了"的根因）→
+  下载 BtbN LGPL 共享构建（SHA256 校验后解压到 `%ConfigDirectory%/ffmpeg/<rid>/`）。
 - **无缝循环**：`SeamAnalyzer` 把头/尾各约 2s 的帧缩为 64×36 灰度缩略，搜索帧对平均绝对差最小的
   循环点，阈值内命中则循环从该点起播（起播不 seek，从流头顺序读取、渲染前丢弃起点之前的帧）；
   临近循环终点前 2s 由第二个解码源后台预解码下一循环开头 10 帧，经 `PrerollHandoff` 交接状态机

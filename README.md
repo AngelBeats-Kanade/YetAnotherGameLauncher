@@ -16,8 +16,8 @@
 
 | 功能 | 说明 |
 |---|---|
-| 游戏启动 | 命令模板 `{exe}` / `{installDir}` 占位符 + 环境变量注入，支持 `wine {exe}`、Proton、`steam -applaunch` 等 |
-| Linux 启动方式选择器 | Direct / Wine / Proton 三选；GE-Proton 自动扫描，检测到 NVIDIA GPU 时推荐兼容环境；Linux 首运自动把默认 `{exe}` 模板升级为推荐 Proton（无则 `wine`）并落盘，开箱即可点启动 |
+| 游戏启动 | 命令模板 `{exe}` / `{installDir}` 占位符 + 环境变量注入；启动预检（主程序/运行时/prefix）给出类目化中文错误，游戏输出落盘启动日志（`~/.local/share/yagl/logs/`），失败弹主题化错误卡（含打开日志目录） |
+| Linux 启动方式选择器 | Direct / umu-launcher / Wine / Proton 四选；自动发现 umu-run、系统 wine、Lutris runner 与 GE-Proton，检测到 NVIDIA GPU 时推荐兼容环境；umu 未装提供一键安装（GitHub release zipapp，装完即用）；Linux 首运自动把默认 `{exe}` 模板升级为推荐链（umu → Proton → wine）并落盘，开箱即可点启动 |
 | 全量下载 | 官方清单逐文件同步（鸣潮）/ 压缩包整包解压（终末地），size+MD5 双校验 |
 | 断点续传 | `.temp` 临时文件 + HTTP Range 续传，瞬态网络错误线性退避重试 |
 | 下载限速 | 可按字节/秒限制下载速度 |
@@ -28,7 +28,8 @@
 | 多服务器 | 鸣潮国服/B服/国际服、终末地国际服/国服/B服 一键切换（全部配置驱动） |
 | 唤取（抽卡）记录 | 鸣潮：游戏内地址自动提取、官方接口拉取、本地缓存与保底统计 |
 | 现代化 UI | 圆角无边框窗口 + 自绘标题栏（拖拽区 / 最小化 / 最大化 / 关闭）；海报式详情页：当期海报全幅铺满主区域（左缘完整不裁切、无遮罩）+ 左上圆角全出血布局；侧栏选中指示点两段式动效；窗口宽度穿越阈值侧栏自动收放（带滞回防抖）；亮/暗/跟随系统三态主题；页面切换与按钮微动效；设置页可自定义应用背景 |
-| 背景视频 | 详情页播放官方当期背景视频：FFmpeg 硬解，智能循环点 + 预卷零间隙续播（循环无缝） |
+| 背景视频 | 详情页播放官方当期背景视频：FFmpeg 硬解（Windows D3D11VA / Linux VAAPI→NVDEC），智能循环点 + 预卷零间隙续播（循环无缝）；Linux 上优先复用发行版 FFmpeg 9（libavcodec.so.63），缺失时自动下载 BtbN 构建到应用数据目录 |
+| Wine prefix | 统一放在应用数据目录 `~/.local/share/yagl/prefixes/<游戏id>`（Windows 形态的 STEAM_COMPAT_DATA_PATH 同样指向此处），绝不写入游戏安装目录——安装同步不会误删 |
 | 界面语言 | 简体中文 / English，跟随系统可选，切换即时生效（设置页调整） |
 | 代理设置 | 跟随系统 / 直连 / 手动三选 |
 | 开机自启动 | Windows 注册表 / Linux XDG autostart |
@@ -42,7 +43,8 @@
 ### 环境要求
 
 - .NET 10 SDK（开发/构建）；运行 self-contained 发布产物则**无需安装运行时**
-- Linux 上运行游戏：自备 wine / Proton（例如 `wine`、`steam`、`umu-launcher`）
+- Linux 上运行游戏：推荐通过启动器一键安装 **umu-launcher**（启动设置卡或启动失败提示内）；
+  也可自备 wine / Proton（例如 `wine`、`steam`）
 - 鸣潮增量更新：需要 `hpatchz`（HDiffPatch）可执行文件，默认从 PATH 解析，
   也可在配置中指定路径（见下文）
 
@@ -64,7 +66,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（358 个，2026-09 实测）
+### 运行测试（411 个，2026-09 实测）
 
 ```bash
 # 4 个测试工程分别运行编译产物（Windows 亦可直接跑 .exe；本机 dotnet test 可能发现 0 个测试）：
@@ -76,9 +78,11 @@ dotnet tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLa
 
 测试覆盖：配置解析/校验、下载器（续传/重试/MD5）、清单校验、版本计划、
 全量同步、增量应用（含回滚）、包式安装、更新编排、渠道解析（鸣潮/终末地国服/国际服参数）、
-启动命令解析、本地化服务与语言切换、侧栏折叠/页面切换/关于页、主题切换、
+GPU 厂商探测、Wine 运行时发现（umu/wine/Lutris）与推荐链、Wine prefix 统一路径、
+启动预检与类目化错误、启动日志落盘、umu-launcher 引导安装、启动命令解析、
+本地化服务与语言切换、侧栏折叠/页面切换/关于页、主题切换、
 指示点几何落位与迁移编舞、详情页布局状态、玻璃按钮四态前景、
-ViewModel 状态机、以及 Avalonia.Headless 真实窗口集成测试。
+启动失败覆盖层、ViewModel 状态机、以及 Avalonia.Headless 真实窗口集成测试。
 另附视觉自检截图工具（`artifacts/ui-review/`，见 docs/DEVELOPMENT.md）。
 
 ## 配置
@@ -92,8 +96,9 @@ ViewModel 状态机、以及 Avalonia.Headless 真实窗口集成测试。
 首次运行若配置缺失，启动器会**自动在默认位置生成默认配置文件**
 （内容即 [`samples/games.json`](samples/games.json) 模板：内置鸣潮三服与终末地三服
 （国际/国服/B服）及官方图标，开箱即可下载；已存在时绝不覆盖）。
-Linux 上生成时会顺带把默认 `{exe}` 模板升级为检测到的推荐 Proton
-（未检测到则 `wine {exe}`）并写入兼容环境变量；此升级只在首运生成时发生一次，
+Linux 上生成时会顺带把默认 `{exe}` 模板升级为社区推荐链
+（umu-launcher → Proton → wine；三者皆无时也先给 umu 模板，装好即用）
+并写入兼容环境变量；此升级只在首运生成时发生一次，
 用户此后的任何修改都不会被覆盖。
 
 **从旧版本升级**：旧配置首次被新版加载时会自动迁移——按内置模板补齐同一游戏新增的
@@ -148,7 +153,9 @@ YetAnotherGameLauncher.slnx
 | 鸣潮增量更新失败，提示 hpatchz | 安装 [HDiffPatch](https://github.com/sisong/HDiffPatch/releases) 并确保 `hpatchz` 在 PATH 中 |
 | 预下载按钮不出现 | 官方未开放预下载窗口（鸣潮 `predownload.config` 不存在 / 终末地无 `patch` 节点） |
 | 终末地版本/下载报错 | GRYPHLINE 协议无官方文档，官方启动器更新后字段可能变化，欢迎提 issue |
-| 游戏点"启动"无反应 | Linux 首运已自动生成推荐 Proton/wine 模板；仍失败请确认 wine/Proton 可用，并在游戏设置页检查命令模板。Windows 直接 `{exe}` 即可 |
+| Linux 启动失败 | 启动失败会弹出错误卡：按提示一键安装 umu-launcher，或"打开日志目录"查看 `launch-*.log`；也可在游戏设置页检查命令模板与运行时。Windows 直接 `{exe}` 即可 |
+| Linux 下界面小/发糊 | 启动器启动时会自动把 Hyprland 缩放同步到 `Xft.dpi`（仅在未设置时写入）；手动方案 `xrdb -merge <<< "Xft.dpi: 160"`（数值 = 96 × 合成器缩放） |
+| 鸣潮背景不显示 | 官方 `switch.json` 当前未投放背景时属正常（本机有官方启动器缓存/历史投放会自动回退显示）；视频背景首次播放需联网下载 FFmpeg 库（约 50MB，失败时保留静态海报） |
 
 ## 许可与致谢
 

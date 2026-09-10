@@ -83,10 +83,18 @@ public async Task Window_Shows_Items()
 ## 4. 线程与并发规则
 
 - 所有 UI 对象操作必须在 `Dispatch` 内；`Application.Current` 属于 headless UI 线程。
+- **`Dispatch` 只收 `Action`（async lambda 即 async void），且不在 Dispatch 期间泵异步续体**：
+  服务内部 `await HttpClient`/`Task.Delay` 之类的真异步调用挂进去会**永久卡死**（await 后的续体
+  排进无人泵的队列）。非 UI 的异步服务调用（背景图加载等）在测试 ctor 触发
+  `HeadlessSession.Instance` 启动会话后**测试线程直调**即可——Bitmap 解码只依赖全局
+  Avalonia locator，线程无关（先例：`BackgroundResilienceTests`）。直接在 Dispatch 外调
+  `new Bitmap(...)` 会因 locator 未初始化抛 `IPlatformRenderInterface` 缺失。
 - 被测代码若会碰 UI（如切主题），实现层要自检 `CheckAccess()`/`Dispatcher.Post`（`ThemeService` 即范例）。
 - `Progress<T>` 回调异步投递且**不保证顺序**：测试收集必须用 `ConcurrentQueue` + `SpinWait.SpinUntil`
   等待期望值，禁止断言"最后一条"（本项目踩过的 flaky 根因）。
 - 测试间状态隔离：临时目录放 fixture，禁写真实用户目录（`TempDir`）。
+  **VmFactory 已把模板里的 `~/yagl-test-games` 一并重写到临时目录**——漏改会让首运物化的
+  配置把安装根目录指向真实家目录（实踩：测试桩 exe 被写进真实 `~/yagl-test-games`）。
 - 共享替身集中在 `tests/YetAnotherGameLauncher.TestSupport/`（FakeDownloader/FakePatchApplier/
   FakeProcessRunner/FakeChannel/StubHttpHandler/TestZip），不要在各测试项目里复制。
 
