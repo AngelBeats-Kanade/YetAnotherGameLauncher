@@ -40,6 +40,7 @@ public sealed class EndfieldBackdropResolver(HttpClient httpClient, ILogger<Endf
                         channel,
                         sub_channel = subChannel,
                         language,
+                        // 协议常量：官启只给 Windows 客户端投放背景资源，Linux 上也必须自称 Windows
                         platform = "Windows",
                         source = "launcher",
                     },

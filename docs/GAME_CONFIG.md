@@ -8,7 +8,9 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 - 环境变量 `YAGL_CONFIG=/path/to/games.json` 可覆盖（测试/多实例）
 
 首次运行无配置时启动器会自动生成默认配置（`GameCatalogService.CreateDefaultFileAsync`
-写入内嵌的 [`samples/games.json`](../samples/games.json) 模板），也可手动复制该样例到上述位置；
+写入内嵌的 [`samples/games.json`](../samples/games.json) 模板；Linux 上会顺带把默认
+`{exe}` 模板升级为推荐 Proton/wine，见下文 [launch 小节](#gameslaunchlaunchoptions)），
+也可手动复制该样例到上述位置；
 鸣潮与终末地均已内置国际服/国服/B 服三服的官方端点。
 文件支持注释（`//`）与尾逗号；保存后重启启动器生效。
 
@@ -64,6 +66,12 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 - `{exe}` —— 可执行文件完整路径（`installDir` + `executable`）
 - `{installDir}` —— 安装目录绝对路径
 
+> [!NOTE]
+> Linux 首运生成默认配置时，裸 `{exe}` 模板（无法运行 Windows 客户端）会被自动升级为
+> 检测到的推荐 Proton 模板 + 兼容环境变量（未检测到 Proton 则 `wine {exe}`）并写盘
+> （`MainWindowViewModel.ApplyLinuxFirstRunLaunchDefaultsAsync`，推荐逻辑单一来源
+> `CompatTools.BuildRecommendedLaunch`）。仅在首运生成那一刻执行一次，此后配置以用户修改为准。
+
 ### games[].servers[]（GameServer）
 
 | 字段 | 类型 | 必填 | 说明 |
@@ -87,9 +95,9 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 
 ### 详情页背景与名称本地化（代码内置，不写入配置）
 
-- **详情页背景**：配置文件不携带背景地址。每次启动按界面语言选择渠道（中文 → 国服端点，其余 → 国际服端点）向官方接口确认当期背景，地址变化时自动下载到应用数据目录缓存（`%APPDATA%\yagl\backdrops\`），离线时回退上次缓存：
+- **详情页背景**：配置文件不携带背景地址。每次启动按界面语言选择渠道（中文 → 国服端点，其余 → 国际服端点）向官方接口确认当期背景，地址变化时自动下载到应用数据目录缓存（配置目录下 `backdrops/<gameId>/`，Windows 即 `%APPDATA%\yagl\backdrops\`），离线时回退上次缓存：
   - 终末地：官方启动器 `get_main_bg_image` 接口（当期版本主视觉，端点参数取自该游戏 `servers[].options`）。
-  - 鸣潮：库洛未开放免登录的当期卡池立绘接口，改为探测本机库洛官方启动器的当期背景帧缓存（`kr_game_cache\animate_bg`），随官方启动器版本轮换。
+  - 鸣潮：直连官方启动器运营配置 `switch.json`（背景视频 + 首帧图，随官方投放即时更新）；不可用时回退本机库洛启动器 WebView 缓存，再回退本地帧序列（`kr_game_cache\animate_bg`）。
   - 均不可用时回退主题渐变背景。
 - **游戏名**：`nameLocalized` 按界面语言显示（样例模板已含鸣潮/终末地中英文名，旧配置自动迁移补齐）；服务器名等其余配置数据按配置文件原样显示。
 
@@ -109,8 +117,8 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
       "executable": "Client/Binaries/Win64/Client-Win64-Shipping.exe",
       "launch": { "commandTemplate": "{exe}" },
       "servers": [
-        { "id": "cn", "name": "国服", "options": { "indexUrl": "https://prod-cn-alicdn-gamestarter.kurogame.com/launcher/game/G152/10003_.../index.json" } },
-        { "id": "global", "name": "国际服", "options": { "indexUrl": "https://prod-alicdn-gamestarter.kurogame.com/launcher/game/G153/50004_.../index.json" } }
+        { "id": "cn", "name": "CN", "options": { "indexUrl": "https://prod-cn-alicdn-gamestarter.kurogame.com/launcher/game/G152/10003_.../index.json" } },
+        { "id": "global", "name": "Global", "options": { "indexUrl": "https://prod-alicdn-gamestarter.kurogame.com/launcher/game/G153/50004_.../index.json" } }
       ]
     },
     {
@@ -119,7 +127,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
       "channel": "hypergryph",
       "installDir": "ArknightsEndfield",
       "executable": "ArknightsEndfield/Binaries/Win64/ArknightsEndfield.exe",
-      "servers": [ { "id": "global", "name": "国际服", "options": { "apiBase": "https://launcher.gryphline.com/api" } } ]
+      "servers": [ { "id": "global", "name": "Global", "options": { "apiBase": "https://launcher.gryphline.com/api" } } ]
     }
   ]
 }

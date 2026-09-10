@@ -21,6 +21,7 @@
 src/
   YetAnotherGameLauncher.Core/                  # 领域层（无 UI/厂商依赖）
     InstallPath.cs  安装路径解析（"~" 展开、绝对/相对 installDir；单文件位于 Core 根）
+    AppPaths.cs     应用数据目录与配置文件路径（YAGL_CONFIG 覆盖；单文件位于 Core 根）
     Models/         AppSettings（全局设置）、GameCatalog/GameDefinition/GameServer、GameManifest、UpdatePlan、
                     UpdateProgress、LocalGameState、ChannelVersionInfo、DownloadRequest（单文件下载请求）、
                     LaunchOptions（启动命令模板）、ThemeMode
@@ -56,12 +57,12 @@ src/
     Views/MainWindow
 tests/
   YetAnotherGameLauncher.TestSupport/           # 共享测试设施（可复用的替身与工具）
-    FakeDownloader / FakePatchApplier / FakeProcessRunner / FakeChannel / StubHttpHandler / TempDir / TestZip / ManualTimeProvider（虚拟时钟）
-  YetAnotherGameLauncher.Core.Tests/            # 领域层 178 个测试
+    FakeDownloader / FakePatchApplier / FakeProcessRunner / FakeChannel / FakePlatformInfo / StubHttpHandler / TempDir / TestZip / ManualTimeProvider（虚拟时钟）
+  YetAnotherGameLauncher.Core.Tests/            # 领域层 183 个测试
   YetAnotherGameLauncher.Channels.Kuro.Tests/   # 34 个测试
   YetAnotherGameLauncher.Channels.Hypergryph.Tests/ # 17 个测试
-  YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口 120 个测试
-  # 数量为 2026-09 实测（共 349）；随开发增长，以实际运行为准
+  YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口 124 个测试
+  # 数量为 2026-09 实测（共 358）；随开发增长，以实际运行为准
 ```
 
 构建约定（`Directory.Build.props`）：`net10.0`、`Nullable=enable`、`ImplicitUsings`、
@@ -85,7 +86,10 @@ tests/
 
 ## 4. 测试布局要点
 
-- **共享替身**（TestSupport 项目）：`FakeDownloader`（URL→字节）、`StubHttpHandler`（可模拟 Range/瞬态故障/忽略 Range）、`FakePatchApplier`（预设输出/可失败/可损坏）、`FakeChannel`（可配置版本信息与清单）、`FakeProcessRunner`、`TempDir`、`TestZip`。
+- **共享替身**（TestSupport 项目）：`FakeDownloader`（URL→字节）、`StubHttpHandler`（可模拟 Range/瞬态故障/忽略 Range）、`FakePatchApplier`（预设输出/可失败/可损坏）、`FakeChannel`（可配置版本信息与清单）、`FakeProcessRunner`、`FakePlatformInfo`（IsLinux/NVIDIA 探测可控）、`TempDir`、`TestZip`。
+- **平台相关测试**：不依赖真机 OS——`VmFactory.Build` 缺省注入 Windows 假平台（确定性），
+  Linux 分支经 `platformInfo:` / `linuxProtonVersions:` 参数注入；期望值按平台分支时照
+  `InstallPathTests`/`SystemProcessRunnerTests` 的 `OperatingSystem.IsWindows() ? … : …` 惯例。
 - **渠道测试用真实 fixture**：鸣潮 `index.json`/`indexFile.json`、终末地 batch_proxy 响应均按真实抓包结构构造；MD5 校验链路用 `HttpFileDownloader + StubHttpHandler` 做端到端集成测试。
 - **UI 测试**：`TestAppBuilder` 以 `AvaloniaTestApplication` 声明 Headless App；
   `HeadlessSession.Dispatch(...)` 在 UI 线程执行窗口级断言；ViewModel 测试纯离线。
@@ -158,7 +162,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64   --self-contained -o publish/win-x64
 ```
 
-两个 RID 均已验证（产物约 106MB / 209MB）。如需体积优化可追加
+两个 RID 均已验证（产物约 108MB / 212MB，2026-09 `du -sh` 实测）。如需体积优化可追加
 `-p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true`（Avalonia 兼容）。
 
 ## 8. 已知限制 / 风险

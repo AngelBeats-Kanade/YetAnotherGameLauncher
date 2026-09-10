@@ -99,4 +99,26 @@ public sealed class ProtonCompatTests : IDisposable
         Assert.Equal("1", environment["SteamOS"]); // NVIDIA 分支仅在 Linux + NVIDIA 显卡时追加
         Assert.Empty(CompatTools.RecommendedEnvironment("arknights-endfield"));
     }
+
+    [Fact]
+    public void BuildRecommendedLaunch_MergesCompatEnvAndRecommendations()
+    {
+        InstallProton("GE-Proton10-9");
+
+        var launch = CompatTools.BuildRecommendedLaunch(
+            "wuthering-waves", ["GE-Proton10-9"], nvidiaGpuPresent: true, home: _home.Path);
+
+        Assert.NotNull(launch);
+        Assert.Equal("GE-Proton10-9", launch.ProtonVersion);
+        Assert.Contains("run {exe}", launch.CommandTemplate, StringComparison.Ordinal);
+        Assert.Equal("{installDir}/compatdata", launch.Environment["STEAM_COMPAT_DATA_PATH"]);
+        Assert.Equal("1", launch.Environment["SteamOS"]);
+        Assert.Equal("1", launch.Environment["PROTON_ENABLE_NVAPI"]);
+    }
+
+    [Fact]
+    public void BuildRecommendedLaunch_NoVersions_ReturnsNull()
+    {
+        Assert.Null(CompatTools.BuildRecommendedLaunch("wuthering-waves", [], home: _home.Path));
+    }
 }

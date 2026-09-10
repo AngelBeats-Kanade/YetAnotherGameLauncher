@@ -65,7 +65,7 @@ flowchart TD
 | `IPatchApplier` | 差分合成（目录模式） | `HpatchzApplier`（HDiffPatch） | `FakePatchApplier` |
 | `IProcessRunner` | 外部进程（超时/输出捕获） | `SystemProcessRunner` | `FakeProcessRunner` |
 | `IPlatformInfo` | OS 判定、NVIDIA GPU 探测（/proc 路径可注入）、用文件管理器打开目录 | `WindowsPlatformInfo`、`LinuxPlatformInfo`（DI 按 OS 注入） | `FakePlatformInfo` |
-| `IAutostartService` | 开机自启查询/切换（Windows 注册表 / Linux XDG autostart） | `WindowsAutostartService`、`LinuxAutostartService`（DI 按 OS 注册） | 测试内联假实现 |
+| `IAutostartService` | 开机自启查询/切换（Windows 注册表 / Linux XDG autostart） | `WindowsAutostartService`、`LinuxAutostartService`（DI 按 OS 注册） | 真实现 + FakeProcessRunner（VmFactory 缺省）；集成测试按平台注入真实现 |
 | `IBackdropResolver` | 按区域解析详情页背景来源（图/视频 + 首帧海报） | `KuroBackdropResolver`、`EndfieldBackdropResolver`（按渠道键 keyed 注册） | 测试内联假实现 |
 | `GameCatalogService` | games.json 加载/校验/原子保存 | — | 配置 fixture |
 | `GameInstallService` | 全量同步（校验→并行下载→事后校验→清理） | — | 假下载器 |
@@ -113,7 +113,8 @@ Windows 上若游戏可执行文件的清单要求管理员权限（requireAdmin
 配置了自定义环境时记警告放弃。
 
 命令模板支持引号包裹（含空格路径），例如 `wine "{exe}"`；
-Linux 上如何运行（原生/wine/Proton/steam）完全由配置决定，代码零平台假设。
+Linux 上如何运行（原生/wine/Proton/steam）完全由配置决定，代码零平台假设
+（唯一例外是首运配置生成：Linux 会把默认 `{exe}` 升级为推荐 Proton/wine 再落盘，见 GAME_CONFIG.md）。
 
 ### 3.2 全量同步（文件式）
 
@@ -202,7 +203,8 @@ flowchart LR
 
 - **背景解析**：keyed `IBackdropResolver` 按渠道解析——
   `kuro`：官方运营配置 switch.json 的 `BackgroundFile`/`FirstFrameImage`（背景视频 + 首帧图），
-  回退本机库洛启动器缓存与 `kr_game_cache` 帧探测；
+  回退本机库洛启动器缓存与 `kr_game_cache` 帧探测（缓存根按平台探测：Windows 取
+  `%APPDATA%\KRLauncher`；Linux 逐 Wine/Proton prefix 探测官启数据目录，`KuroLauncherBackground.LinuxCacheRoots`）；
   `hypergryph`：官方启动器 `get_main_bg_image` 接口（视频优先、静态图兜底）。
   `GameBackdropService` 把远程背景流式下载缓存到 `%ConfigDirectory%/backdrops/<gameId>/`
   （`backdrop.*` + `poster.*` + `meta.json`），地址未变不重复下载，离线/下载失败回退上次缓存。

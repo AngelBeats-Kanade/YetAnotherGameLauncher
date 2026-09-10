@@ -172,13 +172,82 @@ public class KuroLauncherBackgroundTests : IDisposable
             """{"functionSwitch":1,"backgroundFile":"https://cdn.example.com/new.mp4","backgroundFileType":2,"firstFrameImage":"https://cdn.example.com/new.webp"}""" + noise);
 
         var config = KuroLauncherBackground.FindLatestSwitchConfig(
-            _home.FilePath("KRLauncher"), _home.FilePath("persist.json"));
+            [_home.FilePath("KRLauncher")], _home.FilePath("persist.json"));
 
         Assert.Equal("https://cdn.example.com/new.mp4", config!.BackgroundFile);
         Assert.Equal("https://cdn.example.com/new.webp", config.FirstFrameImage);
         // 扫描结果已持久化（Chromium 缓存淘汰后的兜底）
         Assert.True(File.Exists(_home.FilePath("persist.json")));
     }
+
+    [Fact]
+    public void FindLatestSwitchConfig_MultipleRoots_PicksNewestAcrossRoots()
+    {
+        // 两个 prefix 各有一份历史投放：跨根扫描必须取时间戳较新的一份（Linux 多 prefix 场景）
+        var noise = new string(' ', 64);
+        var older = WriteSwitchConfigCache(
+            _home.FilePath("prefix-a", "drive_c", "users", "steamuser", "AppData", "Roaming", "KRLauncher"),
+            "data_1", 1742582942, "https://cdn.example.com/older.mp4", noise);
+        var newer = WriteSwitchConfigCache(
+            _home.FilePath("prefix-b", "drive_c", "users", "steamuser", "AppData", "Roaming", "KRLauncher"),
+            "data_2", 1749488617, "https://cdn.example.com/newer.mp4", noise);
+
+        var config = KuroLauncherBackground.FindLatestSwitchConfig(
+            [older, newer], _home.FilePath("persist.json"));
+
+        Assert.Equal("https://cdn.example.com/newer.mp4", config!.BackgroundFile);
+    }
+
+    [Fact]
+    public void LinuxCacheRoots_DiscoversWinePrefixAndProtonCompatdata()
+    {
+        // 纯 Wine prefix（$WINEPREFIX）+ 默认 ~/.wine + Steam compatdata 三处都有官启数据
+        var explicitPrefix = _home.FilePath("wine-custom");
+        MakeKuroData(explicitPrefix, "alice");
+        MakeKuroData(_home.FilePath(".wine"), "steamuser");
+        var compatRoot = _home.FilePath(".steam", "steam");
+        MakeKuroData(Path.Combine(compatRoot, "steamapps", "compatdata", "G152", "pfx"), "steamuser");
+        Directory.CreateDirectory(_home.FilePath(".steam", "steam", "steamapps", "compatdata", "G999", "pfx")); // 无 KRLauncher
+
+        var roots = KuroLauncherBackground.LinuxCacheRoots(
+            home: _home.Path, winePrefix: explicitPrefix, steamRoots: [compatRoot]);
+
+        Assert.Equal(
+            [
+                _home.FilePath("wine-custom", "drive_c", "users", "alice", "AppData", "Roaming", "KRLauncher"),
+                _home.FilePath(".wine", "drive_c", "users", "steamuser", "AppData", "Roaming", "KRLauncher"),
+                _home.FilePath(".steam", "steam", "steamapps", "compatdata", "G152", "pfx", "drive_c", "users",
+                    "steamuser", "AppData", "Roaming", "KRLauncher"),
+            ],
+            roots); // 不存在的 prefix（G999）不进候选
+    }
+
+    [Fact]
+    public void LinuxCacheRoots_MissingEverything_ReturnsEmpty()
+    {
+        Assert.Empty(KuroLauncherBackground.LinuxCacheRoots(
+            home: _home.FilePath("nonexistent"), winePrefix: null, steamRoots: []));
+    }
+
+    /// <summary>伪造一个 KRLauncher 缓存目录并在其中写入指定时间戳的 switch.json 缓存响应。</summary>
+    private static string WriteSwitchConfigCache(
+        string kuroDataDir, string fileName, long timestamp, string backgroundUrl, string noise)
+    {
+        var cacheDir = Path.Combine(
+            kuroDataDir, "G152", "C10003", "KRWebViewUserData", "EBWebView", "Default", "Cache_Data");
+        Directory.CreateDirectory(cacheDir);
+        var path = Path.Combine(cacheDir, fileName);
+        File.WriteAllText(
+            path,
+            $"{noise}…/switch.json?_t={timestamp}{noise}" +
+            $$"""{"functionSwitch":1,"backgroundFile":"{{backgroundUrl}}","backgroundFileType":2}""" + noise);
+        return kuroDataDir;
+    }
+
+    /// <summary>伪造 Wine/Proton prefix 内指定用户的 KRLauncher 数据目录（空目录即可）。</summary>
+    private static void MakeKuroData(string prefix, string user) =>
+        Directory.CreateDirectory(Path.Combine(
+            prefix, "drive_c", "users", user, "AppData", "Roaming", "KRLauncher"));
 
     [Fact]
     public void FindLatestSwitchConfig_CacheGone_FallsBackToPersisted()
@@ -191,7 +260,7 @@ public class KuroLauncherBackgroundTests : IDisposable
             persistPath);
 
         // 缓存目录空（被 Chromium LRU 淘汰）：回退上次持久化的配置
-        var config = KuroLauncherBackground.FindLatestSwitchConfig(_home.FilePath("KRLauncher"), persistPath);
+        var config = KuroLauncherBackground.FindLatestSwitchConfig([_home.FilePath("KRLauncher")], persistPath);
 
         Assert.Equal("https://cdn.example.com/kept.mp4", config!.BackgroundFile);
     }
@@ -202,6 +271,6 @@ public class KuroLauncherBackgroundTests : IDisposable
         Directory.CreateDirectory(_home.FilePath("KRLauncher"));
 
         Assert.Null(KuroLauncherBackground.FindLatestSwitchConfig(
-            _home.FilePath("KRLauncher"), _home.FilePath("missing.json")));
+            [_home.FilePath("KRLauncher")], _home.FilePath("missing.json")));
     }
 }

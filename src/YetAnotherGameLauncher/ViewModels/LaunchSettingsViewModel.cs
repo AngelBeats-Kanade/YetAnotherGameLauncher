@@ -57,13 +57,11 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         // 用户已有任何自定义模板则完全不动）
         if (IsLinux && _selectedLaunchMode.Mode == LaunchMode.Direct)
         {
-            var recommended = CompatTools.PickRecommendedProton(ProtonVersions);
-            if (recommended is not null)
+            if (CompatTools.BuildRecommendedLaunch(_game.Id, ProtonVersions, _platform.IsNvidiaGpuPresent) is { } launch)
             {
                 SelectedLaunchMode = LaunchModes.First(m => m.Mode == LaunchMode.Proton);
-                _selectedProtonVersion = recommended;
-                ApplyGenerated(CompatTools.BuildProtonLaunch(recommended));
-                AppendEnvironment(CompatTools.RecommendedEnvironment(_game.Id, _platform.IsNvidiaGpuPresent));
+                _selectedProtonVersion = launch.ProtonVersion;
+                ApplyGenerated((launch.CommandTemplate, launch.Environment));
             }
             else
             {
@@ -173,21 +171,6 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         foreach (var (key, value) in generated.Environment)
         {
             merged[key] = value;
-        }
-
-        EnvironmentText = SerializeEnvironment(merged);
-    }
-
-    /// <summary>把推荐环境变量合并进环境文本（既有同名值以用户为准）。</summary>
-    private void AppendEnvironment(Dictionary<string, string> extra)
-    {
-        var merged = ParseEnvironmentOrEmpty(EnvironmentText);
-        foreach (var (key, value) in extra)
-        {
-            if (!merged.ContainsKey(key))
-            {
-                merged[key] = value;
-            }
         }
 
         EnvironmentText = SerializeEnvironment(merged);

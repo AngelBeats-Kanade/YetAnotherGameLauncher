@@ -8,8 +8,8 @@ namespace YetAnotherGameLauncher.AppTests;
 
 /// <summary>
 /// 设置页与自启状态的集成回归：曾因 IsAutostart 绑定在 UI 线程同步等待
-/// reg 子进程（sync-over-async）导致点击"设置"整窗死锁。现全部异步化，
-/// 此处用真实 SystemProcessRunner（只读查询注册表）确保链路不阻塞、能出结果。
+/// 自启查询子进程（sync-over-async）导致点击"设置"整窗死锁。现全部异步化，
+/// 此处用各平台真实实现（Windows 注册表查询 / Linux XDG desktop 文件）确保链路不阻塞、能出结果。
 /// </summary>
 [Collection("sequential")]
 public class SettingsAutostartTests
@@ -17,7 +17,12 @@ public class SettingsAutostartTests
     [Fact]
     public async Task ShowSettings_WithRealRegistryQuery_InitializesAutostartState()
     {
-        using var ctx = VmFactory.Build(autostart: new WindowsAutostartService(new SystemProcessRunner()));
+        // 平台分支注入真实实现：Windows 真查 HKCU Run；Linux 用真实 XDG 实现（home 指向临时目录）
+        using var tempHome = new TempDir();
+        IAutostartService service = OperatingSystem.IsWindows()
+            ? new WindowsAutostartService(new SystemProcessRunner())
+            : new LinuxAutostartService(home: tempHome.Path);
+        using var ctx = VmFactory.Build(autostart: service);
         await ctx.Vm.InitializeAsync();
 
         ctx.Vm.ShowSettingsCommand.Execute(null);
@@ -35,8 +40,12 @@ public class SettingsAutostartTests
     [Fact]
     public async Task AutostartService_QueryRealRegistry_Completes()
     {
-        // 只读查询：测试环境未写自启键，应返回 false（键不存在 = exit 1）
-        var service = new WindowsAutostartService(new SystemProcessRunner());
+        // 各平台真实实现只读查询：测试环境未写自启键，应返回 false（Windows 键不存在 = exit 1；
+        // Linux autostart 目录为空）
+        using var tempHome = new TempDir();
+        IAutostartService service = OperatingSystem.IsWindows()
+            ? new WindowsAutostartService(new SystemProcessRunner())
+            : new LinuxAutostartService(home: tempHome.Path);
         Assert.False(await service.IsEnabledAsync());
     }
 

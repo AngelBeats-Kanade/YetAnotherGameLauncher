@@ -89,3 +89,18 @@ public async Task Window_Shows_Items()
 - 测试间状态隔离：临时目录放 fixture，禁写真实用户目录（`TempDir`）。
 - 共享替身集中在 `tests/YetAnotherGameLauncher.TestSupport/`（FakeDownloader/FakePatchApplier/
   FakeProcessRunner/FakeChannel/StubHttpHandler/TestZip），不要在各测试项目里复制。
+
+## 5. 平台相关测试（Windows / Linux 双平台 CI）
+
+- 测试**不得依赖真机 OS**：本仓库 CI 矩阵在 windows-latest + ubuntu-latest 各跑一遍，
+  任何"假设 Windows 行为"的测试都会把 Linux job 打红（2026-09 实修 4 处）。
+- App 测试经 `VmFactory.Build(platformInfo:, linuxProtonVersions:)` 注入平台；
+  **缺省 = Windows 假平台**（TestSupport `FakePlatformInfo`），保证同一套断言在两个 OS 上
+  确定性通过。要测 Linux 分支时显式注入 `new FakePlatformInfo(isLinux: true)`。
+- 平台分支期望值惯例（照 `InstallPathTests` / `SystemProcessRunnerTests`）：
+  `OperatingSystem.IsWindows() ? "C:/Windows/evil.txt" : "/etc/evil.txt"`。
+- 平台专属真实集成（如 `WindowsAutostartService` 真跑 `reg`）：按 OS 分支注入各平台真实现
+  （Linux 用 `LinuxAutostartService(home: 临时目录)`），**不要**用 `Assert.Skip` 跳过
+  ——跳过会让该平台失去覆盖（仓库无 Skip 先例）。
+- 依赖真机状态的扫描（Proton 版本、/proc NVIDIA、$HOME）在测试里一律注入固定值，
+  否则测试结果随执行机器漂移。

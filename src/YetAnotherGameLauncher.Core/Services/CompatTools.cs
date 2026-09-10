@@ -19,6 +19,12 @@ public enum LaunchMode
     Custom,
 }
 
+/// <summary>一次推荐生成的完整启动配置：Proton 版本名 + 命令模板 + 合并后的环境变量。</summary>
+/// <param name="ProtonVersion">被选中的 Proton 版本名。</param>
+/// <param name="CommandTemplate">命令模板（proton 脚本路径 + run {exe}）。</param>
+/// <param name="Environment">STEAM_COMPAT_* 与游戏推荐环境变量（含 NVIDIA 分支）的合并结果。</param>
+public sealed record CompatLaunch(string ProtonVersion, string CommandTemplate, Dictionary<string, string> Environment);
+
 /// <summary>
 /// Linux 兼容层工具：扫描 Steam 常见目录下的 Proton 版本，
 /// 并把"启动方式 + Proton 版本"翻译成命令模板与环境变量。
@@ -27,6 +33,14 @@ public static class CompatTools
 {
     /// <summary>默认推荐的 Proton 版本。</summary>
     public const string DefaultProton = "dw-proton";
+
+    /// <summary>Steam 常见安装根目录（库目录的父级；Proton 版本扫描与 compatdata prefix 探测共用）。</summary>
+    internal static string[] SteamRoots(string home) =>
+    [
+        Path.Combine(home, ".steam", "steam"),
+        Path.Combine(home, ".local", "share", "Steam"),
+        Path.Combine(home, ".steam", "root"),
+    ];
 
     /// <summary>Steam 兼容工具与自带运行时的常见根目录（供版本扫描与定位共用）。</summary>
     private static string[] ProtonRoots(string home) =>
@@ -133,6 +147,29 @@ public static class CompatTools
         }
 
         return environment;
+    }
+
+    /// <summary>
+    /// 一站式生成社区推荐的启动配置（首运落盘与启动设置卡共用，单一事实源）：
+    /// 按 <see cref="PickRecommendedProton"/> 挑版本，命令模板与环境变量取
+    /// <see cref="BuildProtonLaunch"/> 与 <see cref="RecommendedEnvironment"/> 的合并；
+    /// 无可用 Proton 版本返回 null（调用方自行回退，如 wine）。
+    /// </summary>
+    public static CompatLaunch? BuildRecommendedLaunch(
+        string gameId, IReadOnlyList<string> protonVersions, bool nvidiaGpuPresent = false, string? home = null)
+    {
+        if (PickRecommendedProton(protonVersions) is not { } version)
+        {
+            return null;
+        }
+
+        var (commandTemplate, environment) = BuildProtonLaunch(version, home);
+        foreach (var (key, value) in RecommendedEnvironment(gameId, nvidiaGpuPresent))
+        {
+            environment[key] = value;
+        }
+
+        return new CompatLaunch(version, commandTemplate, environment);
     }
 
     /// <summary>按优先级在已知目录中定位指定 Proton 版本；找不到返回 null。</summary>

@@ -17,7 +17,7 @@
 | 功能 | 说明 |
 |---|---|
 | 游戏启动 | 命令模板 `{exe}` / `{installDir}` 占位符 + 环境变量注入，支持 `wine {exe}`、Proton、`steam -applaunch` 等 |
-| Linux 启动方式选择器 | Direct / Wine / Proton 三选；GE-Proton 自动扫描，检测到 NVIDIA GPU 时推荐兼容环境 |
+| Linux 启动方式选择器 | Direct / Wine / Proton 三选；GE-Proton 自动扫描，检测到 NVIDIA GPU 时推荐兼容环境；Linux 首运自动把默认 `{exe}` 模板升级为推荐 Proton（无则 `wine`）并落盘，开箱即可点启动 |
 | 全量下载 | 官方清单逐文件同步（鸣潮）/ 压缩包整包解压（终末地），size+MD5 双校验 |
 | 断点续传 | `.temp` 临时文件 + HTTP Range 续传，瞬态网络错误线性退避重试 |
 | 下载限速 | 可按字节/秒限制下载速度 |
@@ -64,14 +64,14 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（349 个）
+### 运行测试（358 个，2026-09 实测）
 
 ```bash
-# 4 个测试工程分别运行编译产物（.exe 或 dotnet <dll> 均可；本机 dotnet test 可能发现 0 个测试）：
-./tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.exe
-./tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.exe
-./tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Hypergryph.Tests.exe
-./tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.exe
+# 4 个测试工程分别运行编译产物（Windows 亦可直接跑 .exe；本机 dotnet test 可能发现 0 个测试）：
+dotnet tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll
+dotnet tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll
+dotnet tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Hypergryph.Tests.dll
+dotnet tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll
 ```
 
 测试覆盖：配置解析/校验、下载器（续传/重试/MD5）、清单校验、版本计划、
@@ -91,7 +91,10 @@ ViewModel 状态机、以及 Avalonia.Headless 真实窗口集成测试。
 
 首次运行若配置缺失，启动器会**自动在默认位置生成默认配置文件**
 （内容即 [`samples/games.json`](samples/games.json) 模板：内置鸣潮三服与终末地三服
-（国际/国服/B服）及官方背景图，开箱即可下载；已存在时绝不覆盖）。
+（国际/国服/B服）及官方图标，开箱即可下载；已存在时绝不覆盖）。
+Linux 上生成时会顺带把默认 `{exe}` 模板升级为检测到的推荐 Proton
+（未检测到则 `wine {exe}`）并写入兼容环境变量；此升级只在首运生成时发生一次，
+用户此后的任何修改都不会被覆盖。
 
 **从旧版本升级**：旧配置首次被新版加载时会自动迁移——按内置模板补齐同一游戏新增的
 官方服务器与本地化名称（`schemaVersion` 一次性写入，仅执行一次），状态栏会提示补了什么。
@@ -145,7 +148,7 @@ YetAnotherGameLauncher.slnx
 | 鸣潮增量更新失败，提示 hpatchz | 安装 [HDiffPatch](https://github.com/sisong/HDiffPatch/releases) 并确保 `hpatchz` 在 PATH 中 |
 | 预下载按钮不出现 | 官方未开放预下载窗口（鸣潮 `predownload.config` 不存在 / 终末地无 `patch` 节点） |
 | 终末地版本/下载报错 | GRYPHLINE 协议无官方文档，官方启动器更新后字段可能变化，欢迎提 issue |
-| 游戏点"启动"无反应 | Linux 上需配置 `launch.commandTemplate`（如 `wine {exe}`）；Windows 直接 `{exe}` 即可 |
+| 游戏点"启动"无反应 | Linux 首运已自动生成推荐 Proton/wine 模板；仍失败请确认 wine/Proton 可用，并在游戏设置页检查命令模板。Windows 直接 `{exe}` 即可 |
 
 ## 许可与致谢
 

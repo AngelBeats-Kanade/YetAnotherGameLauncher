@@ -1,4 +1,3 @@
-using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.TestSupport;
 using YetAnotherGameLauncher.ViewModels;
@@ -15,23 +14,11 @@ public class LaunchSettingsPlatformTests : IDisposable
 
     public void Dispose() => _ctx.Dispose();
 
-    /// <summary>平台假实现（Linux 分支与 NVIDIA 探测在 Windows 测试机上经此覆盖）。</summary>
-    private sealed class FakePlatformInfo(bool isLinux, bool nvidia) : IPlatformInfo
-    {
-        public List<string> OpenedPaths { get; } = [];
-
-        public bool IsLinux => isLinux;
-
-        public bool IsNvidiaGpuPresent => nvidia;
-
-        public void OpenDirectoryInFileManager(string path) => OpenedPaths.Add(path);
-    }
-
     [Fact]
     public async Task LinuxMode_RecommendsProtonWithSteamOsAndNvapi()
     {
         await _ctx.Vm.InitializeAsync();
-        var platform = new FakePlatformInfo(isLinux: true, nvidia: true);
+        var platform = new FakePlatformInfo(isLinux: true, nvidiaGpuPresent: true);
         var game = _ctx.Vm.Games[0];
 
         var launchSettings = new LaunchSettingsViewModel(
@@ -50,7 +37,7 @@ public class LaunchSettingsPlatformTests : IDisposable
     public async Task WindowsMode_StaysDirectWithoutCompatEnv()
     {
         await _ctx.Vm.InitializeAsync();
-        var platform = new FakePlatformInfo(isLinux: false, nvidia: false);
+        var platform = new FakePlatformInfo(isLinux: false);
         var game = _ctx.Vm.Games[0];
 
         var launchSettings = new LaunchSettingsViewModel(

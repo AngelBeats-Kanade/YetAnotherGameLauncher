@@ -39,6 +39,9 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly Core.Services.NetworkProxyManager? _proxyManager;
     private readonly Func<string?>? _defaultConfigTemplateFactory;
 
+    /// <summary>Linux 首运推荐模板用的 Proton 版本清单（null = 现场扫描；测试注入固定值保证确定性）。</summary>
+    private readonly IReadOnlyList<string>? _linuxProtonVersions;
+
     public MainWindowViewModel(
         GameCatalogService catalogService,
         GameUpdateService updateService,
@@ -55,7 +58,8 @@ public partial class MainWindowViewModel : ViewModelBase
         IVideoBackdropPlayer? videoPlayer = null,
         KuroGachaService? gachaService = null,
         Core.Services.NetworkProxyManager? proxyManager = null,
-        Core.Abstractions.IPlatformInfo? platformInfo = null)
+        Core.Abstractions.IPlatformInfo? platformInfo = null,
+        IReadOnlyList<string>? linuxProtonVersions = null)
     {
         _catalogService = catalogService;
         _updateService = updateService;
@@ -72,6 +76,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _videoPlayer = videoPlayer;
         _gachaService = gachaService;
         _proxyManager = proxyManager;
+        _linuxProtonVersions = linuxProtonVersions;
         _platform = platformInfo
             ?? (OperatingSystem.IsLinux()
                 ? new Core.Services.LinuxPlatformInfo()
@@ -431,6 +436,7 @@ public partial class MainWindowViewModel : ViewModelBase
             catalog = _catalogService.Catalog!;
             ConfigError = false;
             StatusMessage = _loc.Format("message_configCreated", ConfigFilePath);
+            await ApplyLinuxFirstRunLaunchDefaultsAsync(catalog, cancellationToken);
         }
         catch (GameCatalogValidationException ex)
         {
@@ -610,6 +616,49 @@ public partial class MainWindowViewModel : ViewModelBase
         NavigateTo(keepPage ?? SelectedGame);
         OnPropertyChanged(nameof(InstallRoot));
         return true;
+    }
+
+    /// <summary>
+    /// Linux 首运兜底：默认模板的裸 {exe} 无法运行 Windows 客户端（Exec format error），
+    /// 物化配置后立即把这类模板升级为推荐 Proton（无可用版本则 wine）并落盘。
+    /// 仅在首运创建时触发一次，用户此后的任何修改不再被触碰。
+    /// </summary>
+    private async Task ApplyLinuxFirstRunLaunchDefaultsAsync(GameCatalog catalog, CancellationToken cancellationToken)
+    {
+        if (!_platform.IsLinux || catalog.Games.Count == 0)
+        {
+            return;
+        }
+
+        var versions = _linuxProtonVersions ?? Core.Services.CompatTools.FindProtonVersions();
+        var changed = false;
+        foreach (var game in catalog.Games)
+        {
+            if (!string.Equals(game.Launch.CommandTemplate.Trim(), "{exe}", StringComparison.Ordinal))
+            {
+                continue; // 用户已有自定义模板：完全不动
+            }
+
+            if (Core.Services.CompatTools.BuildRecommendedLaunch(game.Id, versions, _platform.IsNvidiaGpuPresent) is { } launch)
+            {
+                game.Launch.CommandTemplate = launch.CommandTemplate;
+                foreach (var (key, value) in launch.Environment)
+                {
+                    game.Launch.Environment[key] = value;
+                }
+            }
+            else
+            {
+                game.Launch.CommandTemplate = "wine {exe}";
+            }
+
+            changed = true;
+        }
+
+        if (changed)
+        {
+            await _catalogService.SaveAsync(cancellationToken);
+        }
     }
 
     /// <summary>

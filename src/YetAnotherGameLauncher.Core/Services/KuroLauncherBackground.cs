@@ -6,7 +6,9 @@ namespace YetAnotherGameLauncher.Core.Services;
 /// <summary>
 /// 库洛官方启动器（KRLauncher，WebView2 壳）背景数据探测：
 /// ① 启动器网页端拉取的运营配置（switch.json，含背景视频/首帧图直链）会被 Chromium 缓存在
-///    %APPDATA%\KRLauncher\**\Cache_Data，扫描提取即可复用官方同款背景；
+///    KRLauncher 数据目录的 Cache_Data 下，扫描提取即可复用官方同款背景。缓存根候选按平台取：
+///    Windows 为 %APPDATA%\KRLauncher；Linux 上官启是 Windows 程序，其 %APPDATA% 落在
+///    Wine/Proton prefix 内（~/.wine、$WINEPREFIX、Steam compatdata），逐 prefix 探测；
 /// ② 游戏目录旁的 kr_game_cache/animate_bg/&lt;hash&gt;/home_N.jpg 帧序列（N 为帧序号）作为兜底。
 /// </summary>
 public static partial class KuroLauncherBackground
@@ -26,11 +28,88 @@ public static partial class KuroLauncherBackground
     [GeneratedRegex(@"switch\.json\?_t=(\d+)")]
     private static partial Regex SwitchTimestampRegex();
 
-    /// <summary>KRLauncher 数据根目录（WebView 缓存在其下）；未找到为 null。</summary>
-    private static string? KuroCacheRoot =>
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData) is { Length: > 0 } appData
-            ? Path.Combine(appData, "KRLauncher")
-            : null;
+    /// <summary>官启缓存根候选：Windows 取 %APPDATA%\KRLauncher 单根；Linux 逐 Wine/Proton prefix 探测。</summary>
+    private static IReadOnlyList<string> DefaultCacheRoots() =>
+        OperatingSystem.IsWindows() ? WindowsCacheRoots() : LinuxCacheRoots();
+
+    /// <summary>Windows 官启数据目录（WebView2 缓存固定落在用户 %APPDATA% 下）。</summary>
+    private static IReadOnlyList<string> WindowsCacheRoots()
+    {
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        return appData.Length == 0 ? [] : [Path.Combine(appData, "KRLauncher")];
+    }
+
+    /// <summary>
+    /// Linux 官启缓存根探测：官启是 Windows 程序，其 %APPDATA%\KRLauncher 位于 Wine/Proton
+    /// prefix 的 drive_c/users/&lt;user&gt;/AppData/Roaming 下。纯 Wine prefix 取 $WINEPREFIX（优先）
+    /// 与 ~/.wine；Proton prefix 逐 Steam 库 compatdata/&lt;appid&gt;/pfx 探测。只返回真实存在的目录。
+    /// </summary>
+    /// <param name="home">用户主目录；null = 真实主目录（测试注入临时目录）。</param>
+    /// <param name="winePrefix">Wine prefix；null = 取 $WINEPREFIX 环境变量。</param>
+    /// <param name="steamRoots">Steam 库根目录清单；null = CompatTools 的常见根目录。</param>
+    internal static IReadOnlyList<string> LinuxCacheRoots(
+        string? home = null, string? winePrefix = null, IReadOnlyList<string>? steamRoots = null)
+    {
+        home ??= Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        winePrefix ??= Environment.GetEnvironmentVariable("WINEPREFIX");
+
+        var roots = new List<string>();
+        if (!string.IsNullOrWhiteSpace(winePrefix))
+        {
+            AddPrefixKuroCacheRoots(roots, winePrefix);
+        }
+
+        AddPrefixKuroCacheRoots(roots, Path.Combine(home, ".wine"));
+
+        foreach (var steamRoot in steamRoots ?? CompatTools.SteamRoots(home))
+        {
+            var compatData = Path.Combine(steamRoot, "steamapps", "compatdata");
+            if (!Directory.Exists(compatData))
+            {
+                continue;
+            }
+
+            try
+            {
+                foreach (var appDir in Directory.EnumerateDirectories(compatData))
+                {
+                    AddPrefixKuroCacheRoots(roots, Path.Combine(appDir, "pfx"));
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // 单个库目录不可读：跳过该库
+            }
+        }
+
+        return roots;
+    }
+
+    /// <summary>把 prefix 内所有用户的 KRLauncher 数据目录加入候选（目录不存在则不加）。</summary>
+    private static void AddPrefixKuroCacheRoots(List<string> roots, string prefix)
+    {
+        var usersDir = Path.Combine(prefix, "drive_c", "users");
+        if (!Directory.Exists(usersDir))
+        {
+            return;
+        }
+
+        try
+        {
+            foreach (var user in Directory.EnumerateDirectories(usersDir))
+            {
+                var kuroData = Path.Combine(user, "AppData", "Roaming", "KRLauncher");
+                if (Directory.Exists(kuroData))
+                {
+                    roots.Add(kuroData);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // users 目录不可读：跳过该 prefix
+        }
+    }
 
     /// <summary>扫描结果的本地持久化路径：Chromium 缓存会被 LRU 淘汰，最后一份已知配置留在我们这里兜底。</summary>
     private static string PersistedConfigPath => Path.Combine(AppPaths.ConfigDirectory, "kuro_bg_config.json");
@@ -39,16 +118,17 @@ public static partial class KuroLauncherBackground
     /// 扫描 KRLauncher 的 WebView 缓存，提取最后投放的背景配置（按缓存响应时间戳取最新）。
     /// 扫描不到时回退上次持久化的结果。找不到任何配置返回 null。
     /// </summary>
-    /// <param name="cacheRoot">KRLauncher 数据根目录；null = 真实 %APPDATA%\KRLauncher（测试注入临时目录）。</param>
+    /// <param name="cacheRoots">KRLauncher 数据根目录清单；null = 按平台自动探测（Windows %APPDATA% / Linux prefix）。</param>
     /// <param name="persistPath">持久化兜底文件路径；null = 应用数据目录下的默认路径。</param>
-    public static KuroSwitchConfig? FindLatestSwitchConfig(string? cacheRoot = null, string? persistPath = null)
+    public static KuroSwitchConfig? FindLatestSwitchConfig(
+        IReadOnlyList<string>? cacheRoots = null, string? persistPath = null)
     {
-        var root = cacheRoot ?? KuroCacheRoot;
-        if (root is not null)
+        var roots = cacheRoots ?? DefaultCacheRoots();
+        if (roots.Count > 0)
         {
             try
             {
-                var match = WebViewCacheScanner.FindMatches([root], SwitchConfigRegex(), SwitchTimestampRegex())
+                var match = WebViewCacheScanner.FindMatches(roots, SwitchConfigRegex(), SwitchTimestampRegex())
                     .OrderByDescending(m => m.NearbyTimestamp ?? long.MinValue)
                     .FirstOrDefault();
                 if (match is not null && ParseSwitchConfig(match.Text) is { } config)
@@ -158,6 +238,9 @@ public static partial class KuroLauncherBackground
             }
         }
 
+        // Windows 盘符布局兜底（\Wuthering Waves\kr_game_cache）；Linux 上退化为仅探测
+        // <根>/Wuthering Waves/kr_game_cache，通常不命中——安装目录旁的上溯探测已覆盖主场景，
+        // 保留为无害启发式
         foreach (var drive in driveRoots ?? DriveInfo.GetDrives().Select(d => d.Name))
         {
             yield return Path.Combine(drive, "Wuthering Waves", "kr_game_cache");

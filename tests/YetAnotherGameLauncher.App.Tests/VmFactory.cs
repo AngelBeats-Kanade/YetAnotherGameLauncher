@@ -100,14 +100,19 @@ public static class VmFactory
     /// <summary>
     /// 构建 ViewModel。configJson 为 null 时<b>不创建</b>配置文件（模拟首次运行）；
     /// templateFactory 对应注入 VM 的默认配置模板工厂（null = 无模板）；
-    /// autostart 可注入真实 AutostartService（回归测试用），缺省为 FakeProcessRunner 版本。
+    /// autostart 可注入真实 AutostartService（回归测试用），缺省为 FakeProcessRunner 版本；
+    /// platformInfo 缺省为 Windows 假平台——让全部测试在任意 OS 上确定性地走 Windows 语义
+    /// （真实 LinuxPlatformInfo 会扫描真机 Proton 与 /proc NVIDIA，导致结果随测试机状态漂移）；
+    /// linuxProtonVersions 供 Linux 首运推荐模板逻辑使用（null = 现场扫描）。
     /// </summary>
     public static Context Build(
         string? configJson = SampleConfigJson,
         Func<string?>? templateFactory = null,
         IAutostartService? autostart = null,
         IFilePickerService? filePicker = null,
-        IVideoBackdropPlayer? videoPlayer = null)
+        IVideoBackdropPlayer? videoPlayer = null,
+        IPlatformInfo? platformInfo = null,
+        IReadOnlyList<string>? linuxProtonVersions = null)
     {
         var tempDir = new TempDir();
         var configPath = tempDir.FilePath("games.json");
@@ -154,7 +159,9 @@ public static class VmFactory
             },
             templateFactory,
             filePicker,
-            videoPlayer);
+            videoPlayer,
+            platformInfo: platformInfo ?? new FakePlatformInfo(isLinux: false),
+            linuxProtonVersions: linuxProtonVersions);
 
         return new Context
         {

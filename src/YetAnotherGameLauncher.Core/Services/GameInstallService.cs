@@ -153,6 +153,8 @@ public sealed class GameInstallService(
             return;
         }
 
+        // 平台差异系有意：大小写不敏感比较在 Linux 上会把大小写仅异的文件误判为"清单内"而保留
+        // （只会少删、不会误删用户数据），比 Ordinal 激进删除更安全
         var manifestSet = manifest.Files
             .Select(f => f.Path.Replace('\\', '/'))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);

@@ -160,10 +160,12 @@ public class ManifestVerifierTests : IDisposable
     [Fact]
     public void Verify_AbsolutePathInManifest_Throws()
     {
+        // 绝对路径必须被拒绝；扎根形式按平台取（"C:/..." 仅在 Windows 扎根，InstallPathTests 同款惯例）
+        var absolute = OperatingSystem.IsWindows() ? "C:/Windows/evil.txt" : "/etc/evil.txt";
         var manifest = new GameManifest
         {
             Version = "1.0.0",
-            Files = [FileEntry("C:/Windows/evil.txt", "x"u8.ToArray())],
+            Files = [FileEntry(absolute, "x"u8.ToArray())],
         };
 
         Assert.Throws<InvalidOperationException>(() =>
