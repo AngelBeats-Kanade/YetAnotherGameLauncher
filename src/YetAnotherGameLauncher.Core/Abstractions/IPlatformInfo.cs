@@ -12,6 +12,13 @@ public interface IPlatformInfo
     /// <summary>是否存在 NVIDIA 显卡（Linux 读 /proc/driver/nvidia/version；Windows 恒 false，无需 DXVK-NVAPI）。</summary>
     bool IsNvidiaGpuPresent { get; }
 
+    /// <summary>
+    /// 探测到的 GPU 厂商集合（去重）。
+    /// Linux 合并两路探测：/proc 闭源驱动（NVIDIA，与 <see cref="IsNvidiaGpuPresent"/> 同源）
+    /// 与 /sys/class/drm 的 PCI vendor（三家都覆盖）；Windows 恒空集合（无需此信息）。
+    /// </summary>
+    IReadOnlyList<GpuVendor> GpuVendors { get; }
+
     /// <summary>用系统的文件管理器打开目录（Windows explorer / macOS open / Linux xdg-open）。</summary>
     void OpenDirectoryInFileManager(string path);
 }

@@ -15,6 +15,9 @@ public sealed class WindowsPlatformInfo : IPlatformInfo
     public bool IsNvidiaGpuPresent => false;
 
     /// <inheritdoc/>
+    public IReadOnlyList<GpuVendor> GpuVendors => [];
+
+    /// <inheritdoc/>
     public void OpenDirectoryInFileManager(string path) =>
         Process.Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = false });
 }
