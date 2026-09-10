@@ -681,7 +681,7 @@ public partial class MainWindowViewModel : ViewModelBase
         var versions = _linuxProtonVersions ?? Core.Services.CompatTools.FindProtonVersions();
         var umuPath = _linuxUmuPath ?? Core.Services.CompatTools.FindUmuRun();
         var winePath = _linuxWinePath ?? Core.Services.CompatTools.FindSystemWine();
-        var dataHome = _linuxDataHome ?? AppPaths.DataDirectory;
+        var dataHome = _linuxDataHome ?? AppPaths.DataHomeDirectory; // CompatTools 语义要求数据根（不含 yagl 后缀）
         var changed = false;
         foreach (var game in catalog.Games)
         {

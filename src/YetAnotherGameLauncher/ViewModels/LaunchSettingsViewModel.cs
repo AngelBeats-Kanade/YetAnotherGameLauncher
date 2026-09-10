@@ -59,7 +59,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         _winePath = winePath is null
             ? (IsLinux ? CompatTools.FindSystemWine() : null)
             : (winePath.Length == 0 ? null : winePath);
-        _dataHome = dataHome ?? AppPaths.DataDirectory;
+        _dataHome = dataHome ?? AppPaths.DataHomeDirectory; // CompatTools 语义要求数据根（不含 yagl 后缀）
         _umuInstaller = umuInstaller;
         _commandTemplate = game.Launch.CommandTemplate;
         _workingDirectory = game.Launch.WorkingDirectory;
