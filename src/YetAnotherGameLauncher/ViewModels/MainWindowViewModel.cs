@@ -47,6 +47,9 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly string? _linuxWinePath;
     private readonly string? _linuxDataHome;
 
+    /// <summary>umu-launcher 引导安装器（null = 测试场景）。</summary>
+    private readonly UmuLauncherInstaller? _umuInstaller;
+
     public MainWindowViewModel(
         GameCatalogService catalogService,
         GameUpdateService updateService,
@@ -67,7 +70,8 @@ public partial class MainWindowViewModel : ViewModelBase
         IReadOnlyList<string>? linuxProtonVersions = null,
         string? linuxUmuPath = null,
         string? linuxWinePath = null,
-        string? linuxDataHome = null)
+        string? linuxDataHome = null,
+        UmuLauncherInstaller? umuInstaller = null)
     {
         _catalogService = catalogService;
         _updateService = updateService;
@@ -88,6 +92,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _linuxUmuPath = linuxUmuPath;
         _linuxWinePath = linuxWinePath;
         _linuxDataHome = linuxDataHome;
+        _umuInstaller = umuInstaller;
         _platform = platformInfo
             ?? (OperatingSystem.IsLinux()
                 ? new Core.Services.LinuxPlatformInfo()
@@ -504,7 +509,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 _backdropService,
                 _videoPlayer,
                 _filePicker,
-                _platform));
+                _platform,
+                _umuInstaller));
         }
 
         return unknownChannels;

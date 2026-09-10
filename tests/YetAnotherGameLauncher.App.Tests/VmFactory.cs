@@ -50,6 +50,7 @@ public static class VmFactory
         public required FakeBackdropResolver KuroBackdrop { get; init; }
         public required FakeBackdropResolver GryphlineBackdrop { get; init; }
         public StubHttpHandler BackgroundHandler { get; init; } = new();
+        public required UmuLauncherInstaller UmuInstaller { get; init; }
 
         public void Dispose() => TempDir.Dispose();
     }
@@ -121,12 +122,19 @@ public static class VmFactory
     {
         var tempDir = new TempDir();
         var configPath = tempDir.FilePath("games.json");
+        var gamesRoot = tempDir.FilePath("games-root").Replace(System.IO.Path.DirectorySeparatorChar, '/');
         if (configJson is not null)
         {
             // 安装根目录必须落在临时目录内，避免测试间状态泄漏
-            var json = configJson
-                .Replace("~/yagl-test-games", tempDir.FilePath("games-root").Replace(System.IO.Path.DirectorySeparatorChar, '/'));
+            var json = configJson.Replace("~/yagl-test-games", gamesRoot);
             File.WriteAllText(configPath, json);
+        }
+
+        // 模板同样要重写安装根目录：首运物化默认配置时不能把根目录指向真实家目录
+        if (templateFactory is not null)
+        {
+            var userTemplate = templateFactory;
+            templateFactory = () => userTemplate()?.Replace("~/yagl-test-games", gamesRoot);
         }
 
         var kuro = new FakeChannel();
@@ -146,10 +154,17 @@ public static class VmFactory
             cacheRoot: tempDir.FilePath("backdrops"));
 
         var catalogService = new GameCatalogService(configPath);
+        // pathValue 空串 = 禁用真机 PATH 扫描（wine/umu 预检确定性失败），日志落临时目录
+        var launcherService = new GameLauncherService(
+            new FakeProcessRunner(),
+            logDirectory: tempDir.FilePath("logs"),
+            pathValue: "");
+        var umuInstaller = new UmuLauncherInstaller(
+            new HttpClient(backgroundHandler), httpDownloader);
         var vm = new MainWindowViewModel(
             catalogService,
             new GameUpdateService(downloader, new FakePatchApplier()),
-            new GameLauncherService(new FakeProcessRunner()),
+            launcherService,
             httpDownloader,
             autostart ?? new WindowsAutostartService(new FakeProcessRunner()),
             new ThemeService(),
@@ -169,7 +184,8 @@ public static class VmFactory
             linuxProtonVersions: linuxProtonVersions,
             linuxUmuPath: linuxUmuPath,
             linuxWinePath: linuxWinePath,
-            linuxDataHome: linuxDataHome ?? tempDir.FilePath("data-home"));
+            linuxDataHome: linuxDataHome ?? tempDir.FilePath("data-home"),
+            umuInstaller: umuInstaller);
 
         return new Context
         {
@@ -183,6 +199,7 @@ public static class VmFactory
             KuroBackdrop = kuroBackdrop,
             GryphlineBackdrop = gryphlineBackdrop,
             BackgroundHandler = backgroundHandler,
+            UmuInstaller = umuInstaller,
         };
     }
 }

@@ -18,6 +18,9 @@
                     <SolidColorBrush x:Key="AppTextSecondary" Color="#66666E"/>
                     <SolidColorBrush x:Key="AppErrorText" Color="#C42B1C"/>
                     <SolidColorBrush x:Key="AppStatusOk" Color="#2DA44E"/>
+                    <!-- 启动失败覆盖层：压暗内容区的纱罩 + 不透明错误卡（保证长文本可读） -->
+                    <SolidColorBrush x:Key="AppOverlayScrimBrush" Color="#40232B3A"/>
+                    <SolidColorBrush x:Key="AppErrorCardBackground" Color="#FCFFFFFF"/>
                     <!-- 详情页版本号贴片：自带对比底面，压在任何插画上都可读 -->
                     <SolidColorBrush x:Key="AppVersionChipBackground" Color="#C7FFFFFF"/>
                     <SolidColorBrush x:Key="AppVersionChipText" Color="#2A2F36"/>
@@ -47,6 +50,8 @@
                     <SolidColorBrush x:Key="AppTextSecondary" Color="#A2A2AB"/>
                     <SolidColorBrush x:Key="AppErrorText" Color="#FF8A7A"/>
                     <SolidColorBrush x:Key="AppStatusOk" Color="#3FB950"/>
+                    <SolidColorBrush x:Key="AppOverlayScrimBrush" Color="#74000000"/>
+                    <SolidColorBrush x:Key="AppErrorCardBackground" Color="#F2202937"/>
                     <SolidColorBrush x:Key="AppVersionChipBackground" Color="#99000000"/>
                     <SolidColorBrush x:Key="AppVersionChipText" Color="#EEF1F6"/>
                     <!-- 应用自有背景：深空蓝黑渐变 + 蓝橙光晕（呼应应用图标） -->

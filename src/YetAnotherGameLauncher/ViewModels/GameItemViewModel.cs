@@ -23,11 +23,15 @@ public partial class GameItemViewModel(
     GameBackdropService backdropService,
     IVideoBackdropPlayer? videoPlayer = null,
     IFilePickerService? filePicker = null,
-    Core.Abstractions.IPlatformInfo? platformInfo = null) : ViewModelBase
+    Core.Abstractions.IPlatformInfo? platformInfo = null,
+    UmuLauncherInstaller? umuInstaller = null) : ViewModelBase
 {
     private string _installDir = installDir;
 
     private readonly IFilePickerService? _filePicker = filePicker;
+
+    /// <summary>umu-launcher 引导安装器（Linux 启动失败时供错误覆盖层一键安装；null = 不可用）。</summary>
+    public UmuLauncherInstaller? UmuInstaller { get; } = umuInstaller;
 
     /// <summary>背景视频播放器（单例共享；null = 测试场景或平台无解码能力）。</summary>
     public IVideoBackdropPlayer? VideoPlayer { get; } = videoPlayer;
@@ -397,12 +401,35 @@ public partial class GameItemViewModel(
         _ = RefreshAsync();
     }
 
-    /// <summary>启动游戏；忙碌或不可启动时忽略，成败写入状态提示。</summary>
+    /// <summary>启动失败覆盖层（null = 隐藏；预检失败无日志时无日志入口）。</summary>
+    [ObservableProperty]
+    private LaunchErrorViewModel? _launchError;
+
+    /// <summary>是否有待展示的启动失败覆盖层。</summary>
+    public bool HasLaunchError => LaunchError is not null;
+
+    partial void OnLaunchErrorChanged(LaunchErrorViewModel? value)
+    {
+        OnPropertyChanged(nameof(HasLaunchError));
+        if (value is not null)
+        {
+            value.DismissRequested += (_, _) => LaunchError = null;
+        }
+    }
+
+    /// <summary>启动游戏；忙碌时忽略，不可启动给出原因，失败弹主题化错误覆盖层。</summary>
     [RelayCommand]
     public async Task LaunchAsync(CancellationToken cancellationToken = default)
     {
-        if (IsBusy || !CanLaunch)
+        if (IsBusy)
         {
+            return;
+        }
+
+        if (!CanLaunch)
+        {
+            // 不再静默：说明为什么启动不了
+            StatusText = Loc["status_launchNotReady"];
             return;
         }
 
@@ -410,17 +437,42 @@ public partial class GameItemViewModel(
         try
         {
             await launcherService.LaunchAsync(Game, _installDir, Game.Executable, cancellationToken);
+            LaunchError = null; // 上次的失败覆盖层随成功启动清掉
             StatusText = Loc["status_launched"];
+        }
+        catch (LaunchException ex)
+        {
+            StatusText = Loc.Format("status_launchFailed", ex.Message);
+            LaunchError = CreateLaunchError(ex.Message, ex.ToString(), ex.LogPath, ex.Kind);
         }
         catch (Exception ex)
         {
             StatusText = Loc.Format("status_launchFailed", ex.Message);
+            LaunchError = CreateLaunchError(ex.Message, ex.ToString(), null, LaunchFailureKind.Unknown);
         }
         finally
         {
             IsBusy = false;
         }
     }
+
+    /// <summary>按失败类目构建错误覆盖层（RuntimeMissing + umu 未装 → 提供一键安装）。</summary>
+    private LaunchErrorViewModel CreateLaunchError(
+        string message, string detail, string? logPath, LaunchFailureKind kind)
+    {
+        var umuMissing = kind == LaunchFailureKind.RuntimeMissing
+            && Platform.IsLinux
+            && IsUmuTemplate();
+        return new LaunchErrorViewModel(
+            Loc, message, detail, logPath,
+            canInstallUmu: umuMissing,
+            umuInstaller: UmuInstaller,
+            platform: Platform);
+    }
+
+    /// <summary>当前启动模板是否走 umu（决定失败时是否提供引导安装）。</summary>
+    private bool IsUmuTemplate() =>
+        Game.Launch.CommandTemplate.Contains("umu-run", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// 主操作：未安装时全新安装，有更新时更新；已安装且已是最新即"校验修复"——

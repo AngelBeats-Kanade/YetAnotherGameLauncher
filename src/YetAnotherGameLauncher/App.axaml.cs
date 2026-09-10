@@ -87,6 +87,12 @@ public partial class App : Application
         services.AddSingleton<FfmpegLibraryResolver>();
         services.AddSingleton<IVideoBackdropPlayer, FfmpegVideoBackdropPlayer>();
 
+        // Linux 兼容层：umu-launcher 引导安装（启动失败覆盖层的一键安装按钮）
+        services.AddSingleton(sp => new UmuLauncherInstaller(
+            sp.GetRequiredService<HttpClient>(),
+            sp.GetRequiredService<HttpFileDownloader>(),
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger<UmuLauncherInstaller>()));
+
         // 游戏背景解析（按渠道键注册；配置文件不携带背景地址，启动时向渠道确认当期背景）
         services.AddSingleton<KuroSwitchConfigClient>();
         services.AddSingleton<KuroGachaService>();
@@ -119,7 +125,8 @@ public partial class App : Application
                 TryLoadEmbeddedSampleTemplate,
                 sp.GetRequiredService<IFilePickerService>(),
                 sp.GetRequiredService<IVideoBackdropPlayer>(),
-                sp.GetRequiredService<KuroGachaService>());
+                sp.GetRequiredService<KuroGachaService>(),
+                umuInstaller: sp.GetRequiredService<UmuLauncherInstaller>());
         });
 
         return services.BuildServiceProvider();

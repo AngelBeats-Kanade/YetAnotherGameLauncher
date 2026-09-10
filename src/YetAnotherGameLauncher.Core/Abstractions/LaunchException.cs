@@ -26,9 +26,12 @@ public enum LaunchFailureKind
 /// 启动预检/启动过程的类目化失败：message 已中文化、可直接向用户展示；
 /// Kind 供 UI 决定修复指引（如"去引导安装 umu-launcher"）。
 /// </summary>
-public sealed class LaunchException(LaunchFailureKind kind, string message, Exception? inner = null)
+public sealed class LaunchException(LaunchFailureKind kind, string message, Exception? inner = null, string? logPath = null)
     : UpdateException(message, inner)
 {
     /// <summary>失败类目。</summary>
     public LaunchFailureKind Kind { get; } = kind;
+
+    /// <summary>启动日志路径（预检失败时为 null；进程启动失败时日志可能已有头部）。</summary>
+    public string? LogPath { get; } = logPath;
 }

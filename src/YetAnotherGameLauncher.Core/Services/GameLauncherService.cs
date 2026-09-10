@@ -85,7 +85,8 @@ public sealed class GameLauncherService(
             throw new LaunchException(
                 LaunchFailureKind.StartFailed,
                 $"无法启动进程「{plan.FileName}」：{ex.Message}（错误码 {ex.NativeErrorCode}）。",
-                ex);
+                ex,
+                logPath);
         }
     }
 

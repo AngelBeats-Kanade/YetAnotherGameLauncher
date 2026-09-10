@@ -368,6 +368,49 @@
         <Style Selector="Button.caption-btn.close:pointerover">
             <Setter Property="Foreground" Value="White"/>
         </Style>
+
+        <!-- ========== 启动失败覆盖层（详情页内）：纱罩 + 错误卡 + accent 关闭钮 ========== -->
+        <Style Selector="Border.launch-error-card">
+            <Setter Property="Background" Value="{DynamicResource AppErrorCardBackground}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppCardBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="14"/>
+            <Setter Property="Padding" Value="20"/>
+            <Setter Property="BoxShadow" Value="0 16 40 #4D000000"/>
+        </Style>
+        <!-- 主操作钮走 accent：Fluent 在 presenter 层逐状态设背景，这里同样下沉覆盖（含前景） -->
+        <Style Selector="Button.launch-error-primary">
+            <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="Padding" Value="22,8"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="MinHeight" Value="34"/>
+        </Style>
+        <Style Selector="Button.launch-error-primary /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="CornerRadius" Value="10"/>
+        </Style>
+        <Style Selector="Button.launch-error-primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppAccentHoverBrush}"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+        </Style>
+        <Style Selector="Button.launch-error-primary:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppAccentHoverBrush}"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="Opacity" Value="0.9"/>
+        </Style>
+        <Style Selector="Button.launch-error-primary:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="Opacity" Value="0.4"/>
+        </Style>
+        <Style Selector="Button.launch-error-secondary">
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="MinHeight" Value="34"/>
+        </Style>
     </Window.Styles>
 
     <!-- ==================== 窗口级结构：应用自有背景 → 主布局（游戏背景只在详情页模板内） ==================== -->
@@ -713,6 +756,57 @@
                                             </Grid>
                                         </Border>
 
+                                    </Grid>
+
+                                    <!-- ========== 启动失败覆盖层：类目化原因 + 技术详情 + 日志入口 + umu 引导安装 ========== -->
+                                    <Grid IsVisible="{Binding HasLaunchError}">
+                                        <Border Background="{DynamicResource AppOverlayScrimBrush}"/>
+                                        <Border Classes="launch-error-card"
+                                                HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                MaxWidth="480" Margin="24">
+                                            <StackPanel Spacing="12">
+                                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                                    <Path Data="M12,2 C17.52,2 22,6.48 22,12 C22,17.52 17.52,22 12,22 C6.48,22 2,17.52 2,12 C2,6.48 6.48,2 12,2 Z M11,7 L13,7 L13,13 L11,13 Z M11,15 L13,15 L13,17 L11,17 Z"
+                                                          Fill="{DynamicResource AppErrorText}" Stretch="Uniform"
+                                                          Width="21" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{Binding Loc[launch_error_title]}"
+                                                               FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                                <TextBlock Text="{Binding LaunchError.Message}" FontSize="13.5"
+                                                           TextWrapping="Wrap" LineHeight="20"/>
+                                                <TextBlock Text="{Binding LaunchError.ExtraStatus}" FontSize="13"
+                                                           TextWrapping="Wrap"
+                                                           Foreground="{DynamicResource AppTextSecondary}"
+                                                           IsVisible="{Binding LaunchError.HasExtraStatus}"/>
+                                                <Button Classes="launch-error-primary"
+                                                        Command="{Binding LaunchError.InstallUmuCommand}"
+                                                        IsVisible="{Binding LaunchError.CanInstallUmu}"
+                                                        HorizontalAlignment="Left"
+                                                        IsEnabled="{Binding !LaunchError.IsInstallingUmu}">
+                                                    <TextBlock Text="{Binding Loc[launch_error_install_umu]}"/>
+                                                </Button>
+                                                <Expander IsVisible="{Binding LaunchError.HasDetail}"
+                                                          IsExpanded="{Binding LaunchError.DetailsExpanded, Mode=TwoWay}">
+                                                    <Expander.Header>
+                                                        <TextBlock Text="{Binding Loc[launch_error_details]}" FontSize="12.5"
+                                                                   Foreground="{DynamicResource AppTextSecondary}"/>
+                                                    </Expander.Header>
+                                                    <SelectableTextBlock Text="{Binding LaunchError.Detail}"
+                                                                         TextWrapping="Wrap" FontSize="12"
+                                                                         Foreground="{DynamicResource AppTextSecondary}"/>
+                                                </Expander>
+                                                <StackPanel Orientation="Horizontal" Spacing="10"
+                                                            HorizontalAlignment="Right">
+                                                    <Button Classes="launch-error-secondary"
+                                                            Command="{Binding LaunchError.OpenLogDirectoryCommand}"
+                                                            IsVisible="{Binding LaunchError.HasLogPath}"
+                                                            Content="{Binding Loc[launch_error_open_log]}"/>
+                                                    <Button Classes="launch-error-primary"
+                                                            Command="{Binding LaunchError.DismissCommand}"
+                                                            Content="{Binding Loc[launch_error_close]}"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
                                     </Grid>
                                 </Panel>
                             </DataTemplate>
