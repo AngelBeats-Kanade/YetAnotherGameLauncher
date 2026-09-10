@@ -175,11 +175,12 @@ public class UiScreenshotTests
             window.UpdateLayout();
             Capture("08-game-detail-installed-dark.png");
 
-            // 暗色 · 最大化状态（圆角/卡片边距移除 + 标题栏还原图标）
-            window.WindowState = WindowState.Maximized;
+            // 暗色 · 最大化视觉状态（圆角/卡片边距移除 + 标题栏还原图标）。
+            // headless 平台不追踪 WindowState，直接驱动真机窗口状态变化所回写的同一 VM 绑定链
+            ctx.Vm.IsWindowMaximized = true;
             window.UpdateLayout();
             Capture("13-game-detail-maximized-dark.png");
-            window.WindowState = WindowState.Normal;
+            ctx.Vm.IsWindowMaximized = false;
             window.UpdateLayout();
 
             // 暗色 · 终末地校验修复确认条（包式渠道：重下整包前需确认）

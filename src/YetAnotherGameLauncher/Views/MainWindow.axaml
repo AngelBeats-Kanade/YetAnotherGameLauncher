@@ -328,6 +328,10 @@
             <Setter Property="ClipToBounds" Value="True"/>
             <Setter Property="Margin" Value="0,46,0,0"/>
         </Style>
+        <!-- 最大化：内容卡去掉左上圆角铺满全屏（侧栏/色带的同款适配已有） -->
+        <Style Selector="Border#ContentCard.maximized">
+            <Setter Property="CornerRadius" Value="0"/>
+        </Style>
         <!-- 标题拖拽区：覆盖色带整条（46px），所有页面一致 -->
         <Style Selector="Border.title-drag">
             <Setter Property="Height" Value="46"/>
@@ -576,7 +580,8 @@
                 <Border x:Name="TitleChrome" Height="56" VerticalAlignment="Top"
                         Classes.maximized="{Binding IsWindowMaximized}"
                         Background="{DynamicResource AppSidebarBackground}" IsHitTestVisible="False"/>
-                <Border x:Name="ContentCard" Classes="content-card">
+                <Border x:Name="ContentCard" Classes="content-card"
+                        Classes.maximized="{Binding IsWindowMaximized}">
                     <Panel>
                         <!-- 页面底：应用背景随页面板圆角裁剪，详情页海报照旧覆盖全板 -->
                         <controls:AppBackdrop/>
@@ -1305,9 +1310,11 @@
             <Button x:Name="CaptionMaximize" Classes="caption-btn" Click="OnMaximizeClick"
                     ToolTip.Tip="{Binding Loc[window_maximize]}">
                 <Panel>
+                    <!-- 图标可见性由 VM 的 IsWindowMaximized 驱动（真机经 WindowState 变化回写 VM） -->
                     <Path x:Name="MaximizeIcon" Data="M 1.5 1.5 L 11.5 1.5 L 11.5 11.5 L 1.5 11.5 Z"
+                          IsVisible="{Binding !IsWindowMaximized}"
                           Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1" StrokeJoin="Round"/>
-                    <Path x:Name="RestoreIcon" IsVisible="False"
+                    <Path x:Name="RestoreIcon" IsVisible="{Binding IsWindowMaximized}"
                           Data="M 3.5 3.5 L 11.5 3.5 L 11.5 11.5 L 3.5 11.5 Z M 1.5 6.5 L 1.5 1.5 L 9.5 1.5"
                           Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1" StrokeJoin="Round"/>
                 </Panel>

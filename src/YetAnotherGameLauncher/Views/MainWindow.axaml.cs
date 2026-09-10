@@ -169,11 +169,9 @@ public partial class MainWindow : Window
         }
 
         var maximized = WindowState == WindowState.Maximized;
-        MaximizeIcon.IsVisible = !maximized;
-        RestoreIcon.IsVisible = maximized;
         if (DataContext is MainWindowViewModel viewModel)
         {
-            viewModel.IsWindowMaximized = maximized;
+            viewModel.IsWindowMaximized = maximized; // 图标/圆角/内容卡边距全部由该属性经绑定驱动
         }
     }
 
