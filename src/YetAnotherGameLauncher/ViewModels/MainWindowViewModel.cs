@@ -42,6 +42,11 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Linux 首运推荐模板用的 Proton 版本清单（null = 现场扫描；测试注入固定值保证确定性）。</summary>
     private readonly IReadOnlyList<string>? _linuxProtonVersions;
 
+    /// <summary>Linux 首运推荐模板注入的 umu-run / wine 路径与数据目录（null = 现场发现/默认；测试确定性用）。</summary>
+    private readonly string? _linuxUmuPath;
+    private readonly string? _linuxWinePath;
+    private readonly string? _linuxDataHome;
+
     public MainWindowViewModel(
         GameCatalogService catalogService,
         GameUpdateService updateService,
@@ -59,7 +64,10 @@ public partial class MainWindowViewModel : ViewModelBase
         KuroGachaService? gachaService = null,
         Core.Services.NetworkProxyManager? proxyManager = null,
         Core.Abstractions.IPlatformInfo? platformInfo = null,
-        IReadOnlyList<string>? linuxProtonVersions = null)
+        IReadOnlyList<string>? linuxProtonVersions = null,
+        string? linuxUmuPath = null,
+        string? linuxWinePath = null,
+        string? linuxDataHome = null)
     {
         _catalogService = catalogService;
         _updateService = updateService;
@@ -77,6 +85,9 @@ public partial class MainWindowViewModel : ViewModelBase
         _gachaService = gachaService;
         _proxyManager = proxyManager;
         _linuxProtonVersions = linuxProtonVersions;
+        _linuxUmuPath = linuxUmuPath;
+        _linuxWinePath = linuxWinePath;
+        _linuxDataHome = linuxDataHome;
         _platform = platformInfo
             ?? (OperatingSystem.IsLinux()
                 ? new Core.Services.LinuxPlatformInfo()
@@ -620,8 +631,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// Linux 首运兜底：默认模板的裸 {exe} 无法运行 Windows 客户端（Exec format error），
-    /// 物化配置后立即把这类模板升级为推荐 Proton（无可用版本则 wine）并落盘。
-    /// 仅在首运创建时触发一次，用户此后的任何修改不再被触碰。
+    /// 物化配置后立即把这类模板升级为社区推荐链（umu → Proton → wine；什么都不装也给 umu 模板，
+    /// 引导安装完成后即可启动）并落盘。仅在首运创建时触发一次，用户此后的任何修改不再被触碰。
     /// </summary>
     private async Task ApplyLinuxFirstRunLaunchDefaultsAsync(GameCatalog catalog, CancellationToken cancellationToken)
     {
@@ -631,6 +642,9 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         var versions = _linuxProtonVersions ?? Core.Services.CompatTools.FindProtonVersions();
+        var umuPath = _linuxUmuPath ?? Core.Services.CompatTools.FindUmuRun();
+        var winePath = _linuxWinePath ?? Core.Services.CompatTools.FindSystemWine();
+        var dataHome = _linuxDataHome ?? AppPaths.DataDirectory;
         var changed = false;
         foreach (var game in catalog.Games)
         {
@@ -639,17 +653,13 @@ public partial class MainWindowViewModel : ViewModelBase
                 continue; // 用户已有自定义模板：完全不动
             }
 
-            if (Core.Services.CompatTools.BuildRecommendedLaunch(game.Id, versions, _platform.IsNvidiaGpuPresent) is { } launch)
+            var launch = Core.Services.CompatTools.BuildRecommendedLaunch(
+                game.Id, versions, _platform.IsNvidiaGpuPresent,
+                dataHome: dataHome, umuRunPath: umuPath, winePath: winePath);
+            game.Launch.CommandTemplate = launch.CommandTemplate;
+            foreach (var (key, value) in launch.Environment)
             {
-                game.Launch.CommandTemplate = launch.CommandTemplate;
-                foreach (var (key, value) in launch.Environment)
-                {
-                    game.Launch.Environment[key] = value;
-                }
-            }
-            else
-            {
-                game.Launch.CommandTemplate = "wine {exe}";
+                game.Launch.Environment[key] = value;
             }
 
             changed = true;

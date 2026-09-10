@@ -48,6 +48,7 @@
   "launch_invalidEnvLine": "环境变量格式错误（应为 KEY=VALUE）：{0}",
   "launch_mode_custom": "自定义",
   "launch_mode_direct": "直接运行（官方默认）",
+  "launch_mode_umu": "umu-launcher（推荐）",
   "launch_mode_proton": "Proton",
   "launch_mode_wine": "Wine",
   "launch_protonVersion": "Proton 版本",

@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using YetAnotherGameLauncher.Core;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Services;
@@ -20,6 +21,11 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     private readonly Core.Abstractions.IPlatformInfo _platform;
     private readonly IReadOnlyList<string> _protonVersions;
 
+    /// <summary>已发现的运行时路径与数据目录（null = 未发现/未注入；测试显式传值保证确定性）。</summary>
+    private readonly string? _umuRunPath;
+    private readonly string? _winePath;
+    private readonly string _dataHome;
+
     public LaunchSettingsViewModel(
         GameDefinition game,
         string installDir,
@@ -28,7 +34,10 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         GameItemViewModel owner,
         IFilePickerService? filePicker = null,
         Core.Abstractions.IPlatformInfo? platformInfo = null,
-        IReadOnlyList<string>? protonVersions = null)
+        IReadOnlyList<string>? protonVersions = null,
+        string? umuRunPath = null,
+        string? winePath = null,
+        string? dataHome = null)
     {
         _game = game;
         _owner = owner;
@@ -41,6 +50,14 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         _installDirDraft = installDir;
         _executableDraft = game.Executable;
         _protonVersions = protonVersions ?? (_platform.IsLinux ? CompatTools.FindProtonVersions() : []);
+        // 显式空串 = 声明"没装"（测试禁用真机 PATH 扫描）；null = 现场（仅 Linux）发现
+        _umuRunPath = umuRunPath is null
+            ? (IsLinux ? CompatTools.FindUmuRun() : null)
+            : (umuRunPath.Length == 0 ? null : umuRunPath);
+        _winePath = winePath is null
+            ? (IsLinux ? CompatTools.FindSystemWine() : null)
+            : (winePath.Length == 0 ? null : winePath);
+        _dataHome = dataHome ?? AppPaths.DataDirectory;
         _commandTemplate = game.Launch.CommandTemplate;
         _workingDirectory = game.Launch.WorkingDirectory;
         _environmentText = SerializeEnvironment(game.Launch.Environment);
@@ -53,30 +70,35 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 : ProtonVersions[0];
         }
 
-        // Linux 默认最佳配置：裸 {exe} 无法运行 Windows 客户端 → 应用社区推荐（进草稿，保存后才落盘；
+        // Linux 默认最佳配置：裸 {exe} 无法运行 Windows 客户端 → 应用社区推荐链（进草稿，保存后才落盘；
         // 用户已有任何自定义模板则完全不动）
         if (IsLinux && _selectedLaunchMode.Mode == LaunchMode.Direct)
         {
-            if (CompatTools.BuildRecommendedLaunch(_game.Id, ProtonVersions, _platform.IsNvidiaGpuPresent) is { } launch)
+            var launch = CompatTools.BuildRecommendedLaunch(
+                _game.Id, ProtonVersions, _platform.IsNvidiaGpuPresent,
+                dataHome: _dataHome, umuRunPath: _umuRunPath, winePath: _winePath);
+            SelectedLaunchMode = LaunchModes.First(m => m.Mode == launch.Mode);
+            if (launch.Mode == LaunchMode.Proton)
             {
-                SelectedLaunchMode = LaunchModes.First(m => m.Mode == LaunchMode.Proton);
-                _selectedProtonVersion = launch.ProtonVersion;
-                ApplyGenerated((launch.CommandTemplate, launch.Environment));
+                _selectedProtonVersion = launch.RuntimeName;
             }
-            else
-            {
-                SelectedLaunchMode = LaunchModes.First(m => m.Mode == LaunchMode.Wine);
-            }
+
+            ApplyGenerated((launch.CommandTemplate, launch.Environment));
         }
     }
 
-    /// <summary>从命令模板推断当前启动方式（启发式：含 proton/wine 关键词；{exe} 原样视为直接运行）。</summary>
+    /// <summary>从命令模板推断当前启动方式（启发式：含 proton/umu/wine 关键词；{exe} 原样视为直接运行）。</summary>
     private static LaunchModeOption DetectLaunchMode(string commandTemplate)
     {
         var t = commandTemplate.Trim();
         if (t.Contains("proton", StringComparison.OrdinalIgnoreCase))
         {
             return new LaunchModeOption(LaunchMode.Proton, "launch_mode_proton");
+        }
+
+        if (t.Contains("umu-run", StringComparison.OrdinalIgnoreCase))
+        {
+            return new LaunchModeOption(LaunchMode.Umu, "launch_mode_umu");
         }
 
         if (t.Contains("wine", StringComparison.OrdinalIgnoreCase))
@@ -103,6 +125,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     public IReadOnlyList<LaunchModeOption> LaunchModes { get; } =
     [
         new(LaunchMode.Direct, LocBridge.Instance["launch_mode_direct"]),
+        new(LaunchMode.Umu, LocBridge.Instance["launch_mode_umu"]),
         new(LaunchMode.Wine, LocBridge.Instance["launch_mode_wine"]),
         new(LaunchMode.Proton, LocBridge.Instance["launch_mode_proton"]),
         new(LaunchMode.Custom, LocBridge.Instance["launch_mode_custom"]),
@@ -114,6 +137,12 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     /// <summary>是否处于 Proton 启动方式（决定版本选择器可见性）。</summary>
     public bool IsProtonMode => SelectedLaunchMode?.Mode == LaunchMode.Proton;
 
+    /// <summary>是否处于 umu 启动方式（决定 umu 安装引导提示可见性）。</summary>
+    public bool IsUmuMode => SelectedLaunchMode?.Mode == LaunchMode.Umu;
+
+    /// <summary>umu-run 是否已发现（未发现时提示可一键引导安装）。</summary>
+    public bool IsUmuAvailable => _umuRunPath is not null;
+
     public IReadOnlyList<string> ProtonVersions => _protonVersions;
 
     [ObservableProperty]
@@ -124,14 +153,17 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     {
         if (SelectedLaunchMode?.Mode == LaunchMode.Proton && !string.IsNullOrWhiteSpace(value))
         {
-            ApplyGenerated(CompatTools.BuildProtonLaunch(value));
+            ApplyGenerated(Flatten(CompatTools.BuildProtonLaunch(
+                _game.Id, value, home: null, dataHome: _dataHome)));
         }
     }
 
-    /// <summary>启动方式变化时触发：刷新 Proton 可见性，按方式生成命令模板并增删兼容环境变量。</summary>
+    /// <summary>启动方式变化时触发：刷新可见性，按方式生成命令模板并增删兼容环境变量。</summary>
     partial void OnSelectedLaunchModeChanged(LaunchModeOption? value)
     {
         OnPropertyChanged(nameof(IsProtonMode));
+        OnPropertyChanged(nameof(IsUmuMode));
+        OnPropertyChanged(nameof(IsUmuAvailable));
         if (value is null)
         {
             return;
@@ -141,11 +173,15 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         {
             case LaunchMode.Direct:
                 CommandTemplate = "{exe}";
-                RemoveCompatEnvironment();
+                RemoveGeneratedEnvironment();
+                break;
+            case LaunchMode.Umu:
+                ApplyGenerated(Flatten(CompatTools.BuildUmuLaunch(
+                    _game.Id, _umuRunPath, home: null, dataHome: _dataHome)));
                 break;
             case LaunchMode.Wine:
-                CommandTemplate = "wine {exe}";
-                RemoveCompatEnvironment();
+                ApplyGenerated(Flatten(CompatTools.BuildWineLaunch(
+                    _game.Id, _winePath, home: null, dataHome: _dataHome)));
                 break;
             case LaunchMode.Proton:
                 if (string.IsNullOrWhiteSpace(SelectedProtonVersion) && ProtonVersions.Count > 0)
@@ -154,7 +190,8 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 }
                 else if (!string.IsNullOrWhiteSpace(SelectedProtonVersion))
                 {
-                    ApplyGenerated(CompatTools.BuildProtonLaunch(SelectedProtonVersion));
+                    ApplyGenerated(Flatten(CompatTools.BuildProtonLaunch(
+                        _game.Id, SelectedProtonVersion, home: null, dataHome: _dataHome)));
                 }
                 break;
             case LaunchMode.Custom:
@@ -162,6 +199,10 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 break; // 自定义：不动草稿
         }
     }
+
+    /// <summary>CompatLaunch → 生成应用所需的二元组（模板 + 环境变量）。</summary>
+    private static (string CommandTemplate, Dictionary<string, string> Environment) Flatten(CompatLaunch launch) =>
+        (launch.CommandTemplate, launch.Environment);
 
     /// <summary>应用生成的启动配置：覆盖命令模板，生成的环境变量按 KEY 合并进现有文本。</summary>
     private void ApplyGenerated((string CommandTemplate, Dictionary<string, string> Environment) generated)
@@ -176,13 +217,12 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         EnvironmentText = SerializeEnvironment(merged);
     }
 
-    /// <summary>从环境文本中移除全部 STEAM_COMPAT_* 变量（切回直接/Wine 启动时调用）。</summary>
-    private void RemoveCompatEnvironment()
+    /// <summary>从环境文本中移除全部由推荐生成的变量（STEAM_COMPAT_*、umu 系列、WINEPREFIX、PROTONPATH 与游戏推荐项；
+    /// 切回直接启动等场景调用，用户手动加的其它变量不受影响）。</summary>
+    private void RemoveGeneratedEnvironment()
     {
         var merged = ParseEnvironmentOrEmpty(EnvironmentText);
-        var keys = merged.Keys.Where(k =>
-                k.StartsWith("STEAM_COMPAT_", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        var keys = merged.Keys.Where(CompatTools.IsGeneratedEnvironmentKey).ToList();
         foreach (var key in keys)
         {
             merged.Remove(key);

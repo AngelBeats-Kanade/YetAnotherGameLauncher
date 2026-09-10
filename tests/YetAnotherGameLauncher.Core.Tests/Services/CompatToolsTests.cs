@@ -70,14 +70,16 @@ public sealed class ProtonCompatTests : IDisposable
     {
         InstallProton("GE-Proton10-9");
 
-        var (command, environment) = CompatTools.BuildProtonLaunch("GE-Proton10-9", _home.Path);
+        var launch = CompatTools.BuildProtonLaunch("wuthering-waves", "GE-Proton10-9", _home.Path);
 
-        Assert.StartsWith("\"", command);
-        Assert.Contains("GE-Proton10-9", command, StringComparison.Ordinal);
-        Assert.Contains("run {exe}", command, StringComparison.Ordinal);
-        Assert.Equal("{installDir}/compatdata", environment["STEAM_COMPAT_DATA_PATH"]);
+        Assert.StartsWith("\"", launch.CommandTemplate);
+        Assert.Contains("GE-Proton10-9", launch.CommandTemplate, StringComparison.Ordinal);
+        Assert.Contains("run {exe}", launch.CommandTemplate, StringComparison.Ordinal);
+        Assert.Equal(
+            _home.FilePath(".local", "share", "yagl", "prefixes", "wuthering-waves"),
+            launch.Environment["STEAM_COMPAT_DATA_PATH"]);
         Assert.Equal(Path.Combine(_home.Path, ".steam", "steam"),
-            environment["STEAM_COMPAT_CLIENT_INSTALL_PATH"]);
+            launch.Environment["STEAM_COMPAT_CLIENT_INSTALL_PATH"]);
     }
 
     [Fact]
@@ -109,16 +111,21 @@ public sealed class ProtonCompatTests : IDisposable
             "wuthering-waves", ["GE-Proton10-9"], nvidiaGpuPresent: true, home: _home.Path);
 
         Assert.NotNull(launch);
-        Assert.Equal("GE-Proton10-9", launch.ProtonVersion);
+        Assert.Equal(LaunchMode.Proton, launch.Mode);
+        Assert.Equal("GE-Proton10-9", launch.RuntimeName);
         Assert.Contains("run {exe}", launch.CommandTemplate, StringComparison.Ordinal);
-        Assert.Equal("{installDir}/compatdata", launch.Environment["STEAM_COMPAT_DATA_PATH"]);
         Assert.Equal("1", launch.Environment["SteamOS"]);
         Assert.Equal("1", launch.Environment["PROTON_ENABLE_NVAPI"]);
     }
 
     [Fact]
-    public void BuildRecommendedLaunch_NoVersions_ReturnsNull()
+    public void BuildRecommendedLaunch_NoVersions_FallsBackToBareUmuTemplate()
     {
-        Assert.Null(CompatTools.BuildRecommendedLaunch("wuthering-waves", [], home: _home.Path));
+        // 什么运行时都没有：仍返回 umu 模板（RuntimeName=null），引导安装就位后即可启动
+        var launch = CompatTools.BuildRecommendedLaunch("wuthering-waves", [], home: _home.Path);
+
+        Assert.Equal(LaunchMode.Umu, launch.Mode);
+        Assert.Null(launch.RuntimeName);
+        Assert.Equal("umu-run {exe}", launch.CommandTemplate);
     }
 }

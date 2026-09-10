@@ -103,7 +103,9 @@ public static class VmFactory
     /// autostart 可注入真实 AutostartService（回归测试用），缺省为 FakeProcessRunner 版本；
     /// platformInfo 缺省为 Windows 假平台——让全部测试在任意 OS 上确定性地走 Windows 语义
     /// （真实 LinuxPlatformInfo 会扫描真机 Proton 与 /proc NVIDIA，导致结果随测试机状态漂移）；
-    /// linuxProtonVersions 供 Linux 首运推荐模板逻辑使用（null = 现场扫描）。
+    /// linuxProtonVersions 供 Linux 首运推荐模板逻辑使用（null = 现场扫描）；
+    /// linuxUmuPath/linuxWinePath 同理，缺省为空串 = 声明"未安装"（禁用真机 PATH 扫描）；
+    /// linuxDataHome 缺省落临时目录，保证 games.json 里的 prefix 路径确定性。
     /// </summary>
     public static Context Build(
         string? configJson = SampleConfigJson,
@@ -112,7 +114,10 @@ public static class VmFactory
         IFilePickerService? filePicker = null,
         IVideoBackdropPlayer? videoPlayer = null,
         IPlatformInfo? platformInfo = null,
-        IReadOnlyList<string>? linuxProtonVersions = null)
+        IReadOnlyList<string>? linuxProtonVersions = null,
+        string? linuxUmuPath = "",
+        string? linuxWinePath = "",
+        string? linuxDataHome = null)
     {
         var tempDir = new TempDir();
         var configPath = tempDir.FilePath("games.json");
@@ -161,7 +166,10 @@ public static class VmFactory
             filePicker,
             videoPlayer,
             platformInfo: platformInfo ?? new FakePlatformInfo(isLinux: false),
-            linuxProtonVersions: linuxProtonVersions);
+            linuxProtonVersions: linuxProtonVersions,
+            linuxUmuPath: linuxUmuPath,
+            linuxWinePath: linuxWinePath,
+            linuxDataHome: linuxDataHome ?? tempDir.FilePath("data-home"));
 
         return new Context
         {

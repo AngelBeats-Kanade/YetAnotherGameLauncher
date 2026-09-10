@@ -33,8 +33,10 @@ public class LinuxFirstRunLaunchTests
     }
 
     [Fact]
-    public async Task FirstRun_Linux_WithoutProton_FallsBackToWine()
+    public async Task FirstRun_Linux_WithoutProtonOrUmu_FallsBackToUmuTemplateForGuidedInstall()
     {
+        // 什么运行时都没装（umuPath/winePath 缺省空串 = 未安装）：
+        // 仍给 umu 模板——引导安装完成后即可直接启动，prefix 落数据目录
         using var ctx = VmFactory.Build(
             configJson: null,
             templateFactory: () => VmFactory.SampleConfigJson,
@@ -44,8 +46,46 @@ public class LinuxFirstRunLaunchTests
         await ctx.Vm.InitializeAsync();
 
         var saved = await File.ReadAllTextAsync(ctx.ConfigPath);
-        Assert.Equal(2, Regex.Matches(saved, "wine \\{exe\\}").Count);
+        Assert.Equal(2, Regex.Matches(saved, "umu-run \\{exe\\}").Count);
+        Assert.Contains("GAMEID", saved, StringComparison.Ordinal);
+        Assert.Contains("WINEPREFIX", saved, StringComparison.Ordinal);
         Assert.DoesNotContain("STEAM_COMPAT", saved, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FirstRun_Linux_WithUmuInstalled_UsesUmuTemplate()
+    {
+        using var ctx = VmFactory.Build(
+            configJson: null,
+            templateFactory: () => VmFactory.SampleConfigJson,
+            platformInfo: new FakePlatformInfo(isLinux: true, nvidiaGpuPresent: true),
+            linuxProtonVersions: ["GE-Proton10-9"],
+            linuxUmuPath: "/home/u/.local/bin/umu-run");
+
+        await ctx.Vm.InitializeAsync();
+
+        var saved = await File.ReadAllTextAsync(ctx.ConfigPath);
+        Assert.Equal(2, Regex.Matches(saved, "/home/u/\\.local/bin/umu-run \\{exe\\}").Count);
+        // umu 模式不写 STEAM_COMPAT_*（由 umu 自行管理容器）
+        Assert.DoesNotContain("STEAM_COMPAT", saved, StringComparison.Ordinal);
+        Assert.Contains("PROTON_ENABLE_NVAPI", saved, StringComparison.Ordinal); // NVIDIA 分支仍然生效
+    }
+
+    [Fact]
+    public async Task FirstRun_Linux_WithoutUmuAndProton_ButWithWine_UsesWine()
+    {
+        using var ctx = VmFactory.Build(
+            configJson: null,
+            templateFactory: () => VmFactory.SampleConfigJson,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            linuxProtonVersions: [],
+            linuxWinePath: "/usr/bin/wine");
+
+        await ctx.Vm.InitializeAsync();
+
+        var saved = await File.ReadAllTextAsync(ctx.ConfigPath);
+        Assert.Equal(2, Regex.Matches(saved, "/usr/bin/wine \\{exe\\}").Count);
+        Assert.Contains("WINEPREFIX", saved, StringComparison.Ordinal);
     }
 
     [Fact]

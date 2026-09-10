@@ -72,20 +72,22 @@ public class CompatToolsTests : IDisposable
     {
         Directory.CreateDirectory(_home.FilePath(".steam/steam/compatibilitytools.d/dw-proton"));
 
-        var (command, env) = CompatTools.BuildProtonLaunch("dw-proton", _home.Path);
+        var launch = CompatTools.BuildProtonLaunch("wuthering-waves", "dw-proton", _home.Path);
 
-        Assert.Contains("dw-proton", command);
-        Assert.Contains("proton\" run {exe}", command);
-        Assert.Equal("{installDir}/compatdata", env["STEAM_COMPAT_DATA_PATH"]);
+        Assert.Contains("dw-proton", launch.CommandTemplate);
+        Assert.Contains("proton\" run {exe}", launch.CommandTemplate);
+        Assert.Equal(
+            _home.FilePath(".local/share/yagl/prefixes/wuthering-waves"),
+            launch.Environment["STEAM_COMPAT_DATA_PATH"]);
     }
 
     [Fact]
     public void BuildProtonLaunch_MissingVersion_FallsBackToExpectedPath()
     {
-        var (command, env) = CompatTools.BuildProtonLaunch("dw-proton", _home.Path);
+        var launch = CompatTools.BuildProtonLaunch("wuthering-waves", "dw-proton", _home.Path);
 
-        Assert.Contains(".steam", command);
-        Assert.True(env.ContainsKey("STEAM_COMPAT_CLIENT_INSTALL_PATH"));
+        Assert.Contains(".steam", launch.CommandTemplate);
+        Assert.True(launch.Environment.ContainsKey("STEAM_COMPAT_CLIENT_INSTALL_PATH"));
     }
 }
 
