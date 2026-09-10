@@ -160,4 +160,57 @@ public class GameInstallServiceTests : IDisposable
         Assert.False(File.Exists(_tempDir.FilePath("stray-old.log")));
         Assert.True(File.Exists(_tempDir.FilePath("a.txt")));
     }
+
+    [Fact]
+    public async Task SyncAsync_NeverDeletesWinePrefixCompatdata()
+    {
+        // 旧版推荐配置把 Proton prefix 放在 {installDir}/compatdata：它不在清单内，
+        // 但清理绝不能碰（里面有注册表/着色器缓存/用户数据，删了等于毁掉游戏环境）
+        var a = "content-a"u8.ToArray();
+        _downloader.Responses[Url("a.txt")] = a;
+        var prefixFile = _tempDir.FilePath("compatdata", "pfx", "drive_c", "users", "steamuser");
+        Directory.CreateDirectory(prefixFile);
+        await File.WriteAllTextAsync(Path.Combine(prefixFile, "user.reg"), "[REG]");
+
+        var service = new GameInstallService(_downloader);
+        await service.SyncAsync(_tempDir.Path, Manifest(FileEntry("a.txt", a)));
+
+        Assert.True(File.Exists(Path.Combine(prefixFile, "user.reg")));
+    }
+
+    [Fact]
+    public async Task SyncAsync_SingleDeletionFailure_DoesNotAbortSync()
+    {
+        // Linux：把含游离文件的目录改为不可写，单个删除失败只跳过该文件，不中断整轮同步
+        var a = "content-a"u8.ToArray();
+        _downloader.Responses[Url("a.txt")] = a;
+        var lockedDir = _tempDir.FilePath("locked-stale");
+        Directory.CreateDirectory(lockedDir);
+        await File.WriteAllTextAsync(Path.Combine(lockedDir, "stray.bin"), "x");
+        await File.WriteAllTextAsync(_tempDir.FilePath("plain-stray.log"), "y");
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(lockedDir, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        }
+
+        try
+        {
+            var service = new GameInstallService(_downloader);
+            await service.SyncAsync(_tempDir.Path, Manifest(FileEntry("a.txt", a)));
+
+            Assert.True(File.Exists(_tempDir.FilePath("a.txt")));
+            Assert.False(File.Exists(_tempDir.FilePath("plain-stray.log"))); // 其它游离文件照常清理
+            if (OperatingSystem.IsWindows())
+            {
+                Assert.False(File.Exists(Path.Combine(lockedDir, "stray.bin")));
+            }
+        }
+        finally
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                File.SetUnixFileMode(lockedDir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+        }
+    }
 }

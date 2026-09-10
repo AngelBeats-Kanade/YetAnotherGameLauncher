@@ -22,8 +22,13 @@ public sealed class GameInstallService(
 {
     private readonly GameInstallServiceOptions _options = options ?? new();
 
-    /// <summary>不在清单内也要保留的顶层目录与文件（存档、启动器自身数据、官方启动器兼容文件）。</summary>
-    private static readonly IReadOnlyList<string> PreservedEntries = [".yagl", "Saved", "launcherDownloadConfig.json"];
+    /// <summary>不在清单内也要保留的顶层目录与文件（存档、启动器自身数据、官方启动器兼容文件、Wine prefix）。</summary>
+    /// <remarks>
+    /// compatdata：旧版推荐配置曾把 Proton prefix 放在安装目录下（prefix 内是注册表/着色器缓存/用户数据，
+    /// 被清掉等于毁掉游戏环境）。新配置已把 prefix 统一迁到应用数据目录，此处保留是纵深防御。
+    /// </remarks>
+    private static readonly IReadOnlyList<string> PreservedEntries =
+        [".yagl", "Saved", "launcherDownloadConfig.json", "compatdata"];
 
     /// <summary>
     /// 对照清单把安装目录补齐到目标版本：快速校验 → 只并行下载缺失/损坏文件 → 全量 MD5 校验
@@ -146,7 +151,7 @@ public sealed class GameInstallService(
     }
 
     /// <summary>删除清单之外的游离文件（跳过存档与启动器数据目录）。</summary>
-    private static void CleanupStaleFiles(string installDir, GameManifest manifest)
+    private void CleanupStaleFiles(string installDir, GameManifest manifest)
     {
         if (!Directory.Exists(installDir))
         {
@@ -178,7 +183,16 @@ public sealed class GameInstallService(
 
             if (!manifestSet.Contains(relative))
             {
-                File.Delete(path);
+                // 单文件删除失败（只读挂载/权限异常）只跳过该文件并记日志，
+                // 不让一个坏文件中断整轮同步
+                try
+                {
+                    File.Delete(path);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    logger?.LogWarning(ex, "清理游离文件失败（跳过）：{Path}", path);
+                }
             }
         }
     }
