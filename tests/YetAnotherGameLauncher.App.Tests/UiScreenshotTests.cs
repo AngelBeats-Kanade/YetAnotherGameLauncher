@@ -196,6 +196,69 @@ public class UiScreenshotTests
         }, CancellationToken.None);
     }
 
+    /// <summary>
+    /// 启动失败覆盖层 + 启动设置卡 umu 引导提示的视觉自检（Linux 平台语义，
+    /// VmFactory 注入的启动服务已禁用 PATH 扫描 → umu-run 预检必然失败）。
+    /// </summary>
+    [Fact]
+    public async Task Export_LaunchErrorOverlay_ForReview()
+    {
+        var outDir = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "..", "artifacts", "ui-review"));
+        Directory.CreateDirectory(outDir);
+
+        using var ctx = VmFactory.Build(
+            configJson: null,
+            templateFactory: () => VmFactory.SampleConfigJson,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            linuxProtonVersions: []);
+        ctx.Gryphline.VersionInfo = new ChannelVersionInfo { LatestVersion = "1.2.0" };
+
+        await HeadlessSession.Instance.Dispatch(async () =>
+        {
+            await ctx.Vm.InitializeAsync();
+            var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
+            window.NavIndicatorAnimationEnabled = false;
+            window.Show();
+            window.UpdateLayout();
+
+            void Capture(string name)
+            {
+                Thread.Sleep(150);
+                Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+                var frame = window.CaptureRenderedFrame();
+                Assert.NotNull(frame);
+                frame.Save(Path.Combine(outDir, name), new PngBitmapEncoderOptions());
+            }
+
+            var wuwa = ctx.Vm.Games[0];
+            var exePath = Path.Combine(
+                wuwa.InstallDirPath, "Client", "Binaries", "Win64", "Client-Win64-Shipping.exe");
+            Directory.CreateDirectory(Path.GetDirectoryName(exePath)!);
+            await File.WriteAllBytesAsync(exePath, "MZ"u8.ToArray());
+            await wuwa.RefreshAsync();
+
+            // 主程序就位 + umu 模板 + umu 未装 → 启动预检失败 → 错误覆盖层（含一键安装按钮）
+            await wuwa.LaunchCommand.ExecuteAsync(null);
+            Assert.True(wuwa.HasLaunchError, $"launchError=null, status={wuwa.StatusText}");
+            window.UpdateLayout();
+            Capture("10-launch-error-overlay-dark.png");
+
+            // 启动设置页：umu 模式 + 未安装 → 引导安装提示行（滚动到启动卡完整可见）
+            ctx.Vm.ShowGameSettingsCommand.Execute(null);
+            window.UpdateLayout();
+            var launchCard = window.GetVisualDescendants()
+                .OfType<Border>()
+                .FirstOrDefault(b => b.Name == "LaunchCard");
+            launchCard?.BringIntoView();
+            window.UpdateLayout();
+            Capture("11-launch-settings-umu-hint-dark.png");
+
+            window.Close();
+            return 0;
+        }, CancellationToken.None);
+    }
+
     /// <summary>画一张蓝色系渐变测试图，供详情页背景（模糊）截图使用。</summary>
     private static void CreateTestBackground(string path)
     {

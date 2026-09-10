@@ -636,8 +636,9 @@
                                                             VerticalAlignment="Center"/>
                                                 </StackPanel>
                                             </Border>
-                                            <!-- 状态胶囊：点 + 状态文案 + 预下载徽章 + 版本贴片 -->
-                                            <Border HorizontalAlignment="Center"
+                                            <!-- 状态胶囊：点 + 状态文案 + 预下载徽章 + 版本贴片。
+                                                 MaxWidth + 换行：失败类长文案（启动预检的可操作提示）不设防会横穿窗口被裁 -->
+                                            <Border HorizontalAlignment="Center" MaxWidth="640"
                                                     Background="{DynamicResource AppOnArtworkCard}"
                                                     CornerRadius="12" Padding="16,9">
                                                 <StackPanel Orientation="Horizontal" Spacing="10">
@@ -646,6 +647,7 @@
                                                              Classes.has-update="{Binding HasUpdate}"
                                                              Classes.predownload="{Binding ShowPredownloadCue}"/>
                                                     <TextBlock Text="{Binding StatusText}" FontSize="15" FontWeight="SemiBold"
+                                                               MaxWidth="430" TextWrapping="Wrap"
                                                                VerticalAlignment="Center"
                                                                Foreground="{DynamicResource AppOnArtworkBrush}"/>
                                                     <Border Padding="10,3" CornerRadius="7" VerticalAlignment="Center"
@@ -668,8 +670,10 @@
                                              右列按钮按"图标 → 次级 → 主 CTA 最右"排布——原按钮行/进度卡/页脚三行合并于此 -->
                                         <Border Grid.Row="2" Classes="action-dock" Margin="0,16,0,2">
                                             <Grid ColumnDefinitions="*,Auto">
+                                                <!-- ClipToBounds：英文等宽文案下信息列被按钮列挤压时，溢出绘制会叠到按钮上（judge 07 号截图实锤） -->
                                                 <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="4"
-                                                            IsVisible="{Binding !IsBusy}" Margin="0,0,24,0">
+                                                            IsVisible="{Binding !IsBusy}" Margin="0,0,24,0"
+                                                            ClipToBounds="True">
                                                     <!-- 路径行用 DockPanel 约束宽度：横向 StackPanel 给子元素无限宽，截断永不生效 -->
                                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                                         <TextBlock Text="{Binding Loc[game_info_channel]}" DockPanel.Dock="Left"
@@ -778,7 +782,7 @@
                                                            TextWrapping="Wrap"
                                                            Foreground="{DynamicResource AppTextSecondary}"
                                                            IsVisible="{Binding LaunchError.HasExtraStatus}"/>
-                                                <Button Classes="launch-error-primary"
+                                                <Button Classes="launch-error-secondary"
                                                         Command="{Binding LaunchError.InstallUmuCommand}"
                                                         IsVisible="{Binding LaunchError.CanInstallUmu}"
                                                         HorizontalAlignment="Left"
@@ -786,7 +790,8 @@
                                                     <TextBlock Text="{Binding Loc[launch_error_install_umu]}"/>
                                                 </Button>
                                                 <Expander IsVisible="{Binding LaunchError.HasDetail}"
-                                                          IsExpanded="{Binding LaunchError.DetailsExpanded, Mode=TwoWay}">
+                                                          IsExpanded="{Binding LaunchError.DetailsExpanded, Mode=TwoWay}"
+                                                          Background="Transparent">
                                                     <Expander.Header>
                                                         <TextBlock Text="{Binding Loc[launch_error_details]}" FontSize="12.5"
                                                                    Foreground="{DynamicResource AppTextSecondary}"/>
@@ -908,6 +913,8 @@
                                                     </StackPanel>
 
                                                     <ToggleSwitch Content="{Binding Loc[settings_autostart]}"
+                                                                  OnContent="{Binding Loc[settings_autostart_on]}"
+                                                                  OffContent="{Binding Loc[settings_autostart_off]}"
                                                                   IsChecked="{Binding IsAutostart, Mode=OneWay}"
                                                                   Command="{Binding ToggleAutostartCommand}" Margin="0,6,0,0"/>
                                                     <TextBlock Classes="save-msg"
@@ -1183,7 +1190,7 @@
                                             </Border>
 
                                             <!-- 启动 -->
-                                            <Border Classes="card">
+                                            <Border Classes="card" x:Name="LaunchCard">
                                                 <StackPanel Spacing="12">
                                                     <TextBlock Text="{Binding Loc[settings_section_launch]}" FontSize="15" FontWeight="SemiBold"/>
 

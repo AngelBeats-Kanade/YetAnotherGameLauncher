@@ -90,28 +90,17 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         }
     }
 
-    /// <summary>从命令模板推断当前启动方式（启发式：含 proton/umu/wine 关键词；{exe} 原样视为直接运行）。</summary>
-    private static LaunchModeOption DetectLaunchMode(string commandTemplate)
+    /// <summary>从命令模板推断当前启动方式（启发式：含 proton/umu/wine 关键词；{exe} 原样视为直接运行）。
+    /// 返回 LaunchModes 集合内的实例——ComboBox 的 SelectedItem 按引用匹配，游离实例会显示为空白。</summary>
+    private LaunchModeOption DetectLaunchMode(string commandTemplate)
     {
         var t = commandTemplate.Trim();
-        if (t.Contains("proton", StringComparison.OrdinalIgnoreCase))
-        {
-            return new LaunchModeOption(LaunchMode.Proton, "launch_mode_proton");
-        }
-
-        if (t.Contains("umu-run", StringComparison.OrdinalIgnoreCase))
-        {
-            return new LaunchModeOption(LaunchMode.Umu, "launch_mode_umu");
-        }
-
-        if (t.Contains("wine", StringComparison.OrdinalIgnoreCase))
-        {
-            return new LaunchModeOption(LaunchMode.Wine, "launch_mode_wine");
-        }
-
-        return t == "{exe}"
-            ? new LaunchModeOption(LaunchMode.Direct, "launch_mode_direct")
-            : new LaunchModeOption(LaunchMode.Custom, "launch_mode_custom");
+        var mode = t.Contains("proton", StringComparison.OrdinalIgnoreCase) ? LaunchMode.Proton
+            : t.Contains("umu-run", StringComparison.OrdinalIgnoreCase) ? LaunchMode.Umu
+            : t.Contains("wine", StringComparison.OrdinalIgnoreCase) ? LaunchMode.Wine
+            : t == "{exe}" ? LaunchMode.Direct
+            : LaunchMode.Custom;
+        return LaunchModes.First(m => m.Mode == mode);
     }
 
     /// <summary>安装目录草稿（绝对路径；与启动参数共用同一保存按钮）。</summary>

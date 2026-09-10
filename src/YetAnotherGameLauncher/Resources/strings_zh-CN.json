@@ -122,6 +122,8 @@
   "status_launchFailed": "启动失败：{0}",
   "status_launchNotReady": "尚未检测到游戏主程序：先完成安装，或在「游戏设置 → 启动参数」中检查路径。",
   "status_launched": "游戏已启动",
+  "settings_autostart_on": "开",
+  "settings_autostart_off": "关",
   "status_localVersion": "本地版本 {0}",
   "status_noConnection": "无法连接服务器，版本信息不可用",
   "status_notInstalled": "尚未安装",

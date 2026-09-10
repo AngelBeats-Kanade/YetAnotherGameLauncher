@@ -122,6 +122,8 @@
   "status_launchFailed": "Launch failed: {0}",
   "status_launchNotReady": "Game executable not found: install first, or check the path under Game Settings → Launch.",
   "status_launched": "Game launched",
+  "settings_autostart_on": "On",
+  "settings_autostart_off": "Off",
   "status_localVersion": "Local version {0}",
   "status_noConnection": "Cannot reach the server, version info unavailable",
   "status_notInstalled": "Not installed",
