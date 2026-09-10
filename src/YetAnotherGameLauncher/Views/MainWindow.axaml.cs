@@ -137,6 +137,27 @@ public partial class MainWindow : Window
         Opened += (_, _) => QueueIndicatorMove(); // 首次上屏后按当前选中项直接落位
         PropertyChanged += OnWindowPropertyChanged; // 窗口状态 → 圆角/卡片边距与标题栏图标
         SizeChanged += OnWindowSizeChanged; // 窗口宽度 → 侧栏阈值自适应收放
+        Closing += OnWindowClosing; // 关闭时持久化尺寸/最大化状态
+    }
+
+    /// <summary>DataContext 就绪：注入持久化窗口状态的应用回调（目录加载完成时由 VM 调用）。</summary>
+    private void ApplyPersistedWindowState(double width, double height, bool maximized)
+    {
+        Width = Math.Max(MinWidth, width);
+        Height = Math.Max(MinHeight, height);
+        if (maximized)
+        {
+            WindowState = WindowState.Maximized;
+        }
+    }
+
+    /// <summary>关闭时持久化窗口状态（先于窗口销毁读取 Width/Height）。</summary>
+    private void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (DataContext is MainWindowViewModel viewModel)
+        {
+            viewModel.PersistWindowState(Width, Height, WindowState == WindowState.Maximized);
+        }
     }
 
     /// <summary>窗口状态变化：最大化时去圆角与卡片边距，并切换最大化/还原图标。</summary>
@@ -218,6 +239,7 @@ public partial class MainWindow : Window
         if (DataContext is MainWindowViewModel vm)
         {
             vm.PropertyChanged += OnViewModelPropertyChanged;
+            vm.WindowStateApplier = ApplyPersistedWindowState; // 目录加载完成后应用持久化窗口状态
             _hookedVm = vm;
             QueueIndicatorMove();
         }

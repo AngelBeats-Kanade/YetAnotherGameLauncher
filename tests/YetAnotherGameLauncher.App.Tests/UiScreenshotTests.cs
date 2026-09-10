@@ -175,6 +175,13 @@ public class UiScreenshotTests
             window.UpdateLayout();
             Capture("08-game-detail-installed-dark.png");
 
+            // 暗色 · 最大化状态（圆角/卡片边距移除 + 标题栏还原图标）
+            window.WindowState = WindowState.Maximized;
+            window.UpdateLayout();
+            Capture("13-game-detail-maximized-dark.png");
+            window.WindowState = WindowState.Normal;
+            window.UpdateLayout();
+
             // 暗色 · 终末地校验修复确认条（包式渠道：重下整包前需确认）
             var efZip = TestZip.Create(("bin/ef.exe", "MZ"));
             ctx.Gryphline.Manifests["1.2.0"] = new GameManifest

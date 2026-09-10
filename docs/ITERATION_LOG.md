@@ -48,13 +48,23 @@
 2. 窗口尺寸/最大化状态不持久化：每次启动回默认 1464×720，不像 Lutris 级应用的完成度。
 
 ### 改动
-- 真机实证：检查进程打开的 `/dev/dri/*` 设备句柄（EGL 活跃证据）+ 渲染管线日志。
-- `AppSettings` 新增 `windowWidth/windowHeight/windowMaximized`（可选字段，向后兼容），
-  主窗口 Opened 应用 / Closing 保存。
-- Hyprland 真机最大化/还原视觉检查。
+- **GPU 实证**（真机 Hyprland）：`nvidia-smi` 进程表出现 `YetAnotherGameLauncher`（Graphics 类型），
+  进程持有 25 个 dri/nvidia 设备句柄 → **EGL 硬件加速确凿活跃**，非软件回退。
+  另发现并清理了此前验证残留的 19 个应用实例（`pkill -f` 匹配不到 `./YetAnotherGameLauncher`
+  短 cmdline，改用 `pgrep -x YetAnotherGameL`（comm 截断名）+ 显式 kill 循环——教训入 AGENTS.md）。
+- **窗口状态持久化**：`AppSettings` 新增 `WindowWidth/WindowHeight/WindowMaximized`（可选，向后兼容）；
+  `MainWindowViewModel` 加载目录后经 `WindowStateApplier` 回调应用（窗口先于目录上屏，只能后补），
+  `PersistWindowState` 在 Closing 同步落盘（SaveAsync 全程 ConfigureAwait(false)，无死锁风险）；
+  宽度下限钳制 MinWidth。单测覆盖"写入→重载原样回来"与"首运无持久化"两向。
+- headless 最大化截图 `13-game-detail-maximized-dark.png`（全出血、无圆角、琥珀预下载态正常）。
 
 ### 验证
-- 同第 4 轮闭环流程。
+- 4 套件全绿（418 tests）；build 零警告；format 干净。
+- 真机单实例运行，GPU 加速实证如上；最大化/还原视觉以 headless 截图记录。
+- 合成器侧（用户 Lua dispatcher）无法注入关闭/最大化事件，持久化的真实关闭路径
+  以单测覆盖为准（round-trip），真机行为待用户明早首碰验证。
+
+### 结果：✅ 通过（提交见 git log "round 5"）
 
 ---
 

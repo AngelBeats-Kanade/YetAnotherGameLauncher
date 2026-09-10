@@ -32,6 +32,15 @@ public sealed class AppSettings
 
     /// <summary>配置结构版本：升级启动器时据此做一次性迁移（如补全新增的官方服务器）。</summary>
     public int SchemaVersion { get; set; }
+
+    /// <summary>上次关闭时的窗口宽度（DIP）；空 = 使用 XAML 默认尺寸。窗口关闭时自动写入，设置页不展示。</summary>
+    public int? WindowWidth { get; set; }
+
+    /// <summary>上次关闭时的窗口高度（DIP）；空 = 使用 XAML 默认尺寸。</summary>
+    public int? WindowHeight { get; set; }
+
+    /// <summary>上次关闭时窗口是否处于最大化状态。</summary>
+    public bool WindowMaximized { get; set; }
 }
 
 /// <summary>出站网络代理模式。</summary>

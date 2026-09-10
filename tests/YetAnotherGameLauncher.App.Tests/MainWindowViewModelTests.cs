@@ -19,6 +19,43 @@ public class MainWindowViewModelTests : IDisposable
     public void Dispose() => _ctx.TempDir.Dispose();
 
     [Fact]
+    public async Task PersistWindowState_WritesSettingsAndSurvivesReload()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        // 模拟窗口 Closing：尺寸 + 最大化状态写回配置
+        _ctx.Vm.PersistWindowState(1234, 567, maximized: true);
+
+        Assert.True(_ctx.Vm.PersistedWindowMaximized);
+        // 重新加载同一份配置：持久化值必须原样回来（跨启动保持）
+        var second = VmFactory.Build(configJson: await File.ReadAllTextAsync(_ctx.ConfigPath));
+        try
+        {
+            await second.Vm.InitializeAsync();
+            Assert.Equal(1234, second.Vm.PersistedWindowWidth);
+            Assert.Equal(567, second.Vm.PersistedWindowHeight);
+            Assert.True(second.Vm.PersistedWindowMaximized);
+        }
+        finally
+        {
+            second.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task PersistWindowState_FreshConfig_NoPersistedSize()
+    {
+        // 未持久化过（首运）：宽高为 null → 窗口用 XAML 默认尺寸
+        using var ctx = VmFactory.Build(configJson: null);
+
+        await ctx.Vm.InitializeAsync();
+
+        Assert.Null(ctx.Vm.PersistedWindowWidth);
+        Assert.Null(ctx.Vm.PersistedWindowHeight);
+        Assert.False(ctx.Vm.PersistedWindowMaximized);
+    }
+
+    [Fact]
     public async Task Initialize_LoadsTwoGamesAndSelectsFirst()
     {
         await _ctx.Vm.InitializeAsync();

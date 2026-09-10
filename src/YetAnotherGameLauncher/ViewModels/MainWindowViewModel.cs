@@ -50,6 +50,21 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>umu-launcher 引导安装器（null = 测试场景）。</summary>
     private readonly UmuLauncherInstaller? _umuInstaller;
 
+    /// <summary>持久化窗口状态（InitializeAsync 加载目录后可读；null = 未持久化过，窗口用 XAML 默认尺寸）。</summary>
+    public int? PersistedWindowWidth => _catalogService.Catalog?.Settings.WindowWidth;
+
+    /// <summary>持久化的窗口高度。</summary>
+    public int? PersistedWindowHeight => _catalogService.Catalog?.Settings.WindowHeight;
+
+    /// <summary>持久化的"关闭时是否最大化"。</summary>
+    public bool PersistedWindowMaximized => _catalogService.Catalog?.Settings.WindowMaximized ?? false;
+
+    /// <summary>
+    /// 由 MainWindow 注入的"应用持久化窗口状态"回调（Width/Height/Maximized）：
+    /// 目录加载完成后调用一次。窗口比目录先上屏（InitializeAsync 异步），无法在 XAML 阶段应用。
+    /// </summary>
+    public Action<double, double, bool>? WindowStateApplier { get; set; }
+
     public MainWindowViewModel(
         GameCatalogService catalogService,
         GameUpdateService updateService,
@@ -483,6 +498,36 @@ public partial class MainWindowViewModel : ViewModelBase
         NavigateTo(SelectedGame);
         OnPropertyChanged(nameof(GameCountText));
         OnPropertyChanged(nameof(InstallRoot));
+
+        // 目录就绪后应用持久化的窗口状态（窗口先于目录上屏，只能在此时补应用）
+        if (PersistedWindowWidth is { } width && PersistedWindowHeight is { } height)
+        {
+            WindowStateApplier?.Invoke(width, height, PersistedWindowMaximized);
+        }
+    }
+
+    /// <summary>
+    /// 窗口关闭时把当前尺寸/最大化状态写回配置（Closing 是同步事件，JSON 很小，
+    /// 同步等待落盘保证进程退出前写完）。目录未加载（配置损坏）时静默跳过。
+    /// </summary>
+    public void PersistWindowState(double width, double height, bool maximized)
+    {
+        if (_catalogService.Catalog is not { } catalog)
+        {
+            return;
+        }
+
+        catalog.Settings.WindowWidth = (int)Math.Round(width);
+        catalog.Settings.WindowHeight = (int)Math.Round(height);
+        catalog.Settings.WindowMaximized = maximized;
+        try
+        {
+            _catalogService.SaveAsync().GetAwaiter().GetResult();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            // 退出路径：写失败不影响关闭（下次启动沿用旧值）
+        }
     }
 
     /// <summary>按当前配置重建游戏列表（installRoot 变更后调用），返回未知渠道提示列表。</summary>
