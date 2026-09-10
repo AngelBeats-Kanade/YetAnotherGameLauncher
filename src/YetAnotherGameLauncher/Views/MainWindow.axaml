@@ -15,7 +15,7 @@
         WindowDecorations="BorderOnly"
         TransparencyLevelHint="Transparent"
         Background="Transparent"
-        FontFamily="Microsoft YaHei UI, Noto Sans CJK SC, Segoe UI, Inter">
+        FontFamily="Microsoft YaHei UI, PingFang SC, Noto Sans CJK SC, Source Han Sans CN, Source Han Sans SC, WenQuanYi Zen Hei, Segoe UI, Inter">
 
     <Window.Resources>
         <!-- 齿轮图标（侧栏设置入口与详情页游戏设置入口共用） -->

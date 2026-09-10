@@ -120,6 +120,15 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        if (OperatingSystem.IsLinux())
+        {
+            // X11/XWayland 下合成器（Hyprland 等）会无视 BorderOnly 仍画 SSD 标题条，
+            // 与应用自绘 chrome 形成双标题——Linux 显式去装饰（必须在 InitializeComponent 之后：
+            // XAML 的 WindowDecorations 属性会在初始化时覆盖构造函数先写入的值）。
+            // Windows 保持 BorderOnly（DWM 边框+阴影）。
+            WindowDecorations = Avalonia.Controls.WindowDecorations.None;
+        }
         GamesList.SelectionChanged += (_, _) => QueueIndicatorMove();
         GamesList.TemplateApplied += OnGamesListTemplateApplied;
         // 每次布局后校正落位：首次上屏时 Opened 触发点早于最终布局，几何需要收敛
