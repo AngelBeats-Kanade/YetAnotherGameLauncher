@@ -22,9 +22,10 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     private readonly IReadOnlyList<string> _protonVersions;
 
     /// <summary>已发现的运行时路径与数据目录（null = 未发现/未注入；测试显式传值保证确定性）。</summary>
-    private readonly string? _umuRunPath;
+    private string? _umuRunPath;
     private readonly string? _winePath;
     private readonly string _dataHome;
+    private readonly UmuLauncherInstaller? _umuInstaller;
 
     public LaunchSettingsViewModel(
         GameDefinition game,
@@ -37,7 +38,8 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         IReadOnlyList<string>? protonVersions = null,
         string? umuRunPath = null,
         string? winePath = null,
-        string? dataHome = null)
+        string? dataHome = null,
+        UmuLauncherInstaller? umuInstaller = null)
     {
         _game = game;
         _owner = owner;
@@ -58,6 +60,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             ? (IsLinux ? CompatTools.FindSystemWine() : null)
             : (winePath.Length == 0 ? null : winePath);
         _dataHome = dataHome ?? AppPaths.DataDirectory;
+        _umuInstaller = umuInstaller;
         _commandTemplate = game.Launch.CommandTemplate;
         _workingDirectory = game.Launch.WorkingDirectory;
         _environmentText = SerializeEnvironment(game.Launch.Environment);
@@ -143,6 +146,53 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     /// <summary>umu-run 是否已发现（未发现时提示可一键引导安装）。</summary>
     public bool IsUmuAvailable => _umuRunPath is not null;
 
+    /// <summary>是否显示 umu 未安装提示（选中 umu 模式且未装）。</summary>
+    public bool IsUmuHintVisible => IsUmuMode && !IsUmuAvailable;
+
+    /// <summary>umu 引导安装进行中。</summary>
+    [ObservableProperty]
+    private bool _isInstallingUmu;
+
+    /// <summary>一键安装 umu-launcher；成功后刷新发现结果并按当前模式重新生成草稿。</summary>
+    [RelayCommand]
+    private async Task InstallUmuAsync(CancellationToken cancellationToken)
+    {
+        if (_umuInstaller is null || IsInstallingUmu)
+        {
+            return;
+        }
+
+        IsInstallingUmu = true;
+        try
+        {
+            var installDir = Path.Combine(AppPaths.DataDirectory, "umu");
+            var installed = await _umuInstaller
+                .InstallLatestAsync(installDir, cancellationToken: cancellationToken).ConfigureAwait(true);
+            _umuRunPath = installed; // 装完就地生效：提示消失，模板按 umu 重新生成
+            Save.Clear();
+            Save.SetSuccess(_loc["launch_error_umu_done"]);
+            OnPropertyChanged(nameof(IsUmuAvailable));
+            OnPropertyChanged(nameof(IsUmuHintVisible));
+            if (SelectedLaunchMode?.Mode == LaunchMode.Umu)
+            {
+                ApplyGenerated(Flatten(CompatTools.BuildUmuLaunch(
+                    _game.Id, _umuRunPath, home: null, dataHome: _dataHome)));
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 用户取消：安静收场
+        }
+        catch (Exception ex)
+        {
+            Save.SetFailure(ex.Message);
+        }
+        finally
+        {
+            IsInstallingUmu = false;
+        }
+    }
+
     public IReadOnlyList<string> ProtonVersions => _protonVersions;
 
     [ObservableProperty]
@@ -164,6 +214,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsProtonMode));
         OnPropertyChanged(nameof(IsUmuMode));
         OnPropertyChanged(nameof(IsUmuAvailable));
+        OnPropertyChanged(nameof(IsUmuHintVisible));
         if (value is null)
         {
             return;

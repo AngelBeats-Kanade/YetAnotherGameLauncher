@@ -53,6 +53,8 @@
   "launch_error_install_umu": "一键安装 umu-launcher",
   "launch_error_installing_umu": "正在下载安装 umu-launcher…",
   "launch_error_umu_done": "umu-launcher 安装完成，再次点击「启动」即可。",
+  "launch_umuNotInstalled": "未检测到 umu-launcher（社区最稳的 Windows 游戏运行方式，自动管理 Steam Runtime）",
+  "launch_umuInstall": "一键安装",
   "launch_mode_custom": "自定义",
   "launch_mode_direct": "直接运行（官方默认）",
   "launch_mode_umu": "umu-launcher（推荐）",

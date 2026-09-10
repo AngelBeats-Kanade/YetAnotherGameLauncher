@@ -53,6 +53,8 @@
   "launch_error_install_umu": "Install umu-launcher",
   "launch_error_installing_umu": "Downloading umu-launcher…",
   "launch_error_umu_done": "umu-launcher installed. Press Launch again.",
+  "launch_umuNotInstalled": "umu-launcher not found (the most reliable way to run Windows games on Linux; manages the Steam Runtime for you)",
+  "launch_umuInstall": "Install",
   "launch_mode_custom": "Custom",
   "launch_mode_direct": "Direct (official default)",
   "launch_mode_umu": "umu-launcher (recommended)",

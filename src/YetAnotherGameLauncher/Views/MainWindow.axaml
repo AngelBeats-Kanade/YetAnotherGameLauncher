@@ -1205,6 +1205,17 @@
                                                                       IsVisible="{Binding LaunchSettings.IsProtonMode}">
                                                             </ComboBox>
                                                         </StackPanel>
+                                                        <!-- umu 未安装引导：说明 + 一键安装（安装后提示消失并按 umu 重新生成模板） -->
+                                                        <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,2,0,0"
+                                                                    IsVisible="{Binding LaunchSettings.IsUmuHintVisible}">
+                                                            <TextBlock Text="{Binding Loc[launch_umuNotInstalled]}"
+                                                                       Classes="card-caption" VerticalAlignment="Center"
+                                                                       TextWrapping="Wrap" MaxWidth="380"/>
+                                                            <Button Classes="btn-sm" Content="{Binding Loc[launch_umuInstall]}"
+                                                                    Command="{Binding LaunchSettings.InstallUmuCommand}"
+                                                                    IsEnabled="{Binding !LaunchSettings.IsInstallingUmu}"
+                                                                    VerticalAlignment="Center"/>
+                                                        </StackPanel>
                                                     </StackPanel>
                                                     <TextBlock Text="{Binding Loc[launch_windowsDefaultHint]}"
                                                                Classes="card-caption"
