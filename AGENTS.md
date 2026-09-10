@@ -41,8 +41,8 @@ dotnet format whitespace --verify-no-changes
 - **`Image` 的 `UniformToFill` 默认按控件对齐居中裁切**：需要保住某一边（如海报左缘完整贴侧栏）时，设 `HorizontalAlignment="Left"` + `VerticalAlignment="Top"`，让测量出的封面尺寸向右/下溢出，由外层 `ClipToBounds` 裁掉。
 - XAML 全部启用编译绑定：视图根必须有 `x:DataType`；绑定错误是编译错误，不要绕过。
 - headless 换页后模板在下轮布局构建：切页后需 `window.UpdateLayout()`；落位类排队任务用 `Dispatcher.UIThread.RunJobs()` 冲刷。
-- 视觉自检：`UiScreenshotTests.Export_UiScreenshots_ForReview` 导出 8 张截图到 `artifacts/ui-review/`（已 gitignore），改动 UI 后重跑并人工/judge 审查。
-- 主窗口结构速查：46px 标题色带（`TitleChrome`，与侧栏同色）+ 内容容器 `ContentCard`（透明底；详情页切 `detail` 类 = 全出血 + 左上圆角，设置类页保持 0,6,6,6 浮卡）；侧栏选中指示点几何/编舞集中在 `MainWindow.axaml.cs`（`DotHeight` 等常量与 `BuildTransferCues`）。
+- 视觉自检：`UiScreenshotTests.Export_UiScreenshots_ForReview` 导出 10 张截图到 `artifacts/ui-review/`（已 gitignore），改动 UI 后重跑并人工/judge 审查。
+- 主窗口结构速查：标题色带 `TitleChrome` 高 56（46 可见 + 10px 延伸到内容圆角后方，与侧栏同色）+ 页面容器 `ContentCard`（挂 `content-card` 样式：所有页面统一全出血 + 左上 10px 圆角，Margin 0,46,0,0；`detail` 类已不存在）；侧栏选中指示点几何/编舞集中在 `MainWindow.axaml.cs`（`DotHeight` 等常量与 `BuildTransferCues`）。
 
 ## 其他坑
 

@@ -10,26 +10,29 @@ description: Use before delivering or after changing any Avalonia UI — render 
 
 ## 1. 截图工具（本项目已内置）
 
-`tests/YetAnotherGameLauncher.App.Tests/UiScreenshotHarness.cs`：
-以 `UseHeadlessDrawing = false`（真实 Skia 渲染，含文字排版）启动独立 headless 会话，
-用 `window.CaptureRenderedFrame()` 抓帧并保存 PNG 到 `artifacts/ui-review/`。
+`tests/YetAnotherGameLauncher.App.Tests/UiScreenshotTests.cs`：
+复用 `TestAppBuilder`（`UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false }).UseSkia()`，
+真实 Skia 渲染 + 文字排版），在共享 headless 会话内用 `window.CaptureRenderedFrame()`
+抓帧并保存 PNG 到 `artifacts/ui-review/`。
 
 运行：
 
 ```bash
 dotnet test --project tests/YetAnotherGameLauncher.App.Tests \
-  --filter-fqn "YetAnotherGameLauncher.AppTests.UiScreenshotTests.Export_UiScreenshots_ForReview"
+  --filter-fqn "YetAnotherGameLauncher.UiTests.UiScreenshotTests.Export_UiScreenshots_ForReview"
 ```
 
-要点（改 Harness 前先读）：
+要点（改 UiScreenshotTests 前先读）：
 
-- 截图会话必须与测试会话隔离：`HeadlessUnitTestSession.StartNew(typeof(UiScreenshotHarness))`，
-  该类型自带 `BuildAvaloniaApp()`（`UseHeadlessDrawing = false`）。默认测试用的 headless drawing
-  抓不出真实像素。
+- 截图无需独立会话：整个测试程序集只有一个共享会话 `HeadlessSession.Instance.Dispatch`
+  （`TestAppBuilder.cs` 的 `GetOrStartForAssembly`），其唯一 builder 始终以
+  `UseHeadlessDrawing = false` + `UseSkia()` 构建，默认就能抓到真实 Skia 渲染像素。
 - `CaptureRenderedFrame()` 内部会触发渲染计时器 tick 并返回最后一帧（可能返回 null——先 `window.Show()`）。
-- 保存：`bitmap.Save(path)`（Avalonia `Bitmap.Save(string)`）。
+- 保存：`frame.Save(path, new PngBitmapEncoderOptions())`。
 - 数据必须真实：用 `VmFactory` 样例数据（两个游戏、假渠道状态：已安装/有更新/预下载可用都摆出来）。
-- 亮暗主题各截一套；多页面（游戏详情/设置）各截一张。窗口尺寸用真实尺寸（1120x720）。
+- 截图窗口固定 1120×720（`UiScreenshotTests` 内写死，与主窗口默认 1464×720 无关，保证构图稳定）。
+  共导出 10 张：01 游戏详情暗、02 亮、02b 游戏设置、03 第二游戏、04 侧栏收起、05 设置、
+  06 关于、07 英文、08 已安装态、09 校验修复确认条（亮暗主题与多页面/多状态覆盖都在这 10 张里）。
 
 ## 2. 看图检查清单（逐项过，亮暗各一遍）
 

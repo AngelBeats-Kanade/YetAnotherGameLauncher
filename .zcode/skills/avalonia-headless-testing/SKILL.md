@@ -39,12 +39,17 @@ xunit.v3 自动生成的入口点命名空间 = 程序集/文件的命名空间*
 ```csharp
 using Avalonia;
 using Avalonia.Headless;
-[assembly: AvaloniaTestApplication(typeof(TestAppBuilder))]   // 注意命名空间是 Avalonia.Headless
+using Avalonia.Skia;
+using YetAnotherGameLauncher;
+[assembly: AvaloniaTestApplication(typeof(YetAnotherGameLauncher.AppTests.TestAppBuilder))]   // 注意命名空间是 Avalonia.Headless
+
+namespace YetAnotherGameLauncher.AppTests;
 
 public static class TestAppBuilder
 {
     public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>()
-        .UseHeadless(new AvaloniaHeadlessPlatformOptions());
+        .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
+        .UseSkia(); // 真实 Skia 渲染 + 字体服务：支持截图自检
 }
 ```
 
@@ -71,8 +76,9 @@ public async Task Window_Shows_Items()
 }
 ```
 
-- 需要真实像素（截图/视觉审查）时另起会话：`HeadlessUnitTestSession.StartNew(typeof(Harness))`，
-  Harness 自带 `BuildAvaloniaApp()` 且 `UseHeadlessDrawing = false`（见 `avalonia-ui-review`）。
+- 需要真实像素（截图/视觉审查）时无需另起会话：上面就是全程序集唯一的共享 App builder，
+  始终以 `UseHeadlessDrawing = false` + `UseSkia()` 渲染，在共享会话里
+  `window.CaptureRenderedFrame()` 即可抓到真实像素（见 `avalonia-ui-review`）。
 
 ## 4. 线程与并发规则
 

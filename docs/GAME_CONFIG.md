@@ -7,8 +7,9 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 - Windows：`%APPDATA%\yagl\games.json`
 - 环境变量 `YAGL_CONFIG=/path/to/games.json` 可覆盖（测试/多实例）
 
-首次运行无配置时启动器会提示；最快的方式是复制 [`samples/games.json`](../samples/games.json)
-到上述位置（已含鸣潮三服与终末地国际服的官方端点）。
+首次运行无配置时启动器会自动生成默认配置（`GameCatalogService.CreateDefaultFileAsync`
+写入内嵌的 [`samples/games.json`](../samples/games.json) 模板），也可手动复制该样例到上述位置；
+鸣潮与终末地均已内置国际服/国服/B 服三服的官方端点。
 文件支持注释（`//`）与尾逗号；保存后重启启动器生效。
 
 ## 1. 顶层结构
@@ -26,10 +27,12 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 |---|---|---|---|
 | `installRoot` | string | 必填 | 安装根目录，支持 `~` 展开；游戏 `installDir` 相对它解析 |
 | `theme` | `"System" \| "Light" \| "Dark"` | `"System"` | 界面主题，System 跟随操作系统（也可在设置页切换） |
-| `maxParallelDownloads` | int | `8` | 文件级下载并发（1–64） |
-| `language` | string | `"system"` | 界面语言：`"system"` 跟随系统 / `"zh-CN"` / `"en-US"`（也可在设置页切换，即时生效） |
+| `downloadSpeedLimitBytes` | long | `0` | 下载限速（字节/秒）；`0` = 不限速 |
+| `language` | string | `"system"` | 界面语言：`"system"` 跟随系统 / `"zh-CN"` / `"en-US"`（也可在设置页切换，即时生效）。字段缺省时应用内默认 `zh-CN`，但首次运行模板写入 `"system"`（跟随系统） |
 | `sidebarExpanded` | bool | `true` | 侧栏是否展开（`false` 为图标窄条模式，由界面折叠按钮切换） |
-| `appBackgroundImage` | string | | 应用自有背景图（设置/关于页与侧栏底色）：本地文件路径；留空使用内置的主题感知渐变。可在设置页"应用背景"卡选择图片或恢复默认。游戏详情页背景不受此项影响 |
+| `appBackgroundImage` | string | | 应用自有背景图（设置/关于页与侧栏底色）：本地文件路径或 http(s) URL；留空使用内置的主题感知渐变。可在设置页"应用背景"卡选择图片或恢复默认。游戏详情页背景不受此项影响 |
+| `proxyMode` | `"System" \| "None" \| "Manual"` | `"System"` | 出站网络代理：System 跟随系统代理 / None 直连 / Manual 使用 `proxyAddress` |
+| `proxyAddress` | string | | 手动代理地址（如 `http://127.0.0.1:7890`）；`proxyMode` 为 `"Manual"` 时必填且须为可解析的 http(s) URL，其余模式可有可无 |
 | `schemaVersion` | int | `0` | 配置结构版本（内部使用）。旧版本配置首次被新版加载时自动迁移：补齐内置模板中同一游戏新增的官方服务器与本地化名称，并写回 `schemaVersion: 3`，仅执行一次 |
 
 ### games[]（GameDefinition）
@@ -45,7 +48,8 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `executable` | string | ✔ | 游戏可执行文件，相对 `installDir`（`/` 或 `\` 均可） |
 | `launch` | object | | 启动方式，见下 |
 | `servers[]` | array | ✔（≥1） | 服务器/渠道入口列表，见下 |
-  服务器在启动器内通过「游戏设置 → 位置」卡的"服务器"下拉切换（详情页不再展示）；切换即时刷新版本/安装状态。
+  服务器在启动器内通过游戏设置页（从详情页齿轮进入）的独立「服务器」卡切换，
+  与位置卡分离（先选区、再选目录）；切换即时刷新版本/安装状态。
 
 ### games[].launch（LaunchOptions）
 
@@ -163,7 +167,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 
 配置加载失败时会**一次性列出全部错误**（中英文混合提示含字段定位）：
 
-- `settings.installRoot` 不能为空；`maxParallelDownloads ∈ [1, 64]`
+- `settings.installRoot` 不能为空；`proxyMode` 为 `"Manual"` 时 `proxyAddress` 必须为可解析的 http(s) URL
 - `games[].id` 非空、无非法字符、全局唯一（忽略大小写）
 - `displayName` / `channel` / `installDir` / `executable` / `launch.commandTemplate` 非空
 - `servers` 至少 1 个；服务器 `id` 唯一且非空、`name` 非空

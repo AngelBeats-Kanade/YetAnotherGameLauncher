@@ -18,27 +18,48 @@
 ```
 src/
   YetAnotherGameLauncher.Core/                  # 领域层（无 UI/厂商依赖）
-    Models/         GameCatalog/GameDefinition/GameServer、GameManifest、UpdatePlan、UpdateProgress、LocalGameState、ChannelVersionInfo
-    Abstractions/   IGameChannelApi、IDownloader、IPatchApplier、IProcessRunner、异常类型
-    Services/       GameCatalogService（含首次运行 CreateDefaultFileAsync）、HttpFileDownloader、ManifestVerifier、UpdatePlanner、
-                    GameInstallService、IncrementalUpdateService、PackageInstallerService、
-                    GameUpdateService、GameLauncherService、LocalStateService、SystemProcessRunner
-    Utilities/      Hashing（MD5 hex）、Json（统一序列化选项）、InstallPath
+    InstallPath.cs  安装路径解析（"~" 展开、绝对/相对 installDir；单文件位于 Core 根）
+    Models/         AppSettings（全局设置）、GameCatalog/GameDefinition/GameServer、GameManifest、UpdatePlan、
+                    UpdateProgress、LocalGameState、ChannelVersionInfo、DownloadRequest（单文件下载请求）、
+                    LaunchOptions（启动命令模板）、ThemeMode
+    Abstractions/   IGameChannelApi、IDownloader、IPatchApplier、IProcessRunner、异常类型、
+                    IPlatformInfo（平台环境：Linux/GPU 探测、文件管理器打开目录）、IBackdropResolver（详情页背景解析，含 BackdropKind/BackdropSource）
+    Services/       GameCatalogService（含首次运行 CreateDefaultFileAsync）、HttpFileDownloader（+HttpFileDownloaderOptions）、
+                    ManifestVerifier、UpdatePlanner、GameInstallService、IncrementalUpdateService、PackageInstallerService、
+                    GameUpdateService、GameLauncherService、LocalStateService、SystemProcessRunner、
+                    NetworkProxyManager（全局共享 SocketsHttpHandler，代理切换即时生效）、SpeedLimiter（泄漏桶全局限速）、
+                    AutostartService.cs（IAutostartService + WindowsAutostartService（HKCU Run 注册表）/ LinuxAutostartService（XDG autostart）双实现）、
+                    CompatTools（Linux Proton 探测与启动命令/环境变量构建，含 LaunchMode 枚举）、
+                    GameBackdropService（详情页背景远程解析 + 本地缓存编排）、KuroLauncherBackground（KRLauncher 官方背景探测）、
+                    WebViewCacheScanner（Chromium 磁盘缓存文本流式正则提取）、WindowsPlatformInfo / LinuxPlatformInfo（IPlatformInfo 双实现）
+    Utilities/      Hashing（MD5 hex）、Json（统一序列化选项）、FileUtilities（原子写入/尽力删除）
   YetAnotherGameLauncher.Channels.Kuro/         # 库洛渠道（鸣潮）
     KuroChannelApi（index.json/indexFile 解析、CDN 选择、URL 拼接）
-    KuroCdnSelector / KuroUrlBuilder、HpatchzApplier（HDiffPatch 目录模式）
+    KuroCdnSelector / KuroUrlBuilder、HpatchzApplier（HDiffPatch 目录模式；HpatchzApplierOptions 配置路径/超时）
+    KuroSwitchConfigClient（官方 switch.json 运营配置直连）、KuroBackdropResolver（背景解析：switch.json → WebView 缓存 → 本地帧序列）
+    KuroGachaService（唤取记录：日志地址提取 → 官方接口 → 本地合并缓存）、KuroServiceCollectionExtensions（AddKuroChannel）、Models/（协议 DTO）
   YetAnotherGameLauncher.Channels.Hypergryph/   # GRYPHLINE 渠道（终末地，包式）
-    GryphlineChannelApi（batch_proxy get_latest_game）
+    GryphlineChannelApi（batch_proxy get_latest_game）、GryphlineProtocol（版本/背景接口共用的协议工具）
+    EndfieldBackdropResolver（get_main_bg_image 背景解析：视频优先、静态图兜底）、
+    HypergryphServiceCollectionExtensions（AddHypergryphChannel）、Models/（协议 DTO）
   YetAnotherGameLauncher/                       # Avalonia UI（MVVM）
-    Program.cs / App.axaml(.cs)（DI 组合根）、Themes/ThemeService、
-    ViewModels/（MainWindowViewModel、GameItemViewModel、GameSettingsViewModel、LaunchSettingsViewModel）、Views/MainWindow
+    Program.cs / App.axaml(.cs)（DI 组合根）、Themes/ThemeService
+    Services/       LocalizationService/ILocalizationService + LocExtension/LocBridge（JSON 资源本地化与 XAML 标记扩展）；
+                    FfmpegVideoBackdropPlayer/IVideoBackdropPlayer（FFmpeg 背景视频解码播放）+ FfmpegLibraryResolver（原生库准备/下载）；
+                    SeamAnalyzer（循环接缝分析）+ PrerollHandoff（预卷零间隙交接状态机）实现无缝循环；
+                    BackgroundImageService（静态背景图加载与缓存）、FilePickerService/IFilePickerService（系统文件/目录选择器封装）
+    Controls/       AppBackdrop（应用背景层：主题渐变 + 光晕 + 自定义背景图）、FrameSurface（背景视频帧自绘渲染面）
+    ViewModels/     MainWindowViewModel、GameItemViewModel、GameSettingsViewModel、LaunchSettingsViewModel、
+                    GachaViewModel（鸣潮唤取记录页）、SaveMessageSlot（表单保存结果消息槽）、ViewModelBase
+    Views/MainWindow
 tests/
   YetAnotherGameLauncher.TestSupport/           # 共享测试设施（可复用的替身与工具）
-    FakeDownloader / FakePatchApplier / FakeProcessRunner / FakeChannel / StubHttpHandler / TempDir / TestZip
-  YetAnotherGameLauncher.Core.Tests/            # 领域层 141 个测试
-  YetAnotherGameLauncher.Channels.Kuro.Tests/   # 13 个测试
-  YetAnotherGameLauncher.Channels.Hypergryph.Tests/ # 15 个测试
-  YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口 73 个测试
+    FakeDownloader / FakePatchApplier / FakeProcessRunner / FakeChannel / StubHttpHandler / TempDir / TestZip / ManualTimeProvider（虚拟时钟）
+  YetAnotherGameLauncher.Core.Tests/            # 领域层 178 个测试
+  YetAnotherGameLauncher.Channels.Kuro.Tests/   # 34 个测试
+  YetAnotherGameLauncher.Channels.Hypergryph.Tests/ # 17 个测试
+  YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口 120 个测试
+  # 数量为 2026-09 实测（共 349）；随开发增长，以实际运行为准
 ```
 
 构建约定（`Directory.Build.props`）：`net10.0`、`Nullable=enable`、`ImplicitUsings`、
@@ -70,7 +91,8 @@ tests/
   - xunit.v3 要求测试项目 `<OutputType>Exe</OutputType>`；
   - App.Tests 的 RootNamespace/命名空间避免以 `App` 结尾（与 UI 程序集 `App` 类全名冲突，CS0435）；
   - 测试间状态隔离：示例配置的 `installRoot` 必须落在 `TempDir` 内；
-  - `Directory.Build.props` 抑制了 `xUnit1051`（测试内文件操作无需响应取消）。
+  - `xUnit1051` 由四个测试 csproj 各自以 `<NoWarn>$(NoWarn);xUnit1051</NoWarn>` 抑制
+    （测试内文件操作无需响应取消），并非在 `Directory.Build.props` 全局抑制。
 
 ## 5. 扩展指南
 
@@ -152,5 +174,6 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64   --self-contain
 - **政策排除**（不计入目标，均有结构性理由）：`Program.cs` 与 `App.axaml.cs`（组合根）、
   `FilePickerService`（系统对话框封装）、`FfmpegVideoBackdropPlayer` 与 `FfmpegLibraryResolver`
   （原生库 unsafe 互操作，已由 `[ExcludeFromCodeCoverage]` 标注）、平台条件分支
-  （如 AutostartService 的 Linux XDG 路径仅在 Linux 运行时可达）。
+  （如 WindowsAutostartService（HKCU Run 注册表）与 LinuxAutostartService（XDG autostart）
+  的平台专属路径仅在对应系统运行时可达）。
 - 现状与缺口清单见 `artifacts/coverage/`（本地生成，不入库）；每轮功能改动应顺带补齐所触达文件的缺口。

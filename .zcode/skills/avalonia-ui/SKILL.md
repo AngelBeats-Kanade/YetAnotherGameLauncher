@@ -39,17 +39,18 @@ Avalonia 12（本项目 12.1.2）+ .NET 10。跨平台 XAML（.axaml）UI 框架
 
 ## 主题资源（本项目约定）
 
-- 主题相关刷子全部定义在 `App.axaml` 的 `ResourceDictionary.ThemeDictionaries`（`Light`/`Dark` 两个字典），键以 `App` 前缀命名（`AppAccentBrush`、`AppCardBackground`、`AppPageBackground`、`AppTextSecondary`、`AppErrorText`）。
+- 主题相关刷子全部定义在 `App.axaml` 的 `ResourceDictionary.ThemeDictionaries`（`Light`/`Dark` 两个字典），键以 `App` 前缀命名（`AppAccentBrush`、`AppCardBackground`、`AppBackdropBaseBrush` + `AppBackdropGlowBrush`（窗口背景渐变与光晕）、`AppTextSecondary`、`AppErrorText`）。
 - 亮暗主题**必须成对**新增键；暗色不用纯黑，亮色不用纯白（见 `desktop-ui-design`）。
 - 切换主题：`Application.Current.RequestedThemeVariant = ThemeVariant.Default/Light/Dark`；跨线程设置需 `CheckAccess()`/`Dispatcher.Post`（见 `Themes/ThemeService.cs`）。
 - 字体回退链写在中文字体上：`FontFamily="Microsoft YaHei UI, Noto Sans CJK SC, Segoe UI, Inter"`。
 
 ## 布局模式（本项目 MainWindow）
 
-- 单窗口 + 左侧 `DockPanel` 侧栏（264px）+ `ContentControl` 主内容区。
+- 单窗口 + 左侧 `Grid ColumnDefinitions="Auto,*"` 侧栏 + `ContentControl` 主内容区；侧栏宽度绑定
+  `SidebarWidth`，动态 264↔68 可折叠（0.2s 宽度过渡），264 仅为展开值。
 - 页面切换：`ContentControl.Content` 绑定 VM 属性，用 `ContentControl.DataTemplates` + `x:DataType` 分发到各页面模板（无 NavigationView 依赖）。
 - 列表选中态：`ListBox.SelectedItem` 双向绑定；条目模板内不放命令，操作集中在详情页。
-- 内容区最大宽度 `MaxWidth=780` 居中可读性，`ScrollViewer` 包裹防溢出。
+- 内容区各页最大宽度 `MaxWidth=720/760` 居中可读性，`ScrollViewer` 包裹防溢出。
 
 ## 常见坑（本项目实踩）
 

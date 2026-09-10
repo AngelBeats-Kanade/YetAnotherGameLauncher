@@ -29,18 +29,22 @@ description: Use when designing or polishing any desktop app UI (layout, spacing
 
 ## 3. 颜色令牌（成对、少量）
 
-- 语义令牌而非裸色：`AppPageBackground` / `AppSidebarBackground` / `AppCardBackground` /
+- 语义令牌而非裸色：`AppBackdropBaseBrush`（亮/暗渐变背景）+ `AppBackdropGlowBrush`（光晕），
+  由 `Controls/AppBackdrop` 渲染，设置页自定义背景图叠加其上；`AppSidebarBackground` / `AppCardBackground` /
   `AppTextSecondary` / `AppAccentBrush` / `AppErrorText` / `AppPredownloadBadge`。
 - 强调色只有一个（本项目蓝 `#2E7CF6` 亮 / `#4C8DFF` 暗），用于主按钮、选中态、图标底。
-- **暗色主题**：背景不是纯黑（`#121216` 页面 → `#1A1A20` 侧栏 → `#23232B` 卡片，三级亮度阶梯）；
-  强调色略提亮降饱和；正文 `#E8E8EC`，辅助 `#A2A2AB`；禁止大段 `#FFF` 文字。
-- **亮色主题**：页面 `#F7F8FA` + 白卡片，靠 1px 边框或极浅阴影分层，不要重阴影。
+- **暗色主题**：背景为深空蓝黑渐变（`AppBackdropBaseBrush`：`#0C0F1D → #131A2E → #0D1019`）；
+  侧栏 `#191920`（alpha D9）、卡片 `#202029`（alpha A6）；强调色略提亮降饱和；
+  正文走 FluentTheme 默认前景，插画上正文用 `AppOnArtworkBrush`（`#F2F4F8`），辅助 `#A2A2AB`；禁止大段 `#FFF` 文字。
+- **亮色主题**：背景为淡雾蓝渐变（`#EFF2F8 / #E2E9F4 / #EBEEF6`）+ 半透明白卡片（`#D6FFFFFF`），
+  靠 1px 边框或极浅阴影分层，不要重阴影。
 - 对比度：正文 ≥ 4.5:1，辅助文字 ≥ 3:1（暗色下尤其检查灰字）。
 
 ## 4. 按钮与操作层级
 
 - 一屏**一个主操作**（accent 样式），其余默认态；危险操作用红色文案而非红底大按钮。
-- 尺寸统一：主按钮 `Padding="22,9"` 次按钮 `Padding="16,9"`，圆角与卡片一致（FluentTheme 默认 4–6）。
+- 尺寸统一走既有按钮类：详情页按钮系（`glass-onart`/`accent-onart`/`predownload-onart`）圆角 10，
+  底部操作坞 `action-dock` 圆角 14；不另做内边距/圆角定制。
 - 图标+文字按钮保持图标 16–18px；按钮间距 10–12。
 - 禁用态必须可辨（FluentTheme 自带 0.4 透明），配合 ToolTip 说明原因。
 
@@ -64,7 +68,7 @@ description: Use when designing or polishing any desktop app UI (layout, spacing
 2. 间距全部落在 4pt 刻度，卡片内边距一致。
 3. 三层文字层级清晰，辅助文字用的是弱化色。
 4. 一屏一个主按钮；按钮尺寸/圆角统一。
-5. 圆角值统一（本项目卡片 12、小徽标 6、图标 10–16）。
+5. 圆角值统一（本项目卡片与底部操作坞 14、按钮/图标 10）。
 6. 对比度抽检：暗色下的辅助文字、亮色下的强调按钮文字。
 7. 长文本有截断策略；单行不换行错乱。
 8. 空态/忙碌/错误三态可见。

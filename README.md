@@ -17,17 +17,24 @@
 | 功能 | 说明 |
 |---|---|
 | 游戏启动 | 命令模板 `{exe}` / `{installDir}` 占位符 + 环境变量注入，支持 `wine {exe}`、Proton、`steam -applaunch` 等 |
+| Linux 启动方式选择器 | Direct / Wine / Proton 三选；GE-Proton 自动扫描，检测到 NVIDIA GPU 时推荐兼容环境 |
 | 全量下载 | 官方清单逐文件同步（鸣潮）/ 压缩包整包解压（终末地），size+MD5 双校验 |
 | 断点续传 | `.temp` 临时文件 + HTTP Range 续传，瞬态网络错误线性退避重试 |
+| 下载限速 | 可按字节/秒限制下载速度 |
 | 增量更新 | 鸣潮：匹配官方 `patchConfig` 差分入口，下载 krpdiff 差分包，调用原生 `hpatchz`（HDiffPatch）合成，`.yagl-bak` 备份回滚 |
-| 预更新（预下载） | 两段式：先"预下载"暂存到 `.yagl/predownload`，官方开放后一键"应用"；鸣潮走差分包、终末地走整包 |
+| 预更新（预下载） | 两段式：先“预下载”暂存到 `.yagl/predownload`，官方开放后一键“应用”；鸣潮走差分包、终末地走整包 |
+| 登记版本 | 包式渠道检测到本机已安装游戏文件时零下载直接登记（终末地检测态） |
 | 校验修复 | 按清单事后校验（MD5），自动修复缺失/损坏文件，清理游离文件（保留 `Saved/` 存档） |
 | 多服务器 | 鸣潮国服/B服/国际服、终末地国际服/国服/B服 一键切换（全部配置驱动） |
-| 现代化 UI | 圆角无边框窗口 + 自绘标题栏（拖拽区 / 最小化 / 最大化 / 关闭）；海报式详情页：当期海报全幅铺满主区域（左缘完整不裁切）+ 渐变遮罩 + 左上圆角全出血布局；侧栏选中指示点两段式动效；窗口宽度穿越阈值侧栏自动收放（带滞回防抖）；亮/暗/跟随系统三态主题；页面切换与按钮微动效；设置页可自定义应用背景 |
+| 唤取（抽卡）记录 | 鸣潮：游戏内地址自动提取、官方接口拉取、本地缓存与保底统计 |
+| 现代化 UI | 圆角无边框窗口 + 自绘标题栏（拖拽区 / 最小化 / 最大化 / 关闭）；海报式详情页：当期海报全幅铺满主区域（左缘完整不裁切、无遮罩）+ 左上圆角全出血布局；侧栏选中指示点两段式动效；窗口宽度穿越阈值侧栏自动收放（带滞回防抖）；亮/暗/跟随系统三态主题；页面切换与按钮微动效；设置页可自定义应用背景 |
+| 背景视频 | 详情页播放官方当期背景视频：FFmpeg 硬解，智能循环点 + 预卷零间隙续播（循环无缝） |
 | 界面语言 | 简体中文 / English，跟随系统可选，切换即时生效（设置页调整） |
-| 启动设置 | 游戏详情页内直接编辑命令模板 / 工作目录 / 环境变量并保存回配置文件 |
-| 存储路径可视化配置 | 设置页可改安装根目录；详情页"启动设置"内可单独修改每个游戏的安装目录，保存即时生效 |
-| 官方图标 | 鸣潮/终末地使用官方应用图标（App Store 图源，`icon` 字段可配置，加载失败回退首字） |
+| 代理设置 | 跟随系统 / 直连 / 手动三选 |
+| 开机自启动 | Windows 注册表 / Linux XDG autostart |
+| 启动设置 | 独立的游戏设置次页（从详情页齿轮进入）：位置 / 启动方式 / 启动参数，保存回配置文件 |
+| 存储路径可视化配置 | 设置页可改安装根目录；游戏设置页“位置”内可单独修改每个游戏的安装目录，保存即时生效 |
+| 官方图标 | 鸣潮/终末地使用官方应用图标（默认内置资源 `avares://YetAnotherGameLauncher/Assets/game-icons/*.jpg`，`icon` 字段仍支持 URL/本地路径，加载失败回退首字） |
 | 架构 | 前后端分离：`Core`（领域层）→ `Channels.*`（厂商渠道）→ `App`（Avalonia UI），全部依赖抽象接口 |
 
 ## 快速开始
@@ -57,10 +64,14 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（242 个）
+### 运行测试（349 个）
 
 ```bash
-dotnet test
+# 4 个测试工程分别运行编译产物（.exe 或 dotnet <dll> 均可；本机 dotnet test 可能发现 0 个测试）：
+./tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.exe
+./tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.exe
+./tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Hypergryph.Tests.exe
+./tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.exe
 ```
 
 测试覆盖：配置解析/校验、下载器（续传/重试/MD5）、清单校验、版本计划、
