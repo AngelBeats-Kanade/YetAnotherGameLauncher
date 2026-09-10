@@ -16,7 +16,10 @@ namespace YetAnotherGameLauncher.Services;
 /// <summary>
 /// 基于 FFmpeg 的背景视频播放器：后台线程循环解码（软解为基线，D3D11VA/VAAPI 硬解自动启用），
 /// 帧经 swscale 转成 BGRA 后逐行拷进 WriteableBitmap，UI 线程节流触发 <see cref="FrameUpdated"/>
-/// 重绘。静音（不解码音频轨）、无缝循环（EOF 回卷重解码）、分辨率 clamp ≤1080p。
+/// 重绘。静音（不解码音频轨）、分辨率 clamp ≤1080p。
+/// 无缝循环 = 智能循环点（头尾窗口找最相似帧对，接缝落在几乎相同的画面之间）
+/// + 预卷零间隙收编（临近结尾提前解码好下一循环开头几帧，接缝处直接换源续播，无停顿）；
+/// 预卷未就绪时回退关键帧回卷 + 交叉淡化。
 /// 解码管线与原生库获取（<see cref="FfmpegLibraryResolver"/>）解耦，可整体替换实现。
 /// </summary>
 public sealed class FfmpegVideoBackdropPlayer(
@@ -36,6 +39,21 @@ public sealed class FfmpegVideoBackdropPlayer(
     /// <summary>swscale 双线性插值（FFmpeg 头文件的 SWS_BILINEAR 宏；AutoGen 未生成该常量）。</summary>
     private const int SwsBilinear = 2;
 
+    /// <summary>距循环终点该源秒数内即启动预卷：预卷要在终点前完成打开、对齐与前若干帧解码。</summary>
+    private const double PrerollTriggerSeconds = 2.0;
+
+    /// <summary>预卷预解码帧数：收编后按节拍先消费这些帧，为就地续解吸收调度抖动。</summary>
+    private const int PrerollFrames = 10;
+
+    /// <summary>循环点分析窗口：头/尾各分析的源秒数。</summary>
+    private const double AnalysisWindowSeconds = 2.0;
+
+    /// <summary>时长低于该值（秒）不做循环点分析（窗口过窄没有搜索价值）。</summary>
+    private const double MinAnalysisDuration = 2.0;
+
+    /// <summary>分析窗口单侧最多采集的帧数（防御异常高帧率或坏时长导致内存膨胀）。</summary>
+    private const int MaxAnalyzedFrames = 240;
+
     private readonly object _gate = new();
 
     /// <summary>当前帧位图（解码线程写、UI 渲染线程读，位图内部缓冲自身同步）。</summary>
@@ -50,7 +68,7 @@ public sealed class FfmpegVideoBackdropPlayer(
     /// <summary>每帧递减的淡化步长（按帧率与淡化时长折算）。</summary>
     private double _fadeStep;
 
-    /// <summary>淡化时长（秒）：覆盖循环接缝的交叉淡化窗口。</summary>
+    /// <summary>淡化时长（秒）：覆盖循环接缝的交叉淡化窗口（仅预卷未就绪或接缝差异大时启用）。</summary>
     private const double FadeSeconds = 0.6;
 
     /// <summary>当前播放的取消源与代际（旧代循环的输出一律丢弃，避免 Stop/Play 竞争）。</summary>
@@ -152,151 +170,233 @@ public sealed class FfmpegVideoBackdropPlayer(
         }
     }
 
-    /// <summary>解码主循环：打开 → 硬解优先 → 逐帧按 PTS 节拍 swscale/BGRA → blit → EOF 回卷；退出时全部释放。</summary>
+    /// <summary>
+    /// 解码主循环：打开 → 智能循环点分析 → 逐帧按 PTS 节拍上屏 → 循环终点零间隙收编预卷源
+    /// （未就绪则回退关键帧回卷 + 交叉淡化）；退出时全部释放。
+    /// </summary>
     private unsafe void RunLoop(string path, CancellationTokenSource cts, int generation)
     {
-        AVFormatContext* formatContext = null;
-        AVCodecContext* codecContext = null;
-        AVBufferRef* hwDevice = null;
+        DecodeSource? active = null;
         AVPacket* packet = null;
         AVFrame* frame = null;
         AVFrame* softwareFrame = null;
         SwsContext* scaler = null;
         byte* pixelBuffer = null;
+        PrerollHandoff<PrerollPayload>? preroll = null;
+        var pendingFrames = new List<nint>();
+        var pendingFramePts = new List<double>();
         var token = cts.Token;
         try
         {
-            formatContext = OpenInput(path);
-            var streamIndex = ffmpeg.av_find_best_stream(
-                formatContext, AVMediaType.AVMEDIA_TYPE_VIDEO, -1, -1, null, 0);
-            if (streamIndex < 0)
-            {
-                logger?.LogInformation("Video has no video stream: {Path}", path);
-                return;
-            }
+            active = OpenDecodeSource(path, softwareOnly: false);
+            packet = ffmpeg.av_packet_alloc();
+            frame = ffmpeg.av_frame_alloc();
+            softwareFrame = ffmpeg.av_frame_alloc();
+            var fps = active.Fps;
+            var timeBase = active.TimeBase;
+            var duration = active.DurationSeconds;
 
-            var stream = formatContext->streams[streamIndex];
-            var timeBase = ffmpeg.av_q2d(stream->time_base);
-            var fps = ffmpeg.av_q2d(stream->avg_frame_rate);
-            if (fps <= 0)
+            // 智能循环点：头/尾窗口找最相似帧对，把接缝落在几乎相同的画面之间；
+            // 时间基/帧率/时长不齐就整段循环，靠接缝自适应兜底。
+            // 起播不 seek：从流头顺序读取、由 aligningToStart 在渲染前丢弃循环起点之前的帧
+            // （带时间戳的 seek 在部分环境的新开 demuxer 上不可靠，顺序读包最稳妥）
+            var (loopStartPts, loopEndPts) = timeBase > 0 && fps > 0 && duration >= MinAnalysisDuration
+                ? AnalyzeLoopPoints(path, duration, token)
+                : (0.0, 0.0);
+            if (loopStartPts > 0)
             {
-                fps = ffmpeg.av_q2d(stream->r_frame_rate);
+                logger?.LogInformation(
+                    "Video loop points: start {Start:F2}s end {End:F2}s (duration {Duration:F2}s)",
+                    loopStartPts, loopEndPts, duration);
+            }
+            else
+            {
+                logger?.LogDebug("Video loop point analysis found no match, looping full clip");
             }
 
             // PTS 节拍（解码多快播多快会呈数倍速快进）；pts 与帧率都拿不到时保持不节拍
             var clock = timeBase > 0 || fps > 0 ? new PlaybackClock() : null;
+            var halfFrame = fps > 0 ? 0.5 / fps : 0.001;
             long frameIndex = 0;
-
-            // 无 pts 帧的呈现时刻推算：优先 pts×time_base，缺失时回退 帧序号/平均帧率；-1 = 无节拍信息
-            double FramePtsSeconds(AVFrame* candidate)
-            {
-                if (timeBase > 0)
-                {
-                    var pts = candidate->best_effort_timestamp;
-                    if (pts == AV_NOPTS_VALUE || pts < 0)
-                    {
-                        pts = candidate->pts;
-                    }
-
-                    if (pts != AV_NOPTS_VALUE && pts >= 0)
-                    {
-                        return pts * timeBase;
-                    }
-                }
-
-                return fps > 0 ? frameIndex / fps : -1;
-            }
-
-            codecContext = OpenDecoder(stream->codecpar, ref hwDevice);
-            packet = ffmpeg.av_packet_alloc();
-            frame = ffmpeg.av_frame_alloc();
-            softwareFrame = ffmpeg.av_frame_alloc();
-
+            var aligningToStart = loopStartPts > 0;
+            var loopEndReached = false;
+            var prerollKicked = false;
+            var lastRenderedWidth = 0;
+            var lastRenderedHeight = 0;
+            double lastRenderedPts = -1;
             var notify = new NotifyThrottle();
             var failures = new DecodeFailureLog(logger);
+
+            // 呈现一帧软帧：起点对帧丢弃 → 循环终点截断 → PTS 节拍等待 → 上屏 → 预卷触发；
+            // 等待期间取消直接返回（外层 while 检查 token 退出），到达循环终点置 loopEndReached
+            unsafe void PresentFrame(AVFrame* softFrame, double ptsSeconds)
+            {
+                if (aligningToStart)
+                {
+                    if (!double.IsNaN(ptsSeconds) && ptsSeconds < loopStartPts - halfFrame)
+                    {
+                        return; // 起播从流头顺序读取，渲染前丢弃循环起点之前的帧
+                    }
+
+                    aligningToStart = false;
+                }
+
+                if (loopEndPts > 0 && !double.IsNaN(ptsSeconds) && ptsSeconds >= loopEndPts)
+                {
+                    loopEndReached = true;
+                    return;
+                }
+
+                if (clock is not null && !double.IsNaN(ptsSeconds))
+                {
+                    var delayMs = clock.WaitDelayMs(ptsSeconds);
+                    if (delayMs is > 0
+                        && token.WaitHandle.WaitOne(TimeSpan.FromMilliseconds(delayMs.Value)))
+                    {
+                        return;
+                    }
+                }
+
+                RenderFrame(softFrame, ref scaler, ref pixelBuffer, notify, failures);
+                (lastRenderedWidth, lastRenderedHeight) = ClampEven(softFrame->width, softFrame->height);
+                lastRenderedPts = double.IsNaN(ptsSeconds) ? lastRenderedPts : ptsSeconds;
+                frameIndex++;
+                TryKickPreroll(ptsSeconds);
+            }
+
+            // 距循环终点不足预卷窗口时启动一次预卷任务（每次循环至多一次）
+            void TryKickPreroll(double ptsSeconds)
+            {
+                if (prerollKicked || double.IsNaN(ptsSeconds))
+                {
+                    return;
+                }
+
+                var loopEnd = loopEndPts > 0 ? loopEndPts : duration;
+                if (loopEnd <= 0 || loopEnd - ptsSeconds > PrerollTriggerSeconds)
+                {
+                    return;
+                }
+
+                prerollKicked = true;
+                var handoff = new PrerollHandoff<PrerollPayload>(FreePrerollPayload);
+                preroll = handoff;
+                logger?.LogDebug("Video preroll kicked at {Pts:F2}/{End:F2}s", ptsSeconds, loopEnd);
+                _ = Task.Run(() => RunPreroll(path, loopStartPts, handoff, token), CancellationToken.None);
+            }
+
+            // 循环终点处理：预卷就绪则零间隙收编（按接缝差选硬化切/交叉淡化），
+            // 否则回退关键帧回卷 + 交叉淡化。返回 false = 无法继续（应结束循环）
+            bool HandleLoopEnd()
+            {
+                loopEndReached = false;
+                if (preroll is not null && preroll.TryTake(out var payload))
+                {
+                    var seamDiff = ComputeSeamDiff(pixelBuffer, lastRenderedWidth, lastRenderedHeight, payload.FirstThumb);
+                    var hardCut = SeamAnalyzer.ShouldHardCut(seamDiff);
+                    logger?.LogInformation(
+                        "Video loop seam: diff {Diff:F1} → {Mode}", seamDiff, hardCut ? "hard cut" : "crossfade");
+                    if (!hardCut)
+                    {
+                        // 先把旧末帧转成淡化层，再让收编源的新帧上屏
+                        PrepareLoopCrossfade(fps);
+                    }
+
+                    active.Dispose();
+                    active = payload.Source;
+                    pendingFrames = payload.Frames;
+                    pendingFramePts = payload.PendingPts;
+                    frameIndex = 0;
+                    aligningToStart = false;
+                    preroll = null;
+                    prerollKicked = false;
+                    clock?.Reset();
+                    return true;
+                }
+
+                // 预卷未就绪：回退 = 重新打开全新解码源（不 seek——本构建的 mov seek 不可靠，
+                // 顺序读取最稳妥）；打开停顿由交叉淡化掩盖
+                preroll?.Abandon();
+                preroll = null;
+                prerollKicked = false;
+                logger?.LogDebug(
+                    "Video preroll not ready at loop end, reopening decoder instead (lastPts {Pts:F2}s, frameIndex {Index})",
+                    lastRenderedPts, frameIndex);
+                var reopened = OpenDecodeSource(path, softwareOnly: false);
+                active.Dispose();
+                active = reopened;
+                pendingFrames.Clear();
+                pendingFramePts.Clear();
+                frameIndex = 0;
+                aligningToStart = loopStartPts > 0;
+                clock?.Reset();
+                PrepareLoopCrossfade(fps);
+                return true;
+            }
+
             while (!token.IsCancellationRequested)
             {
-                var readResult = ffmpeg.av_read_frame(formatContext, packet);
-                if (readResult < 0)
+                if (pendingFrames.Count > 0)
                 {
-                    if (readResult != AVERROR_EOF)
+                    // 收编的预解码帧优先消费：这是零间隙续播的关键路径
+                    var pending = (AVFrame*)pendingFrames[0];
+                    pendingFrames.RemoveAt(0);
+                    var pendingPts = pendingFramePts[0];
+                    pendingFramePts.RemoveAt(0);
+                    PresentFrame(pending, pendingPts);
+                    ffmpeg.av_frame_free(&pending);
+                    if (loopEndReached && !HandleLoopEnd())
                     {
-                        failures.Log("demuxer read error {Code}", readResult);
+                        break;
                     }
 
-                    if (!Rewind(formatContext, codecContext, streamIndex))
-                    {
-                        failures.Log("cannot rewind at end of stream, stopping loop");
-                        return; // 无法回卷（文件被删/流关闭）：结束循环
-                    }
-
-                    clock?.Reset();
-                    frameIndex = 0;
-                    PrepareLoopCrossfade(fps);
                     continue;
                 }
 
-                if (packet->stream_index != streamIndex)
+                if (!TryDecodeNextSoftFrame(active, packet, frame, softwareFrame, out var pts, failures))
                 {
-                    // 音频/字幕/封面等其他流：直接跳过（背景视频不解码音轨）
-                    ffmpeg.av_packet_unref(packet);
+                    // 流结束（或不可恢复的读错误）：走循环终点处理
+                    if (!HandleLoopEnd())
+                    {
+                        break;
+                    }
+
                     continue;
                 }
 
-                if (ffmpeg.avcodec_send_packet(codecContext, packet) >= 0)
+                // 无 pts 帧的呈现时刻推算：回退 帧序号/平均帧率；NaN = 无节拍信息
+                if (double.IsNaN(pts) && fps > 0)
                 {
-                    while (ffmpeg.avcodec_receive_frame(codecContext, frame) >= 0)
-                    {
-                        if (token.IsCancellationRequested)
-                        {
-                            break;
-                        }
-
-                        var source = frame;
-                        if (frame->hw_frames_ctx is not null)
-                        {
-                            // 硬解输出的是 GPU 帧：回读到系统内存再进统一管线（PCIe 回读开销极小）
-                            if (ffmpeg.av_hwframe_transfer_data(softwareFrame, frame, 0) < 0)
-                            {
-                                failures.Log("hw frame transfer failed");
-                                ffmpeg.av_frame_unref(frame);
-                                continue;
-                            }
-
-                            source = softwareFrame;
-                        }
-
-                        // 按 PTS 等到目标呈现时刻再上屏（等待期间取消即退出）
-                        if (clock is not null)
-                        {
-                            var ptsSeconds = FramePtsSeconds(source);
-                            if (ptsSeconds >= 0)
-                            {
-                                var delayMs = clock.WaitDelayMs(ptsSeconds);
-                                if (delayMs is > 0
-                                    && token.WaitHandle.WaitOne(TimeSpan.FromMilliseconds(delayMs.Value)))
-                                {
-                                    break;
-                                }
-                            }
-                        }
-
-                        RenderFrame(source, ref scaler, ref pixelBuffer, notify, failures);
-                        frameIndex++;
-                        ffmpeg.av_frame_unref(frame);
-                        ffmpeg.av_frame_unref(softwareFrame);
-                    }
-                }
-                else
-                {
-                    failures.Log("packet rejected by decoder (stream {Stream})", packet->stream_index);
+                    pts = frameIndex / fps;
                 }
 
-                ffmpeg.av_packet_unref(packet);
+                PresentFrame(softwareFrame, pts);
+                ffmpeg.av_frame_unref(softwareFrame);
+                if (loopEndReached && !HandleLoopEnd())
+                {
+                    break;
+                }
             }
         }
         finally
         {
+            preroll?.Abandon();
+            FreeFrames(pendingFrames);
+            if (packet is not null)
+            {
+                ffmpeg.av_packet_free(&packet);
+            }
+
+            if (frame is not null)
+            {
+                ffmpeg.av_frame_free(&frame);
+            }
+
+            if (softwareFrame is not null)
+            {
+                ffmpeg.av_frame_free(&softwareFrame);
+            }
+
             if (scaler is not null)
             {
                 ffmpeg.sws_freeContext(scaler);
@@ -305,6 +405,104 @@ public sealed class FfmpegVideoBackdropPlayer(
             if (pixelBuffer is not null)
             {
                 NativeMemory.AlignedFree(pixelBuffer);
+            }
+
+            active?.Dispose();
+
+            // 循环结束时若已被新一代播放取代：帧位图归新一代所有，不在此清空
+            if (Interlocked.CompareExchange(ref _generation, 0, 0) == generation)
+            {
+                ClearFrame();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 智能循环点分析：解码头/尾各约一个窗口的帧并采集灰度缩略，搜索最相似帧对。
+    /// 任一步不可行返回 (0, 0)（整段循环），绝不抛出——起播不能因分析失败而失败。
+    /// </summary>
+    private unsafe (double LoopStart, double LoopEnd) AnalyzeLoopPoints(
+        string path, double durationSeconds, CancellationToken token)
+    {
+        DecodeSource? source = null;
+        AVPacket* packet = null;
+        AVFrame* frame = null;
+        AVFrame* softwareFrame = null;
+        SwsContext* thumbScaler = null;
+        try
+        {
+            source = OpenDecodeSource(path, softwareOnly: true);
+            packet = ffmpeg.av_packet_alloc();
+            frame = ffmpeg.av_frame_alloc();
+            softwareFrame = ffmpeg.av_frame_alloc();
+
+            var window = Math.Min(AnalysisWindowSeconds, durationSeconds / 3);
+            var halfFrame = source.Fps > 0 ? 0.5 / source.Fps : 0.001;
+
+            // 头窗口：从流开头解到 window 秒
+            var headThumbs = new List<byte[]>();
+            var headPts = new List<double>();
+            CollectAnalyzedFrames(source, packet, frame, softwareFrame, ref thumbScaler,
+                window + halfFrame, headThumbs, headPts, token);
+
+            // 尾窗口：不 seek、不跳包（解码器需连续解码且起始包必须关键帧），继续顺序读到流结束，
+            // 滚动保留最后 window 秒的帧即可
+            var tailThumbs = new List<byte[]>();
+            var tailPts = new List<double>();
+            while (!token.IsCancellationRequested)
+            {
+                if (!TryDecodeNextSoftFrame(source, packet, frame, softwareFrame, out var pts))
+                {
+                    break; // 流结束
+                }
+
+                if (double.IsNaN(pts))
+                {
+                    ffmpeg.av_frame_unref(softwareFrame);
+                    continue;
+                }
+
+                var thumb = ExtractGrayThumb(softwareFrame, ref thumbScaler);
+                ffmpeg.av_frame_unref(softwareFrame);
+                if (thumb is null)
+                {
+                    continue;
+                }
+
+                tailThumbs.Add(thumb);
+                tailPts.Add(pts);
+                while (tailPts.Count > 0 && tailPts[0] < pts - window)
+                {
+                    tailThumbs.RemoveAt(0);
+                    tailPts.RemoveAt(0);
+                }
+            }
+
+            // 只保留真正的尾窗区域（滚动过程中的中间帧不算），避免搜出过短的循环段
+            while (tailPts.Count > 0 && tailPts[0] < durationSeconds - window - 0.05)
+            {
+                tailThumbs.RemoveAt(0);
+                tailPts.RemoveAt(0);
+            }
+
+            if (token.IsCancellationRequested || headThumbs.Count == 0 || tailThumbs.Count == 0)
+            {
+                return (0, 0);
+            }
+
+            var match = SeamAnalyzer.FindLoopPoint(headThumbs, headPts, tailThumbs, tailPts);
+            return match is null ? (0, 0) : (headPts[match.HeadIndex], tailPts[match.TailIndex]);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogInformation(ex, "Video loop point analysis failed");
+            return (0, 0);
+        }
+        finally
+        {
+            if (thumbScaler is not null)
+            {
+                ffmpeg.sws_freeContext(thumbScaler);
             }
 
             if (packet is not null)
@@ -322,26 +520,181 @@ public sealed class FfmpegVideoBackdropPlayer(
                 ffmpeg.av_frame_free(&softwareFrame);
             }
 
-            if (codecContext is not null)
+            source?.Dispose();
+        }
+    }
+
+    /// <summary>从当前位置连续解码软帧并采集灰度缩略，直到呈现时刻超过上限、流结束、取消或达到帧数上限。</summary>
+    private static unsafe void CollectAnalyzedFrames(
+        DecodeSource source,
+        AVPacket* packet,
+        AVFrame* frame,
+        AVFrame* softwareFrame,
+        ref SwsContext* thumbScaler,
+        double untilSeconds,
+        List<byte[]> thumbs,
+        List<double> ptsSeconds,
+        CancellationToken token)
+    {
+        while (thumbs.Count < MaxAnalyzedFrames && !token.IsCancellationRequested)
+        {
+            if (!TryDecodeNextSoftFrame(source, packet, frame, softwareFrame, out var pts))
             {
-                ffmpeg.avcodec_free_context(&codecContext);
+                return;
             }
 
-            if (hwDevice is not null)
+            if (double.IsNaN(pts))
             {
-                ffmpeg.av_buffer_unref(&hwDevice);
+                // 无 pts 的帧无法参与循环点定位：跳过
+                ffmpeg.av_frame_unref(softwareFrame);
+                continue;
             }
 
-            if (formatContext is not null)
+            if (pts > untilSeconds)
             {
-                ffmpeg.avformat_close_input(&formatContext);
+                ffmpeg.av_frame_unref(softwareFrame);
+                return;
             }
 
-            // 循环结束时若已被新一代播放取代：帧位图归新一代所有，不在此清空
-            if (Interlocked.CompareExchange(ref _generation, 0, 0) == generation)
+            var thumb = ExtractGrayThumb(softwareFrame, ref thumbScaler);
+            if (thumb is not null)
             {
-                ClearFrame();
+                thumbs.Add(thumb);
+                ptsSeconds.Add(pts);
             }
+
+            ffmpeg.av_frame_unref(softwareFrame);
+        }
+    }
+
+    /// <summary>
+    /// 预卷任务：打开独立解码源，对齐循环起点后预解码前若干帧为软件帧，经交接状态机交付。
+    /// 取消或失败时不完成交接，资源在 finally 就地释放；交接已放弃时负载由状态机回调清理。
+    /// </summary>
+    private unsafe void RunPreroll(
+        string path, double loopStartPts, PrerollHandoff<PrerollPayload> handoff, CancellationToken token)
+    {
+        DecodeSource? source = null;
+        List<nint>? frames = null;
+        AVPacket* packet = null;
+        AVFrame* frame = null;
+        AVFrame* softwareFrame = null;
+        SwsContext* thumbScaler = null;
+        try
+        {
+            source = OpenDecodeSource(path, softwareOnly: false);
+            // 不 seek：新开的 demuxer 上带时间戳的 seek 不可靠，靠下方 pts 丢弃对齐循环起点
+            packet = ffmpeg.av_packet_alloc();
+            frame = ffmpeg.av_frame_alloc();
+            softwareFrame = ffmpeg.av_frame_alloc();
+            frames = [];
+            var pendingPts = new List<double>();
+            var halfFrame = source.Fps > 0 ? 0.5 / source.Fps : 0.001;
+            byte[]? firstThumb = null;
+            while (frames.Count < PrerollFrames && !token.IsCancellationRequested)
+            {
+                if (!TryDecodeNextSoftFrame(source, packet, frame, softwareFrame, out var pts))
+                {
+                    break;
+                }
+
+                // 精确对帧：丢弃循环起点之前的帧
+                if (loopStartPts > 0 && !double.IsNaN(pts) && pts < loopStartPts - halfFrame)
+                {
+                    ffmpeg.av_frame_unref(softwareFrame);
+                    continue;
+                }
+
+                var copy = ffmpeg.av_frame_alloc();
+                if (ffmpeg.av_frame_ref(copy, softwareFrame) == 0)
+                {
+                    frames.Add((nint)copy);
+                    pendingPts.Add(pts);
+                    firstThumb ??= ExtractGrayThumb(softwareFrame, ref thumbScaler);
+                }
+
+                ffmpeg.av_frame_unref(softwareFrame);
+            }
+
+            if (token.IsCancellationRequested || frames.Count == 0 || firstThumb is null)
+            {
+                return; // 资源在 finally 就地释放，交接保持未完成
+            }
+
+            var payload = new PrerollPayload(source, frames, pendingPts, firstThumb);
+            _ = handoff.TryComplete(payload);
+            // TryComplete 返回 true = 所有权移交状态机；返回 false = 负载已被 Abandon 路径清理：
+            // 两条路都不得再触碰，统一就地置空
+            source = null;
+            frames = null;
+        }
+        catch (Exception ex)
+        {
+            logger?.LogInformation(ex, "Video preroll decode failed");
+        }
+        finally
+        {
+            if (frames is not null)
+            {
+                FreeFrames(frames);
+            }
+
+            source?.Dispose();
+            if (packet is not null)
+            {
+                ffmpeg.av_packet_free(&packet);
+            }
+
+            if (frame is not null)
+            {
+                ffmpeg.av_frame_free(&frame);
+            }
+
+            if (softwareFrame is not null)
+            {
+                ffmpeg.av_frame_free(&softwareFrame);
+            }
+
+            if (thumbScaler is not null)
+            {
+                ffmpeg.sws_freeContext(thumbScaler);
+            }
+        }
+    }
+
+    /// <summary>打开一路解码源（输入 + 流元数据 + 解码器）；失败时释放已创建资源后原样抛出。</summary>
+    private unsafe DecodeSource OpenDecodeSource(string path, bool softwareOnly)
+    {
+        var formatContext = OpenInput(path);
+        try
+        {
+            var streamIndex = ffmpeg.av_find_best_stream(
+                formatContext, AVMediaType.AVMEDIA_TYPE_VIDEO, -1, -1, null, 0);
+            if (streamIndex < 0)
+            {
+                throw new InvalidOperationException($"Video has no video stream: {path}");
+            }
+
+            var stream = formatContext->streams[streamIndex];
+            var timeBase = ffmpeg.av_q2d(stream->time_base);
+            var fps = ffmpeg.av_q2d(stream->avg_frame_rate);
+            if (fps <= 0)
+            {
+                fps = ffmpeg.av_q2d(stream->r_frame_rate);
+            }
+
+            // 时长：容器时长优先，回退流时长 × 时间基；都拿不到记 0（不做分析与预卷）
+            var duration = formatContext->duration != AV_NOPTS_VALUE && formatContext->duration > 0
+                ? formatContext->duration / (double)AV_TIME_BASE
+                : stream->duration > 0 && timeBase > 0 ? stream->duration * timeBase : 0;
+            AVBufferRef* hwDevice = null;
+            var codecContext = OpenDecoder(stream->codecpar, ref hwDevice, softwareOnly);
+            return new DecodeSource(formatContext, codecContext, hwDevice, streamIndex, timeBase, fps, duration);
+        }
+        catch
+        {
+            ffmpeg.avformat_close_input(&formatContext);
+            throw;
         }
     }
 
@@ -358,7 +711,7 @@ public sealed class FfmpegVideoBackdropPlayer(
     }
 
     /// <summary>打开解码器：先试硬解（Windows D3D11VA / Linux VAAPI），设备创建失败自动回软解；硬解设备引用经 <paramref name="device"/> 返回。</summary>
-    private unsafe AVCodecContext* OpenDecoder(AVCodecParameters* parameters, ref AVBufferRef* device)
+    private unsafe AVCodecContext* OpenDecoder(AVCodecParameters* parameters, ref AVBufferRef* device, bool softwareOnly = false)
     {
         var decoder = ffmpeg.avcodec_find_decoder(parameters->codec_id);
         if (decoder is null)
@@ -369,7 +722,8 @@ public sealed class FfmpegVideoBackdropPlayer(
         var context = ffmpeg.avcodec_alloc_context3(decoder);
         ffmpeg.avcodec_parameters_to_context(context, parameters);
 
-        var hwType = OperatingSystem.IsWindows() ? AVHWDeviceType.AV_HWDEVICE_TYPE_D3D11VA
+        var hwType = softwareOnly ? AVHWDeviceType.AV_HWDEVICE_TYPE_NONE
+            : OperatingSystem.IsWindows() ? AVHWDeviceType.AV_HWDEVICE_TYPE_D3D11VA
             : OperatingSystem.IsLinux() ? AVHWDeviceType.AV_HWDEVICE_TYPE_VAAPI
             : AVHWDeviceType.AV_HWDEVICE_TYPE_NONE;
         AVBufferRef* created = null;
@@ -392,6 +746,156 @@ public sealed class FfmpegVideoBackdropPlayer(
         }
 
         return context;
+    }
+
+    /// <summary>读取并解码下一帧软帧：硬解输出回读系统内存，软解转移引用。<paramref name="ptsSeconds"/>
+    /// 取自原始解码帧（硬解回读不拷贝时间戳属性，必须在回读前捕获）；返回 false = 流结束或无法继续。</summary>
+    private static unsafe bool TryDecodeNextSoftFrame(
+        DecodeSource source,
+        AVPacket* packet,
+        AVFrame* frame,
+        AVFrame* softwareFrame,
+        out double ptsSeconds,
+        DecodeFailureLog? failures = null)
+    {
+        ptsSeconds = double.NaN;
+        while (true)
+        {
+            var readResult = ffmpeg.av_read_frame(source.FormatContext, packet);
+            if (readResult < 0)
+            {
+                if (readResult != AVERROR_EOF)
+                {
+                    failures?.Log("demuxer read error {Code}", readResult);
+                }
+
+                return false;
+            }
+
+            if (packet->stream_index != source.StreamIndex)
+            {
+                // 音频/字幕/封面等其他流：直接跳过（背景视频不解码音轨）
+                ffmpeg.av_packet_unref(packet);
+                continue;
+            }
+
+            var sent = ffmpeg.avcodec_send_packet(source.CodecContext, packet) >= 0;
+            ffmpeg.av_packet_unref(packet);
+            if (!sent)
+            {
+                failures?.Log("packet rejected by decoder (stream {Stream})", source.StreamIndex);
+                continue;
+            }
+
+            if (ffmpeg.avcodec_receive_frame(source.CodecContext, frame) < 0)
+            {
+                // 解码器内部缓冲未出帧（EAGAIN）：继续喂数据
+                continue;
+            }
+
+            // 原始帧的时间戳由解码器写入；回读/转移后再读会丢失
+            var capturedPts = BestEffortPts(frame, source.TimeBase);
+            var ok = true;
+            if (frame->hw_frames_ctx is not null)
+            {
+                // 硬解输出的是 GPU 帧：回读到系统内存再进统一管线（PCIe 回读开销极小）
+                ok = ffmpeg.av_hwframe_transfer_data(softwareFrame, frame, 0) >= 0;
+                if (!ok)
+                {
+                    failures?.Log("hw frame transfer failed");
+                }
+            }
+            else
+            {
+                // 软解：把解码帧引用转移到 softwareFrame，统一后续管线
+                ok = ffmpeg.av_frame_ref(softwareFrame, frame) == 0;
+            }
+
+            ffmpeg.av_frame_unref(frame);
+            ptsSeconds = ok ? capturedPts : double.NaN;
+            return ok;
+        }
+    }
+
+    /// <summary>帧呈现时刻（秒）：优先 best_effort_timestamp，缺失回退 pts；无时间基或无有效值返回 NaN。</summary>
+    private static unsafe double BestEffortPts(AVFrame* frame, double timeBase)
+    {
+        if (timeBase <= 0)
+        {
+            return double.NaN;
+        }
+
+        var pts = frame->best_effort_timestamp;
+        if (pts == AV_NOPTS_VALUE || pts < 0)
+        {
+            pts = frame->pts;
+        }
+
+        return pts != AV_NOPTS_VALUE && pts >= 0 ? pts * timeBase : double.NaN;
+    }
+
+    /// <summary>把软帧缩略成固定尺寸灰度图（分析用小尺寸 sws，缩略上下文按源格式缓存复用）；失败返回 null。</summary>
+    private static unsafe byte[]? ExtractGrayThumb(AVFrame* softFrame, ref SwsContext* thumbScaler)
+    {
+        if (softFrame->width <= 0 || softFrame->height <= 0)
+        {
+            return null;
+        }
+
+        thumbScaler = ffmpeg.sws_getCachedContext(
+            thumbScaler, softFrame->width, softFrame->height, (AVPixelFormat)softFrame->format,
+            SeamAnalyzer.ThumbWidth, SeamAnalyzer.ThumbHeight, AVPixelFormat.AV_PIX_FMT_GRAY8,
+            SwsBilinear, null, null, null);
+        if (thumbScaler is null)
+        {
+            return null;
+        }
+
+        var thumb = new byte[SeamAnalyzer.ThumbWidth * SeamAnalyzer.ThumbHeight];
+        fixed (byte* thumbPtr = thumb)
+        {
+            var destination = new byte_ptrArray4 { [0] = thumbPtr };
+            var destinationLines = new int_array4 { [0] = SeamAnalyzer.ThumbWidth };
+            ffmpeg.sws_scale(thumbScaler, softFrame->data, softFrame->linesize, 0, softFrame->height,
+                destination, destinationLines);
+        }
+
+        return thumb;
+    }
+
+    /// <summary>接缝差：旧循环末帧（仍在像素暂存缓冲里）与预卷首帧缩略的平均绝对差；无末帧视为最大（必然走淡化）。</summary>
+    private static unsafe double ComputeSeamDiff(byte* pixelBuffer, int width, int height, byte[] prerollFirstThumb)
+    {
+        if (pixelBuffer is null || width <= 0 || height <= 0)
+        {
+            return double.MaxValue;
+        }
+
+        var lastThumb = SeamAnalyzer.DownsampleBgraToGray(
+            pixelBuffer, width, height, width * 4, SeamAnalyzer.ThumbWidth, SeamAnalyzer.ThumbHeight);
+        return SeamAnalyzer.MeanAbsoluteDifference(lastThumb, prerollFirstThumb);
+    }
+
+    /// <summary>释放帧引用队列（每帧 av_frame_free，队列随之清空）。</summary>
+    private static unsafe void FreeFrames(List<nint> frames)
+    {
+        foreach (var framePtr in frames)
+        {
+            var pointer = (AVFrame*)framePtr;
+            if (pointer is not null)
+            {
+                ffmpeg.av_frame_free(&pointer);
+            }
+        }
+
+        frames.Clear();
+    }
+
+    /// <summary>预卷负载的清理回调：释放预解码帧与解码源（交接状态机在恰当时机调用恰好一次）。</summary>
+    private static unsafe void FreePrerollPayload(PrerollPayload payload)
+    {
+        FreeFrames(payload.Frames);
+        payload.Source.Dispose();
     }
 
     /// <summary>
@@ -539,18 +1043,6 @@ public sealed class FfmpegVideoBackdropPlayer(
         }
     }
 
-    /// <summary>EOF 回卷：seek 回开头并冲刷解码器；返回 false = 无法回卷（应结束循环）。</summary>
-    private static unsafe bool Rewind(AVFormatContext* formatContext, AVCodecContext* codecContext, int streamIndex)
-    {
-        if (ffmpeg.av_seek_frame(formatContext, streamIndex, long.MinValue, AVSEEK_FLAG_BACKWARD) < 0)
-        {
-            return false;
-        }
-
-        ffmpeg.avcodec_flush_buffers(codecContext);
-        return true;
-    }
-
     /// <summary>把渲染尺寸 clamp 到上限并偶数化（多数编码器要求偶数尺寸）。</summary>
     private static (int Width, int Height) ClampEven(int width, int height)
     {
@@ -597,6 +1089,93 @@ public sealed class FfmpegVideoBackdropPlayer(
             Interlocked.Exchange(ref _lastTicks, now);
             notify();
         }
+    }
+
+    [ExcludeFromCodeCoverage]
+    /// <summary>一路打开的视频解码源（输入 + 解码器 + 硬解设备）与流元数据；循环接缝处整体收编替换。</summary>
+    private sealed unsafe class DecodeSource : IDisposable
+    {
+        /// <summary>输入格式上下文。</summary>
+        public AVFormatContext* FormatContext;
+
+        /// <summary>视频解码器上下文。</summary>
+        public AVCodecContext* CodecContext;
+
+        /// <summary>硬解设备引用（软解为 null）。</summary>
+        public AVBufferRef* HwDevice;
+
+        /// <summary>视频流下标。</summary>
+        public readonly int StreamIndex;
+
+        /// <summary>流时间基（秒）。</summary>
+        public readonly double TimeBase;
+
+        /// <summary>平均帧率（fps）。</summary>
+        public readonly double Fps;
+
+        /// <summary>容器时长（秒，拿不到为 0）。</summary>
+        public readonly double DurationSeconds;
+
+        /// <summary>组装解码源。</summary>
+        public DecodeSource(
+            AVFormatContext* formatContext,
+            AVCodecContext* codecContext,
+            AVBufferRef* hwDevice,
+            int streamIndex,
+            double timeBase,
+            double fps,
+            double durationSeconds)
+        {
+            FormatContext = formatContext;
+            CodecContext = codecContext;
+            HwDevice = hwDevice;
+            StreamIndex = streamIndex;
+            TimeBase = timeBase;
+            Fps = fps;
+            DurationSeconds = durationSeconds;
+        }
+
+        /// <summary>按依赖逆序释放全部原生资源（各指针释放后置 null，可安全重复调用）。</summary>
+        public void Dispose()
+        {
+            var codecContext = CodecContext;
+            if (codecContext is not null)
+            {
+                CodecContext = null;
+                ffmpeg.avcodec_free_context(&codecContext);
+            }
+
+            var hwDevice = HwDevice;
+            if (hwDevice is not null)
+            {
+                HwDevice = null;
+                ffmpeg.av_buffer_unref(&hwDevice);
+            }
+
+            var formatContext = FormatContext;
+            if (formatContext is not null)
+            {
+                FormatContext = null;
+                ffmpeg.avformat_close_input(&formatContext);
+            }
+        }
+    }
+
+    [ExcludeFromCodeCoverage]
+    /// <summary>预卷负载：已对齐循环起点的解码源 + 预解码的软件帧队列（含捕获的 pts）+ 首帧灰度缩略。</summary>
+    private sealed unsafe class PrerollPayload(DecodeSource source, List<nint> frames, List<double> pendingPts, byte[] firstThumb)
+    {
+        /// <summary>已打开并对齐到循环起点的解码源（含硬解设备）。</summary>
+        public readonly DecodeSource Source = source;
+
+        /// <summary>预解码的软件帧指针（nint 存放 AVFrame*，引用计数持有，按呈现顺序排列）。</summary>
+        public readonly List<nint> Frames = frames;
+
+        /// <summary>与 <see cref="Frames"/> 一一对应的呈现时刻（秒，硬解回读会丢属性所以提前捕获）。</summary>
+        public readonly List<double> PendingPts = pendingPts;
+
+        /// <summary>首帧的灰度缩略（接缝差计算用）。</summary>
+        public readonly byte[] FirstThumb = firstThumb;
     }
 
     /// <inheritdoc/>
