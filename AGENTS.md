@@ -16,6 +16,26 @@ dotnet format whitespace --verify-no-changes
 # 单个测试：dotnet test --project <csproj> --filter-fqn "<完整类型名>.<方法名>"
 ```
 
+## 文档同步（改代码时必须执行）
+
+文档过期是本仓库的历史顽疾。**功能性改动落在下表左列时，必须在同一个变更内同步右列文档**；拿不准就全量跑一次 `/docs-sync` 技能（每周六 10:00 定时自动化也会跑）。
+
+| 代码区域 | 必须同步的文档 |
+|---|---|
+| 视频播放器/无缝循环（FfmpegVideoBackdropPlayer、SeamAnalyzer、PrerollHandoff） | docs/ARCHITECTURE.md §3.7 |
+| 设置模型与校验（AppSettings、GameCatalogService） | docs/GAME_CONFIG.md settings 表 + §5 校验规则 |
+| 配置模板（samples/games.json） | docs/GAME_CONFIG.md + README 快速开始 |
+| UI 结构/色值/控件常数（App.axaml、MainWindow.axaml） | 本文件"主窗口结构速查" + skills avalonia-ui、desktop-ui-design |
+| 新增/删除源文件 | docs/DEVELOPMENT.md §2 目录职责 |
+| 新功能/测试数/常用命令 | README 功能表与测试节、docs/DEVELOPMENT.md §2 |
+| 测试基建与坑 | skills avalonia-headless-testing |
+
+三条纪律：
+
+1. **点值必须标注**：往文档写数量/色值/尺寸/清单这类快照时，要么带"实测日期"（如"2026-09 实测"），要么改成可推导命令；能不写快照就不写。
+2. **单一事实源**：同一事实只在一处权威定义，其余位置链接过去（历史教训：README 与 GAME_CONFIG 各写一份且互相矛盾）。
+3. **流程性描述跟代码走**：时序图、线程模型、抽象表这类描述行为的段落，改动对应代码时当作代码的一部分一起改，不留"以后再说"。
+
 ## 分层边界
 
 - `Core`（领域层）：零 UI 依赖、零厂商依赖；抽象在 `Abstractions/`，渠道只看 `IGameChannelApi`。
