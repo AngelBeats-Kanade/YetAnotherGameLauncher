@@ -1,0 +1,63 @@
+# 基于 GitHub 官方 .NET 模板（actions/starter-workflows ci/dotnet.yml）改造：
+# 双平台 matrix、零警告构建、MTP 测试执行体直跑、格式校验、NuGet 缓存。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 仓库硬约束之一：whitespace 格式零差异（ubuntu 单腿快速失败）
+  format:
+    name: format (whitespace)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: Verify whitespace formatting
+        run: dotnet format whitespace --verify-no-changes
+
+  build-and-test:
+    name: build & test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      # setup-dotnet v6 的内置缓存要求 packages.lock.json（本仓库无锁文件），退回 actions/cache
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+      - name: Restore dependencies
+        run: dotnet restore
+      # 零警告是仓库硬约束（TreatWarningsAsErrors=true）
+      - name: Build (zero warnings)
+        run: dotnet build --no-restore -warnaserror
+      # 官方模板用 dotnet test --no-build；本仓库验证过的方式是直接运行 xunit.v3/MTP
+      # 测试执行体（dotnet test 在部分环境发现 0 个测试），失败即非零退出码
+      - name: Test
+        shell: bash
+        run: |
+          dotnet tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll
+          dotnet tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll
+          dotnet tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll
+          dotnet tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Hypergryph.Tests.dll

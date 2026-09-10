@@ -1,5 +1,7 @@
 # YetAnotherGameLauncher
 
+[![CI](https://github.com/AngelBeats-Kanade/YetAnotherGameLauncher/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AngelBeats-Kanade/YetAnotherGameLauncher/actions/workflows/ci.yml)
+
 一个基于 **.NET 10 + Avalonia 12 + MVVM** 的开源游戏启动器，为 Linux（及 Windows）桌面设计。
 游戏本体通过 **配置文件** 驱动，代码不内置任何具体游戏；当前目标是：
 
