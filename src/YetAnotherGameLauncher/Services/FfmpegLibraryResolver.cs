@@ -143,12 +143,19 @@ public sealed partial class FfmpegLibraryResolver(
     /// <summary>
     /// 系统是否已装与绑定精确同版本的 FFmpeg：探测 avcodec 的配套主版本文件（文件名预检，
     /// 不触碰 ffmpeg 类型——读取其任何成员都会触发一次性绑定而烧掉目录注入机会）。
+    /// Linux 必须带 so 版本号：加载其它主版本会因 ABI 不配套在结构体调用处崩溃，宁缺毋滥。
     /// </summary>
     private static bool SystemLibraryPresent() => NativeLibrary.TryLoad(
-        OperatingSystem.IsWindows() ? BoundAvcodecFile : $"lib{BoundAvcodecFile}", out _);
+        OperatingSystem.IsWindows()
+            ? BoundAvcodecFile
+            : $"libavcodec.so.{BoundLibavMajor}",
+        out _);
 
     /// <summary>绑定（FFmpeg.AutoGen 9.0.x ↔ FFmpeg 9.0）所需的 avcodec 文件名（Windows 形态）。</summary>
     private const string BoundAvcodecFile = "avcodec-63.dll";
+
+    /// <summary>绑定所需的 libavcodec 主版本号（Linux 的 so 版本号，与 <see cref="BoundAvcodecFile"/> 同步改）。</summary>
+    internal const int BoundLibavMajor = 63;
 
     /// <summary>下载 BtbN 资产（SHA256 校验）并解压到应用数据目录。</summary>
     private async Task DownloadAndExtract(CancellationToken cancellationToken)
@@ -335,6 +342,19 @@ public sealed partial class FfmpegLibraryResolver(
 
             if (handle == IntPtr.Zero)
             {
+                if (OperatingSystem.IsLinux())
+                {
+                    // 发行版布局：lib<名>.so.<主版本>（精确配套）→ lib<名>.so（-dev 符号链接，
+                    // 指向已装同系列版本）。裸 dlopen("avcodec") 在 Linux 永远失败——
+                    // 既无 lib 前缀也无版本号，这是旧实现系统库探测失效的另一半原因
+                    if (NativeLibrary.TryLoad($"lib{libraryName}.so.{BoundLibavMajor}", out handle)
+                        || NativeLibrary.TryLoad($"lib{libraryName}.so", out handle))
+                    {
+                        _loaded[libraryName] = handle;
+                        return handle;
+                    }
+                }
+
                 NativeLibrary.TryLoad(libraryName, out handle);
             }
 

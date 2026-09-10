@@ -710,7 +710,7 @@ public sealed class FfmpegVideoBackdropPlayer(
         return context;
     }
 
-    /// <summary>打开解码器：先试硬解（Windows D3D11VA / Linux VAAPI），设备创建失败自动回软解；硬解设备引用经 <paramref name="device"/> 返回。</summary>
+    /// <summary>打开解码器：按平台顺序试硬解（Windows D3D11VA / Linux VAAPI→NVDEC），全部创建失败回软解；硬解设备引用经 <paramref name="device"/> 返回。</summary>
     private unsafe AVCodecContext* OpenDecoder(AVCodecParameters* parameters, ref AVBufferRef* device, bool softwareOnly = false)
     {
         var decoder = ffmpeg.avcodec_find_decoder(parameters->codec_id);
@@ -722,19 +722,29 @@ public sealed class FfmpegVideoBackdropPlayer(
         var context = ffmpeg.avcodec_alloc_context3(decoder);
         ffmpeg.avcodec_parameters_to_context(context, parameters);
 
-        var hwType = softwareOnly ? AVHWDeviceType.AV_HWDEVICE_TYPE_NONE
-            : OperatingSystem.IsWindows() ? AVHWDeviceType.AV_HWDEVICE_TYPE_D3D11VA
-            : OperatingSystem.IsLinux() ? AVHWDeviceType.AV_HWDEVICE_TYPE_VAAPI
-            : AVHWDeviceType.AV_HWDEVICE_TYPE_NONE;
+        // Linux 按序尝试：VAAPI 覆盖 AMD/Intel（Mesa），创建失败（如 NVIDIA 专有驱动无 VAAPI）
+        // 再试 CUDA（NVDEC）——设备创建本身就是探测，失败自动落到下一项
+        var hwTypes = softwareOnly ? ReadOnlySpan<AVHWDeviceType>.Empty
+            : OperatingSystem.IsWindows()
+                ? [AVHWDeviceType.AV_HWDEVICE_TYPE_D3D11VA]
+                : OperatingSystem.IsLinux()
+                    ? [AVHWDeviceType.AV_HWDEVICE_TYPE_VAAPI, AVHWDeviceType.AV_HWDEVICE_TYPE_CUDA]
+                    : ReadOnlySpan<AVHWDeviceType>.Empty;
         AVBufferRef* created = null;
-        if (hwType != AVHWDeviceType.AV_HWDEVICE_TYPE_NONE
-            && ffmpeg.av_hwdevice_ctx_create(&created, hwType, null, null, 0) == 0)
+        foreach (var hwType in hwTypes)
         {
-            context->hw_device_ctx = ffmpeg.av_buffer_ref(created);
-            device = created;
-            logger?.LogDebug("Video backdrop hardware decode: {Type}", hwType);
+            if (ffmpeg.av_hwdevice_ctx_create(&created, hwType, null, null, 0) == 0)
+            {
+                context->hw_device_ctx = ffmpeg.av_buffer_ref(created);
+                device = created;
+                logger?.LogDebug("Video backdrop hardware decode: {Type}", hwType);
+                break;
+            }
+
+            created = null;
         }
-        else
+
+        if (context->hw_device_ctx is null)
         {
             logger?.LogDebug("Video backdrop hardware decode unavailable, falling back to software");
         }

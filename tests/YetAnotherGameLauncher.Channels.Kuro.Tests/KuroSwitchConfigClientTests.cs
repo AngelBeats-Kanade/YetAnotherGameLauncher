@@ -79,4 +79,31 @@ public class KuroSwitchConfigClientTests
 
         Assert.Null(config);
     }
+
+    [Fact]
+    public async Task FetchAsync_TransientFailure_RetriesOnceAndSucceeds()
+    {
+        _handler.Map("https://cdn.example.com/launcher/10003_H1/G152/switch.json", """
+            {"backgroundFile":"https://cdn.example.com/bg.mp4"}
+            """);
+        _handler.FailFirstN = 1; // 第一次瞬态故障（连接重置类）
+
+        var config = await CreateClient().FetchAsync(
+            "https://cdn.example.com/launcher/game/G152/10003_H1/index.json");
+
+        Assert.Equal("https://cdn.example.com/bg.mp4", config!.BackgroundFile);
+        Assert.Equal(2, _handler.Requests.Count); // 恰好重试一次
+    }
+
+    [Fact]
+    public async Task FetchAsync_PersistentFailure_GivesUpAfterRetry()
+    {
+        _handler.FailFirstN = 10;
+
+        var config = await CreateClient().FetchAsync(
+            "https://cdn.example.com/launcher/game/G152/10003_H1/index.json");
+
+        Assert.Null(config);
+        Assert.Equal(2, _handler.Requests.Count); // 不无限重试：最多两次
+    }
 }
