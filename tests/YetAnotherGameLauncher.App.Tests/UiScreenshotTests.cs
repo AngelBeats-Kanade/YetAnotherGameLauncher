@@ -232,6 +232,16 @@ public class UiScreenshotTests
             }
 
             var wuwa = ctx.Vm.Games[0];
+
+            // 空态（官方未投放背景 + 无缓存）：渐变 + 官方图标水印
+            var iconFile = ctx.TempDir.FilePath("game-icon.png");
+            CreateTestBackground(iconFile);
+            const string wuwaIconUrl = "https://is1-ssl.mzstatic.com/wuwa-icon.jpg";
+            ctx.BackgroundHandler.Map(wuwaIconUrl, await File.ReadAllBytesAsync(iconFile));
+            wuwa.Game.Icon = wuwaIconUrl;
+            await wuwa.RefreshAsync();
+            Capture("12-detail-empty-state-dark.png");
+
             var exePath = Path.Combine(
                 wuwa.InstallDirPath, "Client", "Binaries", "Win64", "Client-Win64-Shipping.exe");
             Directory.CreateDirectory(Path.GetDirectoryName(exePath)!);

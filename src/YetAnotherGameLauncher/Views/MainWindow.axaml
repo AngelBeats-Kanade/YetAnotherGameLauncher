@@ -600,15 +600,23 @@
                                     <controls:FrameSurface Player="{Binding VideoPlayer}"
                                                            IsVisible="{Binding HasBackgroundVideo}"/>
 
-                                    <!-- 无插画回退：固定深色渐变底，白字在两主题同样可读 -->
-                                    <Border IsVisible="{Binding !HasBackgroundImage}">
-                                        <Border.Background>
-                                            <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                                                <GradientStop Color="#232B3A" Offset="0"/>
-                                                <GradientStop Color="#0D1017" Offset="1"/>
-                                            </LinearGradientBrush>
-                                        </Border.Background>
-                                    </Border>
+                                    <!-- 无插画回退：固定深色渐变底 + 官方图标水印。
+                                         空态设计（desktop-ui-design §5）：官方未投放背景/缓存缺失时，
+                                         详情页仍是"这个游戏"的页面而非黑屏；图标缺失时优雅降级为纯渐变 -->
+                                    <Grid IsVisible="{Binding !HasBackgroundImage}">
+                                        <Border>
+                                            <Border.Background>
+                                                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                                                    <GradientStop Color="#232B3A" Offset="0"/>
+                                                    <GradientStop Color="#0D1017" Offset="1"/>
+                                                </LinearGradientBrush>
+                                            </Border.Background>
+                                        </Border>
+                                        <Image Source="{Binding GameIcon}" IsVisible="{Binding HasGameIcon}"
+                                               Stretch="Uniform" MaxWidth="380" MaxHeight="380"
+                                               HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                               Margin="0,0,56,72" Opacity="0.13"/>
+                                    </Grid>
 
                                     <Grid RowDefinitions="*,Auto" Margin="42,36,42,30">
 
@@ -1168,7 +1176,8 @@
                                                     <TextBlock Text="{Binding Loc[settings_section_location]}" FontSize="15" FontWeight="SemiBold"/>
                                                     <TextBlock Text="{Binding Loc[launch_installDir]}" Classes="card-caption" Margin="0,4,0,0"/>
                                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                                                        <TextBox Grid.Column="0" x:Name="InstallDirBox" Text="{Binding LaunchSettings.InstallDirDraft}"/>
+                                                        <TextBox Grid.Column="0" x:Name="InstallDirBox" Text="{Binding LaunchSettings.InstallDirDraft}"
+                                                                 Padding="10,7"/>
                                                         <Button Grid.Column="1" Content="{Binding Loc[launch_installDirBrowse]}"
                                                                 Command="{Binding LaunchSettings.BrowseInstallDirCommand}"
                                                                 Classes="pressable btn-sm"/>
