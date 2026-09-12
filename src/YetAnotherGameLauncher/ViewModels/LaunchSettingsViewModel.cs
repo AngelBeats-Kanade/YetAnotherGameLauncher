@@ -153,7 +153,8 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     public bool CanPrepareUmuComponents =>
         IsNativeUmuMode && IsLinux && _umuProvisioner is not null && !IsPreparingUmuComponents;
 
-    /// <summary>进入原生 umu 模式时刷新组件状态摘要（不触网）。</summary>
+    /// <summary>进入原生 umu 模式时刷新组件状态摘要（不触网）。
+    /// 判定与启动时 Ensure* 请求对齐：只认 ResolveNativeProtonRequest 命中的 Proton / 默认 Runtime。</summary>
     private void RefreshNativeUmuStatus()
     {
         if (!IsNativeUmuMode || _umuProvisioner is null)
@@ -163,11 +164,17 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             return;
         }
 
-        var proton = ResolveNativeProtonRequest();
-        var protonReady = _umuProvisioner.IsProtonReady(proton)
-                          || _protonVersions.Any(v => _umuProvisioner.IsProtonReady(
-                              Path.Combine(Core.Services.Umu.UmuPaths.SteamCompatRoot(_dataHome), v)));
-        var runtimeReady = _umuProvisioner.IsRuntimeReady("steamrt4");
+        var protonRequest = ResolveNativeProtonRequest();
+        var protonReady = _umuProvisioner.IsProtonReady(protonRequest)
+            || (!Path.IsPathRooted(protonRequest)
+                && _protonVersions.Any(v =>
+                    _umuProvisioner.IsProtonReady(Path.Combine(
+                        Core.Services.Umu.UmuPaths.SteamCompatRoot(_dataHome), v))
+                    && v.StartsWith(
+                        protonRequest.StartsWith("UMU", StringComparison.OrdinalIgnoreCase) ? "UMU-Proton" : "GE-Proton",
+                        StringComparison.OrdinalIgnoreCase)));
+        var runtimeReady = _umuProvisioner.IsRuntimeReady(
+            Core.Services.Umu.SteamRuntimeCatalog.Default.Variant);
         NativeUmuStatusText = protonReady && runtimeReady
             ? _loc["launch_native_components_ready"]
             : protonReady
@@ -224,6 +231,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         catch (Exception ex)
         {
             Save.SetFailure(ex.Message);
+            RefreshNativeUmuStatus();
         }
         finally
         {
