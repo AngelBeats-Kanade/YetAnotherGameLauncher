@@ -169,8 +169,7 @@ public partial class LaunchErrorViewModel : ViewModelBase
         HasExtraStatus = false;
         try
         {
-            await _umuInstaller.InstallLatestAsync(_umuInstallDirectory, cancellationToken: cancellationToken)
-                .ConfigureAwait(true);
+            await _umuInstaller.InstallLatestAsync(_umuInstallDirectory, cancellationToken: cancellationToken);
             CanInstallUmu = false;
             ExtraStatus = _loc["launch_error_umu_done"];
             HasExtraStatus = true;

@@ -145,10 +145,7 @@ public sealed class UmuLauncherInstaller(HttpClient httpClient, IDownloader down
         {
             File.Delete(path);
         }
-        catch (IOException)
-        {
-        }
-        catch (UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
         }
     }

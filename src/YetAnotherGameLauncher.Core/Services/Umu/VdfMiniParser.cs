@@ -11,10 +11,8 @@ public static class VdfMiniParser
     /// <summary>解析 VDF 文本为嵌套字典（子表也是 Dictionary&lt;string, object&gt;）。</summary>
     public static Dictionary<string, object> Parse(string text)
     {
-        var tokens = Tokenize(text);
         var index = 0;
-        var root = ParseObject(tokens, ref index);
-        return root;
+        return ParseObject(Tokenize(text), ref index);
     }
 
     /// <summary>从文件读取并解析。</summary>

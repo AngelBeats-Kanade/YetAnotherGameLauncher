@@ -6,6 +6,7 @@ using YetAnotherGameLauncher.Core;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
+using YetAnotherGameLauncher.Core.Services.Umu;
 using YetAnotherGameLauncher.Services;
 
 namespace YetAnotherGameLauncher.ViewModels;
@@ -23,9 +24,9 @@ public partial class GameItemViewModel(
     GameBackdropService backdropService,
     IVideoBackdropPlayer? videoPlayer = null,
     IFilePickerService? filePicker = null,
-    Core.Abstractions.IPlatformInfo? platformInfo = null,
+    IPlatformInfo? platformInfo = null,
     UmuLauncherInstaller? umuInstaller = null,
-    Core.Services.Umu.NativeUmuLauncher? nativeUmu = null,
+    NativeUmuLauncher? nativeUmu = null,
     IUmuComponentProvisioner? umuProvisioner = null) : ViewModelBase
 {
     private string _installDir = installDir;
@@ -33,7 +34,7 @@ public partial class GameItemViewModel(
     private readonly IFilePickerService? _filePicker = filePicker;
 
     /// <summary>原生 umu 启动器（Linux 内置启动链；null = 不可用/测试）。</summary>
-    private readonly Core.Services.Umu.NativeUmuLauncher? _nativeUmu = nativeUmu;
+    private readonly NativeUmuLauncher? _nativeUmu = nativeUmu;
 
     /// <summary>原生 umu 组件准备器（设置卡检查/下载；null = 不可用）。</summary>
     private readonly IUmuComponentProvisioner? _umuProvisioner = umuProvisioner;
@@ -47,10 +48,10 @@ public partial class GameItemViewModel(
     private LaunchSettingsViewModel? _launchSettings;
 
     /// <summary>平台环境（Linux 兼容层能力等；透传给启动设置卡）。</summary>
-    public Core.Abstractions.IPlatformInfo Platform { get; } =
+    public IPlatformInfo Platform { get; } =
         platformInfo ?? (OperatingSystem.IsLinux()
-            ? new Core.Services.LinuxPlatformInfo()
-            : new Core.Services.WindowsPlatformInfo());
+            ? new LinuxPlatformInfo()
+            : new WindowsPlatformInfo());
 
     /// <summary>启动设置编辑卡（保存走 GameCatalogService 整文件原子写）。</summary>
     public LaunchSettingsViewModel LaunchSettings => _launchSettings ??= new(

@@ -42,8 +42,8 @@ public sealed record ToolManifest(
                 $"toolmanifest.vdf（{manifestPath}）缺少 commandline 字段。");
         var layerName = VdfMiniParser.GetString(manifest, "compatmanager_layer_name") ?? "";
         var requiredAppId = VdfMiniParser.GetString(manifest, "require_tool_appid");
-        var displayName = toolPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        displayName = Path.GetFileName(displayName);
+        var displayName = Path.GetFileName(
+            toolPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 
         var compatPath = Path.Combine(toolPath, "compatibilitytool.vdf");
         if (File.Exists(compatPath))

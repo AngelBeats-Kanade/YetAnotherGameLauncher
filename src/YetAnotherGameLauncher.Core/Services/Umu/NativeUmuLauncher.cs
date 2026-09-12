@@ -108,21 +108,22 @@ public sealed class NativeUmuLauncher(
                 ex);
         }
 
+        var installFullPath = Path.GetFullPath(installDir);
         var request = new UmuLaunchRequest(
-            gameId, exe, Path.GetFullPath(installDir), protonPath, prefix, runtime, store);
+            gameId, exe, installFullPath, protonPath, prefix, runtime, store);
         var environment = UmuEnvironment.Build(request);
         if (extraEnvironment is not null)
         {
             foreach (var (key, value) in extraEnvironment)
             {
                 // 与 GameLauncherService.Expand 一致：环境值支持 {exe}/{installDir}
-                environment[key] = GameLauncherService.Expand(value, exe, Path.GetFullPath(installDir));
+                environment[key] = GameLauncherService.Expand(value, exe, installFullPath);
             }
         }
 
         var entry = BuildEntryCommand(
             manifest, runtime, environment["PROTON_VERB"], exe, dataHomeOverride ?? dataHome);
-        var arguments = QuoteArgs(entry.Skip(1).ToList());
+        var arguments = QuoteArgs(entry.Skip(1));
 
         logger?.LogInformation(
             "Native umu plan: {File} {Args} (runtime={Runtime})",
@@ -131,7 +132,7 @@ public sealed class NativeUmuLauncher(
         return new UmuNativeLaunchPlan(
             entry[0],
             arguments,
-            Path.GetFullPath(installDir),
+            installFullPath,
             environment,
             protonPath,
             runtime,
@@ -253,6 +254,7 @@ public sealed class NativeUmuLauncher(
         return sanitized.Length == 0 ? "game" : sanitized;
     }
 
-    private static string QuoteArgs(IReadOnlyList<string> args) =>
+    /// <summary>把含空格的参数包上双引号后以空格拼接。</summary>
+    private static string QuoteArgs(IEnumerable<string> args) =>
         string.Join(' ', args.Select(a => a.Contains(' ') ? $"\"{a}\"" : a));
 }

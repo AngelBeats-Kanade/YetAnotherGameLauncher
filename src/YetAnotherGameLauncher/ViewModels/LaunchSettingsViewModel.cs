@@ -4,6 +4,7 @@ using YetAnotherGameLauncher.Core;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
+using YetAnotherGameLauncher.Core.Services.Umu;
 using YetAnotherGameLauncher.Services;
 
 namespace YetAnotherGameLauncher.ViewModels;
@@ -20,7 +21,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     private readonly GameCatalogService _catalogService;
     private readonly ILocalizationService _loc;
     private readonly IFilePickerService? _filePicker;
-    private readonly Core.Abstractions.IPlatformInfo _platform;
+    private readonly IPlatformInfo _platform;
     private readonly IReadOnlyList<string> _protonVersions;
 
     /// <summary>已发现的运行时路径与数据目录（null = 未发现/未注入；测试显式传值保证确定性）。</summary>
@@ -37,7 +38,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         ILocalizationService loc,
         GameItemViewModel owner,
         IFilePickerService? filePicker = null,
-        Core.Abstractions.IPlatformInfo? platformInfo = null,
+        IPlatformInfo? platformInfo = null,
         IReadOnlyList<string>? protonVersions = null,
         string? umuRunPath = null,
         string? winePath = null,
@@ -51,8 +52,8 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         _loc = loc;
         _filePicker = filePicker;
         _platform = platformInfo ?? (OperatingSystem.IsLinux()
-            ? new Core.Services.LinuxPlatformInfo()
-            : new Core.Services.WindowsPlatformInfo());
+            ? new LinuxPlatformInfo()
+            : new WindowsPlatformInfo());
         _installDirDraft = installDir;
         _executableDraft = game.Executable;
         _protonVersions = protonVersions ?? (_platform.IsLinux ? CompatTools.FindProtonVersions() : []);
@@ -98,16 +99,33 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     }
 
     /// <summary>从命令模板推断当前启动方式（启发式：含 proton/umu/wine 关键词；{exe} 原样视为直接运行）。
-    /// 返回 LaunchModes 集合内的实例——ComboBox 的 SelectedItem 按引用匹配，游离实例会显示为空白。</summary>
+    /// 关键词按优先级依次匹配；返回 LaunchModes 集合内的实例——ComboBox 的 SelectedItem 按引用匹配，
+    /// 游离实例会显示为空白。</summary>
     private LaunchModeOption DetectLaunchMode(string commandTemplate)
     {
         var t = commandTemplate.Trim();
-        var mode = t.Contains("native-umu", StringComparison.OrdinalIgnoreCase) ? LaunchMode.NativeUmu
-            : t.Contains("proton", StringComparison.OrdinalIgnoreCase) ? LaunchMode.Proton
-            : t.Contains("umu-run", StringComparison.OrdinalIgnoreCase) ? LaunchMode.Umu
-            : t.Contains("wine", StringComparison.OrdinalIgnoreCase) ? LaunchMode.Wine
-            : t == "{exe}" ? LaunchMode.Direct
-            : LaunchMode.Custom;
+        var mode = LaunchMode.Custom;
+        if (t.Contains("native-umu", StringComparison.OrdinalIgnoreCase))
+        {
+            mode = LaunchMode.NativeUmu;
+        }
+        else if (t.Contains("proton", StringComparison.OrdinalIgnoreCase))
+        {
+            mode = LaunchMode.Proton;
+        }
+        else if (t.Contains("umu-run", StringComparison.OrdinalIgnoreCase))
+        {
+            mode = LaunchMode.Umu;
+        }
+        else if (t.Contains("wine", StringComparison.OrdinalIgnoreCase))
+        {
+            mode = LaunchMode.Wine;
+        }
+        else if (t == "{exe}")
+        {
+            mode = LaunchMode.Direct;
+        }
+
         return LaunchModes.First(m => m.Mode == mode);
     }
 
@@ -157,6 +175,10 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     private string ResolveNativeProtonRequest() =>
         CompatTools.ResolveNativeProtonRequest(ParseEnvironmentOrEmpty(EnvironmentText), _protonVersions);
 
+    /// <summary>Proton 本地不存在或清单不可读时的回退 Runtime（steamrt4，最新 UMU/GE-Proton 所需）。</summary>
+    private static (string Variant, string Name) FallbackRuntime =>
+        (SteamRuntimeCatalog.Default.Variant, SteamRuntimeCatalog.Default.Name);
+
     /// <summary>
     /// 刷新组件状态：只认与启动请求完全一致的 Proton（绝对路径 / 版本名 / 代号前缀最新），
     /// Runtime 按 Proton 的 toolmanifest 实际声明解析；Proton 本地不存在时按默认（steamrt4，最新 UMU/GE-Proton 所需）近似。
@@ -172,15 +194,21 @@ public partial class LaunchSettingsViewModel : ViewModelBase
 
         var protonRequest = ResolveNativeProtonRequest();
         var protonReady = IsProtonRequestReady(protonRequest);
-        var (runtimeVariant, _) = _umuProvisioner.ResolveRequiredRuntime(protonRequest)
-            ?? (Core.Services.Umu.SteamRuntimeCatalog.Default.Variant,
-                Core.Services.Umu.SteamRuntimeCatalog.Default.Name);
+        var (runtimeVariant, _) = _umuProvisioner.ResolveRequiredRuntime(protonRequest) ?? FallbackRuntime;
         var runtimeReady = _umuProvisioner.IsRuntimeReady(runtimeVariant);
-        NativeUmuStatusText = protonReady && runtimeReady
-            ? _loc["launch_native_components_ready"]
-            : protonReady
-                ? _loc["launch_native_runtime_missing"]
-                : _loc["launch_native_components_missing"];
+        if (protonReady && runtimeReady)
+        {
+            NativeUmuStatusText = _loc["launch_native_components_ready"];
+        }
+        else if (protonReady)
+        {
+            NativeUmuStatusText = _loc["launch_native_runtime_missing"];
+        }
+        else
+        {
+            NativeUmuStatusText = _loc["launch_native_components_missing"];
+        }
+
         OnPropertyChanged(nameof(CanPrepareUmuComponents));
     }
 
@@ -201,19 +229,15 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             return false;
         }
 
-        var root = Core.Services.Umu.UmuPaths.SteamCompatRoot(_dataHome);
+        var root = UmuPaths.SteamCompatRoot(_dataHome);
         var asName = Path.Combine(root, protonRequest);
         if (_umuProvisioner.IsProtonReady(asName))
         {
             return true;
         }
 
-        // 代号（UMU-Proton / GE-Proton）：该前缀下最新已装即可
-        var isCodename = string.Equals(protonRequest, "UMU-Proton", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(protonRequest, "GE-Proton", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(protonRequest, "UMU-Latest", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(protonRequest, "GE-Latest", StringComparison.OrdinalIgnoreCase);
-        if (!isCodename)
+        // 代号（UMU-Proton / GE-Proton 等，与准备器同一判定）：该前缀下最新已装即可
+        if (!UmuComponentProvisioner.IsCodename(protonRequest))
         {
             return false;
         }
@@ -246,16 +270,12 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 Save.SetSuccess(msg);
             });
             var proton = await _umuProvisioner
-                .EnsureProtonAsync(ResolveNativeProtonRequest(), progress, cancellationToken)
-                .ConfigureAwait(true);
+                .EnsureProtonAsync(ResolveNativeProtonRequest(), progress, cancellationToken);
             // 下载完成后重读 toolmanifest：Runtime 按刚就位的 Proton 实际声明准备
             var (runtimeVariant, runtimeName) =
-                _umuProvisioner.ResolveRequiredRuntime(ResolveNativeProtonRequest())
-                ?? (Core.Services.Umu.SteamRuntimeCatalog.Default.Variant,
-                    Core.Services.Umu.SteamRuntimeCatalog.Default.Name);
+                _umuProvisioner.ResolveRequiredRuntime(ResolveNativeProtonRequest()) ?? FallbackRuntime;
             await _umuProvisioner
-                .EnsureRuntimeAsync(runtimeVariant, runtimeName, progress, cancellationToken)
-                .ConfigureAwait(true);
+                .EnsureRuntimeAsync(runtimeVariant, runtimeName, progress, cancellationToken);
             Save.Clear();
             Save.SetSuccess(_loc["launch_native_components_ready"]);
             RefreshNativeUmuStatus();
@@ -302,7 +322,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         {
             var installDir = Path.Combine(AppPaths.DataDirectory, "umu");
             var installed = await _umuInstaller
-                .InstallLatestAsync(installDir, cancellationToken: cancellationToken).ConfigureAwait(true);
+                .InstallLatestAsync(installDir, cancellationToken: cancellationToken);
             _umuRunPath = installed; // 装完就地生效：提示消失，模板按 umu 重新生成
             Save.Clear();
             Save.SetSuccess(_loc["launch_error_umu_done"]);

@@ -41,7 +41,7 @@ public static class UmuPrefix
         SetupUserLinks(pfx, unixUserName ?? Environment.GetEnvironmentVariable("USER") ?? "steamuser");
     }
 
-    /// <summary>在 Linux 上对路径加用户执行位；Windows 为 no-op。</summary>
+    /// <summary>在 Linux 上对路径加用户执行位；Windows 为 no-op。IO 失败原样抛出，调用方负责映射为 LaunchException。</summary>
     public static void EnsureUserExecute(string path)
     {
         if (OperatingSystem.IsWindows() || !File.Exists(path))
@@ -49,15 +49,7 @@ public static class UmuPrefix
             return;
         }
 
-        try
-        {
-            File.SetUnixFileMode(path, File.GetUnixFileMode(path) | UnixFileMode.UserExecute);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            // 调用方负责把失败映射为 LaunchException
-            throw;
-        }
+        File.SetUnixFileMode(path, File.GetUnixFileMode(path) | UnixFileMode.UserExecute);
     }
 
     /// <summary>独占创建锁文件并持有到 Dispose（FileStream 独占，不使用 flock 系统调用）。</summary>

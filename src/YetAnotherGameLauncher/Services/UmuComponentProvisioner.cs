@@ -34,8 +34,6 @@ public sealed class UmuComponentProvisioner(
     /// <summary>Steam Runtime 镜像主机。</summary>
     public const string RuntimeHost = "https://repo.steampowered.com";
 
-    private static readonly char[] PathSeparators = [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar];
-
     /// <inheritdoc />
     public bool IsProtonReady(string protonPath)
     {
@@ -232,16 +230,7 @@ public sealed class UmuComponentProvisioner(
         try
         {
             using var document = JsonDocument.Parse(json);
-            var assets = document.RootElement.GetProperty("assets")
-                .EnumerateArray()
-                .Select(a => (
-                    Name: a.GetProperty("name").GetString() ?? "",
-                    Url: a.GetProperty("browser_download_url").GetString() ?? ""))
-                .Where(a => a.Name.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)
-                            && !a.Name.Contains("sha512", StringComparison.OrdinalIgnoreCase)
-                            && !a.Name.Contains("sha256sum", StringComparison.OrdinalIgnoreCase))
-                .ToArray();
-            asset = assets.FirstOrDefault();
+            asset = SelectTarGzAsset(document, requiredPrefix: null);
             if (string.IsNullOrEmpty(asset.Url))
             {
                 throw new LaunchException(
@@ -262,60 +251,11 @@ public sealed class UmuComponentProvisioner(
         }
 
         progress?.Report($"正在下载 {asset.Name}…");
-        var compatRoot = UmuPaths.SteamCompatRoot(dataHome);
-        Directory.CreateDirectory(compatRoot);
-        var extractName = asset.Name.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)
-            ? asset.Name[..^".tar.gz".Length]
-            : Path.GetFileNameWithoutExtension(asset.Name);
-        var targetDir = Path.Combine(compatRoot, extractName);
-        var tarPath = Path.Combine(UmuPaths.CacheRoot(cacheHome), asset.Name);
-        Directory.CreateDirectory(Path.GetDirectoryName(tarPath)!);
-
-        using (UmuPrefix.AcquireLock(UmuPaths.LockFile("proton.lock")))
-        {
-            if (IsProtonReady(targetDir))
-            {
-                return Path.GetFullPath(targetDir);
-            }
-
-            try
-            {
-                await downloader.DownloadFileAsync(
-                    new DownloadRequest(asset.Url, tarPath, ExpectedSize: null, ExpectedMd5: null),
-                    null,
-                    cancellationToken).ConfigureAwait(false);
-                ExtractSingleTopLevel(tarPath, targetDir);
-                if (!IsProtonReady(targetDir))
-                {
-                    throw new LaunchException(
-                        LaunchFailureKind.ProtonDownloadFailed,
-                        $"Proton 包「{asset.Name}」解压后缺少 proton 或 toolmanifest.vdf。");
-                }
-
-                TryChmod(Path.Combine(targetDir, "proton"));
-                logger?.LogInformation("Installed Proton {Tag} to {Dir}", tagName, targetDir);
-                return Path.GetFullPath(targetDir);
-            }
-            catch (LaunchException)
-            {
-                throw;
-            }
-            catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException
-                or ArchiveException or InvalidDataException or FormatException
-                or InvalidOperationException)
-            {
-                throw new LaunchException(
-                    LaunchFailureKind.ProtonDownloadFailed,
-                    $"Proton 下载或解压失败：{ex.Message}",
-                    ex);
-            }
-            finally
-            {
-                TryDelete(tarPath);
-            }
-        }
+        var (targetDir, tarPath) = ResolveProtonInstallPaths(asset.Name);
+        return await InstallProtonAssetAsync(asset, targetDir, tarPath, tagName, cancellationToken);
     }
 
+    /// <summary>按代号（UMU-Proton / GE-Proton）下载对应仓库的最新构建；返回 Proton 绝对目录。</summary>
     private async Task<string> DownloadLatestProtonAsync(
         string protonRequest,
         IProgress<string>? progress,
@@ -353,17 +293,7 @@ public sealed class UmuComponentProvisioner(
             var prefix = protonRequest.StartsWith("UMU", StringComparison.OrdinalIgnoreCase)
                 ? "UMU-Proton"
                 : "GE-Proton";
-            var assets = document.RootElement.GetProperty("assets")
-                .EnumerateArray()
-                .Select(a => (
-                    Name: a.GetProperty("name").GetString() ?? "",
-                    Url: a.GetProperty("browser_download_url").GetString() ?? ""))
-                .Where(a => a.Name.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)
-                            && a.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                            && !a.Name.Contains("sha512", StringComparison.OrdinalIgnoreCase)
-                            && !a.Name.Contains("sha256sum", StringComparison.OrdinalIgnoreCase))
-                .ToArray();
-            asset = assets.FirstOrDefault();
+            asset = SelectTarGzAsset(document, prefix);
             if (string.IsNullOrEmpty(asset.Url))
             {
                 throw new UpdateException($"Proton release 里没有匹配 {prefix}*.tar.gz 的资产。");
@@ -377,19 +307,56 @@ public sealed class UmuComponentProvisioner(
                 ex);
         }
 
+        progress?.Report($"正在下载 {asset.Name}…");
+        var (targetDir, tarPath) = ResolveProtonInstallPaths(asset.Name);
+        return await InstallProtonAssetAsync(asset, targetDir, tarPath, tagName: null, cancellationToken);
+    }
+
+    /// <summary>从 release 资产里选第一个可用的 .tar.gz（排除校验文件）；requiredPrefix 非空时限定文件名前缀。</summary>
+    private static (string Name, string Url) SelectTarGzAsset(JsonDocument document, string? requiredPrefix)
+    {
+        return document.RootElement.GetProperty("assets")
+            .EnumerateArray()
+            .Select(a => (
+                Name: a.GetProperty("name").GetString() ?? "",
+                Url: a.GetProperty("browser_download_url").GetString() ?? ""))
+            .Where(a => a.Name.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)
+                        && (requiredPrefix is null
+                            || a.Name.StartsWith(requiredPrefix, StringComparison.OrdinalIgnoreCase))
+                        && !a.Name.Contains("sha512", StringComparison.OrdinalIgnoreCase)
+                        && !a.Name.Contains("sha256sum", StringComparison.OrdinalIgnoreCase))
+            .ToArray()
+            .FirstOrDefault();
+    }
+
+    /// <summary>计算 Proton 压缩包的解压目标目录（compatibilitytools.d 下）与缓存归档路径，并建好所需目录。</summary>
+    private (string TargetDir, string TarPath) ResolveProtonInstallPaths(string assetName)
+    {
         var compatRoot = UmuPaths.SteamCompatRoot(dataHome);
         Directory.CreateDirectory(compatRoot);
-        var extractName = asset.Name.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)
-            ? asset.Name[..^".tar.gz".Length]
-            : Path.GetFileNameWithoutExtension(asset.Name);
-        var targetDir = Path.Combine(compatRoot, extractName);
-        var tarPath = Path.Combine(
-            UmuPaths.CacheRoot(cacheHome),
-            asset.Name);
-
+        var targetDir = Path.Combine(compatRoot, ProtonExtractDirectoryName(assetName));
+        var tarPath = Path.Combine(UmuPaths.CacheRoot(cacheHome), assetName);
         Directory.CreateDirectory(Path.GetDirectoryName(tarPath)!);
-        progress?.Report($"正在下载 {asset.Name}…");
+        return (targetDir, tarPath);
+    }
 
+    /// <summary>去掉 .tar.gz 扩展名作为解压目录名；其余扩展名仅去最后一段扩展。</summary>
+    private static string ProtonExtractDirectoryName(string assetName) =>
+        assetName.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)
+            ? assetName[..^".tar.gz".Length]
+            : Path.GetFileNameWithoutExtension(assetName);
+
+    /// <summary>
+    /// proton.lock 互斥下的落位流程：已就绪直接返回；否则下载归档 → 解包 → 校验目录布局 → 补执行位，
+    /// 归档无论成败用后即删。tagName 仅用于日志（按 tag 下载时记录版本名）。返回 Proton 绝对目录。
+    /// </summary>
+    private async Task<string> InstallProtonAssetAsync(
+        (string Name, string Url) asset,
+        string targetDir,
+        string tarPath,
+        string? tagName,
+        CancellationToken cancellationToken)
+    {
         using (UmuPrefix.AcquireLock(UmuPaths.LockFile("proton.lock")))
         {
             if (IsProtonReady(targetDir))
@@ -415,7 +382,15 @@ public sealed class UmuComponentProvisioner(
                 }
 
                 TryChmod(Path.Combine(targetDir, "proton"));
-                logger?.LogInformation("Installed Proton to {Dir}", targetDir);
+                if (tagName is null)
+                {
+                    logger?.LogInformation("Installed Proton to {Dir}", targetDir);
+                }
+                else
+                {
+                    logger?.LogInformation("Installed Proton {Tag} to {Dir}", tagName, targetDir);
+                }
+
                 return Path.GetFullPath(targetDir);
             }
             catch (LaunchException)
@@ -438,6 +413,8 @@ public sealed class UmuComponentProvisioner(
         }
     }
 
+    /// <summary>从官方镜像下载指定变体的 Steam Runtime：解析版本号 → SHA256SUMS/BUILD_ID → 下载校验 →
+    /// 暂存目录解包 → 原子落位并写安装标记。</summary>
     private async Task DownloadRuntimeAsync(
         string variant,
         string runtimeName,
@@ -582,8 +559,6 @@ public sealed class UmuComponentProvisioner(
                     WriteRegularFile(destinationDir, entry, key);
                     break;
                 case TarEntryType.SymbolicLink:
-                    TryCreateLink(Path.Combine(destinationDir, key), entry.LinkName, entry.EntryType);
-                    break;
                 case TarEntryType.HardLink:
                     TryCreateLink(Path.Combine(destinationDir, key), entry.LinkName, entry.EntryType);
                     break;
@@ -729,6 +704,7 @@ public sealed class UmuComponentProvisioner(
         }
     }
 
+    /// <summary>在 compatibilitytools.d 下找某代号前缀已装的最新版本（数字段自然序）；没有返回 null。</summary>
     private string? FindLatestLocalProton(string prefixOrCodename)
     {
         var root = UmuPaths.SteamCompatRoot(dataHome);
@@ -737,12 +713,16 @@ public sealed class UmuComponentProvisioner(
             return null;
         }
 
-        var filter = prefixOrCodename.StartsWith("UMU", StringComparison.OrdinalIgnoreCase)
-            ? "UMU-Proton"
-            : prefixOrCodename.StartsWith("GE", StringComparison.OrdinalIgnoreCase)
-                ? "GE-Proton"
-                : null;
-        if (filter is null)
+        string? filter;
+        if (prefixOrCodename.StartsWith("UMU", StringComparison.OrdinalIgnoreCase))
+        {
+            filter = "UMU-Proton";
+        }
+        else if (prefixOrCodename.StartsWith("GE", StringComparison.OrdinalIgnoreCase))
+        {
+            filter = "GE-Proton";
+        }
+        else
         {
             return null;
         }
@@ -762,12 +742,14 @@ public sealed class UmuComponentProvisioner(
             .FirstOrDefault();
     }
 
-    private static bool IsCodename(string value) =>
+    /// <summary>是否为代号（GE-Proton / UMU-Proton / GE-Latest / UMU-Latest，忽略大小写）；启动设置卡共用此判定。</summary>
+    internal static bool IsCodename(string value) =>
         string.Equals(value, "GE-Proton", StringComparison.OrdinalIgnoreCase)
         || string.Equals(value, "UMU-Proton", StringComparison.OrdinalIgnoreCase)
         || string.Equals(value, "GE-Latest", StringComparison.OrdinalIgnoreCase)
         || string.Equals(value, "UMU-Latest", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>GET 一个文本响应（带 User-Agent）；非 2xx 由 EnsureSuccessStatusCode 抛 HttpRequestException。</summary>
     private async Task<string> FetchTextAsync(string url, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, url);

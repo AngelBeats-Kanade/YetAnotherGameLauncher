@@ -66,6 +66,8 @@ public static class UmuEnvironment
         var gameId = string.IsNullOrWhiteSpace(request.GameId) ? "umu-default" : request.GameId;
         var umuId = gameId.StartsWith("umu-", StringComparison.Ordinal) ? gameId : $"umu-{gameId}";
         var store = string.IsNullOrWhiteSpace(request.Store) ? "none" : request.Store!;
+        // Proton 与容器 Runtime 一并挂进容器（两个键取值与上游一致）
+        var toolPaths = string.IsNullOrEmpty(runtimePath) ? proton : $"{proton}:{runtimePath}";
 
         var env = new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -81,12 +83,8 @@ public static class UmuEnvironment
             ["STEAM_COMPAT_INSTALL_PATH"] = installDir,
             ["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".steam", "steam"),
-            ["STEAM_COMPAT_TOOL_PATHS"] = string.IsNullOrEmpty(runtimePath)
-                ? proton
-                : $"{proton}:{runtimePath}",
-            ["STEAM_COMPAT_MOUNTS"] = string.IsNullOrEmpty(runtimePath)
-                ? proton
-                : $"{proton}:{runtimePath}",
+            ["STEAM_COMPAT_TOOL_PATHS"] = toolPaths,
+            ["STEAM_COMPAT_MOUNTS"] = toolPaths,
             ["PROTON_CRASH_REPORT_DIR"] = Path.Combine(Path.GetTempPath(), "yagl-umu-crashreports"),
             ["UMU_RUNTIME_UPDATE"] = string.Empty,
             ["UMU_NO_PROTON"] = string.Empty,
@@ -97,16 +95,13 @@ public static class UmuEnvironment
         env["SteamAppId"] = env["STEAM_COMPAT_APP_ID"];
         env["SteamGameId"] = env["STEAM_COMPAT_APP_ID"];
 
-        // umu-<纯数字> 时把数字部分当作 Steam AppId（带连字符的游戏 id 保持 MD5）
-        if (umuId.StartsWith("umu-", StringComparison.Ordinal))
+        // umuId 由上方构造规则保证以 umu- 开头；<纯数字> 时把数字部分当作 Steam AppId（带连字符的游戏 id 保持 MD5）
+        var suffix = umuId["umu-".Length..];
+        if (suffix.Length > 0 && suffix.All(char.IsDigit))
         {
-            var suffix = umuId["umu-".Length..];
-            if (suffix.Length > 0 && suffix.All(char.IsDigit))
-            {
-                env["STEAM_COMPAT_APP_ID"] = suffix;
-                env["SteamAppId"] = suffix;
-                env["SteamGameId"] = suffix;
-            }
+            env["STEAM_COMPAT_APP_ID"] = suffix;
+            env["SteamAppId"] = suffix;
+            env["SteamGameId"] = suffix;
         }
 
         EnableSteamGameDrive(env, installDir);

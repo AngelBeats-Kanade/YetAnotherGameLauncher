@@ -26,7 +26,7 @@ public sealed class NativeUmuLauncherLaunchTests : IDisposable
         var runner = new FakeProcessRunner();
         var launcher = new NativeUmuLauncher(runner, provisioner: null, dataHome: _temp.Path);
         var protonDir = CreateFakeProton();
-        var runtimeDir = Path.Combine(UmuPaths.RuntimeDirectory("steamrt4", _temp.Path));
+        var runtimeDir = UmuPaths.RuntimeDirectory("steamrt4", _temp.Path);
         Directory.CreateDirectory(runtimeDir);
         File.WriteAllText(Path.Combine(runtimeDir, "_v2-entry-point"), "#!/bin/sh\n");
         File.WriteAllText(Path.Combine(runtimeDir, UmuPaths.InstallMarkerName), "ok");
