@@ -358,6 +358,24 @@ public static class CompatTools
         return launch;
     }
 
+    /// <summary>
+    /// 原生 umu 启动/状态共用的 Proton 请求解析：
+    /// 配置 PROTONPATH 优先，否则本机推荐版本，再否则 UMU-Proton 代号（启动时自动下载）。
+    /// </summary>
+    public static string ResolveNativeProtonRequest(
+        IReadOnlyDictionary<string, string>? environment,
+        IReadOnlyList<string> protonVersions)
+    {
+        if (environment is not null
+            && environment.TryGetValue("PROTONPATH", out var path)
+            && !string.IsNullOrWhiteSpace(path))
+        {
+            return path;
+        }
+
+        return PickRecommendedProton(protonVersions) ?? "UMU-Proton";
+    }
+
     /// <summary>判断环境变量键是否由推荐生成（切启动方式时应清除）：STEAM_COMPAT_*、umu 系列、WINEPREFIX、PROTONPATH 与游戏推荐项。</summary>
     public static bool IsGeneratedEnvironmentKey(string key) =>
         key.StartsWith("STEAM_COMPAT_", StringComparison.OrdinalIgnoreCase)

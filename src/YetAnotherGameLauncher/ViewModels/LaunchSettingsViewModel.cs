@@ -153,8 +153,13 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     public bool CanPrepareUmuComponents =>
         IsNativeUmuMode && IsLinux && _umuProvisioner is not null && !IsPreparingUmuComponents;
 
-    /// <summary>进入原生 umu 模式时刷新组件状态摘要（不触网）。
-    /// 判定与启动时 Ensure* 请求对齐：只认 ResolveNativeProtonRequest 命中的 Proton / 默认 Runtime。</summary>
+    /// <summary>解析原生 umu 用的 Proton 请求（与启动路径共用 CompatTools.ResolveNativeProtonRequest）。</summary>
+    private string ResolveNativeProtonRequest() =>
+        CompatTools.ResolveNativeProtonRequest(ParseEnvironmentOrEmpty(EnvironmentText), _protonVersions);
+
+    /// <summary>
+    /// 刷新组件状态：只认与启动请求完全一致的 Proton（绝对路径 / 版本名 / 代号前缀最新）。
+    /// </summary>
     private void RefreshNativeUmuStatus()
     {
         if (!IsNativeUmuMode || _umuProvisioner is null)
@@ -165,14 +170,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         }
 
         var protonRequest = ResolveNativeProtonRequest();
-        var protonReady = _umuProvisioner.IsProtonReady(protonRequest)
-            || (!Path.IsPathRooted(protonRequest)
-                && _protonVersions.Any(v =>
-                    _umuProvisioner.IsProtonReady(Path.Combine(
-                        Core.Services.Umu.UmuPaths.SteamCompatRoot(_dataHome), v))
-                    && v.StartsWith(
-                        protonRequest.StartsWith("UMU", StringComparison.OrdinalIgnoreCase) ? "UMU-Proton" : "GE-Proton",
-                        StringComparison.OrdinalIgnoreCase)));
+        var protonReady = IsProtonRequestReady(protonRequest);
         var runtimeReady = _umuProvisioner.IsRuntimeReady(
             Core.Services.Umu.SteamRuntimeCatalog.Default.Variant);
         NativeUmuStatusText = protonReady && runtimeReady
@@ -183,16 +181,46 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         OnPropertyChanged(nameof(CanPrepareUmuComponents));
     }
 
-    /// <summary>解析原生 umu 用的 Proton 请求：环境 PROTONPATH → 本机推荐版本 → UMU-Proton 代号。</summary>
-    private string ResolveNativeProtonRequest()
+    private bool IsProtonRequestReady(string protonRequest)
     {
-        if (ParseEnvironmentOrEmpty(EnvironmentText).TryGetValue("PROTONPATH", out var path)
-            && !string.IsNullOrWhiteSpace(path))
+        if (_umuProvisioner is null)
         {
-            return path;
+            return false;
         }
 
-        return CompatTools.PickRecommendedProton(_protonVersions) ?? "UMU-Proton";
+        if (_umuProvisioner.IsProtonReady(protonRequest))
+        {
+            return true;
+        }
+
+        if (Path.IsPathRooted(protonRequest))
+        {
+            return false;
+        }
+
+        var root = Core.Services.Umu.UmuPaths.SteamCompatRoot(_dataHome);
+        var asName = Path.Combine(root, protonRequest);
+        if (_umuProvisioner.IsProtonReady(asName))
+        {
+            return true;
+        }
+
+        // 代号（UMU-Proton / GE-Proton）：该前缀下最新已装即可
+        var isCodename = string.Equals(protonRequest, "UMU-Proton", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(protonRequest, "GE-Proton", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(protonRequest, "UMU-Latest", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(protonRequest, "GE-Latest", StringComparison.OrdinalIgnoreCase);
+        if (!isCodename)
+        {
+            return false;
+        }
+
+        var prefix = protonRequest.StartsWith("UMU", StringComparison.OrdinalIgnoreCase)
+            ? "UMU-Proton"
+            : "GE-Proton";
+        return _protonVersions.Any(v =>
+            v.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            && _umuProvisioner.IsProtonReady(Path.Combine(root, v)));
     }
 
     /// <summary>检查/下载原生 umu 兼容组件（Proton + Steam Runtime）；结果写入保存消息槽。</summary>

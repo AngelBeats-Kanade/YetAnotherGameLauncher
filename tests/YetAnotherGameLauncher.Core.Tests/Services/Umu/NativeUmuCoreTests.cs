@@ -158,6 +158,24 @@ public sealed class NativeUmuCoreTests : IDisposable
     }
 
     [Fact]
+    public void ResolveNativeProtonRequest_UsesEnvThenRecommended()
+    {
+        Assert.Equal(
+            "/x/GE-Proton",
+            CompatTools.ResolveNativeProtonRequest(
+                new Dictionary<string, string> { ["PROTONPATH"] = "/x/GE-Proton" },
+                ["GE-Proton10-9"]));
+        Assert.Equal(
+            "GE-Proton10-9",
+            CompatTools.ResolveNativeProtonRequest(
+                new Dictionary<string, string>(),
+                ["GE-Proton10-9", "dw-proton"]));
+        Assert.Equal(
+            "UMU-Proton",
+            CompatTools.ResolveNativeProtonRequest(null, []));
+    }
+
+    [Fact]
     public void BuildNativeUmuLaunch_UsesTokenTemplate()
     {
         var launch = CompatTools.BuildNativeUmuLaunch("wuthering-waves", dataHome: _temp.Path);

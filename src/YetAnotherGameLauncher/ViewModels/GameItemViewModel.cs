@@ -447,10 +447,13 @@ public partial class GameItemViewModel(
         {
             if (IsNativeUmuTemplate() && _nativeUmu is not null && Platform.IsLinux)
             {
-                var proton = ResolveProtonRequestFromEnvironment();
+                var proton = CompatTools.ResolveNativeProtonRequest(
+                    Game.Launch.Environment, CompatTools.FindProtonVersions());
+                var progress = new Progress<string>(msg => StatusText = msg);
                 await _nativeUmu.LaunchAsync(
                     Game.Id, _installDir, Game.Executable, proton,
                     extraEnvironment: Game.Launch.Environment,
+                    progress: progress,
                     cancellationToken: cancellationToken);
             }
             else
@@ -541,18 +544,6 @@ public partial class GameItemViewModel(
     /// <summary>当前启动模板是否为原生 umu（内置 C# 启动链）。</summary>
     private bool IsNativeUmuTemplate() =>
         Game.Launch.CommandTemplate.Contains("native-umu", StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>从环境变量/默认代号解析 Proton 请求（PROTONPATH 或 UMU-Proton）。</summary>
-    private string ResolveProtonRequestFromEnvironment()
-    {
-        if (Game.Launch.Environment.TryGetValue("PROTONPATH", out var path) &&
-            !string.IsNullOrWhiteSpace(path))
-        {
-            return path;
-        }
-
-        return "UMU-Proton";
-    }
 
     /// <summary>
     /// 主操作：未安装时全新安装，有更新时更新；已安装且已是最新即"校验修复"——

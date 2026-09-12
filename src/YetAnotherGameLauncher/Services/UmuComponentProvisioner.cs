@@ -93,6 +93,10 @@ public sealed class UmuComponentProvisioner(
                 return await DownloadLatestProtonAsync(protonRequest, progress, cancellationToken)
                     .ConfigureAwait(false);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (Exception ex) when (ex is UpdateException or HttpRequestException or IOException or LaunchException)
             {
                 logger?.LogWarning(ex, "Proton 更新失败，回退本地 {Path}", localLatest);
@@ -100,9 +104,15 @@ public sealed class UmuComponentProvisioner(
             }
         }
 
-        // 4) 下载（代号或具体版本；已就绪的绝对路径已在步骤 1 返回）
+        // 4) 具体版本名只下该 tag；代号走 latest
         progress?.Report($"正在准备 Proton（{protonRequest}）…");
-        return await DownloadLatestProtonAsync(protonRequest, progress, cancellationToken)
+        if (IsCodename(protonRequest))
+        {
+            return await DownloadLatestProtonAsync(protonRequest, progress, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return await DownloadProtonByTagAsync(protonRequest, progress, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -131,6 +141,136 @@ public sealed class UmuComponentProvisioner(
             .ConfigureAwait(false);
     }
 
+    /// <summary>按 release tag 下载指定版本 Proton；找不到该 tag 时抛可操作错误（禁止静默换成最新）。</summary>
+    private async Task<string> DownloadProtonByTagAsync(
+        string tagName,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        var repo = tagName.StartsWith("UMU", StringComparison.OrdinalIgnoreCase)
+            ? "Open-Wine-Components/UMU-Proton"
+            : "GloriousEggroll/proton-ge-custom";
+        var apiUrl = $"https://api.github.com/repos/{repo}/releases/tags/{tagName}";
+
+        string json;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, apiUrl);
+            request.Headers.UserAgent.ParseAdd("YetAnotherGameLauncher");
+            using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                throw new LaunchException(
+                    LaunchFailureKind.ProtonDownloadFailed,
+                    $"找不到 Proton 版本「{tagName}」的 release。请改用代号（UMU-Proton/GE-Proton）或本机已装版本。");
+            }
+
+            response.EnsureSuccessStatusCode();
+            json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (LaunchException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            throw new LaunchException(
+                LaunchFailureKind.ProtonDownloadFailed,
+                $"无法获取 Proton {tagName} 的版本信息：{ex.Message}",
+                ex);
+        }
+
+        (string Name, string Url) asset;
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var assets = document.RootElement.GetProperty("assets")
+                .EnumerateArray()
+                .Select(a => (
+                    Name: a.GetProperty("name").GetString() ?? "",
+                    Url: a.GetProperty("browser_download_url").GetString() ?? ""))
+                .Where(a => a.Name.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)
+                            && !a.Name.Contains("sha512", StringComparison.OrdinalIgnoreCase)
+                            && !a.Name.Contains("sha256sum", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            asset = assets.FirstOrDefault();
+            if (string.IsNullOrEmpty(asset.Url))
+            {
+                throw new LaunchException(
+                    LaunchFailureKind.ProtonDownloadFailed,
+                    $"Proton {tagName} 的 release 里没有 .tar.gz 资产。");
+            }
+        }
+        catch (LaunchException)
+        {
+            throw;
+        }
+        catch (JsonException ex)
+        {
+            throw new LaunchException(
+                LaunchFailureKind.ProtonDownloadFailed,
+                $"Proton {tagName} 版本信息解析失败：{ex.Message}",
+                ex);
+        }
+
+        progress?.Report($"正在下载 {asset.Name}…");
+        var compatRoot = UmuPaths.SteamCompatRoot(dataHome);
+        Directory.CreateDirectory(compatRoot);
+        var extractName = asset.Name.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)
+            ? asset.Name[..^".tar.gz".Length]
+            : Path.GetFileNameWithoutExtension(asset.Name);
+        var targetDir = Path.Combine(compatRoot, extractName);
+        var tarPath = Path.Combine(UmuPaths.CacheRoot(cacheHome), asset.Name);
+        Directory.CreateDirectory(Path.GetDirectoryName(tarPath)!);
+
+        using (UmuPrefix.AcquireLock(UmuPaths.LockFile("proton.lock")))
+        {
+            if (IsProtonReady(targetDir))
+            {
+                return Path.GetFullPath(targetDir);
+            }
+
+            try
+            {
+                await downloader.DownloadFileAsync(
+                    new DownloadRequest(asset.Url, tarPath, ExpectedSize: null, ExpectedMd5: null),
+                    null,
+                    cancellationToken).ConfigureAwait(false);
+                ExtractSingleTopLevel(tarPath, targetDir);
+                if (!IsProtonReady(targetDir))
+                {
+                    throw new LaunchException(
+                        LaunchFailureKind.ProtonDownloadFailed,
+                        $"Proton 包「{asset.Name}」解压后缺少 proton 或 toolmanifest.vdf。");
+                }
+
+                TryChmod(Path.Combine(targetDir, "proton"));
+                logger?.LogInformation("Installed Proton {Tag} to {Dir}", tagName, targetDir);
+                return Path.GetFullPath(targetDir);
+            }
+            catch (LaunchException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException
+                or ArchiveException or InvalidOperationException)
+            {
+                throw new LaunchException(
+                    LaunchFailureKind.ProtonDownloadFailed,
+                    $"Proton 下载或解压失败：{ex.Message}",
+                    ex);
+            }
+            finally
+            {
+                TryDelete(tarPath);
+            }
+        }
+    }
+
     private async Task<string> DownloadLatestProtonAsync(
         string protonRequest,
         IProgress<string>? progress,
@@ -148,6 +288,10 @@ public sealed class UmuComponentProvisioner(
             using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
             json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {

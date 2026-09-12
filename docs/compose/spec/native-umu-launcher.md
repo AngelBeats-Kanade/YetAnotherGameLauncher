@@ -3,18 +3,18 @@ feature: native-umu-launcher
 status: delivered
 updated: 2026-02-14
 branch: feat/native-umu-launcher
-commits: c977def..d0a3883
+commits: c977def..HEAD
 ---
 
 # Native umu-launcher（纯 C# 替换 umu-run）
 
 ## Report
 
-**What was built** — Linux 默认启动链改为**原生 C# umu**（模板 token `native-umu {exe}`），不再依赖 Python `umu-run`。Core 新增 `Services/Umu/`：路径、VDF/toolmanifest、Steam Runtime 映射、prefix（setup_pfx + FileStream 锁）、完整 `STEAM_COMPAT_*` 环境、`NativeUmuLauncher`（组件解析 → prefix → env → `_v2-entry-point` 启动）。App 层 `UmuComponentProvisioner` 下载/校验 GE/UMU-Proton 与 Steam Runtime。推荐链默认原生 umu；外部 umu-run 仍可选。设置卡显示组件状态并可「检查/下载」；组件下载失败的启动错误卡可「重试」。无 `unsafe`、无 P/Invoke。
+**What was built** — Linux 默认启动链改为**原生 C# umu**（模板 token `native-umu {exe}`），不再依赖 Python `umu-run`。Core `Services/Umu/`：路径、VDF/toolmanifest、Steam Runtime 映射、prefix、完整 `STEAM_COMPAT_*` 环境、`NativeUmuLauncher`。App 层 `UmuComponentProvisioner` 下载/校验 GE/UMU-Proton 与 Steam Runtime（取消令牌透传；具体版本按 tag 下载，不偷换最新）。推荐链默认原生 umu；设置卡组件状态 + 检查/下载；错误卡可重试或改用本机 Proton。无 `unsafe`、无 P/Invoke。
 
 **Verification** — worktree `--no-restore`（本机 NuGet restore path1 损坏，PRE-EXISTING）：
 - `dotnet build` App/Core/tests `-warnaserror`：PASS
-- Core.Tests：228 PASS；App.Tests：150 PASS；Kuro：36；Hypergryph：17
+- Core.Tests：229 PASS；App.Tests：151 PASS；Kuro：36；Hypergryph：17
 - `dotnet format whitespace --verify-no-changes`：PASS
 
 **Journey log** —
@@ -22,7 +22,7 @@ commits: c977def..d0a3883
 2. 推荐链默认切原生后，first-run/推荐链测试改为断言 `native-umu`；旧链用例加 `preferNativeUmu: false`。
 3. Review：缺失版本不得偷换任意本地 Proton；版本用自然序；entry argv 不能整串按空格 split。
 4. 原生启动路径绕过 `GameLauncherService`，env 占位符展开须在 `BuildPlan` 内对齐。
-5. 真机 Linux E2E（真实下载 Proton/Runtime）仍待后续；Proton 下载失败错误卡已支持「改用本机 Proton」。
+5. Pre-merge review：取消不得映射成下载失败；启动/设置共用 `ResolveNativeProtonRequest`；具体 tag 下载。
 
 ## [S1] Problem
 
