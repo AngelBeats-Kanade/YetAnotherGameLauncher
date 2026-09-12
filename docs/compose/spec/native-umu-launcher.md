@@ -1,28 +1,28 @@
 ---
 feature: native-umu-launcher
-status: in-progress
+status: delivered
 updated: 2026-02-14
 branch: feat/native-umu-launcher
-commits: c977def..d692e0c
+commits: c977def..d0a3883
 ---
 
 # Native umu-launcher（纯 C# 替换 umu-run）
 
 ## Report
 
-**What was built** — Linux 默认启动链改为**原生 C# umu**（模板 token `native-umu {exe}`），不再依赖 Python `umu-run`。Core 新增 `Services/Umu/`：`UmuPaths`、`VdfMiniParser`、`SteamRuntimeCatalog`、`ToolManifest`、`UmuPrefix`（setup_pfx + FileStream 锁）、`UmuEnvironment`（完整 STEAM_COMPAT_*/UMU_*）、`NativeUmuLauncher`（组件解析 → prefix → env → `_v2-entry-point` 启动）。App 层 `UmuComponentProvisioner` 负责从 GitHub 下载 GE/UMU-Proton 与从 `repo.steampowered.com` 下载 Steam Runtime（SHA256 校验、安装标记、组件锁）。`CompatTools.BuildRecommendedLaunch` 默认 `preferNativeUmu: true`；外部 umu-run 与 Proton 直启/wine 仍可选。启动设置卡出现「umu 内置（推荐）」；首运与 schema4 迁移升级为 `native-umu`。无 `unsafe`、无 P/Invoke。
+**What was built** — Linux 默认启动链改为**原生 C# umu**（模板 token `native-umu {exe}`），不再依赖 Python `umu-run`。Core 新增 `Services/Umu/`：路径、VDF/toolmanifest、Steam Runtime 映射、prefix（setup_pfx + FileStream 锁）、完整 `STEAM_COMPAT_*` 环境、`NativeUmuLauncher`（组件解析 → prefix → env → `_v2-entry-point` 启动）。App 层 `UmuComponentProvisioner` 下载/校验 GE/UMU-Proton 与 Steam Runtime。推荐链默认原生 umu；外部 umu-run 仍可选。设置卡显示组件状态并可「检查/下载」；组件下载失败的启动错误卡可「重试」。无 `unsafe`、无 P/Invoke。
 
-**Verification** — worktree `--no-restore` 构建（本机 NuGet restore 因 path1 损坏不可用，PRE-EXISTING）：
+**Verification** — worktree `--no-restore`（本机 NuGet restore path1 损坏，PRE-EXISTING）：
 - `dotnet build` App/Core/tests `-warnaserror`：PASS
-- Core.Tests：228 PASS；App.Tests：147 PASS；Kuro：36；Hypergryph：17
+- Core.Tests：228 PASS；App.Tests：150 PASS；Kuro：36；Hypergryph：17
 - `dotnet format whitespace --verify-no-changes`：PASS
 
 **Journey log** —
-1. 上游 umu 主路径（prefix/entry-point/env）可纯 C# 移植；容器本身仍走 Runtime 自带 `_v2-entry-point`。
-2. 推荐链默认切原生后，既有 first-run/推荐链测试必须改为断言 `native-umu`，旧链用例加 `preferNativeUmu: false`。
-3. Review：具体版本 Proton 缺失时不得偷换任意本地 Proton；版本比较须用数字段自然序；entry 命令路径含空格不能整串 split。
-4. 原生启动路径绕过 `GameLauncherService`，env 占位符展开须在 `NativeUmuLauncher.BuildPlan` 内对齐。
-5. T6 组件状态 UI、T7 类目化覆盖层动作已补齐；下载端到端网络用例仍待真机 Linux 验证。
+1. 上游 umu 主路径可纯 C# 移植；容器仍走 Runtime 自带 `_v2-entry-point`。
+2. 推荐链默认切原生后，first-run/推荐链测试改为断言 `native-umu`；旧链用例加 `preferNativeUmu: false`。
+3. Review：缺失版本不得偷换任意本地 Proton；版本用自然序；entry argv 不能整串按空格 split。
+4. 原生启动路径绕过 `GameLauncherService`，env 占位符展开须在 `BuildPlan` 内对齐。
+5. 真机 Linux E2E（真实下载 Proton/Runtime）与「失败后手动选本机 Proton」按钮仍待后续。
 
 ## [S1] Problem
 
