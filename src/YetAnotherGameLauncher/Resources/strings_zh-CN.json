@@ -54,6 +54,8 @@
   "launch_error_installing_umu": "正在下载安装 umu-launcher…",
   "launch_error_umu_done": "umu-launcher 安装完成，再次点击「启动」即可。",
   "launch_error_retry": "重试",
+  "launch_error_pick_local_proton": "或改用本机 Proton：",
+  "launch_error_use_local_proton": "使用",
   "launch_native_prepare": "检查/下载兼容组件",
   "launch_native_components_ready": "原生 umu 组件已就绪（Proton + Steam Runtime）。",
   "launch_native_components_missing": "原生 umu 需要 Proton 与 Steam Runtime；可一键检查/下载（首次需联网）。",

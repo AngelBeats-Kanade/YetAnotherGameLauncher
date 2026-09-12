@@ -808,6 +808,18 @@
                                                         HorizontalAlignment="Left">
                                                     <TextBlock Text="{Binding Loc[launch_error_retry]}"/>
                                                 </Button>
+                                                <StackPanel Orientation="Horizontal" Spacing="8"
+                                                            IsVisible="{Binding LaunchError.CanPickLocalProton}"
+                                                            HorizontalAlignment="Left">
+                                                    <TextBlock Text="{Binding Loc[launch_error_pick_local_proton]}"
+                                                               Classes="card-caption" VerticalAlignment="Center"/>
+                                                    <ComboBox ItemsSource="{Binding LaunchError.LocalProtonVersions}"
+                                                              SelectedItem="{Binding LaunchError.SelectedLocalProton}"
+                                                              MinWidth="180"/>
+                                                    <Button Classes="btn-sm"
+                                                            Content="{Binding Loc[launch_error_use_local_proton]}"
+                                                            Command="{Binding LaunchError.UseLocalProtonCommand}"/>
+                                                </StackPanel>
                                                 <Expander IsVisible="{Binding LaunchError.HasDetail}"
                                                           IsExpanded="{Binding LaunchError.DetailsExpanded, Mode=TwoWay}"
                                                           Background="Transparent">

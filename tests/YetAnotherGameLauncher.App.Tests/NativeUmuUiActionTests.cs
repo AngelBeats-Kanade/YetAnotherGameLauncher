@@ -90,13 +90,33 @@ public sealed class NativeUmuUiActionTests : IDisposable
     }
 
     [Fact]
-    public async Task LaunchError_UnknownKind_HidesRetry()
+    public async Task LaunchError_ProtonDownload_ExposesLocalProtonPicker()
+    {
+        await _ctx.Vm.InitializeAsync();
+        string? picked = null;
+        var error = new LaunchErrorViewModel(
+            _ctx.Vm.Loc,
+            "下载失败",
+            failureKind: LaunchFailureKind.ProtonDownloadFailed,
+            canRetry: true,
+            localProtonVersions: ["GE-Proton10-9", "dw-proton"]);
+        error.LocalProtonSelected += (_, v) => picked = v;
+        error.SelectedLocalProton = "dw-proton";
+        error.UseLocalProtonCommand.Execute(null);
+
+        Assert.True(error.CanPickLocalProton);
+        Assert.Equal("dw-proton", picked);
+    }
+
+    [Fact]
+    public async Task LaunchError_NoLocalProtons_HidesPicker()
     {
         await _ctx.Vm.InitializeAsync();
         var error = new LaunchErrorViewModel(
             _ctx.Vm.Loc,
-            "失败",
-            failureKind: LaunchFailureKind.Unknown);
-        Assert.False(error.CanRetry);
+            "下载失败",
+            failureKind: LaunchFailureKind.ProtonDownloadFailed,
+            localProtonVersions: []);
+        Assert.False(error.CanPickLocalProton);
     }
 }

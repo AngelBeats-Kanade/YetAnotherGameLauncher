@@ -27,7 +27,8 @@ public partial class LaunchErrorViewModel : ViewModelBase
         IPlatformInfo? platform = null,
         string? umuInstallDirectory = null,
         LaunchFailureKind failureKind = LaunchFailureKind.Unknown,
-        bool canRetry = false)
+        bool canRetry = false,
+        IReadOnlyList<string>? localProtonVersions = null)
     {
         _loc = loc;
         _umuInstaller = umuInstaller;
@@ -40,6 +41,13 @@ public partial class LaunchErrorViewModel : ViewModelBase
         FailureKind = failureKind;
         CanInstallUmu = canInstallUmu && umuInstaller is not null;
         CanRetry = canRetry;
+        LocalProtonVersions = localProtonVersions ?? [];
+        CanPickLocalProton = LocalProtonVersions.Count > 0;
+        if (LocalProtonVersions.Count > 0)
+        {
+            SelectedLocalProton = LocalProtonVersions[0];
+        }
+
         HasDetail = !string.IsNullOrEmpty(detail);
         HasLogPath = !string.IsNullOrEmpty(logPath);
     }
@@ -78,6 +86,17 @@ public partial class LaunchErrorViewModel : ViewModelBase
     /// <summary>是否可重试（组件下载失败 / Runtime 缺失）。</summary>
     [ObservableProperty]
     private bool _canRetry;
+
+    /// <summary>本机已装的 Proton 版本名（下载失败时可选手动回退）。</summary>
+    public IReadOnlyList<string> LocalProtonVersions { get; }
+
+    /// <summary>是否显示「改用本机 Proton」选择器。</summary>
+    [ObservableProperty]
+    private bool _canPickLocalProton;
+
+    /// <summary>当前选中的本机 Proton 版本名。</summary>
+    [ObservableProperty]
+    private string? _selectedLocalProton;
 
     /// <summary>umu 安装进行中（按钮转忙碌、禁用关闭外的其它操作提示）。</summary>
     [ObservableProperty]
@@ -121,6 +140,21 @@ public partial class LaunchErrorViewModel : ViewModelBase
 
     /// <summary>请求重新启动（宿主订阅后再次调用 LaunchAsync）。</summary>
     public event EventHandler? RetryRequested;
+
+    /// <summary>用户选择本机 Proton 版本名后触发（宿主写入 PROTONPATH 并重试启动）。</summary>
+    public event EventHandler<string>? LocalProtonSelected;
+
+    /// <summary>确认使用下拉框中的本机 Proton。</summary>
+    [RelayCommand]
+    private void UseLocalProton()
+    {
+        if (string.IsNullOrWhiteSpace(SelectedLocalProton))
+        {
+            return;
+        }
+
+        LocalProtonSelected?.Invoke(this, SelectedLocalProton);
+    }
 
     /// <summary>一键安装 umu-launcher（下载 zipapp → 解到应用数据目录）。</summary>
     [RelayCommand]

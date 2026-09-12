@@ -477,7 +477,7 @@ public partial class GameItemViewModel(
         }
     }
 
-    /// <summary>按失败类目构建错误覆盖层：外部 umu 缺失→一键安装；原生组件失败→重试。</summary>
+    /// <summary>按失败类目构建错误覆盖层：外部 umu 缺失→一键安装；原生组件失败→重试/选本机 Proton。</summary>
     private LaunchErrorViewModel CreateLaunchError(
         string message, string detail, string? logPath, LaunchFailureKind kind)
     {
@@ -488,20 +488,48 @@ public partial class GameItemViewModel(
             LaunchFailureKind.ProtonDownloadFailed
             or LaunchFailureKind.UmuRuntimeDownloadFailed
             or LaunchFailureKind.UmuRuntimeMissing;
+        var localProtons = Platform.IsLinux && kind == LaunchFailureKind.ProtonDownloadFailed
+            ? CompatTools.FindProtonVersions()
+            : [];
         var error = new LaunchErrorViewModel(
             Loc, message, detail, logPath,
             canInstallUmu: umuMissing,
             umuInstaller: UmuInstaller,
             platform: Platform,
             failureKind: kind,
-            canRetry: canRetry);
+            canRetry: canRetry,
+            localProtonVersions: localProtons);
         error.RetryRequested += OnLaunchErrorRetryRequested;
+        error.LocalProtonSelected += OnLaunchErrorLocalProtonSelected;
         return error;
     }
 
     /// <summary>错误覆盖层「重试」：清掉覆盖层后重新启动一次。</summary>
     private async void OnLaunchErrorRetryRequested(object? sender, EventArgs e)
     {
+        LaunchError = null;
+        await LaunchAsync();
+    }
+
+    /// <summary>改用本机 Proton：写入 PROTONPATH 环境并落盘，然后重新启动。</summary>
+    private async void OnLaunchErrorLocalProtonSelected(object? sender, string protonVersion)
+    {
+        var path = CompatTools.LocateProton(protonVersion);
+        if (path is null)
+        {
+            return;
+        }
+
+        Game.Launch.Environment["PROTONPATH"] = path;
+        try
+        {
+            await catalogService.SaveAsync();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or UpdateException)
+        {
+            // 保存失败不阻断本次启动：内存中已生效
+        }
+
         LaunchError = null;
         await LaunchAsync();
     }

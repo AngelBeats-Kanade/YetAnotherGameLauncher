@@ -22,7 +22,7 @@ commits: c977def..d0a3883
 2. 推荐链默认切原生后，first-run/推荐链测试改为断言 `native-umu`；旧链用例加 `preferNativeUmu: false`。
 3. Review：缺失版本不得偷换任意本地 Proton；版本用自然序；entry argv 不能整串按空格 split。
 4. 原生启动路径绕过 `GameLauncherService`，env 占位符展开须在 `BuildPlan` 内对齐。
-5. 真机 Linux E2E（真实下载 Proton/Runtime）与「失败后手动选本机 Proton」按钮仍待后续。
+5. 真机 Linux E2E（真实下载 Proton/Runtime）仍待后续；Proton 下载失败错误卡已支持「改用本机 Proton」。
 
 ## [S1] Problem
 

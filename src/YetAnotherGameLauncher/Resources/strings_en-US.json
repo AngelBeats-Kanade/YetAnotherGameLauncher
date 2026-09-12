@@ -54,6 +54,8 @@
   "launch_error_installing_umu": "Downloading umu-launcher…",
   "launch_error_umu_done": "umu-launcher installed. Press Launch again.",
   "launch_error_retry": "Retry",
+  "launch_error_pick_local_proton": "Or use a local Proton:",
+  "launch_error_use_local_proton": "Use",
   "launch_native_prepare": "Check / download components",
   "launch_native_components_ready": "Native umu components are ready (Proton + Steam Runtime).",
   "launch_native_components_missing": "Native umu needs Proton and Steam Runtime; use Check/download (network required once).",
