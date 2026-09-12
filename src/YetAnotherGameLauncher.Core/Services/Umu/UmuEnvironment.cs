@@ -87,14 +87,12 @@ public static class UmuEnvironment
             ["STEAM_COMPAT_MOUNTS"] = string.IsNullOrEmpty(runtimePath)
                 ? proton
                 : $"{proton}:{runtimePath}",
-            ["SteamAppId"] = "0",
-            ["SteamGameId"] = "0",
             ["PROTON_CRASH_REPORT_DIR"] = Path.Combine(Path.GetTempPath(), "yagl-umu-crashreports"),
             ["UMU_RUNTIME_UPDATE"] = string.Empty,
             ["UMU_NO_PROTON"] = string.Empty,
         };
 
-        // 上游当前行为：STEAM_COMPAT_APP_ID = prefix 路径的 MD5 十六进制
+        // 上游当前行为：STEAM_COMPAT_APP_ID = prefix 路径的 MD5 十六进制（SteamAppId/SteamGameId 取同值）
         env["STEAM_COMPAT_APP_ID"] = PrefixHash(pfx);
         env["SteamAppId"] = env["STEAM_COMPAT_APP_ID"];
         env["SteamGameId"] = env["STEAM_COMPAT_APP_ID"];
@@ -131,6 +129,11 @@ public static class UmuEnvironment
         return Convert.ToHexString(MD5.HashData(bytes)).ToLowerInvariant();
     }
 
+    /// <summary>
+    /// 移植上游 enable_steam_game_drive 的核心：STEAM_RUNTIME_LIBRARY_PATH = 现有 LD_LIBRARY_PATH + 安装目录，
+    /// pressure-vessel 据此把游戏自带库挂进容器。上游基于 is_mount 的挂载点探测（STEAM_COMPAT_LIBRARY_PATHS）
+    /// 需要读 /proc/mounts，这里不做——库路径注入只到上一步。
+    /// </summary>
     private static void EnableSteamGameDrive(Dictionary<string, string> env, string installDir)
     {
         var paths = new HashSet<string>(StringComparer.Ordinal);
@@ -149,25 +152,5 @@ public static class UmuEnvironment
         }
 
         env["STEAM_RUNTIME_LIBRARY_PATH"] = string.Join(Path.PathSeparator, paths);
-
-        // 找到安装路径上第一个挂载点并记入 STEAM_COMPAT_LIBRARY_PATHS（Steam Game Drive）
-        try
-        {
-            var current = new DirectoryInfo(installDir);
-            while (current is not null && current.Parent is not null)
-            {
-                // .NET 无 is_mount；用根目录终止 + 存在性近似。完整挂载探测留给后续增强。
-                if (string.Equals(current.FullName, Path.GetPathRoot(current.FullName), StringComparison.Ordinal))
-                {
-                    break;
-                }
-
-                current = current.Parent;
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
-        {
-            // 忽略：库路径启发式失败不影响启动
-        }
     }
 }

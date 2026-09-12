@@ -118,11 +118,13 @@ Windows 主机上 Native umu 路径不激活（`OperatingSystem.IsLinux()` 门�
 | 4183110 | steamrt4 | steamrt4 | x86_64 |
 | 4185400 | steamrt4-arm64 | steamrt4-arm64 | aarch64 |
 
-现代 GE-Proton / UMU-Proton 的 `require_tool_appid` 通常为 steamrt4。下载端点：
+现代 GE-Proton / UMU-Proton 的 `require_tool_appid` 通常为 steamrt4（GE-Proton9/10 系为 sniper）。下载端点：
 
-`https://repo.steampowered.com/{variant}/images/{version}/SteamLinuxRuntime_{name}.tar.xz`
+`https://repo.steampowered.com/{variant}/images/{version}/SteamLinuxRuntime_{digits}[-arm64].tar.xz`
 
-版本选择：上游通过 VERSIONS/镜像目录探测；本实现 **v1 固定使用 umu-launcher 当前锁定的已知版本号常量**（实现时从 `umu-runtime` 源码抄最新常量并写进 `SteamRuntimeInstaller`，带注释来源），并支持环境/设置覆盖。不实现平台镜像自动探测的完整逻辑。
+（文件名与 `repo.steampowered.com` 实际命名一致：steamrt4 → `SteamLinuxRuntime_4.tar.xz`，steamrt4-arm64 → `SteamLinuxRuntime_4-arm64.tar.xz`，sniper → `SteamLinuxRuntime_sniper.tar.xz`；2026-09 实测。）
+
+版本选择：`{version}` 取 `latest-public-beta.txt`，归档用同目录 `SHA256SUMS` 按文件名校验，`BUILD_ID.txt` 作下载缓存文件名。不实现平台镜像自动探测。
 
 #### 2.3.4 命令组装
 
@@ -155,13 +157,13 @@ Windows 主机上 Native umu 路径不激活（`OperatingSystem.IsLinux()` 门�
 | prefix 创建失败 | 现有 `PrefixCreateFailed` | 检查磁盘/权限 |
 | 启动命令失败 | 现有 `StartFailed` / `RuntimeMissing` | 检查组件完整性 |
 
-启动设置卡显示组件状态：Proton 版本、Runtime 是否就绪、上次检查时间；提供「检查/下载兼容组件」按钮（进度走现有 Progress 模式）。
+启动设置卡显示组件状态并提供「检查/下载兼容组件」按钮（进度走现有 Progress 模式）。Runtime 的就绪判断与一键下载**按所配 Proton 的 toolmanifest 实际声明解析**（`IUmuComponentProvisioner.ResolveRequiredRuntime`）；Proton 本地不存在时按默认 steamrt4（最新 UMU/GE-Proton 所需）近似。
 
 #### 2.3.7 下载与校验
 
 - 复用 `IDownloader`（Range 续传、重试）。
 - Proton：GitHub API `releases/latest`（User-Agent 必填）；资产匹配 `GE-Proton*` 或 `UMU-Proton*` 的 `.tar.gz`；可选 `.sha512sum`；解压后校验目录内存在 `proton` + `toolmanifest.vdf`。
-- Runtime：`SHA256SUMS` 按文件名匹配校验后再落位；解压 `.tar.xz` 用现有压缩库能力（SharpCompress 已在 App 用于 tar；若 Core 不便引用，则下载服务放 App 层，Core 只定义接口 `IUmuComponentProvisioner`）。
+- Runtime：`SHA256SUMS` 按文件名匹配校验后再落位。**解压用 System.Formats.Tar 逐条目落盘并按 tar 头还原 Unix 权限位**（含执行位与符号链接——SharpCompress 的解压不保留执行位，Proton/Runtime 树离开执行位无法启动；xz 容器仍用 SharpCompress 的 `XZStream`，BCL 无 XZ 解码）。
 
 **分层裁决**：网络大文件下载与解压实现放 **App 层服务**（`UmuComponentProvisioner`，实现 `IUmuComponentProvisioner`），Core 只定义接口 + 纯逻辑。与 `UmuLauncherInstaller` 现状一致（App 下载、Core 发现）。
 

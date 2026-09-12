@@ -44,6 +44,12 @@ public sealed class NativeUmuCoreTests : IDisposable
         Assert.Equal("SteamLinuxRuntime_4.tar.xz", SteamRuntimeCatalog.ArchiveFileName(steamrt4!));
         Assert.Equal("/steamrt4/images", SteamRuntimeCatalog.ImagesPathPrefix(steamrt4!));
 
+        // arm64 变体与 amd64 同目录，文件名带 -arm64 后缀（repo.steampowered.com 实际命名）
+        var steamrt4arm = SteamRuntimeCatalog.FromAppId("4185400");
+        Assert.NotNull(steamrt4arm);
+        Assert.Equal("SteamLinuxRuntime_4-arm64.tar.xz", SteamRuntimeCatalog.ArchiveFileName(steamrt4arm!));
+        Assert.Equal("/steamrt4/images", SteamRuntimeCatalog.ImagesPathPrefix(steamrt4arm!));
+
         Assert.Null(SteamRuntimeCatalog.FromAppId("999"));
     }
 

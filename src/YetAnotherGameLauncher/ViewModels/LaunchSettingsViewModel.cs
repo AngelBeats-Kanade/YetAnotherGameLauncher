@@ -158,7 +158,8 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         CompatTools.ResolveNativeProtonRequest(ParseEnvironmentOrEmpty(EnvironmentText), _protonVersions);
 
     /// <summary>
-    /// 刷新组件状态：只认与启动请求完全一致的 Proton（绝对路径 / 版本名 / 代号前缀最新）。
+    /// 刷新组件状态：只认与启动请求完全一致的 Proton（绝对路径 / 版本名 / 代号前缀最新），
+    /// Runtime 按 Proton 的 toolmanifest 实际声明解析；Proton 本地不存在时按默认（steamrt4，最新 UMU/GE-Proton 所需）近似。
     /// </summary>
     private void RefreshNativeUmuStatus()
     {
@@ -171,8 +172,10 @@ public partial class LaunchSettingsViewModel : ViewModelBase
 
         var protonRequest = ResolveNativeProtonRequest();
         var protonReady = IsProtonRequestReady(protonRequest);
-        var runtimeReady = _umuProvisioner.IsRuntimeReady(
-            Core.Services.Umu.SteamRuntimeCatalog.Default.Variant);
+        var (runtimeVariant, _) = _umuProvisioner.ResolveRequiredRuntime(protonRequest)
+            ?? (Core.Services.Umu.SteamRuntimeCatalog.Default.Variant,
+                Core.Services.Umu.SteamRuntimeCatalog.Default.Name);
+        var runtimeReady = _umuProvisioner.IsRuntimeReady(runtimeVariant);
         NativeUmuStatusText = protonReady && runtimeReady
             ? _loc["launch_native_components_ready"]
             : protonReady
@@ -245,9 +248,13 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             var proton = await _umuProvisioner
                 .EnsureProtonAsync(ResolveNativeProtonRequest(), progress, cancellationToken)
                 .ConfigureAwait(true);
-            var runtime = Core.Services.Umu.SteamRuntimeCatalog.Default;
+            // 下载完成后重读 toolmanifest：Runtime 按刚就位的 Proton 实际声明准备
+            var (runtimeVariant, runtimeName) =
+                _umuProvisioner.ResolveRequiredRuntime(ResolveNativeProtonRequest())
+                ?? (Core.Services.Umu.SteamRuntimeCatalog.Default.Variant,
+                    Core.Services.Umu.SteamRuntimeCatalog.Default.Name);
             await _umuProvisioner
-                .EnsureRuntimeAsync(runtime.Variant, runtime.Name, progress, cancellationToken)
+                .EnsureRuntimeAsync(runtimeVariant, runtimeName, progress, cancellationToken)
                 .ConfigureAwait(true);
             Save.Clear();
             Save.SetSuccess(_loc["launch_native_components_ready"]);

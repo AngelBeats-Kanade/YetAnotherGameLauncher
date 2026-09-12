@@ -445,7 +445,9 @@ public partial class GameItemViewModel(
         IsBusy = true;
         try
         {
-            if (IsNativeUmuTemplate() && _nativeUmu is not null && Platform.IsLinux)
+            // 不带 Platform.IsLinux 门：Windows 上也走原生链入口，由 NativeUmuLauncher.EnsureLinux
+            // 抛出明确的「仅支持 Linux」错误，而不是把 native-umu 当命令名报「找不到」
+            if (IsNativeUmuTemplate() && _nativeUmu is not null)
             {
                 var proton = CompatTools.ResolveNativeProtonRequest(
                     Game.Launch.Environment, CompatTools.FindProtonVersions());

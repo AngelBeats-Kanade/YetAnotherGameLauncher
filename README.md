@@ -17,7 +17,7 @@
 | 功能 | 说明 |
 |---|---|
 | 游戏启动 | 命令模板 `{exe}` / `{installDir}` 占位符 + 环境变量注入；启动预检（主程序/运行时/prefix）给出类目化中文错误，游戏输出落盘启动日志（`~/.local/share/yagl/logs/`），失败弹主题化错误卡（含打开日志目录） |
-| Linux 启动方式选择器 | Direct / umu-launcher / Wine / Proton 四选；自动发现 umu-run、系统 wine、Lutris runner 与 GE-Proton，检测到 NVIDIA GPU 时推荐兼容环境；umu 未装提供一键安装（GitHub release zipapp，装完即用）；Linux 首运自动把默认 `{exe}` 模板升级为推荐链（umu → Proton → wine）并落盘，开箱即可点启动 |
+| Linux 启动方式选择器 | Direct / 原生 umu / umu-launcher / Wine / Proton 五选（+自定义模板）；默认走**原生 umu**（内置 C# 启动链，按 Proton 的 toolmanifest 自动下载 GE/UMU-Proton 与 Steam Runtime 并搭建容器与 prefix，无需外部 umu-run），也可自动发现 umu-run、系统 wine、Lutris runner 与 GE-Proton 改走外部链路，检测到 NVIDIA GPU 时推荐兼容环境；外部 umu-run 未装提供一键安装（GitHub release zipapp，装完即用）；Linux 首运自动把默认 `{exe}` 模板升级为推荐链（原生 umu → umu-run → Proton → wine）并落盘，开箱即可点启动 |
 | 全量下载 | 官方清单逐文件同步（鸣潮）/ 压缩包整包解压（终末地），size+MD5 双校验 |
 | 断点续传 | `.temp` 临时文件 + HTTP Range 续传，瞬态网络错误线性退避重试 |
 | 下载限速 | 可按字节/秒限制下载速度 |
@@ -43,8 +43,9 @@
 ### 环境要求
 
 - .NET 10 SDK（开发/构建）；运行 self-contained 发布产物则**无需安装运行时**
-- Linux 上运行游戏：推荐通过启动器一键安装 **umu-launcher**（启动设置卡或启动失败提示内）；
-  也可自备 wine / Proton（例如 `wine`、`steam`）
+- Linux 上运行游戏：默认无需任何外部运行时——原生 umu 启动链会按需自动下载
+  **UMU-Proton 与 Steam Runtime**（启动设置卡可一键预下载/检查；组件下载失败可从错误卡重试或改选本机 Proton）；
+  也可自备 wine / Proton / umu-launcher（umu 未装时启动设置卡与错误提示内可一键安装）
 - 鸣潮增量更新：需要 `hpatchz`（HDiffPatch）可执行文件，默认从 PATH 解析，
   也可在配置中指定路径（见下文）
 
@@ -66,7 +67,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（411 个，2026-09 实测）
+### 运行测试（438 个，2026-09 实测）
 
 ```bash
 # 4 个测试工程分别运行编译产物（Windows 亦可直接跑 .exe；本机 dotnet test 可能发现 0 个测试）：
@@ -97,9 +98,9 @@ GPU 厂商探测、Wine 运行时发现（umu/wine/Lutris）与推荐链、Wine 
 （内容即 [`samples/games.json`](samples/games.json) 模板：内置鸣潮三服与终末地三服
 （国际/国服/B服）及官方图标，开箱即可下载；已存在时绝不覆盖）。
 Linux 上生成时会顺带把默认 `{exe}` 模板升级为社区推荐链
-（umu-launcher → Proton → wine；三者皆无时也先给 umu 模板，装好即用）
-并写入兼容环境变量；此升级只在首运生成时发生一次，
-用户此后的任何修改都不会被覆盖。
+（原生 umu → umu-run → Proton → wine；默认原生 umu 无需任何外部运行时，
+启动时自动下载 Proton 与 Steam Runtime）并写入兼容环境变量；
+此升级只在首运生成时发生一次，用户此后的任何修改都不会被覆盖。
 
 **从旧版本升级**：旧配置首次被新版加载时会自动迁移——按内置模板补齐同一游戏新增的
 官方服务器与本地化名称（`schemaVersion` 一次性写入，仅执行一次），状态栏会提示补了什么。
@@ -153,7 +154,7 @@ YetAnotherGameLauncher.slnx
 | 鸣潮增量更新失败，提示 hpatchz | 安装 [HDiffPatch](https://github.com/sisong/HDiffPatch/releases) 并确保 `hpatchz` 在 PATH 中 |
 | 预下载按钮不出现 | 官方未开放预下载窗口（鸣潮 `predownload.config` 不存在 / 终末地无 `patch` 节点） |
 | 终末地版本/下载报错 | GRYPHLINE 协议无官方文档，官方启动器更新后字段可能变化，欢迎提 issue |
-| Linux 启动失败 | 启动失败会弹出错误卡：按提示一键安装 umu-launcher，或"打开日志目录"查看 `launch-*.log`；也可在游戏设置页检查命令模板与运行时。Windows 直接 `{exe}` 即可 |
+| Linux 启动失败 | 启动失败会弹出错误卡：原生 umu 组件下载失败可重试或改选本机已装 Proton；外部 umu-run 未装可一键安装；也可"打开日志目录"查看 `launch-*.log`，或到游戏设置页检查命令模板与运行时。Windows 直接 `{exe}` 即可 |
 | Linux 下界面小/发糊 | 启动器启动时会自动把 Hyprland 缩放同步到 `Xft.dpi`（仅在未设置时写入）；手动方案 `xrdb -merge <<< "Xft.dpi: 160"`（数值 = 96 × 合成器缩放） |
 | 鸣潮背景不显示 | 官方 `switch.json` 当前未投放背景时属正常（本机有官方启动器缓存/历史投放会自动回退显示）；视频背景首次播放需联网下载 FFmpeg 库（约 50MB，失败时保留静态海报） |
 

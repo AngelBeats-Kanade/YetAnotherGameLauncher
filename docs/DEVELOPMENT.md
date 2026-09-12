@@ -63,11 +63,11 @@ src/
 tests/
   YetAnotherGameLauncher.TestSupport/           # 共享测试设施（可复用的替身与工具）
     FakeDownloader / FakePatchApplier / FakeProcessRunner / FakeChannel / FakePlatformInfo / StubHttpHandler / TempDir / TestZip / ManualTimeProvider（虚拟时钟）
-  YetAnotherGameLauncher.Core.Tests/            # 领域层 183 个测试
-  YetAnotherGameLauncher.Channels.Kuro.Tests/   # 34 个测试
+  YetAnotherGameLauncher.Core.Tests/            # 领域层 229 个测试
+  YetAnotherGameLauncher.Channels.Kuro.Tests/   # 36 个测试
   YetAnotherGameLauncher.Channels.Hypergryph.Tests/ # 17 个测试
-  YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口 124 个测试
-  # 数量为 2026-09 实测（共 358）；随开发增长，以实际运行为准
+  YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口 156 个测试
+  # 数量为 2026-09 实测（共 438）；随开发增长，以实际运行为准
 ```
 
 构建约定（`Directory.Build.props`）：`net10.0`、`Nullable=enable`、`ImplicitUsings`、

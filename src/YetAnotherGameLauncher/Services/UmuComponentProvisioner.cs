@@ -1,8 +1,10 @@
+using System.Formats.Tar;
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using SharpCompress.Common;
-using SharpCompress.Readers;
+using SharpCompress.Compressors.Xz;
 using YetAnotherGameLauncher.Core;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
@@ -71,22 +73,16 @@ public sealed class UmuComponentProvisioner(
             protonRequest = "UMU-Proton";
         }
 
-        // 1) 绝对路径且已就绪
-        if (Path.IsPathRooted(protonRequest) && IsProtonReady(protonRequest))
+        var ready = FindInstalledProtonPath(protonRequest);
+
+        // 1) 绝对路径 / compatibilitytools.d 下的具体版本已就绪
+        if (ready is not null && !IsCodename(protonRequest))
         {
-            return Path.GetFullPath(protonRequest);
+            return ready;
         }
 
-        // 2) compatibilitytools.d 下的版本名
-        var byName = Path.Combine(UmuPaths.SteamCompatRoot(dataHome), protonRequest);
-        if (IsProtonReady(byName))
-        {
-            return Path.GetFullPath(byName);
-        }
-
-        // 3) 代号：本机前缀最新作离线回退；具体版本名/路径缺失时不得偷换成其它 Proton
-        var localLatest = FindLatestLocalProton(protonRequest);
-        if (IsCodename(protonRequest) && localLatest is not null)
+        // 2) 代号：本地最新作离线回退；下载最新失败才回退，不得静默换成其它 Proton
+        if (ready is not null)
         {
             try
             {
@@ -99,12 +95,12 @@ public sealed class UmuComponentProvisioner(
             }
             catch (Exception ex) when (ex is UpdateException or HttpRequestException or IOException or LaunchException)
             {
-                logger?.LogWarning(ex, "Proton 更新失败，回退本地 {Path}", localLatest);
-                return localLatest;
+                logger?.LogWarning(ex, "Proton 更新失败，回退本地 {Path}", ready);
+                return ready;
             }
         }
 
-        // 4) 具体版本名只下该 tag；代号走 latest
+        // 3) 具体版本名只下该 tag；代号走 latest
         progress?.Report($"正在准备 Proton（{protonRequest}）…");
         if (IsCodename(protonRequest))
         {
@@ -114,6 +110,54 @@ public sealed class UmuComponentProvisioner(
 
         return await DownloadProtonByTagAsync(protonRequest, progress, cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public (string Variant, string Name)? ResolveRequiredRuntime(string protonRequest)
+    {
+        var path = FindInstalledProtonPath(protonRequest);
+        if (path is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var runtime = ToolManifest.Load(path).RequiredRuntime;
+            if (runtime.Name == "host" || string.IsNullOrEmpty(runtime.Variant))
+            {
+                return null;
+            }
+
+            return (runtime.Variant, runtime.Name);
+        }
+        catch (Exception ex) when (ex is UpdateException or IOException or UnauthorizedAccessException)
+        {
+            // 清单不可读：调用方回退默认 Runtime
+            return null;
+        }
+    }
+
+    /// <summary>按与 EnsureProtonAsync 相同的规则做纯本地解析（不下载）：绝对路径、compatibilitytools.d 版本名、代号前缀最新。</summary>
+    private string? FindInstalledProtonPath(string protonRequest)
+    {
+        if (string.IsNullOrWhiteSpace(protonRequest))
+        {
+            protonRequest = "UMU-Proton";
+        }
+
+        if (Path.IsPathRooted(protonRequest) && IsProtonReady(protonRequest))
+        {
+            return Path.GetFullPath(protonRequest);
+        }
+
+        var byName = Path.Combine(UmuPaths.SteamCompatRoot(dataHome), protonRequest);
+        if (IsProtonReady(byName))
+        {
+            return Path.GetFullPath(byName);
+        }
+
+        return IsCodename(protonRequest) ? FindLatestLocalProton(protonRequest) : null;
     }
 
     /// <inheritdoc />
@@ -257,7 +301,8 @@ public sealed class UmuComponentProvisioner(
                 throw;
             }
             catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException
-                or ArchiveException or InvalidOperationException)
+                or ArchiveException or InvalidDataException or FormatException
+                or InvalidOperationException)
             {
                 throw new LaunchException(
                     LaunchFailureKind.ProtonDownloadFailed,
@@ -378,7 +423,8 @@ public sealed class UmuComponentProvisioner(
                 throw;
             }
             catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException
-                or ArchiveException or InvalidOperationException)
+                or ArchiveException or InvalidDataException or FormatException
+                or InvalidOperationException)
             {
                 throw new LaunchException(
                     LaunchFailureKind.ProtonDownloadFailed,
@@ -444,7 +490,7 @@ public sealed class UmuComponentProvisioner(
         Directory.CreateDirectory(staging);
         try
         {
-            ExtractRuntimeArchive(archivePath, staging, info.Name);
+            ExtractTarArchive(archivePath, staging);
             // tar 内顶层目录 SteamLinuxRuntime_* → 挪到 installRoot
             var top = Directory.EnumerateDirectories(staging).FirstOrDefault()
                       ?? throw new LaunchException(
@@ -482,7 +528,8 @@ public sealed class UmuComponentProvisioner(
         {
             throw;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArchiveException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArchiveException
+            or InvalidDataException or FormatException or InvalidOperationException)
         {
             throw new LaunchException(
                 LaunchFailureKind.UmuRuntimeDownloadFailed,
@@ -505,33 +552,146 @@ public sealed class UmuComponentProvisioner(
         }
     }
 
-    private static void ExtractRuntimeArchive(string archivePath, string staging, string codename)
+    /// <summary>
+    /// 解包 tar / tar.gz / tar.xz 到目标目录。条目解析与落盘走 System.Formats.Tar，
+    /// 按 tar 头还原 Unix 权限位（SharpCompress 的解压不保留执行位，Proton/Runtime 树离开执行位无法启动）；
+    /// 符号链接按原样创建，硬链接条目无数据、目标已解出时退化为符号链接。失败条目静默跳过（同 tar -x 容错），
+    /// 拒绝绝对路径与 ".." 穿越。xz 容器仍用 SharpCompress 的 XZStream（BCL 无 XZ 解码）。
+    /// </summary>
+    internal static void ExtractTarArchive(string archivePath, string destinationDir)
     {
-        using var stream = File.OpenRead(archivePath);
-        using var reader = ReaderFactory.Open(stream);
-        while (reader.MoveToNextEntry())
+        Directory.CreateDirectory(destinationDir);
+        using var raw = File.OpenRead(archivePath);
+        using var decompressed = OpenDecompressedStream(raw);
+        using var reader = new TarReader(decompressed);
+        while (reader.GetNextEntry() is { } entry)
         {
-            if (reader.Entry.IsDirectory)
-            {
-                continue;
-            }
-
+            var key = entry.Name.Replace('\\', '/');
             // 路径穿越防护
-            var key = reader.Entry.Key?.Replace('\\', '/') ?? "";
-            if (key.StartsWith('/') || key.Contains("../", StringComparison.Ordinal))
+            if (key.StartsWith('/') || key.Split('/').Contains(".."))
             {
                 continue;
             }
 
-            reader.WriteEntryToDirectory(staging, new ExtractionOptions
+            switch (entry.EntryType)
             {
-                ExtractFullPath = true,
-                Overwrite = true,
-            });
+                case TarEntryType.Directory:
+                    Directory.CreateDirectory(Path.Combine(destinationDir, key));
+                    break;
+                case TarEntryType.RegularFile:
+                    WriteRegularFile(destinationDir, entry, key);
+                    break;
+                case TarEntryType.SymbolicLink:
+                    TryCreateLink(Path.Combine(destinationDir, key), entry.LinkName, entry.EntryType);
+                    break;
+                case TarEntryType.HardLink:
+                    TryCreateLink(Path.Combine(destinationDir, key), entry.LinkName, entry.EntryType);
+                    break;
+            }
         }
     }
 
-    private static void ExtractSingleTopLevel(string archivePath, string targetDir)
+    /// <summary>按魔数选择解压流：gzip → GZipStream，xz → XZStream，其余按未压缩 tar 原样透传。</summary>
+    private static Stream OpenDecompressedStream(FileStream raw)
+    {
+        Span<byte> magic = stackalloc byte[6];
+        var filled = 0;
+        while (filled < magic.Length)
+        {
+            var read = raw.Read(magic[filled..]);
+            if (read == 0)
+            {
+                break;
+            }
+
+            filled += read;
+        }
+
+        raw.Position = 0;
+        if (filled >= 2 && magic[0] == 0x1F && magic[1] == 0x8B)
+        {
+            return new GZipStream(raw, CompressionMode.Decompress);
+        }
+
+        if (filled >= 6 && magic[0] == 0xFD && magic[1] == 0x37 && magic[2] == 0x7A
+            && magic[3] == 0x58 && magic[4] == 0x5A && magic[5] == 0x00)
+        {
+            return new XZStream(raw);
+        }
+
+        return raw;
+    }
+
+    /// <summary>落盘普通文件：tar 头权限位经 UnixCreateMode 原样还原（含执行位）；无权限信息时走 umask 默认。</summary>
+    private static void WriteRegularFile(string destinationDir, TarEntry entry, string key)
+    {
+        var target = Path.Combine(destinationDir, key);
+        var parent = Path.GetDirectoryName(target);
+        if (!string.IsNullOrEmpty(parent))
+        {
+            Directory.CreateDirectory(parent);
+        }
+
+        var options = new FileStreamOptions
+        {
+            Mode = FileMode.Create,
+            Access = FileAccess.Write,
+            Share = FileShare.None,
+        };
+        if (!OperatingSystem.IsWindows() && entry.Mode != UnixFileMode.None)
+        {
+            options.UnixCreateMode = entry.Mode & AllPermissionBits;
+        }
+
+        using var output = new FileStream(target, options);
+        entry.DataStream?.CopyTo(output);
+    }
+
+    /// <summary>
+    /// 创建链接条目：符号链接按 tar 记录的原样重建；硬链接条目没有数据段，
+    /// 目标已解出时以符号链接替代（同一份内容，保证可执行语义），否则跳过。
+    /// 无链接权限（如 Windows 未开开发者模式）时静默跳过，不阻断整个解包。
+    /// </summary>
+    private static void TryCreateLink(string linkPath, string targetName, TarEntryType entryType)
+    {
+        var parent = Path.GetDirectoryName(linkPath);
+        if (!string.IsNullOrEmpty(parent))
+        {
+            Directory.CreateDirectory(parent);
+        }
+
+        try
+        {
+            if (File.Exists(linkPath))
+            {
+                File.Delete(linkPath);
+            }
+
+            if (entryType == TarEntryType.HardLink)
+            {
+                var linkDir = Path.GetDirectoryName(linkPath);
+                var resolved = string.IsNullOrEmpty(linkDir) ? targetName : Path.Combine(linkDir, targetName);
+                if (!File.Exists(resolved))
+                {
+                    return;
+                }
+            }
+
+            File.CreateSymbolicLink(linkPath, targetName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+        }
+    }
+
+    /// <summary>tar 头里可用的九个权限位。</summary>
+    private const UnixFileMode AllPermissionBits =
+        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+        | UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute
+        | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
+
+    /// <summary>internal 供单测（经 InternalsVisibleTo）：验证顶层目录迁移与“无顶层目录直接摊开”两种包布局。</summary>
+    internal static void ExtractSingleTopLevel(string archivePath, string targetDir)
     {
         var temp = targetDir + ".extract";
         if (Directory.Exists(temp))
@@ -542,27 +702,7 @@ public sealed class UmuComponentProvisioner(
         Directory.CreateDirectory(temp);
         try
         {
-            using var stream = File.OpenRead(archivePath);
-            using var reader = ReaderFactory.Open(stream);
-            while (reader.MoveToNextEntry())
-            {
-                if (reader.Entry.IsDirectory)
-                {
-                    continue;
-                }
-
-                var key = reader.Entry.Key?.Replace('\\', '/') ?? "";
-                if (key.StartsWith('/') || key.Contains("../", StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                reader.WriteEntryToDirectory(temp, new ExtractionOptions
-                {
-                    ExtractFullPath = true,
-                    Overwrite = true,
-                });
-            }
+            ExtractTarArchive(archivePath, temp);
 
             // GE-Proton 包顶层通常是一个目录；也可能直接摊开
             var top = Directory.EnumerateDirectories(temp).FirstOrDefault();
@@ -627,10 +767,6 @@ public sealed class UmuComponentProvisioner(
         || string.Equals(value, "UMU-Proton", StringComparison.OrdinalIgnoreCase)
         || string.Equals(value, "GE-Latest", StringComparison.OrdinalIgnoreCase)
         || string.Equals(value, "UMU-Latest", StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsVersionRequest(string value) =>
-        value.StartsWith("GE-Proton", StringComparison.OrdinalIgnoreCase)
-        || value.StartsWith("UMU-Proton", StringComparison.OrdinalIgnoreCase);
 
     private async Task<string> FetchTextAsync(string url, CancellationToken cancellationToken)
     {

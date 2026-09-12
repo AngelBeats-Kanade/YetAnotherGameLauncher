@@ -40,18 +40,22 @@ public static class SteamRuntimeCatalog
     public static SteamRuntimeInfo Default => ByAppId["4183110"];
 
     /// <summary>
-    /// 归档文件名：SteamLinuxRuntime_sniper.tar.xz / SteamLinuxRuntime_steamrt4.tar.xz。
-    /// steamrt 前缀数字变体去掉 steamrt 前缀后拼文件名。
+    /// 归档文件名（与 repo.steampowered.com/steamrt{N}/images 的实际命名一致，2026-09 实测）：
+    /// sniper → SteamLinuxRuntime_sniper.tar.xz；steamrt4 → SteamLinuxRuntime_4.tar.xz；
+    /// steamrt4-arm64 → SteamLinuxRuntime_4-arm64.tar.xz（arm64 变体与 amd64 同目录、文件名带 -arm64 后缀）。
     /// </summary>
     public static string ArchiveFileName(SteamRuntimeInfo runtime)
     {
         var codename = runtime.Name;
-        if (codename.StartsWith("steamrt", StringComparison.Ordinal) &&
-            codename["steamrt".Length..].TrimEnd('-').All(char.IsDigit))
+        var isArm = codename.EndsWith("-arm64", StringComparison.Ordinal);
+        var baseName = isArm ? codename[..^"-arm64".Length] : codename;
+        if (baseName.StartsWith("steamrt", StringComparison.Ordinal) &&
+            baseName["steamrt".Length..].All(char.IsDigit))
         {
-            // steamrt4 → SteamLinuxRuntime_4；steamrt4-arm64 → SteamLinuxRuntime_4
-            var digits = new string(codename.Skip("steamrt".Length).TakeWhile(char.IsDigit).ToArray());
-            return FormattableString.Invariant($"SteamLinuxRuntime_{digits}.tar.xz");
+            // steamrt4[-arm64] → SteamLinuxRuntime_4[-arm64].tar.xz
+            var digits = baseName["steamrt".Length..];
+            var suffix = isArm ? "-arm64" : string.Empty;
+            return FormattableString.Invariant($"SteamLinuxRuntime_{digits}{suffix}.tar.xz");
         }
 
         return FormattableString.Invariant($"SteamLinuxRuntime_{codename}.tar.xz");
