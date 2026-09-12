@@ -108,7 +108,8 @@ public sealed class ProtonCompatTests : IDisposable
         InstallProton("GE-Proton10-9");
 
         var launch = CompatTools.BuildRecommendedLaunch(
-            "wuthering-waves", ["GE-Proton10-9"], nvidiaGpuPresent: true, home: _home.Path);
+            "wuthering-waves", ["GE-Proton10-9"], nvidiaGpuPresent: true, home: _home.Path,
+            preferNativeUmu: false);
 
         Assert.NotNull(launch);
         Assert.Equal(LaunchMode.Proton, launch.Mode);
@@ -119,13 +120,12 @@ public sealed class ProtonCompatTests : IDisposable
     }
 
     [Fact]
-    public void BuildRecommendedLaunch_NoVersions_FallsBackToBareUmuTemplate()
+    public void BuildRecommendedLaunch_NoVersions_FallsBackToNativeUmuTemplate()
     {
-        // 什么运行时都没有：仍返回 umu 模板（RuntimeName=null），引导安装就位后即可启动
+        // 什么运行时都没有：仍返回原生 umu 模板，启动时由组件准备器自动下载
         var launch = CompatTools.BuildRecommendedLaunch("wuthering-waves", [], home: _home.Path);
 
-        Assert.Equal(LaunchMode.Umu, launch.Mode);
-        Assert.Null(launch.RuntimeName);
-        Assert.Equal("umu-run {exe}", launch.CommandTemplate);
+        Assert.Equal(LaunchMode.NativeUmu, launch.Mode);
+        Assert.Equal("native-umu {exe}", launch.CommandTemplate);
     }
 }

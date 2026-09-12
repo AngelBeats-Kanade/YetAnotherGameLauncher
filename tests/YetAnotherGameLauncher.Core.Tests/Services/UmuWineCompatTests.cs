@@ -168,7 +168,7 @@ public sealed class UmuWineCompatTests : IDisposable
         var launch = CompatTools.BuildRecommendedLaunch(
             "wuthering-waves", ["GE-Proton10-9"], nvidiaGpuPresent: true,
             home: _home.Path, dataHome: _dataHome.Path,
-            umuRunPath: "/x/umu-run", winePath: null);
+            umuRunPath: "/x/umu-run", winePath: null, preferNativeUmu: false);
 
         Assert.NotNull(launch);
         Assert.Equal(LaunchMode.Umu, launch.Mode);
@@ -183,7 +183,8 @@ public sealed class UmuWineCompatTests : IDisposable
         InstallProton("GE-Proton10-9");
 
         var launch = CompatTools.BuildRecommendedLaunch(
-            "wuthering-waves", ["GE-Proton10-9"], home: _home.Path, dataHome: _dataHome.Path);
+            "wuthering-waves", ["GE-Proton10-9"], home: _home.Path, dataHome: _dataHome.Path,
+            preferNativeUmu: false);
 
         Assert.NotNull(launch);
         Assert.Equal(LaunchMode.Proton, launch.Mode);
@@ -196,7 +197,7 @@ public sealed class UmuWineCompatTests : IDisposable
     {
         var launch = CompatTools.BuildRecommendedLaunch(
             "wuthering-waves", [], home: _home.Path, dataHome: _dataHome.Path,
-            winePath: "wine");
+            winePath: "wine", preferNativeUmu: false);
 
         Assert.NotNull(launch);
         Assert.Equal(LaunchMode.Wine, launch.Mode);
@@ -205,15 +206,15 @@ public sealed class UmuWineCompatTests : IDisposable
     }
 
     [Fact]
-    public void BuildRecommendedLaunch_NothingInstalled_StaysUmuTemplateForGuidedInstall()
+    public void BuildRecommendedLaunch_NothingInstalled_StaysNativeUmuTemplate()
     {
-        // 什么都装了也没有：仍给 umu 模板（引导安装完成后即可直接启动），推荐项标记无运行时
+        // 什么都装了也没有：默认原生 umu 模板（启动时自动下载 Proton/Runtime）
         var launch = CompatTools.BuildRecommendedLaunch(
             "wuthering-waves", [], home: _home.Path, dataHome: _dataHome.Path);
 
         Assert.NotNull(launch);
-        Assert.Equal(LaunchMode.Umu, launch.Mode);
-        Assert.Null(launch.RuntimeName);
+        Assert.Equal(LaunchMode.NativeUmu, launch.Mode);
+        Assert.Equal("native-umu {exe}", launch.CommandTemplate);
     }
 
     [Fact]

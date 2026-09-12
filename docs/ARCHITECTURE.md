@@ -125,10 +125,18 @@ Windows 上若游戏可执行文件的清单要求管理员权限（requireAdmin
 配置了自定义环境时记警告放弃。
 
 命令模板支持引号包裹（含空格路径），例如 `wine "{exe}"`；
-Linux 上如何运行（原生/umu/wine/Proton）完全由配置决定，代码零平台假设。
+Linux 上如何运行（原生 umu / 外部 umu-run / wine / Proton）完全由配置决定，代码零平台假设。
 推荐链单一事实源在 `CompatTools.BuildRecommendedLaunch`：
-**umu-launcher（`umu-run {exe}` + GAMEID/UMU_ID/WINEPREFIX）→ Proton 直启 → 系统 wine**；
-三者皆无时仍生成裸 umu 模板（引导安装就位后即可启动）。
+**原生 umu（`native-umu {exe}`，内置 C#）→ 外部 umu-run → Proton 直启 → 系统 wine**；
+默认走原生 umu。原生链在 `NativeUmuLauncher` + `IUmuComponentProvisioner`：
+
+1. 解析/下载 Proton（GE-Proton / UMU-Proton → `~/.local/share/Steam/compatibilitytools.d`）
+2. 读 `toolmanifest.vdf` 得所需 Steam Runtime，缺失则下载到 `~/.local/share/umu/<variant>`（SHA256 校验）
+3. `UmuPrefix.Setup` 布好 Proton 兼容 prefix（pfx 符号链接、shadercache、steamuser）
+4. `UmuEnvironment.Build` 写完整 STEAM_COMPAT_* / UMU_* 环境
+5. 经 `{runtime}/_v2-entry-point --verb=… -- {proton}/proton <verb> {exe}` 启动（`IProcessRunner`，即启即走）
+
+外部 `umu-run` zipapp 路径保留为回退（`UmuLauncherInstaller`）。
 Wine prefix 统一在 `{数据目录}/yagl/prefixes/<游戏id>`（`STEAM_COMPAT_DATA_PATH` 同址），
 绝不写入游戏安装目录——安装同步的清单外清理不会误删 prefix（`compatdata` 另在保留名单纵深防御）。
 （唯一例外是首运配置生成：Linux 会把默认 `{exe}` 升级为推荐链再落盘，见 GAME_CONFIG.md。）

@@ -24,11 +24,19 @@ public partial class GameItemViewModel(
     IVideoBackdropPlayer? videoPlayer = null,
     IFilePickerService? filePicker = null,
     Core.Abstractions.IPlatformInfo? platformInfo = null,
-    UmuLauncherInstaller? umuInstaller = null) : ViewModelBase
+    UmuLauncherInstaller? umuInstaller = null,
+    Core.Services.Umu.NativeUmuLauncher? nativeUmu = null,
+    IUmuComponentProvisioner? umuProvisioner = null) : ViewModelBase
 {
     private string _installDir = installDir;
 
     private readonly IFilePickerService? _filePicker = filePicker;
+
+    /// <summary>原生 umu 启动器（Linux 内置启动链；null = 不可用/测试）。</summary>
+    private readonly Core.Services.Umu.NativeUmuLauncher? _nativeUmu = nativeUmu;
+
+    /// <summary>原生 umu 组件准备器（设置卡检查/下载；null = 不可用）。</summary>
+    private readonly IUmuComponentProvisioner? _umuProvisioner = umuProvisioner;
 
     /// <summary>umu-launcher 引导安装器（Linux 启动失败时供错误覆盖层一键安装；null = 不可用）。</summary>
     public UmuLauncherInstaller? UmuInstaller { get; } = umuInstaller;
@@ -47,7 +55,7 @@ public partial class GameItemViewModel(
     /// <summary>启动设置编辑卡（保存走 GameCatalogService 整文件原子写）。</summary>
     public LaunchSettingsViewModel LaunchSettings => _launchSettings ??= new(
         Game, _installDir, catalogService, Loc, this, _filePicker, Platform,
-        umuInstaller: UmuInstaller);
+        umuInstaller: UmuInstaller, umuProvisioner: _umuProvisioner);
 
     /// <summary>底层游戏配置（只读引用；名称/图标/服务器等以此为准）。</summary>
     public GameDefinition Game { get; } = game;
@@ -437,7 +445,22 @@ public partial class GameItemViewModel(
         IsBusy = true;
         try
         {
-            await launcherService.LaunchAsync(Game, _installDir, Game.Executable, cancellationToken);
+            if (IsNativeUmuTemplate() && _nativeUmu is not null && Platform.IsLinux)
+            {
+                var proton = CompatTools.ResolveNativeProtonRequest(
+                    Game.Launch.Environment, CompatTools.FindProtonVersions());
+                var progress = new Progress<string>(msg => StatusText = msg);
+                await _nativeUmu.LaunchAsync(
+                    Game.Id, _installDir, Game.Executable, proton,
+                    extraEnvironment: Game.Launch.Environment,
+                    progress: progress,
+                    cancellationToken: cancellationToken);
+            }
+            else
+            {
+                await launcherService.LaunchAsync(Game, _installDir, Game.Executable, cancellationToken);
+            }
+
             LaunchError = null; // 上次的失败覆盖层随成功启动清掉
             StatusText = Loc["status_launched"];
         }
@@ -457,23 +480,70 @@ public partial class GameItemViewModel(
         }
     }
 
-    /// <summary>按失败类目构建错误覆盖层（RuntimeMissing + umu 未装 → 提供一键安装）。</summary>
+    /// <summary>按失败类目构建错误覆盖层：外部 umu 缺失→一键安装；原生组件失败→重试/选本机 Proton。</summary>
     private LaunchErrorViewModel CreateLaunchError(
         string message, string detail, string? logPath, LaunchFailureKind kind)
     {
         var umuMissing = kind == LaunchFailureKind.RuntimeMissing
             && Platform.IsLinux
             && IsUmuTemplate();
-        return new LaunchErrorViewModel(
+        var canRetry = Platform.IsLinux && kind is
+            LaunchFailureKind.ProtonDownloadFailed
+            or LaunchFailureKind.UmuRuntimeDownloadFailed
+            or LaunchFailureKind.UmuRuntimeMissing;
+        var localProtons = Platform.IsLinux && kind == LaunchFailureKind.ProtonDownloadFailed
+            ? CompatTools.FindProtonVersions()
+            : [];
+        var error = new LaunchErrorViewModel(
             Loc, message, detail, logPath,
             canInstallUmu: umuMissing,
             umuInstaller: UmuInstaller,
-            platform: Platform);
+            platform: Platform,
+            failureKind: kind,
+            canRetry: canRetry,
+            localProtonVersions: localProtons);
+        error.RetryRequested += OnLaunchErrorRetryRequested;
+        error.LocalProtonSelected += OnLaunchErrorLocalProtonSelected;
+        return error;
+    }
+
+    /// <summary>错误覆盖层「重试」：清掉覆盖层后重新启动一次。</summary>
+    private async void OnLaunchErrorRetryRequested(object? sender, EventArgs e)
+    {
+        LaunchError = null;
+        await LaunchAsync();
+    }
+
+    /// <summary>改用本机 Proton：写入 PROTONPATH 环境并落盘，然后重新启动。</summary>
+    private async void OnLaunchErrorLocalProtonSelected(object? sender, string protonVersion)
+    {
+        var path = CompatTools.LocateProton(protonVersion);
+        if (path is null)
+        {
+            return;
+        }
+
+        Game.Launch.Environment["PROTONPATH"] = path;
+        try
+        {
+            await catalogService.SaveAsync();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or UpdateException)
+        {
+            // 保存失败不阻断本次启动：内存中已生效
+        }
+
+        LaunchError = null;
+        await LaunchAsync();
     }
 
     /// <summary>当前启动模板是否走 umu（决定失败时是否提供引导安装）。</summary>
     private bool IsUmuTemplate() =>
         Game.Launch.CommandTemplate.Contains("umu-run", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>当前启动模板是否为原生 umu（内置 C# 启动链）。</summary>
+    private bool IsNativeUmuTemplate() =>
+        Game.Launch.CommandTemplate.Contains("native-umu", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// 主操作：未安装时全新安装，有更新时更新；已安装且已是最新即"校验修复"——

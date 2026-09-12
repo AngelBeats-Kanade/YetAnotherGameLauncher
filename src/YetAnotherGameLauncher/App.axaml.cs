@@ -87,11 +87,19 @@ public partial class App : Application
         services.AddSingleton<FfmpegLibraryResolver>();
         services.AddSingleton<IVideoBackdropPlayer, FfmpegVideoBackdropPlayer>();
 
-        // Linux 兼容层：umu-launcher 引导安装（启动失败覆盖层的一键安装按钮）
+        // Linux 兼容层：原生 umu（内置 C#）+ 外部 umu-run 引导安装（回退）
         services.AddSingleton(sp => new UmuLauncherInstaller(
             sp.GetRequiredService<HttpClient>(),
             sp.GetRequiredService<HttpFileDownloader>(),
             sp.GetRequiredService<ILoggerFactory>().CreateLogger<UmuLauncherInstaller>()));
+        services.AddSingleton<IUmuComponentProvisioner>(sp => new UmuComponentProvisioner(
+            sp.GetRequiredService<HttpClient>(),
+            sp.GetRequiredService<IDownloader>(),
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger<UmuComponentProvisioner>()));
+        services.AddSingleton(sp => new Core.Services.Umu.NativeUmuLauncher(
+            sp.GetRequiredService<IProcessRunner>(),
+            sp.GetRequiredService<IUmuComponentProvisioner>(),
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger<Core.Services.Umu.NativeUmuLauncher>()));
 
         // 游戏背景解析（按渠道键注册；配置文件不携带背景地址，启动时向渠道确认当期背景）
         services.AddSingleton<KuroSwitchConfigClient>();
@@ -126,7 +134,9 @@ public partial class App : Application
                 sp.GetRequiredService<IFilePickerService>(),
                 sp.GetRequiredService<IVideoBackdropPlayer>(),
                 sp.GetRequiredService<KuroGachaService>(),
-                umuInstaller: sp.GetRequiredService<UmuLauncherInstaller>());
+                umuInstaller: sp.GetRequiredService<UmuLauncherInstaller>(),
+                nativeUmu: sp.GetRequiredService<Core.Services.Umu.NativeUmuLauncher>(),
+                umuProvisioner: sp.GetRequiredService<IUmuComponentProvisioner>());
         });
 
         return services.BuildServiceProvider();
