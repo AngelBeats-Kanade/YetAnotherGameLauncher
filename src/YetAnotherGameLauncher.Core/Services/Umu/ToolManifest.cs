@@ -70,11 +70,11 @@ public sealed record ToolManifest(
     /// <summary>
     /// 组装工具入口命令：把 commandline 里的 %verb% 换成实际 verb，
     /// container-runtime 且存在 umu 时优先 umu（与上游一致）。
-    /// 返回已按空格拆分的 argv（路径已规范为绝对路径）。
+    /// 返回 argv 列表：首元素为工具绝对路径（可能含空格，不在此处拆开），其余为参数。
     /// </summary>
     public IReadOnlyList<string> BuildEntryCommand(string verb)
     {
-        var toolPath = Path.GetFullPath(ToolPath).Replace('\\', '/');
+        var toolPath = Path.GetFullPath(ToolPath);
         var commandLine = CommandLine;
         if (string.Equals(LayerName, "container-runtime", StringComparison.Ordinal) &&
             File.Exists(Path.Combine(ToolPath, "umu")))
@@ -82,14 +82,20 @@ public sealed record ToolManifest(
             commandLine = commandLine.Replace("_v2-entry-point", "umu", StringComparison.Ordinal);
         }
 
-        commandLine = commandLine.Replace("%verb%", verb, StringComparison.Ordinal);
+        commandLine = commandLine.Replace("%verb%", verb, StringComparison.Ordinal).Trim();
         if (!commandLine.StartsWith('/'))
         {
             commandLine = "/" + commandLine.TrimStart('/');
         }
 
-        // commandline 形如 "/proton %verb%"：拼上工具根后按空格拆分
-        var full = toolPath.TrimEnd('/') + commandLine;
-        return full.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        // commandline 形如 "/proton %verb%"：首段是相对工具根的入口，其余是参数
+        var parts = commandLine.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length == 0)
+        {
+            return [Path.Combine(toolPath, "proton")];
+        }
+
+        var entry = Path.GetFullPath(Path.Combine(toolPath, parts[0].TrimStart('/')));
+        return [entry, .. parts.Skip(1)];
     }
 }

@@ -99,11 +99,11 @@ public static class UmuEnvironment
         env["SteamAppId"] = env["STEAM_COMPAT_APP_ID"];
         env["SteamGameId"] = env["STEAM_COMPAT_APP_ID"];
 
-        // umu-<数字> 时把数字部分当作 Steam AppId（与上游 match ^umu-[\d\w]+$ 后截取一致的数字子集）
+        // umu-<纯数字> 时把数字部分当作 Steam AppId（带连字符的游戏 id 保持 MD5）
         if (umuId.StartsWith("umu-", StringComparison.Ordinal))
         {
             var suffix = umuId["umu-".Length..];
-            if (suffix.Length > 0 && suffix.All(char.IsAsciiLetterOrDigit))
+            if (suffix.Length > 0 && suffix.All(char.IsDigit))
             {
                 env["STEAM_COMPAT_APP_ID"] = suffix;
                 env["SteamAppId"] = suffix;

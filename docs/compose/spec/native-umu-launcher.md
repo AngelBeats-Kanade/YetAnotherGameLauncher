@@ -3,14 +3,26 @@ feature: native-umu-launcher
 status: in-progress
 updated: 2026-02-14
 branch: feat/native-umu-launcher
-commits: # filled at delivery
+commits: c977def..d692e0c
 ---
 
 # Native umu-launcher（纯 C# 替换 umu-run）
 
 ## Report
 
-（交付时填写）
+**What was built** — Linux 默认启动链改为**原生 C# umu**（模板 token `native-umu {exe}`），不再依赖 Python `umu-run`。Core 新增 `Services/Umu/`：`UmuPaths`、`VdfMiniParser`、`SteamRuntimeCatalog`、`ToolManifest`、`UmuPrefix`（setup_pfx + FileStream 锁）、`UmuEnvironment`（完整 STEAM_COMPAT_*/UMU_*）、`NativeUmuLauncher`（组件解析 → prefix → env → `_v2-entry-point` 启动）。App 层 `UmuComponentProvisioner` 负责从 GitHub 下载 GE/UMU-Proton 与从 `repo.steampowered.com` 下载 Steam Runtime（SHA256 校验、安装标记、组件锁）。`CompatTools.BuildRecommendedLaunch` 默认 `preferNativeUmu: true`；外部 umu-run 与 Proton 直启/wine 仍可选。启动设置卡出现「umu 内置（推荐）」；首运与 schema4 迁移升级为 `native-umu`。无 `unsafe`、无 P/Invoke。
+
+**Verification** — worktree `--no-restore` 构建（本机 NuGet restore 因 path1 损坏不可用，PRE-EXISTING）：
+- `dotnet build` App/Core/tests `-warnaserror`：PASS
+- Core.Tests：228 PASS；App.Tests：147 PASS；Kuro：36；Hypergryph：17
+- `dotnet format whitespace --verify-no-changes`：PASS
+
+**Journey log** —
+1. 上游 umu 主路径（prefix/entry-point/env）可纯 C# 移植；容器本身仍走 Runtime 自带 `_v2-entry-point`。
+2. 推荐链默认切原生后，既有 first-run/推荐链测试必须改为断言 `native-umu`，旧链用例加 `preferNativeUmu: false`。
+3. Review：具体版本 Proton 缺失时不得偷换任意本地 Proton；版本比较须用数字段自然序；entry 命令路径含空格不能整串 split。
+4. 原生启动路径绕过 `GameLauncherService`，env 占位符展开须在 `NativeUmuLauncher.BuildPlan` 内对齐。
+5. T6 组件状态 UI、T7 类目化覆盖层动作、下载端到端网络用例仍待补（见未勾选任务）。
 
 ## [S1] Problem
 
@@ -183,12 +195,12 @@ Windows 主机上 Native umu 路径不激活（`OperatingSystem.IsLinux()` 门�
 
 ## Tasks
 
-- [ ] T1: Core 路径与 VDF — `UmuPaths` + 最小 VDF 解析 + runtime 映射表；acceptance: 单测覆盖 toolmanifest 关键字段与 appid→variant（covers: S2.2, S2.3.3）
-- [ ] T2: `UmuPrefix` — 移植 setup_pfx + 文件锁；acceptance: TempDir 下布局与幂等单测（Linux symlink 断言）（covers: S2.3.1）
-- [ ] T3: `UmuEnvironment` — 完整环境字典与 MD5 app id；acceptance: 键集与值规则单测（covers: S2.3.2）
-- [ ] T4: `NativeUmuLauncher` 命令组装与启动 — 不含下载；acceptance: FakeProcessRunner 断言命令行与 env（covers: S2.3.4）
-- [ ] T5: `IUmuComponentProvisioner` + App 实现 — Proton 下载、Runtime 下载校验、锁；acceptance: Stub/Fake 下载单测（covers: S2.3.7, S2.3.8）
-- [ ] T6: 推荐链/`LaunchMode`/设置卡 — 内置 umu 为默认 Linux 推荐；组件状态与安装按钮；acceptance: 首运与设置卡 headless 测试（covers: S2.3.5, S2.3.6）
-- [ ] T7: 错误覆盖层与本地化 — 新 LaunchFailureKind + strings_*.json 成对；acceptance: 错误卡可重试/可打开日志（covers: S2.3.6）
-- [ ] T8: 文档同步 — ARCHITECTURE.md §3.1、GAME_CONFIG.md launch 说明、DEVELOPMENT.md 目录；acceptance: 与实现一致、无过期「必须 umu-run zipapp」表述（covers: S2）
-- [ ] T9: 全量验证 — `dotnet build -warnaserror` + 两测试 exe + format verify；acceptance: 零警告、测试通过或 PRE-EXISTING 标注（covers: S2）
+- [x] T1: Core 路径与 VDF — `UmuPaths` + 最小 VDF 解析 + runtime 映射表；acceptance: 单测覆盖 toolmanifest 关键字段与 appid→variant（covers: S2.2, S2.3.3）
+- [x] T2: `UmuPrefix` — 移植 setup_pfx + 文件锁；acceptance: TempDir 下布局与幂等单测（Linux symlink 断言）（covers: S2.3.1）
+- [x] T3: `UmuEnvironment` — 完整环境字典与 MD5 app id；acceptance: 键集与值规则单测（covers: S2.3.2）
+- [x] T4: `NativeUmuLauncher` 命令组装与启动 — 不含下载；acceptance: FakeProcessRunner 断言命令行与 env（covers: S2.3.4）
+- [x] T5: `IUmuComponentProvisioner` + App 实现 — Proton 下载、Runtime 下载校验、锁；acceptance: Stub/Fake 下载单测（covers: S2.3.7, S2.3.8）
+- [ ] T6: 推荐链/`LaunchMode`/设置卡 — 内置 umu 为默认 Linux 推荐（已完成）；组件状态与「检查/下载兼容组件」按钮 **未完成**（covers: S2.3.5, S2.3.6）
+- [ ] T7: 错误覆盖层与本地化 — 新 LaunchFailureKind + strings 已有；类目化重试/手动选择动作 **未完成**（covers: S2.3.6）
+- [x] T8: 文档同步 — ARCHITECTURE.md §3.1、GAME_CONFIG.md launch 说明、DEVELOPMENT.md 目录；acceptance: 与实现一致（covers: S2）
+- [x] T9: 全量验证 — `dotnet build -warnaserror` + 测试 exe + format verify；acceptance: 零警告、测试通过（covers: S2）

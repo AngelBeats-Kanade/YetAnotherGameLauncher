@@ -115,11 +115,13 @@ public sealed class NativeUmuLauncher(
         {
             foreach (var (key, value) in extraEnvironment)
             {
-                environment[key] = value;
+                // 与 GameLauncherService.Expand 一致：环境值支持 {exe}/{installDir}
+                environment[key] = GameLauncherService.Expand(value, exe, Path.GetFullPath(installDir));
             }
         }
 
-        var entry = BuildEntryCommand(manifest, runtime, environment["PROTON_VERB"], exe);
+        var entry = BuildEntryCommand(
+            manifest, runtime, environment["PROTON_VERB"], exe, dataHomeOverride ?? dataHome);
         var arguments = QuoteArgs(entry.Skip(1).ToList());
 
         logger?.LogInformation(
@@ -191,7 +193,8 @@ public sealed class NativeUmuLauncher(
         ToolManifest manifest,
         SteamRuntimeInfo runtime,
         string verb,
-        string exePath)
+        string exePath,
+        string? dataHome = null)
     {
         var protonArgv = manifest.BuildEntryCommand(verb);
         if (runtime.Name == "host" || string.IsNullOrEmpty(runtime.Variant))
@@ -199,7 +202,7 @@ public sealed class NativeUmuLauncher(
             return [.. protonArgv, exePath];
         }
 
-        var runtimeRoot = UmuPaths.RuntimeDirectory(runtime.Variant);
+        var runtimeRoot = UmuPaths.RuntimeDirectory(runtime.Variant, dataHome);
         var entry = Path.Combine(runtimeRoot, "_v2-entry-point");
         if (!File.Exists(entry) && File.Exists(Path.Combine(runtimeRoot, "umu")))
         {

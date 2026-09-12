@@ -84,41 +84,26 @@ public sealed class UmuComponentProvisioner(
             return Path.GetFullPath(byName);
         }
 
-        // 3) 本机已装的最新（代号 GE-Proton / UMU-Proton，或任意）
+        // 3) 代号：本机前缀最新作离线回退；具体版本名/路径缺失时不得偷换成其它 Proton
         var localLatest = FindLatestLocalProton(protonRequest);
-        if (localLatest is not null && !IsCodename(protonRequest) && !IsVersionRequest(protonRequest))
+        if (IsCodename(protonRequest) && localLatest is not null)
         {
-            return localLatest;
-        }
-
-        if (!IsCodename(protonRequest) && Directory.Exists(byName))
-        {
-            // 指定了版本名但目录残缺：强制重下
-        }
-        else if (localLatest is not null && IsCodename(protonRequest))
-        {
-            // 代号：若本地已有该前缀最新则仍尝试检查网络更新；失败则用本地
             try
             {
                 return await DownloadLatestProtonAsync(protonRequest, progress, cancellationToken)
                     .ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is UpdateException or HttpRequestException or IOException)
+            catch (Exception ex) when (ex is UpdateException or HttpRequestException or IOException or LaunchException)
             {
                 logger?.LogWarning(ex, "Proton 更新失败，回退本地 {Path}", localLatest);
                 return localLatest;
             }
         }
 
-        // 4) 下载
-        if (IsCodename(protonRequest) || IsVersionRequest(protonRequest) || !IsProtonReady(protonRequest))
-        {
-            progress?.Report($"正在准备 Proton（{protonRequest}）…");
-            return await DownloadLatestProtonAsync(protonRequest, progress, cancellationToken)
-                .ConfigureAwait(false);
-        }
-
-        return Path.GetFullPath(protonRequest);
+        // 4) 下载（代号或具体版本；已就绪的绝对路径已在步骤 1 返回）
+        progress?.Report($"正在准备 Proton（{protonRequest}）…");
+        return await DownloadLatestProtonAsync(protonRequest, progress, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -176,19 +161,23 @@ public sealed class UmuComponentProvisioner(
         try
         {
             using var document = JsonDocument.Parse(json);
+            var prefix = protonRequest.StartsWith("UMU", StringComparison.OrdinalIgnoreCase)
+                ? "UMU-Proton"
+                : "GE-Proton";
             var assets = document.RootElement.GetProperty("assets")
                 .EnumerateArray()
                 .Select(a => (
                     Name: a.GetProperty("name").GetString() ?? "",
                     Url: a.GetProperty("browser_download_url").GetString() ?? ""))
                 .Where(a => a.Name.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)
+                            && a.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
                             && !a.Name.Contains("sha512", StringComparison.OrdinalIgnoreCase)
                             && !a.Name.Contains("sha256sum", StringComparison.OrdinalIgnoreCase))
                 .ToArray();
             asset = assets.FirstOrDefault();
             if (string.IsNullOrEmpty(asset.Url))
             {
-                throw new UpdateException("Proton release 里没有 .tar.gz 资产。");
+                throw new UpdateException($"Proton release 里没有匹配 {prefix}*.tar.gz 的资产。");
             }
         }
         catch (JsonException ex)
@@ -212,42 +201,50 @@ public sealed class UmuComponentProvisioner(
         Directory.CreateDirectory(Path.GetDirectoryName(tarPath)!);
         progress?.Report($"正在下载 {asset.Name}…");
 
-        try
+        using (UmuPrefix.AcquireLock(UmuPaths.LockFile("proton.lock")))
         {
-            await downloader.DownloadFileAsync(
-                new DownloadRequest(asset.Url, tarPath, ExpectedSize: null, ExpectedMd5: null),
-                null,
-                cancellationToken).ConfigureAwait(false);
+            if (IsProtonReady(targetDir))
+            {
+                return Path.GetFullPath(targetDir);
+            }
 
-            // release 资产可能是 .tar.gz；SharpCompress 可直接读 gzip+tar
-            ExtractSingleTopLevel(tarPath, targetDir);
+            try
+            {
+                await downloader.DownloadFileAsync(
+                    new DownloadRequest(asset.Url, tarPath, ExpectedSize: null, ExpectedMd5: null),
+                    null,
+                    cancellationToken).ConfigureAwait(false);
 
-            if (!IsProtonReady(targetDir))
+                // release 资产可能是 .tar.gz；SharpCompress 可直接读 gzip+tar
+                ExtractSingleTopLevel(tarPath, targetDir);
+
+                if (!IsProtonReady(targetDir))
+                {
+                    throw new LaunchException(
+                        LaunchFailureKind.ProtonDownloadFailed,
+                        $"Proton 包「{asset.Name}」解压后缺少 proton 或 toolmanifest.vdf。");
+                }
+
+                TryChmod(Path.Combine(targetDir, "proton"));
+                logger?.LogInformation("Installed Proton to {Dir}", targetDir);
+                return Path.GetFullPath(targetDir);
+            }
+            catch (LaunchException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException
+                or ArchiveException or InvalidOperationException)
             {
                 throw new LaunchException(
                     LaunchFailureKind.ProtonDownloadFailed,
-                    $"Proton 包「{asset.Name}」解压后缺少 proton 或 toolmanifest.vdf。");
+                    $"Proton 下载或解压失败：{ex.Message}",
+                    ex);
             }
-
-            TryChmod(Path.Combine(targetDir, "proton"));
-            logger?.LogInformation("Installed Proton to {Dir}", targetDir);
-            return Path.GetFullPath(targetDir);
-        }
-        catch (LaunchException)
-        {
-            throw;
-        }
-        catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException
-            or ArchiveException or InvalidOperationException)
-        {
-            throw new LaunchException(
-                LaunchFailureKind.ProtonDownloadFailed,
-                $"Proton 下载或解压失败：{ex.Message}",
-                ex);
-        }
-        finally
-        {
-            TryDelete(tarPath);
+            finally
+            {
+                TryDelete(tarPath);
+            }
         }
     }
 
@@ -456,20 +453,27 @@ public sealed class UmuComponentProvisioner(
             return null;
         }
 
-        var filter = IsCodename(prefixOrCodename)
-            ? prefixOrCodename
-            : prefixOrCodename.StartsWith("GE", StringComparison.OrdinalIgnoreCase) ? "GE-Proton"
-            : prefixOrCodename.StartsWith("UMU", StringComparison.OrdinalIgnoreCase) ? "UMU-Proton"
-            : null;
+        var filter = prefixOrCodename.StartsWith("UMU", StringComparison.OrdinalIgnoreCase)
+            ? "UMU-Proton"
+            : prefixOrCodename.StartsWith("GE", StringComparison.OrdinalIgnoreCase)
+                ? "GE-Proton"
+                : null;
+        if (filter is null)
+        {
+            return null;
+        }
 
+        // 数字段自然序：GE-Proton10-* 应排在 GE-Proton9-* 之前
         return Directory.EnumerateDirectories(root)
             .Where(d =>
             {
                 var name = Path.GetFileName(d);
-                return IsProtonReady(d) &&
-                       (filter is null || name.StartsWith(filter, StringComparison.OrdinalIgnoreCase));
+                return IsProtonReady(d) && name.StartsWith(filter, StringComparison.OrdinalIgnoreCase);
             })
-            .OrderByDescending(d => Path.GetFileName(d), StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(
+                d => string.Concat(System.Text.RegularExpressions.Regex
+                    .Matches(Path.GetFileName(d), @"\d+").Select(m => m.Value.PadLeft(6, '0'))),
+                StringComparer.Ordinal)
             .Select(Path.GetFullPath)
             .FirstOrDefault();
     }
