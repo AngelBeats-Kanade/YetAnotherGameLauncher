@@ -160,6 +160,8 @@ YetAnotherGameLauncher.slnx
 
 ## 许可与致谢
 
+- 本项目以 [MIT License](LICENSE) 开源
+- Linux 原生 umu 启动链（prefix 布局 / Steam 兼容环境 / Runtime 解析下载）参考 [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher) 的行为以 C# 重新实现
 - 下载/更新/预更新流程与背景配置协议（switch.json / 启动器缓存）参考并致敬 [timetetng/wutheringwaves-cli-manager](https://github.com/timetetng/wutheringwaves-cli-manager)（鸣潮协议逆向）
 - 终末地协议参考 [LLauncher](https://github.com/AugustLigh/LLauncher) 与 [ak-endfield-api-archive](https://github.com/daydreamer-json/ak-endfield-api-archive)
 - 补丁工具为 [HDiffPatch](https://github.com/sisong/HDiffPatch)（MIT）
