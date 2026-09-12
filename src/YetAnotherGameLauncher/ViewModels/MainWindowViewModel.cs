@@ -53,6 +53,9 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>原生 umu 启动器（null = 测试/未注册）。</summary>
     private readonly Core.Services.Umu.NativeUmuLauncher? _nativeUmu;
 
+    /// <summary>原生 umu 组件准备器（null = 测试/未注册）。</summary>
+    private readonly IUmuComponentProvisioner? _umuProvisioner;
+
     /// <summary>持久化窗口状态（InitializeAsync 加载目录后可读；null = 未持久化过，窗口用 XAML 默认尺寸）。</summary>
     public int? PersistedWindowWidth => _catalogService.Catalog?.Settings.WindowWidth;
 
@@ -90,7 +93,8 @@ public partial class MainWindowViewModel : ViewModelBase
         string? linuxWinePath = null,
         string? linuxDataHome = null,
         UmuLauncherInstaller? umuInstaller = null,
-        Core.Services.Umu.NativeUmuLauncher? nativeUmu = null)
+        Core.Services.Umu.NativeUmuLauncher? nativeUmu = null,
+        IUmuComponentProvisioner? umuProvisioner = null)
     {
         _catalogService = catalogService;
         _updateService = updateService;
@@ -113,6 +117,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _linuxDataHome = linuxDataHome;
         _umuInstaller = umuInstaller;
         _nativeUmu = nativeUmu;
+        _umuProvisioner = umuProvisioner;
         _platform = platformInfo
             ?? (OperatingSystem.IsLinux()
                 ? new Core.Services.LinuxPlatformInfo()
@@ -562,7 +567,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 _filePicker,
                 _platform,
                 _umuInstaller,
-                _nativeUmu));
+                _nativeUmu,
+                _umuProvisioner));
         }
 
         return unknownChannels;

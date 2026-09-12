@@ -8,7 +8,7 @@ namespace YetAnotherGameLauncher.ViewModels;
 
 /// <summary>
 /// 启动失败覆盖层：类目化的友好原因 + 可展开的技术详情 + 日志目录入口。
-/// umu-launcher 未安装导致的失败附一键引导安装（安装完成后用户直接再点"启动"）。
+/// umu-launcher 未安装导致的失败附一键引导安装；原生 umu 组件下载失败提供重试。
 /// </summary>
 public partial class LaunchErrorViewModel : ViewModelBase
 {
@@ -25,7 +25,9 @@ public partial class LaunchErrorViewModel : ViewModelBase
         bool canInstallUmu = false,
         UmuLauncherInstaller? umuInstaller = null,
         IPlatformInfo? platform = null,
-        string? umuInstallDirectory = null)
+        string? umuInstallDirectory = null,
+        LaunchFailureKind failureKind = LaunchFailureKind.Unknown,
+        bool canRetry = false)
     {
         _loc = loc;
         _umuInstaller = umuInstaller;
@@ -35,10 +37,15 @@ public partial class LaunchErrorViewModel : ViewModelBase
         Message = message;
         Detail = detail;
         LogPath = logPath;
+        FailureKind = failureKind;
         CanInstallUmu = canInstallUmu && umuInstaller is not null;
+        CanRetry = canRetry;
         HasDetail = !string.IsNullOrEmpty(detail);
         HasLogPath = !string.IsNullOrEmpty(logPath);
     }
+
+    /// <summary>失败类目（决定重试等动作）。</summary>
+    public LaunchFailureKind FailureKind { get; }
 
     /// <summary>友好失败原因（已本地化、可直接阅读）。</summary>
     [ObservableProperty]
@@ -67,6 +74,10 @@ public partial class LaunchErrorViewModel : ViewModelBase
     /// <summary>是否显示"一键安装 umu-launcher"按钮（Linux 且 umu 未装且安装器可用）。</summary>
     [ObservableProperty]
     private bool _canInstallUmu;
+
+    /// <summary>是否可重试（组件下载失败 / Runtime 缺失）。</summary>
+    [ObservableProperty]
+    private bool _canRetry;
 
     /// <summary>umu 安装进行中（按钮转忙碌、禁用关闭外的其它操作提示）。</summary>
     [ObservableProperty]
@@ -101,8 +112,15 @@ public partial class LaunchErrorViewModel : ViewModelBase
     [RelayCommand]
     private void Dismiss() => DismissRequested?.Invoke(this, EventArgs.Empty);
 
+    /// <summary>请求宿主重新执行一次启动（组件下载失败后的重试）。</summary>
+    [RelayCommand]
+    private void Retry() => RetryRequested?.Invoke(this, EventArgs.Empty);
+
     /// <summary>覆盖层请求关闭（由宿主把 LaunchError 置 null）。</summary>
     public event EventHandler? DismissRequested;
+
+    /// <summary>请求重新启动（宿主订阅后再次调用 LaunchAsync）。</summary>
+    public event EventHandler? RetryRequested;
 
     /// <summary>一键安装 umu-launcher（下载 zipapp → 解到应用数据目录）。</summary>
     [RelayCommand]

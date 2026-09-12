@@ -25,7 +25,8 @@ public partial class GameItemViewModel(
     IFilePickerService? filePicker = null,
     Core.Abstractions.IPlatformInfo? platformInfo = null,
     UmuLauncherInstaller? umuInstaller = null,
-    Core.Services.Umu.NativeUmuLauncher? nativeUmu = null) : ViewModelBase
+    Core.Services.Umu.NativeUmuLauncher? nativeUmu = null,
+    IUmuComponentProvisioner? umuProvisioner = null) : ViewModelBase
 {
     private string _installDir = installDir;
 
@@ -33,6 +34,9 @@ public partial class GameItemViewModel(
 
     /// <summary>原生 umu 启动器（Linux 内置启动链；null = 不可用/测试）。</summary>
     private readonly Core.Services.Umu.NativeUmuLauncher? _nativeUmu = nativeUmu;
+
+    /// <summary>原生 umu 组件准备器（设置卡检查/下载；null = 不可用）。</summary>
+    private readonly IUmuComponentProvisioner? _umuProvisioner = umuProvisioner;
 
     /// <summary>umu-launcher 引导安装器（Linux 启动失败时供错误覆盖层一键安装；null = 不可用）。</summary>
     public UmuLauncherInstaller? UmuInstaller { get; } = umuInstaller;
@@ -51,7 +55,7 @@ public partial class GameItemViewModel(
     /// <summary>启动设置编辑卡（保存走 GameCatalogService 整文件原子写）。</summary>
     public LaunchSettingsViewModel LaunchSettings => _launchSettings ??= new(
         Game, _installDir, catalogService, Loc, this, _filePicker, Platform,
-        umuInstaller: UmuInstaller);
+        umuInstaller: UmuInstaller, umuProvisioner: _umuProvisioner);
 
     /// <summary>底层游戏配置（只读引用；名称/图标/服务器等以此为准）。</summary>
     public GameDefinition Game { get; } = game;
@@ -473,18 +477,33 @@ public partial class GameItemViewModel(
         }
     }
 
-    /// <summary>按失败类目构建错误覆盖层（RuntimeMissing + umu 未装 → 提供一键安装）。</summary>
+    /// <summary>按失败类目构建错误覆盖层：外部 umu 缺失→一键安装；原生组件失败→重试。</summary>
     private LaunchErrorViewModel CreateLaunchError(
         string message, string detail, string? logPath, LaunchFailureKind kind)
     {
         var umuMissing = kind == LaunchFailureKind.RuntimeMissing
             && Platform.IsLinux
             && IsUmuTemplate();
-        return new LaunchErrorViewModel(
+        var canRetry = Platform.IsLinux && kind is
+            LaunchFailureKind.ProtonDownloadFailed
+            or LaunchFailureKind.UmuRuntimeDownloadFailed
+            or LaunchFailureKind.UmuRuntimeMissing;
+        var error = new LaunchErrorViewModel(
             Loc, message, detail, logPath,
             canInstallUmu: umuMissing,
             umuInstaller: UmuInstaller,
-            platform: Platform);
+            platform: Platform,
+            failureKind: kind,
+            canRetry: canRetry);
+        error.RetryRequested += OnLaunchErrorRetryRequested;
+        return error;
+    }
+
+    /// <summary>错误覆盖层「重试」：清掉覆盖层后重新启动一次。</summary>
+    private async void OnLaunchErrorRetryRequested(object? sender, EventArgs e)
+    {
+        LaunchError = null;
+        await LaunchAsync();
     }
 
     /// <summary>当前启动模板是否走 umu（决定失败时是否提供引导安装）。</summary>

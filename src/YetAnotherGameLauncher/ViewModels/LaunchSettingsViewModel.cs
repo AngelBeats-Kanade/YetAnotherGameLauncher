@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using YetAnotherGameLauncher.Core;
+using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Services;
@@ -10,6 +11,7 @@ namespace YetAnotherGameLauncher.ViewModels;
 /// <summary>
 /// 详情页"启动设置"卡：编辑命令模板 / 工作目录 / 环境变量并保存回 games.json。
 /// 环境变量以多行 KEY=VALUE 文本编辑（解析容错，错误行给出行内容提示）。
+/// 原生 umu 模式显示组件状态并可一键检查/下载 Proton 与 Steam Runtime。
 /// </summary>
 public partial class LaunchSettingsViewModel : ViewModelBase
 {
@@ -26,6 +28,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     private readonly string? _winePath;
     private readonly string _dataHome;
     private readonly UmuLauncherInstaller? _umuInstaller;
+    private readonly IUmuComponentProvisioner? _umuProvisioner;
 
     public LaunchSettingsViewModel(
         GameDefinition game,
@@ -39,7 +42,8 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         string? umuRunPath = null,
         string? winePath = null,
         string? dataHome = null,
-        UmuLauncherInstaller? umuInstaller = null)
+        UmuLauncherInstaller? umuInstaller = null,
+        IUmuComponentProvisioner? umuProvisioner = null)
     {
         _game = game;
         _owner = owner;
@@ -61,6 +65,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             : (winePath.Length == 0 ? null : winePath);
         _dataHome = dataHome ?? AppPaths.DataHomeDirectory; // CompatTools 语义要求数据根（不含 yagl 后缀）
         _umuInstaller = umuInstaller;
+        _umuProvisioner = umuProvisioner;
         _commandTemplate = game.Launch.CommandTemplate;
         _workingDirectory = game.Launch.WorkingDirectory;
         _environmentText = SerializeEnvironment(game.Launch.Environment);
@@ -88,6 +93,8 @@ public partial class LaunchSettingsViewModel : ViewModelBase
 
             ApplyGenerated((launch.CommandTemplate, launch.Environment));
         }
+
+        RefreshNativeUmuStatus();
     }
 
     /// <summary>从命令模板推断当前启动方式（启发式：含 proton/umu/wine 关键词；{exe} 原样视为直接运行）。
@@ -133,6 +140,97 @@ public partial class LaunchSettingsViewModel : ViewModelBase
 
     /// <summary>是否处于原生 umu 启动方式（内置 C# 链，无需外部 umu-run）。</summary>
     public bool IsNativeUmuMode => SelectedLaunchMode?.Mode == LaunchMode.NativeUmu;
+
+    /// <summary>原生 umu 组件准备是否进行中。</summary>
+    [ObservableProperty]
+    private bool _isPreparingUmuComponents;
+
+    /// <summary>原生 umu 组件状态摘要（就绪 / 缺 Proton / 缺 Runtime / 未检查）。</summary>
+    [ObservableProperty]
+    private string _nativeUmuStatusText = "";
+
+    /// <summary>是否可执行「检查/下载兼容组件」（Linux + 原生 umu + 准备器可用）。</summary>
+    public bool CanPrepareUmuComponents =>
+        IsNativeUmuMode && IsLinux && _umuProvisioner is not null && !IsPreparingUmuComponents;
+
+    /// <summary>进入原生 umu 模式时刷新组件状态摘要（不触网）。</summary>
+    private void RefreshNativeUmuStatus()
+    {
+        if (!IsNativeUmuMode || _umuProvisioner is null)
+        {
+            NativeUmuStatusText = "";
+            OnPropertyChanged(nameof(CanPrepareUmuComponents));
+            return;
+        }
+
+        var proton = ResolveNativeProtonRequest();
+        var protonReady = _umuProvisioner.IsProtonReady(proton)
+                          || _protonVersions.Any(v => _umuProvisioner.IsProtonReady(
+                              Path.Combine(Core.Services.Umu.UmuPaths.SteamCompatRoot(_dataHome), v)));
+        var runtimeReady = _umuProvisioner.IsRuntimeReady("steamrt4");
+        NativeUmuStatusText = protonReady && runtimeReady
+            ? _loc["launch_native_components_ready"]
+            : protonReady
+                ? _loc["launch_native_runtime_missing"]
+                : _loc["launch_native_components_missing"];
+        OnPropertyChanged(nameof(CanPrepareUmuComponents));
+    }
+
+    /// <summary>解析原生 umu 用的 Proton 请求：环境 PROTONPATH → 本机推荐版本 → UMU-Proton 代号。</summary>
+    private string ResolveNativeProtonRequest()
+    {
+        if (ParseEnvironmentOrEmpty(EnvironmentText).TryGetValue("PROTONPATH", out var path)
+            && !string.IsNullOrWhiteSpace(path))
+        {
+            return path;
+        }
+
+        return CompatTools.PickRecommendedProton(_protonVersions) ?? "UMU-Proton";
+    }
+
+    /// <summary>检查/下载原生 umu 兼容组件（Proton + Steam Runtime）；结果写入保存消息槽。</summary>
+    [RelayCommand]
+    private async Task PrepareUmuComponentsAsync(CancellationToken cancellationToken)
+    {
+        if (_umuProvisioner is null || IsPreparingUmuComponents || !IsLinux)
+        {
+            return;
+        }
+
+        IsPreparingUmuComponents = true;
+        OnPropertyChanged(nameof(CanPrepareUmuComponents));
+        Save.Clear();
+        try
+        {
+            var progress = new Progress<string>(msg =>
+            {
+                Save.Clear();
+                Save.SetSuccess(msg);
+            });
+            var proton = await _umuProvisioner
+                .EnsureProtonAsync(ResolveNativeProtonRequest(), progress, cancellationToken)
+                .ConfigureAwait(true);
+            var runtime = Core.Services.Umu.SteamRuntimeCatalog.Default;
+            await _umuProvisioner
+                .EnsureRuntimeAsync(runtime.Variant, runtime.Name, progress, cancellationToken)
+                .ConfigureAwait(true);
+            Save.Clear();
+            Save.SetSuccess(_loc["launch_native_components_ready"]);
+            RefreshNativeUmuStatus();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Save.SetFailure(ex.Message);
+        }
+        finally
+        {
+            IsPreparingUmuComponents = false;
+            OnPropertyChanged(nameof(CanPrepareUmuComponents));
+        }
+    }
 
     /// <summary>是否处于 umu 启动方式（决定 umu 安装引导提示可见性）。</summary>
     public bool IsUmuMode => SelectedLaunchMode?.Mode == LaunchMode.Umu;
@@ -210,6 +308,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsUmuMode));
         OnPropertyChanged(nameof(IsUmuAvailable));
         OnPropertyChanged(nameof(IsUmuHintVisible));
+        RefreshNativeUmuStatus();
         if (value is null)
         {
             return;

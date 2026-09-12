@@ -22,7 +22,7 @@ commits: c977def..d692e0c
 2. 推荐链默认切原生后，既有 first-run/推荐链测试必须改为断言 `native-umu`，旧链用例加 `preferNativeUmu: false`。
 3. Review：具体版本 Proton 缺失时不得偷换任意本地 Proton；版本比较须用数字段自然序；entry 命令路径含空格不能整串 split。
 4. 原生启动路径绕过 `GameLauncherService`，env 占位符展开须在 `NativeUmuLauncher.BuildPlan` 内对齐。
-5. T6 组件状态 UI、T7 类目化覆盖层动作、下载端到端网络用例仍待补（见未勾选任务）。
+5. T6 组件状态 UI、T7 类目化覆盖层动作已补齐；下载端到端网络用例仍待真机 Linux 验证。
 
 ## [S1] Problem
 
@@ -200,7 +200,7 @@ Windows 主机上 Native umu 路径不激活（`OperatingSystem.IsLinux()` 门�
 - [x] T3: `UmuEnvironment` — 完整环境字典与 MD5 app id；acceptance: 键集与值规则单测（covers: S2.3.2）
 - [x] T4: `NativeUmuLauncher` 命令组装与启动 — 不含下载；acceptance: FakeProcessRunner 断言命令行与 env（covers: S2.3.4）
 - [x] T5: `IUmuComponentProvisioner` + App 实现 — Proton 下载、Runtime 下载校验、锁；acceptance: Stub/Fake 下载单测（covers: S2.3.7, S2.3.8）
-- [ ] T6: 推荐链/`LaunchMode`/设置卡 — 内置 umu 为默认 Linux 推荐（已完成）；组件状态与「检查/下载兼容组件」按钮 **未完成**（covers: S2.3.5, S2.3.6）
-- [ ] T7: 错误覆盖层与本地化 — 新 LaunchFailureKind + strings 已有；类目化重试/手动选择动作 **未完成**（covers: S2.3.6）
+- [x] T6: 推荐链/`LaunchMode`/设置卡 — 内置 umu 为默认 Linux 推荐；组件状态与「检查/下载兼容组件」按钮（covers: S2.3.5, S2.3.6）
+- [x] T7: 错误覆盖层与本地化 — 新 LaunchFailureKind + strings 成对；下载失败可重试（covers: S2.3.6）
 - [x] T8: 文档同步 — ARCHITECTURE.md §3.1、GAME_CONFIG.md launch 说明、DEVELOPMENT.md 目录；acceptance: 与实现一致（covers: S2）
 - [x] T9: 全量验证 — `dotnet build -warnaserror` + 测试 exe + format verify；acceptance: 零警告、测试通过（covers: S2）

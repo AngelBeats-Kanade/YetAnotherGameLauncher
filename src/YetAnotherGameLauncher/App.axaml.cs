@@ -135,7 +135,8 @@ public partial class App : Application
                 sp.GetRequiredService<IVideoBackdropPlayer>(),
                 sp.GetRequiredService<KuroGachaService>(),
                 umuInstaller: sp.GetRequiredService<UmuLauncherInstaller>(),
-                nativeUmu: sp.GetRequiredService<Core.Services.Umu.NativeUmuLauncher>());
+                nativeUmu: sp.GetRequiredService<Core.Services.Umu.NativeUmuLauncher>(),
+                umuProvisioner: sp.GetRequiredService<IUmuComponentProvisioner>());
         });
 
         return services.BuildServiceProvider();

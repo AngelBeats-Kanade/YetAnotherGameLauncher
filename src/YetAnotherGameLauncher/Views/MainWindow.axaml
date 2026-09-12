@@ -802,6 +802,12 @@
                                                         IsEnabled="{Binding !LaunchError.IsInstallingUmu}">
                                                     <TextBlock Text="{Binding Loc[launch_error_install_umu]}"/>
                                                 </Button>
+                                                <Button Classes="launch-error-secondary"
+                                                        Command="{Binding LaunchError.RetryCommand}"
+                                                        IsVisible="{Binding LaunchError.CanRetry}"
+                                                        HorizontalAlignment="Left">
+                                                    <TextBlock Text="{Binding Loc[launch_error_retry]}"/>
+                                                </Button>
                                                 <Expander IsVisible="{Binding LaunchError.HasDetail}"
                                                           IsExpanded="{Binding LaunchError.DetailsExpanded, Mode=TwoWay}"
                                                           Background="Transparent">
@@ -1236,6 +1242,18 @@
                                                                     Command="{Binding LaunchSettings.InstallUmuCommand}"
                                                                     IsEnabled="{Binding !LaunchSettings.IsInstallingUmu}"
                                                                     VerticalAlignment="Center"/>
+                                                        </StackPanel>
+                                                        <!-- 原生 umu：组件状态 + 检查/下载 -->
+                                                        <StackPanel Spacing="6" Margin="0,2,0,0"
+                                                                    IsVisible="{Binding LaunchSettings.IsNativeUmuMode}">
+                                                            <TextBlock Text="{Binding LaunchSettings.NativeUmuStatusText}"
+                                                                       Classes="card-caption"
+                                                                       TextWrapping="Wrap" MaxWidth="420"/>
+                                                            <Button Classes="btn-sm"
+                                                                    Content="{Binding Loc[launch_native_prepare]}"
+                                                                    Command="{Binding LaunchSettings.PrepareUmuComponentsCommand}"
+                                                                    IsEnabled="{Binding LaunchSettings.CanPrepareUmuComponents}"
+                                                                    HorizontalAlignment="Left"/>
                                                         </StackPanel>
                                                     </StackPanel>
                                                     <TextBlock Text="{Binding Loc[launch_windowsDefaultHint]}"
