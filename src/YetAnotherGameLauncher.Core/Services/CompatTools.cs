@@ -352,10 +352,11 @@ public static class CompatTools
     public static string? FindOnPath(string name, string? pathValue = null) =>
         SearchPath(pathValue ?? Environment.GetEnvironmentVariable("PATH") ?? "", name);
 
-    /// <summary>按 PATH 逐目录查找名为 <paramref name="name"/> 的可执行文件；找不到返回 null。</summary>
+    /// <summary>按 PATH 逐目录查找名为 <paramref name="name"/> 的可执行文件；找不到返回 null。
+    /// 分隔符必须用 <see cref="Path.PathSeparator"/>：Windows 是 ';'，硬编码 ':' 会把盘符 'C:' 切开。</summary>
     private static string? SearchPath(string pathValue, string name)
     {
-        foreach (var dir in pathValue.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        foreach (var dir in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             var candidate = Path.Combine(dir, name);
             if (IsExecutableFile(candidate))

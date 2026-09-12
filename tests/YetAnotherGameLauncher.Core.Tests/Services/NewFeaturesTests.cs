@@ -77,7 +77,7 @@ public class CompatToolsTests : IDisposable
         Assert.Contains("dw-proton", launch.CommandTemplate);
         Assert.Contains("proton\" run {exe}", launch.CommandTemplate);
         Assert.Equal(
-            _home.FilePath(".local/share/yagl/prefixes/wuthering-waves"),
+            _home.FilePath(".local", "share", "yagl", "prefixes", "wuthering-waves"),
             launch.Environment["STEAM_COMPAT_DATA_PATH"]);
     }
 

@@ -96,9 +96,10 @@ public sealed class GameLauncherService(
         var isAbsolute = Path.IsPathRooted(fileName);
         if (!isAbsolute)
         {
-            if (OperatingSystem.IsWindows())
+            // 显式注入 pathValue（测试确定性 / 禁用真机扫描）时一律走 PATH 预检；
+            // 生产 pathValue=null 且 Windows 时交给 CreateProcess 自带的 PATH 与 PATHEXT 解析。
+            if (_pathValue is null && OperatingSystem.IsWindows())
             {
-                // Windows 的 CreateProcess 自带 PATH 与 PATHEXT 解析，裸命令名交给它
                 return;
             }
 
