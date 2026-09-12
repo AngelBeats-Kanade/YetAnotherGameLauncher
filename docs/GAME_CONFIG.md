@@ -68,8 +68,8 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 
 > [!NOTE]
 > Linux 首运生成默认配置时，裸 `{exe}` 模板（无法运行 Windows 客户端）会被自动升级为
-> 社区推荐链 + 兼容环境变量并写盘：**umu-launcher**（`umu-run {exe}` + GAMEID/UMU_ID/WINEPREFIX，
-> 未装时先给模板、可在启动设置卡一键安装）→ **Proton**（STEAM_COMPAT 环境）→ **系统 wine**（WINEPREFIX）。
+> 社区推荐链 + 兼容环境变量并写盘：**原生 umu**（`native-umu {exe}` + GAMEID/UMU_ID/WINEPREFIX，
+> 内置 C# 启动链，启动时自动准备 Proton 与 Steam Runtime）→ 外部 umu-run → **Proton** → **系统 wine**。
 > （`MainWindowViewModel.ApplyLinuxFirstRunLaunchDefaultsAsync`，推荐逻辑单一来源
 > `CompatTools.BuildRecommendedLaunch`。）仅在首运生成那一刻执行一次，此后配置以用户修改为准。
 >

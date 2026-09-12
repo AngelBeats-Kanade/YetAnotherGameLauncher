@@ -95,7 +95,8 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     private LaunchModeOption DetectLaunchMode(string commandTemplate)
     {
         var t = commandTemplate.Trim();
-        var mode = t.Contains("proton", StringComparison.OrdinalIgnoreCase) ? LaunchMode.Proton
+        var mode = t.Contains("native-umu", StringComparison.OrdinalIgnoreCase) ? LaunchMode.NativeUmu
+            : t.Contains("proton", StringComparison.OrdinalIgnoreCase) ? LaunchMode.Proton
             : t.Contains("umu-run", StringComparison.OrdinalIgnoreCase) ? LaunchMode.Umu
             : t.Contains("wine", StringComparison.OrdinalIgnoreCase) ? LaunchMode.Wine
             : t == "{exe}" ? LaunchMode.Direct
@@ -117,6 +118,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     public IReadOnlyList<LaunchModeOption> LaunchModes { get; } =
     [
         new(LaunchMode.Direct, LocBridge.Instance["launch_mode_direct"]),
+        new(LaunchMode.NativeUmu, LocBridge.Instance["launch_mode_native_umu"]),
         new(LaunchMode.Umu, LocBridge.Instance["launch_mode_umu"]),
         new(LaunchMode.Wine, LocBridge.Instance["launch_mode_wine"]),
         new(LaunchMode.Proton, LocBridge.Instance["launch_mode_proton"]),
@@ -128,6 +130,9 @@ public partial class LaunchSettingsViewModel : ViewModelBase
 
     /// <summary>是否处于 Proton 启动方式（决定版本选择器可见性）。</summary>
     public bool IsProtonMode => SelectedLaunchMode?.Mode == LaunchMode.Proton;
+
+    /// <summary>是否处于原生 umu 启动方式（内置 C# 链，无需外部 umu-run）。</summary>
+    public bool IsNativeUmuMode => SelectedLaunchMode?.Mode == LaunchMode.NativeUmu;
 
     /// <summary>是否处于 umu 启动方式（决定 umu 安装引导提示可见性）。</summary>
     public bool IsUmuMode => SelectedLaunchMode?.Mode == LaunchMode.Umu;
@@ -201,6 +206,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     partial void OnSelectedLaunchModeChanged(LaunchModeOption? value)
     {
         OnPropertyChanged(nameof(IsProtonMode));
+        OnPropertyChanged(nameof(IsNativeUmuMode));
         OnPropertyChanged(nameof(IsUmuMode));
         OnPropertyChanged(nameof(IsUmuAvailable));
         OnPropertyChanged(nameof(IsUmuHintVisible));
@@ -214,6 +220,10 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             case LaunchMode.Direct:
                 CommandTemplate = "{exe}";
                 RemoveGeneratedEnvironment();
+                break;
+            case LaunchMode.NativeUmu:
+                ApplyGenerated(Flatten(CompatTools.BuildNativeUmuLaunch(
+                    _game.Id, home: null, dataHome: _dataHome)));
                 break;
             case LaunchMode.Umu:
                 ApplyGenerated(Flatten(CompatTools.BuildUmuLaunch(

@@ -15,6 +15,15 @@ public enum LaunchFailureKind
     /// <summary>Wine prefix 目录无法创建（磁盘/权限问题）。</summary>
     PrefixCreateFailed,
 
+    /// <summary>原生 umu 所需 Steam Runtime 未安装或损坏。</summary>
+    UmuRuntimeMissing,
+
+    /// <summary>Proton 自动下载失败（网络/校验/解压）。</summary>
+    ProtonDownloadFailed,
+
+    /// <summary>Steam Runtime 自动下载失败（网络/校验/解压）。</summary>
+    UmuRuntimeDownloadFailed,
+
     /// <summary>进程启动调用本身失败（权限/格式/资源等）。</summary>
     StartFailed,
 

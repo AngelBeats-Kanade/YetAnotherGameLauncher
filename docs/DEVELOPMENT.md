@@ -33,6 +33,7 @@ src/
                     NetworkProxyManager（全局共享 SocketsHttpHandler，代理切换即时生效）、SpeedLimiter（泄漏桶全局限速）、
                     AutostartService.cs（IAutostartService + WindowsAutostartService（HKCU Run 注册表）/ LinuxAutostartService（XDG autostart）双实现）、
                     CompatTools（Linux 兼容层单一来源：umu/wine/Lutris/Proton 发现、prefix 统一路径、推荐链 BuildRecommendedLaunch、含 LaunchMode 枚举与 CompatLaunch）、
+                    Umu/（原生 umu：UmuPaths、VdfMiniParser、SteamRuntimeCatalog、ToolManifest、UmuPrefix、UmuEnvironment、NativeUmuLauncher、IUmuComponentProvisioner）、
                     GameBackdropService（详情页背景远程解析 + 本地缓存编排）、KuroLauncherBackground（KRLauncher 官方背景探测）、
                     WebViewCacheScanner（Chromium 磁盘缓存文本流式正则提取）、WindowsPlatformInfo / LinuxPlatformInfo（IPlatformInfo 双实现）
     Utilities/      Hashing（MD5 hex）、Json（统一序列化选项）、FileUtilities（原子写入/尽力删除）
@@ -51,7 +52,8 @@ src/
                     FfmpegVideoBackdropPlayer/IVideoBackdropPlayer（FFmpeg 背景视频解码播放）+ FfmpegLibraryResolver（原生库准备/下载）；
                     SeamAnalyzer（循环接缝分析）+ PrerollHandoff（预卷零间隙交接状态机）实现无缝循环；
                     BackgroundImageService（静态背景图加载与缓存，失败结果按 TTL 短暂缓存）、
-                    UmuLauncherInstaller（umu-launcher zipapp 引导安装：GitHub release 元数据 → 下载 → 解出 umu-run）、
+                    UmuLauncherInstaller（外部 umu-run zipapp 引导安装，回退路径）、
+                    UmuComponentProvisioner（原生 umu 的 Proton/Runtime 下载与校验）、
                     FilePickerService/IFilePickerService（系统文件/目录选择器封装）
     Controls/       AppBackdrop（应用背景层：主题渐变 + 光晕 + 自定义背景图）、FrameSurface（背景视频帧自绘渲染面）
     ViewModels/     MainWindowViewModel、GameItemViewModel、GameSettingsViewModel、LaunchSettingsViewModel、

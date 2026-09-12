@@ -24,11 +24,15 @@ public partial class GameItemViewModel(
     IVideoBackdropPlayer? videoPlayer = null,
     IFilePickerService? filePicker = null,
     Core.Abstractions.IPlatformInfo? platformInfo = null,
-    UmuLauncherInstaller? umuInstaller = null) : ViewModelBase
+    UmuLauncherInstaller? umuInstaller = null,
+    Core.Services.Umu.NativeUmuLauncher? nativeUmu = null) : ViewModelBase
 {
     private string _installDir = installDir;
 
     private readonly IFilePickerService? _filePicker = filePicker;
+
+    /// <summary>原生 umu 启动器（Linux 内置启动链；null = 不可用/测试）。</summary>
+    private readonly Core.Services.Umu.NativeUmuLauncher? _nativeUmu = nativeUmu;
 
     /// <summary>umu-launcher 引导安装器（Linux 启动失败时供错误覆盖层一键安装；null = 不可用）。</summary>
     public UmuLauncherInstaller? UmuInstaller { get; } = umuInstaller;
@@ -437,7 +441,19 @@ public partial class GameItemViewModel(
         IsBusy = true;
         try
         {
-            await launcherService.LaunchAsync(Game, _installDir, Game.Executable, cancellationToken);
+            if (IsNativeUmuTemplate() && _nativeUmu is not null && Platform.IsLinux)
+            {
+                var proton = ResolveProtonRequestFromEnvironment();
+                await _nativeUmu.LaunchAsync(
+                    Game.Id, _installDir, Game.Executable, proton,
+                    extraEnvironment: Game.Launch.Environment,
+                    cancellationToken: cancellationToken);
+            }
+            else
+            {
+                await launcherService.LaunchAsync(Game, _installDir, Game.Executable, cancellationToken);
+            }
+
             LaunchError = null; // 上次的失败覆盖层随成功启动清掉
             StatusText = Loc["status_launched"];
         }
@@ -474,6 +490,22 @@ public partial class GameItemViewModel(
     /// <summary>当前启动模板是否走 umu（决定失败时是否提供引导安装）。</summary>
     private bool IsUmuTemplate() =>
         Game.Launch.CommandTemplate.Contains("umu-run", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>当前启动模板是否为原生 umu（内置 C# 启动链）。</summary>
+    private bool IsNativeUmuTemplate() =>
+        Game.Launch.CommandTemplate.Contains("native-umu", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>从环境变量/默认代号解析 Proton 请求（PROTONPATH 或 UMU-Proton）。</summary>
+    private string ResolveProtonRequestFromEnvironment()
+    {
+        if (Game.Launch.Environment.TryGetValue("PROTONPATH", out var path) &&
+            !string.IsNullOrWhiteSpace(path))
+        {
+            return path;
+        }
+
+        return "UMU-Proton";
+    }
 
     /// <summary>
     /// 主操作：未安装时全新安装，有更新时更新；已安装且已是最新即"校验修复"——

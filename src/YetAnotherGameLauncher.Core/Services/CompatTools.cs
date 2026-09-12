@@ -12,6 +12,9 @@ public enum LaunchMode
     /// <summary>通过 umu-launcher 启动（自动管理 Steam Runtime 容器与 Proton，社区最稳路线）。</summary>
     Umu,
 
+    /// <summary>原生 C# umu 启动链（内置，不依赖外部 umu-run Python 包）。</summary>
+    NativeUmu,
+
     /// <summary>通过 Wine 启动。</summary>
     Wine,
 
@@ -197,6 +200,30 @@ public static class CompatTools
             environment);
     }
 
+    /// <summary>
+    /// 生成原生 umu 启动模板：命令首段为标记 token「native-umu」，
+    /// 由 App 层在启动时替换为 NativeUmuLauncher 的真实容器命令；环境先写 GAMEID/UMU_ID/WINEPREFIX。
+    /// 用于推荐链默认项与 games.json 首运落盘（无需外部 umu-run）。
+    /// </summary>
+    public static CompatLaunch BuildNativeUmuLaunch(
+        string gameId, string? home = null, string? dataHome = null)
+    {
+        var umuId = gameId.StartsWith("umu-", StringComparison.Ordinal) ? gameId : $"umu-{gameId}";
+        var environment = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["GAMEID"] = umuId,
+            ["UMU_ID"] = umuId,
+            ["WINEPREFIX"] = PrefixPathFor(gameId, home, dataHome),
+            ["STEAM_COMPAT_DATA_PATH"] = PrefixPathFor(gameId, home, dataHome),
+        };
+        // token 供 DetectLaunchMode / 启动拦截识别；真正 PROTONPATH 在启动时解析
+        return new CompatLaunch(
+            LaunchMode.NativeUmu,
+            "native-umu",
+            "native-umu {exe}",
+            environment);
+    }
+
     /// <summary>生成系统 Wine 启动配置：`wine {exe}` + WINEPREFIX 指向统一 prefix 位置。
     /// winePath 为 null 表示尚未安装（生成裸 wine 模板，路径由 PATH 解析）。</summary>
     public static CompatLaunch BuildWineLaunch(
@@ -282,8 +309,8 @@ public static class CompatTools
 
     /// <summary>
     /// 一站式生成社区推荐的启动配置（首运落盘与启动设置卡共用，单一事实源）。
-    /// 推荐链：umu-launcher（社区最稳，自动管理 Steam Runtime 与 Proton）→ Proton 直启 → 系统 wine。
-    /// 什么都装了也没有时仍返回 umu 模板（RuntimeName=null）：先给引导安装铺路，装好即可启动。
+    /// 推荐链：原生 umu（内置 C#）→ 外部 umu-run → Proton 直启 → 系统 wine。
+    /// 什么都没有时仍返回原生 umu 模板：启动时由组件准备器自动下载 Proton/Runtime。
     /// umu/wine 路径由调用方发现后注入（生产走 <see cref="FindUmuRun"/>/<see cref="FindSystemWine"/>，
     /// 测试显式传值保证确定性；空字符串归一为"未发现"，方便测试禁用真机 PATH 扫描）。
     /// </summary>
@@ -294,14 +321,19 @@ public static class CompatTools
         string? home = null,
         string? dataHome = null,
         string? umuRunPath = null,
-        string? winePath = null)
+        string? winePath = null,
+        bool preferNativeUmu = true)
     {
         // 空串 = 测试显式声明"没装"，与 null = 现场发现区分
         umuRunPath = string.IsNullOrEmpty(umuRunPath) ? null : umuRunPath;
         winePath = string.IsNullOrEmpty(winePath) ? null : winePath;
 
         CompatLaunch launch;
-        if (umuRunPath is not null)
+        if (preferNativeUmu)
+        {
+            launch = BuildNativeUmuLaunch(gameId, home, dataHome);
+        }
+        else if (umuRunPath is not null)
         {
             launch = BuildUmuLaunch(gameId, umuRunPath, home, dataHome);
         }
@@ -315,8 +347,7 @@ public static class CompatTools
         }
         else
         {
-            // 未发现任何运行时：裸 umu 模板（引导安装完成后即可启动，umu 首启自动下载 GE-Proton）
-            launch = BuildUmuLaunch(gameId, null, home, dataHome);
+            launch = BuildNativeUmuLaunch(gameId, home, dataHome);
         }
 
         foreach (var (key, value) in RecommendedEnvironment(gameId, nvidiaGpuPresent))
@@ -334,6 +365,11 @@ public static class CompatTools
         || key.Equals("UMU_ID", StringComparison.OrdinalIgnoreCase)
         || key.Equals("WINEPREFIX", StringComparison.OrdinalIgnoreCase)
         || key.Equals("PROTONPATH", StringComparison.OrdinalIgnoreCase)
+        || key.Equals("PROTON_VERB", StringComparison.OrdinalIgnoreCase)
+        || key.Equals("STORE", StringComparison.OrdinalIgnoreCase)
+        || key.Equals("EXE", StringComparison.OrdinalIgnoreCase)
+        || key.Equals("SteamAppId", StringComparison.Ordinal)
+        || key.Equals("SteamGameId", StringComparison.Ordinal)
         || key.Equals("SteamOS", StringComparison.Ordinal)
         || key.Equals("PROTON_ENABLE_NVAPI", StringComparison.Ordinal);
 

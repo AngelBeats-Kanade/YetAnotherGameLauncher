@@ -7,14 +7,14 @@ namespace YetAnotherGameLauncher.AppTests;
 
 /// <summary>
 /// Linux 首运启动模板兜底：默认模板的裸 {exe} 在 Linux 上无法运行 Windows 客户端
-/// （Exec format error），物化配置后应立即升级为推荐 Proton（无可用版本则 wine）并落盘；
+/// （Exec format error），物化配置后应立即升级为原生 umu（内置 C# 链）并落盘；
 /// Windows 首运与用户自定义模板不受影响。平台与 Proton 清单经 VmFactory 注入，双平台确定性。
 /// </summary>
 [Collection("sequential")]
 public class LinuxFirstRunLaunchTests
 {
     [Fact]
-    public async Task FirstRun_Linux_UpgradesBareDirectTemplateToRecommendedProton()
+    public async Task FirstRun_Linux_UpgradesBareDirectTemplateToNativeUmu()
     {
         using var ctx = VmFactory.Build(
             configJson: null,
@@ -25,18 +25,16 @@ public class LinuxFirstRunLaunchTests
         await ctx.Vm.InitializeAsync();
 
         var saved = await File.ReadAllTextAsync(ctx.ConfigPath);
-        Assert.Contains("GE-Proton10-9", saved, StringComparison.Ordinal);
+        Assert.Contains("native-umu", saved, StringComparison.Ordinal);
         Assert.Contains("SteamOS", saved, StringComparison.Ordinal); // 鸣潮反作弊伪装随推荐一并落盘
         Assert.Contains("PROTON_ENABLE_NVAPI", saved, StringComparison.Ordinal); // NVIDIA 分支
-        // 两个游戏的裸 {exe} 模板都被升级为 Proton 启动
-        Assert.Equal(2, Regex.Matches(saved, "run \\{exe\\}").Count);
+        Assert.Equal(2, Regex.Matches(saved, "native-umu \\{exe\\}").Count);
     }
 
     [Fact]
-    public async Task FirstRun_Linux_WithoutProtonOrUmu_FallsBackToUmuTemplateForGuidedInstall()
+    public async Task FirstRun_Linux_WithoutProtonOrUmu_FallsBackToNativeUmuTemplate()
     {
-        // 什么运行时都没装（umuPath/winePath 缺省空串 = 未安装）：
-        // 仍给 umu 模板——引导安装完成后即可直接启动，prefix 落数据目录
+        // 什么运行时都没装：仍给原生 umu 模板——启动时组件准备器自动下载
         using var ctx = VmFactory.Build(
             configJson: null,
             templateFactory: () => VmFactory.SampleConfigJson,
@@ -46,14 +44,13 @@ public class LinuxFirstRunLaunchTests
         await ctx.Vm.InitializeAsync();
 
         var saved = await File.ReadAllTextAsync(ctx.ConfigPath);
-        Assert.Equal(2, Regex.Matches(saved, "umu-run \\{exe\\}").Count);
+        Assert.Equal(2, Regex.Matches(saved, "native-umu \\{exe\\}").Count);
         Assert.Contains("GAMEID", saved, StringComparison.Ordinal);
         Assert.Contains("WINEPREFIX", saved, StringComparison.Ordinal);
-        Assert.DoesNotContain("STEAM_COMPAT", saved, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task FirstRun_Linux_WithUmuInstalled_UsesUmuTemplate()
+    public async Task FirstRun_Linux_WithUmuInstalled_StillUsesNativeUmuDefault()
     {
         using var ctx = VmFactory.Build(
             configJson: null,
@@ -65,14 +62,12 @@ public class LinuxFirstRunLaunchTests
         await ctx.Vm.InitializeAsync();
 
         var saved = await File.ReadAllTextAsync(ctx.ConfigPath);
-        Assert.Equal(2, Regex.Matches(saved, "/home/u/\\.local/bin/umu-run \\{exe\\}").Count);
-        // umu 模式不写 STEAM_COMPAT_*（由 umu 自行管理容器）
-        Assert.DoesNotContain("STEAM_COMPAT", saved, StringComparison.Ordinal);
-        Assert.Contains("PROTON_ENABLE_NVAPI", saved, StringComparison.Ordinal); // NVIDIA 分支仍然生效
+        Assert.Equal(2, Regex.Matches(saved, "native-umu \\{exe\\}").Count);
+        Assert.Contains("PROTON_ENABLE_NVAPI", saved, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task FirstRun_Linux_WithoutUmuAndProton_ButWithWine_UsesWine()
+    public async Task FirstRun_Linux_WithoutUmuAndProton_ButWithWine_StillUsesNativeUmuDefault()
     {
         using var ctx = VmFactory.Build(
             configJson: null,
@@ -84,7 +79,7 @@ public class LinuxFirstRunLaunchTests
         await ctx.Vm.InitializeAsync();
 
         var saved = await File.ReadAllTextAsync(ctx.ConfigPath);
-        Assert.Equal(2, Regex.Matches(saved, "/usr/bin/wine \\{exe\\}").Count);
+        Assert.Equal(2, Regex.Matches(saved, "native-umu \\{exe\\}").Count);
         Assert.Contains("WINEPREFIX", saved, StringComparison.Ordinal);
     }
 
@@ -136,7 +131,7 @@ public class LinuxFirstRunLaunchTests
         await ctx.Vm.InitializeAsync();
 
         var saved = await File.ReadAllTextAsync(ctx.ConfigPath);
-        Assert.Contains("GE-Proton10-9", saved, StringComparison.Ordinal);
+        Assert.Contains("native-umu", saved, StringComparison.Ordinal);
         Assert.Contains("\"schemaVersion\": 4", saved, StringComparison.Ordinal);
     }
 
