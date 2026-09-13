@@ -69,7 +69,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（468 个，2026-09 实测）
+### 运行测试（485 个，2026-09 实测）
 
 ```bash
 # 4 个测试工程分别运行编译产物（Windows 亦可直接跑 .exe；本机 dotnet test 可能发现 0 个测试）：
@@ -86,6 +86,7 @@ GPU 厂商探测、Wine 运行时发现（umu/wine/Lutris）与推荐链、Wine 
 Proton 发行版（DW/GE/UMU）latest 下载与离线回退、umuId 覆盖与校验、umu 环境对齐上游、
 本地化服务与语言切换、侧栏折叠/页面切换/关于页、主题切换、
 指示点几何落位与迁移编舞、详情页布局状态、玻璃按钮四态前景、
+Linux 窗口后端决策与视觉最大化判定（Wayland 平铺误报防护）、
 启动失败覆盖层、ViewModel 状态机、以及 Avalonia.Headless 真实窗口集成测试。
 另附视觉自检截图工具（`artifacts/ui-review/`，见 docs/DEVELOPMENT.md）。
 

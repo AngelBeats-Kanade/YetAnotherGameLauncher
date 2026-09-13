@@ -49,6 +49,8 @@ src/
     Program.cs / App.axaml(.cs)（DI 组合根；Program 按后端决策组装 AppBuilder）、Themes/ThemeService
     Services/       WaylandBackendPolicy（Linux 窗口后端决策：WAYLAND_DISPLAY 存在即原生 Wayland，
                     YAGL_FORCE_XWAYLAND=1 逃生舱回退 X11；纯函数，决策表测试见 App.Tests）；
+                    WindowStateMapper（视觉最大化判定：Wayland 实验后端把平铺误报 Maximized，
+                    需校验客户区铺满工作区才去圆角；纯函数，决策表测试见 App.Tests）；
                     LocalizationService/ILocalizationService + LocExtension/LocBridge（JSON 资源本地化与 XAML 标记扩展）；
                     FfmpegVideoBackdropPlayer/IVideoBackdropPlayer（FFmpeg 背景视频解码播放）+ FfmpegLibraryResolver（原生库准备/下载）；
                     SeamAnalyzer（循环接缝分析）+ PrerollHandoff（预卷零间隙交接状态机）实现无缝循环；
@@ -68,8 +70,8 @@ tests/
   YetAnotherGameLauncher.Core.Tests/            # 领域层 224 个测试（2026-09-13 实测）
   YetAnotherGameLauncher.Channels.Kuro.Tests/   # 45 个测试（2026-09-13 实测）
   YetAnotherGameLauncher.Channels.Hypergryph.Tests/ # 17 个测试（2026-09-13 实测）
-  YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口 182 个测试（2026-09-13 实测）
-  # 数量为 2026-09 实测（共 468）；随开发增长，以实际运行为准
+  YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口 199 个测试（2026-09-13 实测）
+  # 数量为 2026-09 实测（共 485）；随开发增长，以实际运行为准
 ```
 
 构建约定（`Directory.Build.props`）：`net10.0`、`Nullable=enable`、`ImplicitUsings`、

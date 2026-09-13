@@ -9,6 +9,7 @@ using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using YetAnotherGameLauncher.Services;
 using YetAnotherGameLauncher.ViewModels;
 
 namespace YetAnotherGameLauncher.Views;
@@ -151,16 +152,21 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>关闭时持久化窗口状态（先于窗口销毁读取 Width/Height）。</summary>
+    /// <summary>关闭时持久化窗口状态（先于窗口销毁读取 Width/Height；按"视觉最大化"记录，
+    /// 实验性 Wayland 后端对平铺窗口的 Maximized 误报不应写进配置）。</summary>
     private void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
         if (DataContext is MainWindowViewModel viewModel)
         {
-            viewModel.PersistWindowState(Width, Height, WindowState == WindowState.Maximized);
+            viewModel.PersistWindowState(Width, Height, _lastVisualMaximized == true);
         }
     }
 
-    /// <summary>窗口状态变化：最大化时去圆角与卡片边距，并切换最大化/还原图标。</summary>
+    /// <summary>最近一次判定的视觉最大化（null=尚未判定）。状态与尺寸变化都触发重判：
+    /// 后端先报 Maximized、客户区随后才铺开的序列中，两处时机缺一不可。</summary>
+    private bool? _lastVisualMaximized;
+
+    /// <summary>窗口状态变化：重判视觉最大化（图标/圆角/内容卡边距全部由该属性经绑定驱动）。</summary>
     private void OnWindowPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
         if (e.Property != Window.WindowStateProperty)
@@ -168,16 +174,38 @@ public partial class MainWindow : Window
             return;
         }
 
-        var maximized = WindowState == WindowState.Maximized;
-        if (DataContext is MainWindowViewModel viewModel)
-        {
-            viewModel.IsWindowMaximized = maximized; // 图标/圆角/内容卡边距全部由该属性经绑定驱动
-        }
+        UpdateMaximizedFlag();
     }
 
-    /// <summary>窗口尺寸变化：转发 VM 做侧栏阈值自适应（穿越阈值自动收放，宽度过渡自带动画）。</summary>
-    private void OnWindowSizeChanged(object? sender, SizeChangedEventArgs e) =>
+    /// <summary>窗口尺寸变化：转发 VM 做侧栏阈值自适应（穿越阈值自动收放，宽度过渡自带动画）；
+    /// 并重判视觉最大化——真最大化时后端先改状态、客户区尺寸随后才铺满工作区。</summary>
+    private void OnWindowSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        UpdateMaximizedFlag();
         (DataContext as MainWindowViewModel)?.SetWindowWidth(e.NewSize.Width);
+    }
+
+    /// <summary>
+    /// 依据窗口状态 + 客户区与屏幕工作区的吻合度重判"视觉最大化"并写入 VM。
+    /// 实验性 Wayland 后端会把 Hyprland 的平铺状态也上报为 Maximized（2026-09 实测），
+    /// 平铺/浮动窗口必须保留圆角，故不能只信属性（见 <see cref="WindowStateMapper"/>）。
+    /// </summary>
+    private void UpdateMaximizedFlag()
+    {
+        var screen = Screens?.ScreenFromWindow(this);
+        var maximized = WindowStateMapper.IsVisuallyMaximized(
+            WindowState, ClientSize, screen?.WorkingArea, screen?.Scaling);
+        if (maximized == _lastVisualMaximized)
+        {
+            return;
+        }
+
+        _lastVisualMaximized = maximized;
+        if (DataContext is MainWindowViewModel viewModel)
+        {
+            viewModel.IsWindowMaximized = maximized;
+        }
+    }
 
     /// <summary>自绘标题栏拖拽：按钮命中不拖拽；最大化时忽略。</summary>
     private void OnTitlePointerPressed(object? sender, PointerPressedEventArgs e)
