@@ -13,13 +13,13 @@ using static FFmpeg.AutoGen.ffmpeg;
 
 namespace YetAnotherGameLauncher.Services;
 
-[ExcludeFromCodeCoverage]
 /// <summary>
 /// FFmpeg 原生库准备器（FFmpeg.AutoGen 绑定 ↔ 原生库的版本必须配套，且绑定初始化只有一次机会）：
 /// ① 复用应用数据目录里已下载的库；② 探测系统已安装的同版本 FFmpeg（Linux 桌面发行版常见，命中即零下载）；
 /// ③ 都没有时从 BtbN FFmpeg-Builds 下载与绑定版本配套的 LGPL 共享构建（SHA256 校验后解压）。
 /// 就绪判定 = 通过自定义 <see cref="IFunctionResolver"/> 实际调通 FFmpeg 版本 API。
 /// </summary>
+[ExcludeFromCodeCoverage]
 public sealed partial class FfmpegLibraryResolver(
     YetAnotherGameLauncher.Core.Services.NetworkProxyManager proxyManager,
     ILogger<FfmpegLibraryResolver>? logger = null)
@@ -155,7 +155,7 @@ public sealed partial class FfmpegLibraryResolver(
     private const string BoundAvcodecFile = "avcodec-63.dll";
 
     /// <summary>绑定所需的 libavcodec 主版本号（Linux 的 so 版本号，与 <see cref="BoundAvcodecFile"/> 同步改）。</summary>
-    internal const int BoundLibavMajor = 63;
+    private const int BoundLibavMajor = 63;
 
     /// <summary>下载 BtbN 资产（SHA256 校验）并解压到应用数据目录。</summary>
     private async Task DownloadAndExtract(CancellationToken cancellationToken)
