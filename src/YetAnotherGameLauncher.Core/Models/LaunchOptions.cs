@@ -12,6 +12,12 @@ public sealed class LaunchOptions
     /// <summary>工作目录模板，可用 {installDir} 占位符；留空时使用 {installDir}。</summary>
     public string WorkingDirectory { get; set; } = "{installDir}";
 
+    /// <summary>
+    /// umu 启动用的 UMU_ID 覆盖（形如 "umu-3513350"，需与 umu 数据库规范一致）。
+    /// 留空时按 umu-{游戏id} 生成；prefix 路径不受此字段影响（仍按游戏 id 定位）。
+    /// </summary>
+    public string? UmuId { get; set; }
+
     /// <summary>附加环境变量（值同样支持 {installDir} 占位符）。</summary>
     public Dictionary<string, string> Environment { get; set; } = new();
 }

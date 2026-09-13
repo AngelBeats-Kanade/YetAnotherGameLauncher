@@ -90,19 +90,19 @@ Windows 主机上 Native umu 路径不激活（`OperatingSystem.IsLinux()` 门�
 
 | 键 | 来源 |
 |---|---|
-| `GAMEID` | 配置或 `umu-{gameId}`（与现有 `BuildUmuLaunch` 一致） |
+| `GAMEID` | `launch.umuId` 覆盖或 `umu-{gameId}`（对齐 umu 数据库规范 ID） |
 | `UMU_ID` | 同 `GAMEID` |
-| `STORE` | 可配置，默认 `none` |
+| `STORE` | 可配置，默认空串（与上游 umu_run.py 一致） |
 | `WINEPREFIX` | 统一 prefix 路径（绝对） |
 | `STEAM_COMPAT_DATA_PATH` | 同 `WINEPREFIX` |
 | `STEAM_COMPAT_SHADER_PATH` | `{WINEPREFIX}/shadercache` |
-| `PROTONPATH` | 解析后的 Proton 绝对目录 |
+| `PROTONPATH` | 解析后的 Proton 绝对目录（配置 `environment.PROTONPATH` 存的是发行版代号——DW-Proton/GE-Proton/UMU-Proton——启动前解析，不回写覆盖绝对路径） |
 | `PROTON_VERB` | 默认 `waitforexitandrun`，可覆盖 |
 | `STEAM_COMPAT_INSTALL_PATH` | exe 所在目录 |
 | `STEAM_COMPAT_CLIENT_INSTALL_PATH` | Steam 根（`~/.steam/steam`） |
 | `STEAM_COMPAT_TOOL_PATHS` / `STEAM_COMPAT_MOUNTS` | `PROTONPATH[:RUNTIMEPATH]` |
-| `STEAM_COMPAT_APP_ID` | 前半段：prefix 路径 MD5 hex（与上游 umu 当前行为一致） |
-| `SteamAppId` / `SteamGameId` | 上游在 umu-id 数字后缀时覆盖；本项目 gameId 非纯数字时保持 `0` 或沿用 umu-id 解析规则 |
+| `STEAM_COMPAT_APP_ID` | prefix 路径 MD5 hex（与上游 umu 当前行为一致：**恒为** MD5，数字后缀如 umu-3513350 也不直通） |
+| `SteamAppId` / `SteamGameId` | 同 `STEAM_COMPAT_APP_ID` |
 | `EXE` | 游戏可执行文件绝对路径 |
 | `STEAM_RUNTIME_LIBRARY_PATH` | 安装路径 + 系统 ldconfig 前缀（可简化：安装路径 + `LD_LIBRARY_PATH`；完整 ldconfig 解析若无 unsafe/外部进程依赖过重则记为后续增强） |
 | `PROTON_CRASH_REPORT_DIR` | `{tmp}/yagl-umu-crashreports` |

@@ -1,6 +1,8 @@
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using YetAnotherGameLauncher.AppTests;
@@ -11,8 +13,8 @@ using Xunit;
 namespace YetAnotherGameLauncher.UiTests;
 
 /// <summary>
-/// 设置类输入框"按 Enter 保存"的回归：安装根目录（设置页）与游戏安装目录（启动设置页）
-/// 曾只有按钮入口，回车保存是选择目录按钮落地后的配套交互。
+/// 设置页/游戏设置页的 headless UI 回归集合。
+/// 安装根目录与游戏安装目录的"按 Enter 保存"——曾只有按钮入口，回车保存是选择目录按钮落地后的配套交互。
 /// 聚焦后走 headless 键盘管线发 Enter：TextBox 会把 Enter 标记为已处理，
 /// 窗口层以 handledEventsToo:true 订阅才能收到——正是真机的完整路由路径。
 /// </summary>
@@ -87,6 +89,43 @@ public class SettingsHeadlessTests : IDisposable
             Assert.True(launch.Save.HasMessage);
             Assert.False(launch.Save.Failed);
             Assert.Contains("E:/Games/Endfield", File.ReadAllText(_ctx.ConfigPath).Replace('\\', '/'));
+            window.Close();
+        }, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// 环境变量框必须换行：NoWrap + AcceptsReturn 会把内部横滚条可见性算成 Auto，
+    /// Fluent 默认悬浮滚动条绘制在内容之上——变量行填满后最后一行被横滚条盖住、指针被拦截无法点选。
+    /// Wrap 时 TextBox 把横滚条设为 Disabled，umu 生成的长路径行（WINEPREFIX 等）换行后全部可见。
+    /// </summary>
+    [Fact]
+    public async Task EnvironmentBox_WrapsText_SoLastLineNeverCoveredByHorizontalScrollbar()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        await HeadlessSession.Instance.Dispatch(async () =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            window.Show();
+            _ctx.Vm.ShowGameSettingsCommand.Execute(null);
+            window.UpdateLayout();
+            // 同上：DataTemplate 命名空间内的 x:Name 需走视觉树查找
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+
+            var box = window.GetVisualDescendants().OfType<TextBox>().First(t => t.Name == "EnvironmentBox");
+            Assert.Equal(TextWrapping.Wrap, box.TextWrapping);
+            // 横滚条必须 Disabled（Wrap 的配套效果）：一旦出现即悬浮遮挡最后一行
+            Assert.Equal(ScrollBarVisibility.Disabled,
+                box.GetValue(ScrollViewer.HorizontalScrollBarVisibilityProperty));
+
+            // 行为级验证：超长行换行后无水平溢出（Extent ≤ Viewport），内容不可能被右缘裁切
+            box.Text = "WINEPREFIX=/tmp/yagl-tests/11111111-2222-3333-4444-555555555555/data-home/yagl/prefixes/some-game";
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+            var host = box.GetVisualDescendants().OfType<ScrollViewer>().Single();
+            Assert.True(host.Extent.Width <= host.Viewport.Width,
+                $"水平溢出仍存在：extent={host.Extent.Width}, viewport={host.Viewport.Width}");
             window.Close();
         }, CancellationToken.None);
     }

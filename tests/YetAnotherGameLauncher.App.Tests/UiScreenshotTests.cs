@@ -205,8 +205,9 @@ public class UiScreenshotTests
     }
 
     /// <summary>
-    /// 启动失败覆盖层 + 启动设置卡 umu 引导提示的视觉自检（Linux 平台语义，
-    /// VmFactory 注入的启动服务已禁用 PATH 扫描 → umu-run 预检必然失败）。
+    /// 启动失败覆盖层 + 启动设置卡（Linux：umu 启动二选一 + Proton 发行版下拉 + 组件状态卡）的视觉自检
+    /// （Linux 平台语义；VmFactory 未注入原生 umu 启动器/组件准备器 → 走通用预检失败出覆盖层、
+    /// 准备按钮禁用）。
     /// </summary>
     [Fact]
     public async Task Export_LaunchErrorOverlay_ForReview()
@@ -262,7 +263,7 @@ public class UiScreenshotTests
             window.UpdateLayout();
             Capture("10-launch-error-overlay-dark.png");
 
-            // 启动设置页：umu 模式 + 未安装 → 引导安装提示行（滚动到启动卡完整可见）
+            // 启动设置页：Linux 启动卡（umu 启动 + Proton 发行版下拉 + 组件状态卡），滚动到完整可见
             ctx.Vm.ShowGameSettingsCommand.Execute(null);
             window.UpdateLayout();
             var launchCard = window.GetVisualDescendants()
@@ -270,7 +271,7 @@ public class UiScreenshotTests
                 .FirstOrDefault(b => b.Name == "LaunchCard");
             launchCard?.BringIntoView();
             window.UpdateLayout();
-            Capture("11-launch-settings-umu-hint-dark.png");
+            Capture("11-launch-settings-linux-dark.png");
 
             window.Close();
             return 0;

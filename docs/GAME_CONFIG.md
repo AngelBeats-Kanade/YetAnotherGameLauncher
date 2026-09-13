@@ -60,6 +60,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `commandTemplate` | string | `"{exe}"` | 启动命令模板；含空格的路径请加引号，如 `wine "{exe}"` |
 | `workingDirectory` | string | `"{installDir}"` | 工作目录模板 |
 | `environment` | object | `{}` | 附加环境变量（值支持占位符），如 `{"WINEPREFIX": "~/prefix"}` |
+| `umuId` | string | | umu 启动用的 UMU_ID 覆盖（形如 `umu-3513350`，对齐 [umu 数据库](https://github.com/Open-Wine-Components/umu-database)规范 ID）；留空按 `umu-{游戏id}` 生成。仅影响 GAMEID/UMU_ID，prefix 路径不变 |
 
 可用占位符：
 
@@ -68,10 +69,15 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 
 > [!NOTE]
 > Linux 首运生成默认配置时，裸 `{exe}` 模板（无法运行 Windows 客户端）会被自动升级为
-> 社区推荐链 + 兼容环境变量并写盘：**原生 umu**（`native-umu {exe}` + GAMEID/UMU_ID/WINEPREFIX，
-> 内置 C# 启动链，启动时自动准备 Proton 与 Steam Runtime）→ 外部 umu-run → **Proton** → **系统 wine**。
+> 社区推荐链 + 兼容环境变量并写盘：**原生 umu**（`native-umu {exe}` + GAMEID/UMU_ID/WINEPREFIX/
+> STEAM_COMPAT_DATA_PATH/PROTONPATH，内置 C# 启动链，启动时自动准备 Proton 与 Steam Runtime）→
+> 外部 umu-run → **Proton** → **系统 wine**。
 > （`MainWindowViewModel.ApplyLinuxFirstRunLaunchDefaultsAsync`，推荐逻辑单一来源
 > `CompatTools.BuildRecommendedLaunch`。）仅在首运生成那一刻执行一次，此后配置以用户修改为准。
+>
+> 设置页启动方式二选一：**umu 启动**（默认，旁边可选 Proton 发行版 DW/GE/UMU-Proton，
+> 选择写入 `environment.PROTONPATH` 代号，组件准备按对应仓库拉 latest）与**直接运行**；
+> 旧版 wine/Proton/外部 umu-run 模板仍可运行，进设置页仅作 umu 显示映射，主动切换并保存后才会改写。
 >
 > Wine prefix 由启动器统一放在 `{数据目录}/yagl/prefixes/<游戏id>`
 > （Linux `~/.local/share/yagl/prefixes/`），不写入游戏安装目录——
@@ -120,7 +126,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
       "channel": "kuro",
       "installDir": "WutheringWaves",
       "executable": "Client/Binaries/Win64/Client-Win64-Shipping.exe",
-      "launch": { "commandTemplate": "{exe}" },
+      "launch": { "commandTemplate": "{exe}", "umuId": "umu-3513350" },
       "servers": [
         { "id": "cn", "name": "CN", "options": { "indexUrl": "https://prod-cn-alicdn-gamestarter.kurogame.com/launcher/game/G152/10003_.../index.json" } },
         { "id": "global", "name": "Global", "options": { "indexUrl": "https://prod-alicdn-gamestarter.kurogame.com/launcher/game/G153/50004_.../index.json" } }
@@ -132,7 +138,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
       "channel": "hypergryph",
       "installDir": "ArknightsEndfield",
       "executable": "ArknightsEndfield/Binaries/Win64/ArknightsEndfield.exe",
-      "servers": [ { "id": "global", "name": "Global", "options": { "apiBase": "https://launcher.gryphline.com/api" } } ]
+      "servers": [ { "id": "cn", "name": "CN", "options": { "apiBase": "https://launcher.hypergryph.com/api", "appcode": "6LL0KJuqHBVz33WK", "channel": "1", "subChannel": "1" } } ]
     }
   ]
 }
@@ -140,35 +146,28 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 
 ## 3. Linux：umu / wine / Proton 启动示例
 
-两款游戏均为 Windows 程序，Linux 上把 `launch` 改成包装命令即可。
-**推荐直接用启动器的 umu-launcher 引导安装**（启动设置卡或启动失败提示内一键安装），
-装完由启动器自动生成以下配置，无需手写：
+两款游戏均为 Windows 程序，Linux 上推荐**启动设置卡的 umu 启动**（内置 C# 链，自动管理
+Steam Runtime 容器与 Proton，发行版三选一），由启动器自动生成以下配置，无需手写：
 
 ```jsonc
-// umu-launcher（推荐：自动管理 Steam Runtime 容器与 Proton；prefix 由启动器统一管理）
+// umu 启动（默认推荐；umuId 对齐 umu 数据库规范 ID，命中时外部工具链自动套用社区修复）
 "launch": {
-  "commandTemplate": "umu-run \"{exe}\"",
+  "commandTemplate": "native-umu \"{exe}\"",
+  "umuId": "umu-3513350",               // 鸣潮 = umu-3513350（Steam AppId）；终末地 = umu-endfield
   "environment": {
-    "GAMEID": "umu-wuthering-waves",   // 能命中 umu 数据库时自动套用社区修复
-    "UMU_ID": "umu-wuthering-waves",
-    "WINEPREFIX": "~/.local/share/yagl/prefixes/wuthering-waves"
+    "GAMEID": "umu-3513350",
+    "UMU_ID": "umu-3513350",
+    "WINEPREFIX": "~/.local/share/yagl/prefixes/wuthering-waves",
+    "STEAM_COMPAT_DATA_PATH": "~/.local/share/yagl/prefixes/wuthering-waves",
+    "PROTONPATH": "DW-Proton",           // 发行版代号：DW-Proton / GE-Proton / UMU-Proton，按代号拉对应仓库 latest
+    "SteamOS": "1"                       // 鸣潮过 ACE 反作弊需伪装 SteamOS；NVIDIA 卡再加 PROTON_ENABLE_NVAPI=1
   }
 }
 
-// 系统 wine
+// 手写 wine / Proton 直启仍受支持（设置页不再提供入口，模板照常执行）
 "launch": {
   "commandTemplate": "wine \"{exe}\"",
   "environment": { "WINEPREFIX": "~/.local/share/yagl/prefixes/wuthering-waves" }
-}
-
-// Proton 直启（自备 Steam + compatibilitytools.d；或 Steam 商店版本走协议启动）
-"launch": {
-  "commandTemplate": "\"~/.steam/steam/compatibilitytools.d/GE-Proton10-9/proton\" run {exe}",
-  "environment": {
-    "STEAM_COMPAT_DATA_PATH": "~/.local/share/yagl/prefixes/wuthering-waves",
-    "STEAM_COMPAT_CLIENT_INSTALL_PATH": "~/.steam/steam",
-    "SteamOS": "1"                      // 鸣潮过 ACE 反作弊需伪装 SteamOS；NVIDIA 卡再加 PROTON_ENABLE_NVAPI=1
-  }
 }
 
 // Steam 商店版本（用 steam 协议启动，忽略 exe）
@@ -199,6 +198,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 - `settings.installRoot` 不能为空；`proxyMode` 为 `"Manual"` 时 `proxyAddress` 必须为可解析的 http(s) URL
 - `games[].id` 非空、无非法字符、全局唯一（忽略大小写）
 - `displayName` / `channel` / `installDir` / `executable` / `launch.commandTemplate` 非空
+- `launch.umuId` 非空时须形如 `umu-<slug>`（后缀仅字母/数字/`-`/`_`）
 - `servers` 至少 1 个；服务器 `id` 唯一且非空、`name` 非空
 - JSON 语法错误 / 未知枚举值 → 归一为校验异常提示
 

@@ -28,6 +28,8 @@
   <ItemGroup>
     <PackageReference Include="Avalonia" />
     <PackageReference Include="Avalonia.Desktop" />
+    <!-- 原生 Wayland 后端（实验性）：仅 Linux 且 WAYLAND_DISPLAY 存在时经 UseWayland() 启用 -->
+    <PackageReference Include="Avalonia.Wayland" />
     <PackageReference Include="Avalonia.Themes.Fluent" />
     <PackageReference Include="Avalonia.Fonts.Inter" />
     <PackageReference Include="AvaloniaUI.DiagnosticsSupport">

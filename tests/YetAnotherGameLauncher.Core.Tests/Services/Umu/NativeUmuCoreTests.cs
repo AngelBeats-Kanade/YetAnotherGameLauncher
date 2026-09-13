@@ -115,10 +115,38 @@ public sealed class NativeUmuCoreTests : IDisposable
         Assert.Equal(env["WINEPREFIX"], env["STEAM_COMPAT_DATA_PATH"]);
         Assert.Equal(Path.GetFullPath(proton), env["PROTONPATH"]);
         Assert.Equal("waitforexitandrun", env["PROTON_VERB"]);
-        Assert.Equal("none", env["STORE"]);
+        Assert.Equal("", env["STORE"]);
         Assert.Equal(Path.GetFullPath(exe), env["EXE"]);
         Assert.False(string.IsNullOrEmpty(env["STEAM_COMPAT_APP_ID"]));
         Assert.Contains(Path.GetFullPath(proton), env["STEAM_COMPAT_TOOL_PATHS"]);
+    }
+
+    [Fact]
+    public void UmuEnvironment_Build_UmuIdOverrideWinsAndAppIdStaysMd5()
+    {
+        // umuId 覆盖（games.json launch.umuId，对齐 umu 数据库规范 ID）；
+        // 即便后缀是纯数字（Steam AppId 形式），AppId 仍与上游一致恒为 prefix 的 MD5
+        var exe = Path.Combine(_temp.Path, "game", "Game.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(exe)!);
+        File.WriteAllText(exe, "x");
+        var proton = Path.Combine(_temp.Path, "proton");
+        Directory.CreateDirectory(proton);
+        var pfx = Path.Combine(_temp.Path, "pfx");
+
+        var env = UmuEnvironment.Build(new UmuLaunchRequest(
+            "wuthering-waves",
+            exe,
+            Path.GetDirectoryName(exe)!,
+            proton,
+            pfx,
+            SteamRuntimeCatalog.Default,
+            UmuId: "umu-3513350"));
+
+        Assert.Equal("umu-3513350", env["GAMEID"]);
+        Assert.Equal("umu-3513350", env["UMU_ID"]);
+        Assert.Equal(UmuEnvironment.PrefixHash(Path.GetFullPath(pfx)), env["STEAM_COMPAT_APP_ID"]);
+        Assert.Equal(env["STEAM_COMPAT_APP_ID"], env["SteamAppId"]);
+        Assert.Equal(env["STEAM_COMPAT_APP_ID"], env["SteamGameId"]);
     }
 
     [Fact]
@@ -188,6 +216,17 @@ public sealed class NativeUmuCoreTests : IDisposable
         Assert.Equal(LaunchMode.NativeUmu, launch.Mode);
         Assert.Equal("native-umu {exe}", launch.CommandTemplate);
         Assert.Equal("umu-wuthering-waves", launch.Environment["GAMEID"]);
+        Assert.Equal("DW-Proton", launch.Environment["PROTONPATH"]); // 默认发行版代号
+    }
+
+    [Fact]
+    public void BuildNativeUmuLaunch_UmuIdAndFlavorOverride()
+    {
+        var launch = CompatTools.BuildNativeUmuLaunch(
+            "wuthering-waves", dataHome: _temp.Path, umuId: "umu-3513350", protonFlavor: "GE-Proton");
+        Assert.Equal("umu-3513350", launch.Environment["GAMEID"]);
+        Assert.Equal("umu-3513350", launch.Environment["UMU_ID"]);
+        Assert.Equal("GE-Proton", launch.Environment["PROTONPATH"]);
     }
 
     [Fact]
@@ -201,6 +240,20 @@ public sealed class NativeUmuCoreTests : IDisposable
             winePath: "/x/wine");
         Assert.Equal(LaunchMode.NativeUmu, launch.Mode);
         Assert.StartsWith("native-umu", launch.CommandTemplate, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildRecommendedLaunch_PassesUmuIdThrough()
+    {
+        var launch = CompatTools.BuildRecommendedLaunch(
+            "arknights-endfield",
+            protonVersions: [],
+            dataHome: _temp.Path,
+            umuId: "umu-endfield");
+        Assert.Equal("umu-endfield", launch.Environment["UMU_ID"]);
+        Assert.Equal("umu-endfield", launch.Environment["GAMEID"]);
+        // prefix 路径不受 umuId 影响（继续按游戏 id，不迁移存量 prefix）
+        Assert.Equal(CompatTools.PrefixPathFor("arknights-endfield", null, _temp.Path), launch.Environment["WINEPREFIX"]);
     }
 
     [Fact]

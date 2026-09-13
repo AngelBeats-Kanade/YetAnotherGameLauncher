@@ -125,18 +125,26 @@ Windows 上若游戏可执行文件的清单要求管理员权限（requireAdmin
 配置了自定义环境时记警告放弃。
 
 命令模板支持引号包裹（含空格路径），例如 `wine "{exe}"`；
-Linux 上如何运行（原生 umu / 外部 umu-run / wine / Proton）完全由配置决定，代码零平台假设。
-推荐链单一事实源在 `CompatTools.BuildRecommendedLaunch`：
-**原生 umu（`native-umu {exe}`，内置 C#）→ 外部 umu-run → Proton 直启 → 系统 wine**；
-默认走原生 umu。原生链在 `NativeUmuLauncher` + `IUmuComponentProvisioner`：
+Linux 上如何运行（umu / 直接运行）完全由配置决定，代码零平台假设。
+设置页启动方式二选一：**umu 启动**（默认，`native-umu {exe}`）与**直接运行**（`{exe}`，Windows 唯一方式）；
+旧版 wine/Proton/外部 umu-run 模板仍可执行，仅不再出现在选择器中。
+umu 模式旁有 **Proton 发行版选择**（DW-Proton / GE-Proton / UMU-Proton，默认 DW-Proton）：
+代号写入 `environment.PROTONPATH`，启动解析与组件准备共用它（`CompatTools.ResolveNativeProtonRequest`
+优先读 PROTONPATH），代号语义 = 按对应仓库拉 latest、离线回退该前缀本地最新。
+UMU_ID 由 `launch.umuId` 覆盖（对齐 umu 数据库规范 ID：鸣潮 `umu-3513350`、终末地 `umu-endfield`）。
+推荐链单一事实源在 `CompatTools.BuildRecommendedLaunch`（默认原生 umu）。原生链在
+`NativeUmuLauncher` + `IUmuComponentProvisioner`：
 
-1. 解析/下载 Proton（GE-Proton / UMU-Proton → `~/.local/share/Steam/compatibilitytools.d`）
+1. 解析/下载 Proton（DW-Proton [dawn.wine Forgejo] / GE-Proton / UMU-Proton [GitHub]
+   → `~/.local/share/Steam/compatibilitytools.d`；DW 资产 tar.xz 且目录名去架构后缀）
 2. 读 `toolmanifest.vdf` 得所需 Steam Runtime，缺失则下载到 `~/.local/share/umu/<variant>`（SHA256 校验）
 3. `UmuPrefix.Setup` 布好 Proton 兼容 prefix（pfx 符号链接、shadercache、steamuser）
 4. `UmuEnvironment.Build` 写完整 STEAM_COMPAT_* / UMU_* 环境
+   （与上游 umu_run.py 对齐：`STEAM_COMPAT_APP_ID` 恒为 prefix 路径 MD5、`STORE` 缺省空串；
+   配置里的 PROTONPATH 代号不覆盖已解析的绝对路径）
 5. 经 `{runtime}/_v2-entry-point --verb=… -- {proton}/proton <verb> {exe}` 启动（`IProcessRunner`，即启即走）
 
-外部 `umu-run` zipapp 路径保留为回退（`UmuLauncherInstaller`）。
+外部 `umu-run` zipapp 路径保留为回退（`UmuLauncherInstaller`，仅供存量模板与错误覆盖层）。
 Wine prefix 统一在 `{数据目录}/yagl/prefixes/<游戏id>`（`STEAM_COMPAT_DATA_PATH` 同址），
 绝不写入游戏安装目录——安装同步的清单外清理不会误删 prefix（`compatdata` 另在保留名单纵深防御）。
 （唯一例外是首运配置生成：Linux 会把默认 `{exe}` 升级为推荐链再落盘，见 GAME_CONFIG.md。）
@@ -238,6 +246,9 @@ flowchart LR
   回读系统内存——回读不拷贝帧属性，pts 必须在回读前从原始解码帧捕获），swscale 转 BGRA 后逐行 blit 进
   `WriteableBitmap`，16ms 节流通知 UI 重绘；`PlaybackClock` 按 PTS 实时节拍
   （落后超阈值重定基线，不做爆发追帧），渲染尺寸 clamp ≤1080p，静音不解码音轨。
+  硬解日志语义：设备创建成功/失败（含 `av_strerror` 错误文本）各一条，`avcodec_open2` 后再打一条
+  协商出的像素格式（`vaapi_vld (hardware)` / `yuv420p (software)`）——设备创建成功 ≠ 硬解生效，
+  协商格式才是判据；循环点分析源刻意纯软解，不打硬解日志（勿把"软解分析"误读成回退失败）。
 - **原生库供给**（`FfmpegLibraryResolver`，与 FFmpeg.AutoGen 9.0 绑定精确配套 = libavcodec 主版本 63）：
   应用数据目录已下载库 → 系统库（Linux 探测 `libavcodec.so.63`——其它主版本 ABI 不配套会崩，宁缺毋滥；
   旧实现拼出 `libavcodec-63.dll`/裸 `dlopen("avcodec")`，Linux 上永远失败，是"背景视频没了"的根因）→

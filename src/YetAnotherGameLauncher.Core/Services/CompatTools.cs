@@ -50,6 +50,12 @@ public static class CompatTools
     /// <summary>默认推荐的 Proton 版本。</summary>
     public const string DefaultProton = "dw-proton";
 
+    /// <summary>umu 启动可选的 Proton 发行版代号（UI 选择框数据源；代号 = 组件准备按对应仓库拉 latest）。</summary>
+    public static readonly IReadOnlyList<string> ProtonFlavors = ["DW-Proton", "GE-Proton", "UMU-Proton"];
+
+    /// <summary>默认 Proton 发行版（Dawn Winery 构建，对鸣潮/终末地的社区口碑最好，终末地 ACE 仅在其上稳定）。</summary>
+    public const string DefaultProtonFlavor = "DW-Proton";
+
     /// <summary>Steam 常见安装根目录（库目录的父级；Proton 版本扫描与 compatdata prefix 探测共用）。</summary>
     internal static string[] SteamRoots(string home) =>
     [
@@ -177,20 +183,28 @@ public static class CompatTools
     public static string PrefixPathFor(string gameId, string? home = null, string? dataHome = null) =>
         Path.Combine(PrefixRoot(home, dataHome), gameId);
 
+    /// <summary>解析最终 UMU_ID：显式 umuId 优先（自动补 umu- 前缀），缺省 umu-{gameId}（已带前缀的原样保留）。</summary>
+    private static string ResolveUmuId(string gameId, string? umuId)
+    {
+        var source = string.IsNullOrWhiteSpace(umuId) ? gameId : umuId;
+        return source.StartsWith("umu-", StringComparison.Ordinal) ? source : $"umu-{source}";
+    }
+
     /// <summary>
     /// 生成 umu-launcher 启动配置：`{umu-run路径} {exe}` + GAMEID/UMU_ID/WINEPREFIX。
-    /// GAMEID 用 umu-&lt;gameId&gt;：能命中 umu 数据库时自动套用社区修复，未命中则走默认行为；
+    /// GAMEID 用 umu-&lt;gameId&gt;（或 umuId 覆盖，对齐 umu 数据库规范 ID，命中数据库时外部 umu-run 能套用社区修复）；
     /// 两个变量同时设置（umu 1.1 起改用 UMU_ID，旧版本只认 GAMEID）。
     /// umuRunPath 为 null 表示尚未安装（生成裸 umu-run 模板供引导安装就位后直接使用）。
     /// </summary>
     public static CompatLaunch BuildUmuLaunch(
-        string gameId, string? umuRunPath, string? home = null, string? dataHome = null)
+        string gameId, string? umuRunPath, string? home = null, string? dataHome = null,
+        string? umuId = null)
     {
-        var umuId = $"umu-{gameId}";
+        var resolvedUmuId = ResolveUmuId(gameId, umuId);
         var environment = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["GAMEID"] = umuId,
-            ["UMU_ID"] = umuId,
+            ["GAMEID"] = resolvedUmuId,
+            ["UMU_ID"] = resolvedUmuId,
             ["WINEPREFIX"] = PrefixPathFor(gameId, home, dataHome),
         };
         return new CompatLaunch(
@@ -202,19 +216,22 @@ public static class CompatTools
 
     /// <summary>
     /// 生成原生 umu 启动模板：命令首段为标记 token「native-umu」，
-    /// 由 App 层在启动时替换为 NativeUmuLauncher 的真实容器命令；环境先写 GAMEID/UMU_ID/WINEPREFIX。
+    /// 由 App 层在启动时替换为 NativeUmuLauncher 的真实容器命令；环境写 GAMEID/UMU_ID/WINEPREFIX/
+    /// STEAM_COMPAT_DATA_PATH 与 PROTONPATH（发行版代号，启动/组件准备据此拉对应仓库 latest）。
     /// 用于推荐链默认项与 games.json 首运落盘（无需外部 umu-run）。
     /// </summary>
     public static CompatLaunch BuildNativeUmuLaunch(
-        string gameId, string? home = null, string? dataHome = null)
+        string gameId, string? home = null, string? dataHome = null,
+        string? umuId = null, string? protonFlavor = null)
     {
-        var umuId = gameId.StartsWith("umu-", StringComparison.Ordinal) ? gameId : $"umu-{gameId}";
+        var resolvedUmuId = ResolveUmuId(gameId, umuId);
         var environment = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["GAMEID"] = umuId,
-            ["UMU_ID"] = umuId,
+            ["GAMEID"] = resolvedUmuId,
+            ["UMU_ID"] = resolvedUmuId,
             ["WINEPREFIX"] = PrefixPathFor(gameId, home, dataHome),
             ["STEAM_COMPAT_DATA_PATH"] = PrefixPathFor(gameId, home, dataHome),
+            ["PROTONPATH"] = string.IsNullOrWhiteSpace(protonFlavor) ? DefaultProtonFlavor : protonFlavor,
         };
         // token 供 DetectLaunchMode / 启动拦截识别；真正 PROTONPATH 在启动时解析
         return new CompatLaunch(
@@ -313,6 +330,7 @@ public static class CompatTools
     /// 什么都没有时仍返回原生 umu 模板：启动时由组件准备器自动下载 Proton/Runtime。
     /// umu/wine 路径由调用方发现后注入（生产走 <see cref="FindUmuRun"/>/<see cref="FindSystemWine"/>，
     /// 测试显式传值保证确定性；空字符串归一为"未发现"，方便测试禁用真机 PATH 扫描）。
+    /// umuId 覆盖 UMU_ID（games.json launch.umuId，空 = umu-{gameId}）。
     /// </summary>
     public static CompatLaunch BuildRecommendedLaunch(
         string gameId,
@@ -322,7 +340,8 @@ public static class CompatTools
         string? dataHome = null,
         string? umuRunPath = null,
         string? winePath = null,
-        bool preferNativeUmu = true)
+        bool preferNativeUmu = true,
+        string? umuId = null)
     {
         // 空串 = 测试显式声明"没装"，与 null = 现场发现区分
         umuRunPath = string.IsNullOrEmpty(umuRunPath) ? null : umuRunPath;
@@ -331,11 +350,11 @@ public static class CompatTools
         CompatLaunch launch;
         if (preferNativeUmu)
         {
-            launch = BuildNativeUmuLaunch(gameId, home, dataHome);
+            launch = BuildNativeUmuLaunch(gameId, home, dataHome, umuId);
         }
         else if (umuRunPath is not null)
         {
-            launch = BuildUmuLaunch(gameId, umuRunPath, home, dataHome);
+            launch = BuildUmuLaunch(gameId, umuRunPath, home, dataHome, umuId);
         }
         else if (PickRecommendedProton(protonVersions) is { } version)
         {
@@ -347,7 +366,7 @@ public static class CompatTools
         }
         else
         {
-            launch = BuildNativeUmuLaunch(gameId, home, dataHome);
+            launch = BuildNativeUmuLaunch(gameId, home, dataHome, umuId);
         }
 
         foreach (var (key, value) in RecommendedEnvironment(gameId, nvidiaGpuPresent))
@@ -375,6 +394,16 @@ public static class CompatTools
 
         return PickRecommendedProton(protonVersions) ?? "UMU-Proton";
     }
+
+    /// <summary>是否为 Proton 发行版代号（DW/GE/UMU-Proton 及 *-Latest 变体，忽略大小写）；
+    /// 代号语义 = 组件准备按对应仓库拉 latest，离线回退该前缀的本地最新。</summary>
+    public static bool IsProtonCodename(string value) =>
+        string.Equals(value, "DW-Proton", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(value, "DW-Latest", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(value, "GE-Proton", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(value, "UMU-Proton", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(value, "GE-Latest", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(value, "UMU-Latest", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>判断环境变量键是否由推荐生成（切启动方式时应清除）：STEAM_COMPAT_*、umu 系列、WINEPREFIX、PROTONPATH 与游戏推荐项。</summary>
     public static bool IsGeneratedEnvironmentKey(string key) =>

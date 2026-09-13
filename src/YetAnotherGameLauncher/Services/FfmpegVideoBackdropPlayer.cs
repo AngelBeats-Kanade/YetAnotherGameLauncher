@@ -710,7 +710,8 @@ public sealed class FfmpegVideoBackdropPlayer(
         return context;
     }
 
-    /// <summary>打开解码器：按平台顺序试硬解（Windows D3D11VA / Linux VAAPI→NVDEC），全部创建失败回软解；硬解设备引用经 <paramref name="device"/> 返回。</summary>
+    /// <summary>打开解码器：按平台顺序试硬解（Windows D3D11VA / Linux VAAPI→NVDEC），全部创建失败回软解；硬解设备引用经 <paramref name="device"/> 返回。
+    /// <paramref name="softwareOnly"/> = true 时刻意纯软解（循环点分析），不打硬解相关日志。</summary>
     private unsafe AVCodecContext* OpenDecoder(AVCodecParameters* parameters, ref AVBufferRef* device, bool softwareOnly = false)
     {
         var decoder = ffmpeg.avcodec_find_decoder(parameters->codec_id);
@@ -733,18 +734,23 @@ public sealed class FfmpegVideoBackdropPlayer(
         AVBufferRef* created = null;
         foreach (var hwType in hwTypes)
         {
-            if (ffmpeg.av_hwdevice_ctx_create(&created, hwType, null, null, 0) == 0)
+            var createResult = ffmpeg.av_hwdevice_ctx_create(&created, hwType, null, null, 0);
+            if (createResult == 0)
             {
                 context->hw_device_ctx = ffmpeg.av_buffer_ref(created);
                 device = created;
-                logger?.LogDebug("Video backdrop hardware decode: {Type}", hwType);
+                logger?.LogDebug("Video backdrop hardware device created: {Type}", hwType);
                 break;
             }
 
             created = null;
+            logger?.LogDebug(
+                "Video backdrop hardware device {Type} create failed: {Error} ({Reason})",
+                hwType, createResult, DescribeFfmpegError(createResult));
         }
 
-        if (context->hw_device_ctx is null)
+        // 只有真正尝试过硬解（softwareOnly 的分析源刻意软解）才打回退日志，避免把设计当故障
+        if (context->hw_device_ctx is null && !softwareOnly)
         {
             logger?.LogDebug("Video backdrop hardware decode unavailable, falling back to software");
         }
@@ -755,8 +761,40 @@ public sealed class FfmpegVideoBackdropPlayer(
             throw new InvalidOperationException("Cannot open video decoder");
         }
 
+        // 设备创建成功 ≠ 硬解生效：解码器仍可能与驱动协商回软解格式（如 NVIDIA nvidia-vaapi-driver
+        // EGL 模式不支持解码），协商出的像素格式才是硬解真正工作的判据
+        if (!softwareOnly)
+        {
+            var pixelFormat = context->pix_fmt;
+            logger?.LogDebug(
+                "Video backdrop decoder negotiated {Format} ({Mode})",
+                PixelFormatName(pixelFormat), IsHardwarePixelFormat(pixelFormat) ? "hardware" : "software");
+        }
+
         return context;
     }
+
+    /// <summary>把 FFmpeg 错误码转成可读文本（av_strerror）；无对应描述回退 "unknown error"。</summary>
+    private static unsafe string DescribeFfmpegError(int errorCode)
+    {
+        var buffer = stackalloc byte[256];
+        return ffmpeg.av_strerror(errorCode, buffer, 256) == 0
+            ? Marshal.PtrToStringAnsi((nint)buffer) ?? "unknown error"
+            : "unknown error";
+    }
+
+    /// <summary>像素格式名（av_get_pix_fmt_name）；未知格式回退枚举名。</summary>
+    private static string PixelFormatName(AVPixelFormat format)
+    {
+        var name = ffmpeg.av_get_pix_fmt_name(format);
+        return string.IsNullOrEmpty(name) ? format.ToString() : name;
+    }
+
+    /// <summary>协商格式是否为硬件格式（与 hwTypes 一一对应：VAAPI / CUDA / D3D11）。</summary>
+    private static bool IsHardwarePixelFormat(AVPixelFormat format) =>
+        format is AVPixelFormat.AV_PIX_FMT_VAAPI
+            or AVPixelFormat.AV_PIX_FMT_CUDA
+            or AVPixelFormat.AV_PIX_FMT_D3D11;
 
     /// <summary>读取并解码下一帧软帧：硬解输出回读系统内存，软解转移引用。<paramref name="ptsSeconds"/>
     /// 取自原始解码帧（硬解回读不拷贝时间戳属性，必须在回读前捕获）；返回 false = 流结束或无法继续。</summary>

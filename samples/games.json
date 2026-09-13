@@ -20,7 +20,8 @@
       "launch": {
         "commandTemplate": "{exe}",
         "workingDirectory": "{installDir}",
-        "environment": {}
+        "environment": {},
+        "umuId": "umu-3513350"
       },
       "servers": [
         {
@@ -60,16 +61,10 @@
       "launch": {
         "commandTemplate": "{exe}",
         "workingDirectory": "{installDir}",
-        "environment": {}
+        "environment": {},
+        "umuId": "umu-endfield"
       },
       "servers": [
-        {
-          "id": "global",
-          "name": "Global",
-          "options": {
-            "apiBase": "https://launcher.gryphline.com/api"
-          }
-        },
         {
           "id": "cn",
           "name": "CN",
@@ -78,6 +73,13 @@
             "appcode": "6LL0KJuqHBVz33WK",
             "channel": "1",
             "subChannel": "1"
+          }
+        },
+        {
+          "id": "global",
+          "name": "Global",
+          "options": {
+            "apiBase": "https://launcher.gryphline.com/api"
           }
         },
         {

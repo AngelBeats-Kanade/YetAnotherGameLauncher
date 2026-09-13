@@ -56,7 +56,7 @@ public partial class GameItemViewModel(
     /// <summary>启动设置编辑卡（保存走 GameCatalogService 整文件原子写）。</summary>
     public LaunchSettingsViewModel LaunchSettings => _launchSettings ??= new(
         Game, _installDir, catalogService, Loc, this, _filePicker, Platform,
-        umuInstaller: UmuInstaller, umuProvisioner: _umuProvisioner);
+        umuProvisioner: _umuProvisioner);
 
     /// <summary>底层游戏配置（只读引用；名称/图标/服务器等以此为准）。</summary>
     public GameDefinition Game { get; } = game;
@@ -457,7 +457,8 @@ public partial class GameItemViewModel(
                     Game.Id, _installDir, Game.Executable, proton,
                     extraEnvironment: Game.Launch.Environment,
                     progress: progress,
-                    cancellationToken: cancellationToken);
+                    cancellationToken: cancellationToken,
+                    umuId: Game.Launch.UmuId);
             }
             else
             {

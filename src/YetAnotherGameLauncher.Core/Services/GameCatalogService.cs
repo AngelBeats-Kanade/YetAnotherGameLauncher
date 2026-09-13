@@ -188,6 +188,12 @@ public sealed class GameCatalogService
         Require(game.Executable, $"{field}.executable");
         Require(game.Launch.CommandTemplate, $"{field}.launch.commandTemplate");
 
+        if (!string.IsNullOrWhiteSpace(game.Launch.UmuId) && !IsValidUmuId(game.Launch.UmuId))
+        {
+            errors.Add(
+                $"{field}.launch.umuId must look like \"umu-<slug>\" (letters, digits, '-', '_' after the umu- prefix).");
+        }
+
         if (game.Servers.Count == 0)
         {
             errors.Add($"{field}.servers requires at least one server.");
@@ -216,4 +222,10 @@ public sealed class GameCatalogService
     /// <summary>id 仅允许字母、数字与 -_.（用作安装子目录与状态文件键）。</summary>
     private static bool IsValidId(string id) =>
         id.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_' or '.');
+
+    /// <summary>umuId 须形如 umu-&lt;slug&gt;（后缀仅字母/数字/-/_），与 umu 数据库的 UMU_ID 规范一致。</summary>
+    private static bool IsValidUmuId(string umuId) =>
+        umuId.StartsWith("umu-", StringComparison.Ordinal)
+        && umuId.Length > "umu-".Length
+        && umuId["umu-".Length..].All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_');
 }

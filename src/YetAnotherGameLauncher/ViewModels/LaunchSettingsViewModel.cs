@@ -11,8 +11,9 @@ namespace YetAnotherGameLauncher.ViewModels;
 
 /// <summary>
 /// 详情页"启动设置"卡：编辑命令模板 / 工作目录 / 环境变量并保存回 games.json。
+/// Linux 启动方式二选一（umu 启动 / 直接运行）；umu 模式旁选 Proton 发行版
+/// （DW/GE/UMU-Proton，写入 PROTONPATH 代号，组件准备据此拉对应仓库 latest）。
 /// 环境变量以多行 KEY=VALUE 文本编辑（解析容错，错误行给出行内容提示）。
-/// 原生 umu 模式显示组件状态并可一键检查/下载 Proton 与 Steam Runtime。
 /// </summary>
 public partial class LaunchSettingsViewModel : ViewModelBase
 {
@@ -23,12 +24,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     private readonly IFilePickerService? _filePicker;
     private readonly IPlatformInfo _platform;
     private readonly IReadOnlyList<string> _protonVersions;
-
-    /// <summary>已发现的运行时路径与数据目录（null = 未发现/未注入；测试显式传值保证确定性）。</summary>
-    private string? _umuRunPath;
-    private readonly string? _winePath;
     private readonly string _dataHome;
-    private readonly UmuLauncherInstaller? _umuInstaller;
     private readonly IUmuComponentProvisioner? _umuProvisioner;
 
     public LaunchSettingsViewModel(
@@ -43,7 +39,6 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         string? umuRunPath = null,
         string? winePath = null,
         string? dataHome = null,
-        UmuLauncherInstaller? umuInstaller = null,
         IUmuComponentProvisioner? umuProvisioner = null)
     {
         _game = game;
@@ -58,75 +53,77 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         _executableDraft = game.Executable;
         _protonVersions = protonVersions ?? (_platform.IsLinux ? CompatTools.FindProtonVersions() : []);
         // 显式空串 = 声明"没装"（测试禁用真机 PATH 扫描）；null = 现场（仅 Linux）发现
-        _umuRunPath = umuRunPath is null
+        var resolvedUmuRunPath = umuRunPath is null
             ? (IsLinux ? CompatTools.FindUmuRun() : null)
             : (umuRunPath.Length == 0 ? null : umuRunPath);
-        _winePath = winePath is null
+        var resolvedWinePath = winePath is null
             ? (IsLinux ? CompatTools.FindSystemWine() : null)
             : (winePath.Length == 0 ? null : winePath);
         _dataHome = dataHome ?? AppPaths.DataHomeDirectory; // CompatTools 语义要求数据根（不含 yagl 后缀）
-        _umuInstaller = umuInstaller;
         _umuProvisioner = umuProvisioner;
         _commandTemplate = game.Launch.CommandTemplate;
         _workingDirectory = game.Launch.WorkingDirectory;
         _environmentText = SerializeEnvironment(game.Launch.Environment);
         _selectedLaunchMode = DetectLaunchMode(game.Launch.CommandTemplate);
-        if (IsLinux && _selectedLaunchMode.Mode == LaunchMode.Proton && ProtonVersions.Count > 0)
-        {
-            _selectedProtonVersion = ProtonVersions.Contains(
-                CompatTools.DefaultProton, StringComparer.OrdinalIgnoreCase)
-                ? CompatTools.DefaultProton
-                : ProtonVersions[0];
-        }
+        var detectedFlavor = DetectProtonFlavor(game.Launch.Environment.GetValueOrDefault("PROTONPATH"));
+        _selectedProtonFlavor = CompatTools.ProtonFlavors.FirstOrDefault(
+            f => string.Equals(f, detectedFlavor, StringComparison.Ordinal)) ?? CompatTools.DefaultProtonFlavor;
 
         // Linux 默认最佳配置：裸 {exe} 无法运行 Windows 客户端 → 应用社区推荐链（进草稿，保存后才落盘；
         // 用户已有任何自定义模板则完全不动）
         if (IsLinux && _selectedLaunchMode.Mode == LaunchMode.Direct)
         {
             var launch = CompatTools.BuildRecommendedLaunch(
-                _game.Id, ProtonVersions, _platform.IsNvidiaGpuPresent,
-                dataHome: _dataHome, umuRunPath: _umuRunPath, winePath: _winePath);
+                _game.Id, _protonVersions, _platform.IsNvidiaGpuPresent,
+                dataHome: _dataHome, umuRunPath: resolvedUmuRunPath, winePath: resolvedWinePath,
+                umuId: _game.Launch.UmuId);
             SelectedLaunchMode = LaunchModes.First(m => m.Mode == launch.Mode);
-            if (launch.Mode == LaunchMode.Proton)
-            {
-                _selectedProtonVersion = launch.RuntimeName;
-            }
-
             ApplyGenerated((launch.CommandTemplate, launch.Environment));
         }
 
         RefreshNativeUmuStatus();
     }
 
-    /// <summary>从命令模板推断当前启动方式（启发式：含 proton/umu/wine 关键词；{exe} 原样视为直接运行）。
-    /// 关键词按优先级依次匹配；返回 LaunchModes 集合内的实例——ComboBox 的 SelectedItem 按引用匹配，
-    /// 游离实例会显示为空白。</summary>
+    /// <summary>从命令模板推断当前启动方式：native-umu 标记 token → umu 启动；{exe} 原样 → 直接运行；
+    /// 其余（外部 umu-run / wine / Proton 直启 / 自定义）仅作显示映射为 umu 启动，不重写草稿——
+    /// 存量模板在用户主动切换启动方式前保持原样运行。
+    /// 返回 LaunchModes 集合内的实例——ComboBox 的 SelectedItem 按引用匹配，游离实例会显示为空白。</summary>
     private LaunchModeOption DetectLaunchMode(string commandTemplate)
     {
         var t = commandTemplate.Trim();
-        var mode = LaunchMode.Custom;
-        if (t.Contains("native-umu", StringComparison.OrdinalIgnoreCase))
+        var mode = t.Contains("native-umu", StringComparison.OrdinalIgnoreCase) || t != "{exe}"
+            ? LaunchMode.NativeUmu
+            : LaunchMode.Direct;
+        return LaunchModes.First(m => m.Mode == mode);
+    }
+
+    /// <summary>从 PROTONPATH（代号 / 具体版本名 / 绝对路径）反推 Proton 发行版；识别不出回默认 DW-Proton。</summary>
+    private static string DetectProtonFlavor(string? protonPath)
+    {
+        if (!string.IsNullOrWhiteSpace(protonPath))
         {
-            mode = LaunchMode.NativeUmu;
-        }
-        else if (t.Contains("proton", StringComparison.OrdinalIgnoreCase))
-        {
-            mode = LaunchMode.Proton;
-        }
-        else if (t.Contains("umu-run", StringComparison.OrdinalIgnoreCase))
-        {
-            mode = LaunchMode.Umu;
-        }
-        else if (t.Contains("wine", StringComparison.OrdinalIgnoreCase))
-        {
-            mode = LaunchMode.Wine;
-        }
-        else if (t == "{exe}")
-        {
-            mode = LaunchMode.Direct;
+            var dirName = Path.GetFileName(
+                protonPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            foreach (var candidate in new[] { protonPath, dirName })
+            {
+                if (candidate.StartsWith("UMU", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "UMU-Proton";
+                }
+
+                if (candidate.StartsWith("GE", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "GE-Proton";
+                }
+
+                if (candidate.StartsWith("DW", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "DW-Proton"; // 代号 DW-Proton / 目录名 dwproton-*、dw-proton-*
+                }
+            }
         }
 
-        return LaunchModes.First(m => m.Mode == mode);
+        return CompatTools.DefaultProtonFlavor;
     }
 
     /// <summary>安装目录草稿（绝对路径；与启动参数共用同一保存按钮）。</summary>
@@ -140,24 +137,15 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     /// <summary>当前系统是否为 Linux（决定是否显示兼容层选择；平台信息注入，测试可控）。</summary>
     public bool IsLinux => _platform.IsLinux;
 
+    /// <summary>启动方式选项（umu 在前作为推荐默认；仅 Linux 面板内展示）。</summary>
     public IReadOnlyList<LaunchModeOption> LaunchModes { get; } =
     [
-        new(LaunchMode.Direct, LocBridge.Instance["launch_mode_direct"]),
         new(LaunchMode.NativeUmu, LocBridge.Instance["launch_mode_native_umu"]),
-        new(LaunchMode.Umu, LocBridge.Instance["launch_mode_umu"]),
-        new(LaunchMode.Wine, LocBridge.Instance["launch_mode_wine"]),
-        new(LaunchMode.Proton, LocBridge.Instance["launch_mode_proton"]),
-        new(LaunchMode.Custom, LocBridge.Instance["launch_mode_custom"]),
+        new(LaunchMode.Direct, LocBridge.Instance["launch_mode_direct"]),
     ];
 
     [ObservableProperty]
     private LaunchModeOption? _selectedLaunchMode;
-
-    /// <summary>是否处于 Proton 启动方式（决定版本选择器可见性）。</summary>
-    public bool IsProtonMode => SelectedLaunchMode?.Mode == LaunchMode.Proton;
-
-    /// <summary>是否处于原生 umu 启动方式（内置 C# 链，无需外部 umu-run）。</summary>
-    public bool IsNativeUmuMode => SelectedLaunchMode?.Mode == LaunchMode.NativeUmu;
 
     /// <summary>原生 umu 组件准备是否进行中。</summary>
     [ObservableProperty]
@@ -236,15 +224,17 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             return true;
         }
 
-        // 代号（UMU-Proton / GE-Proton 等，与准备器同一判定）：该前缀下最新已装即可
-        if (!UmuComponentProvisioner.IsCodename(protonRequest))
+        // 代号（DW/GE/UMU-Proton，与准备器同一判定）：该发行版前缀下最新已装即可
+        if (!CompatTools.IsProtonCodename(protonRequest))
         {
             return false;
         }
 
         var prefix = protonRequest.StartsWith("UMU", StringComparison.OrdinalIgnoreCase)
             ? "UMU-Proton"
-            : "GE-Proton";
+            : protonRequest.StartsWith("GE", StringComparison.OrdinalIgnoreCase)
+                ? "GE-Proton"
+                : "dwproton";
         return _protonVersions.Any(v =>
             v.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
             && _umuProvisioner.IsProtonReady(Path.Combine(root, v)));
@@ -295,82 +285,31 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         }
     }
 
-    /// <summary>是否处于 umu 启动方式（决定 umu 安装引导提示可见性）。</summary>
-    public bool IsUmuMode => SelectedLaunchMode?.Mode == LaunchMode.Umu;
+    /// <summary>是否处于 umu 启动方式（决定 Proton 发行版选择器与组件状态卡可见性）。</summary>
+    public bool IsNativeUmuMode => SelectedLaunchMode?.Mode == LaunchMode.NativeUmu;
 
-    /// <summary>umu-run 是否已发现（未发现时提示可一键引导安装）。</summary>
-    public bool IsUmuAvailable => _umuRunPath is not null;
-
-    /// <summary>是否显示 umu 未安装提示（选中 umu 模式且未装）。</summary>
-    public bool IsUmuHintVisible => IsUmuMode && !IsUmuAvailable;
-
-    /// <summary>umu 引导安装进行中。</summary>
-    [ObservableProperty]
-    private bool _isInstallingUmu;
-
-    /// <summary>一键安装 umu-launcher；成功后刷新发现结果并按当前模式重新生成草稿。</summary>
-    [RelayCommand]
-    private async Task InstallUmuAsync(CancellationToken cancellationToken)
-    {
-        if (_umuInstaller is null || IsInstallingUmu)
-        {
-            return;
-        }
-
-        IsInstallingUmu = true;
-        try
-        {
-            var installDir = Path.Combine(AppPaths.DataDirectory, "umu");
-            var installed = await _umuInstaller
-                .InstallLatestAsync(installDir, cancellationToken: cancellationToken);
-            _umuRunPath = installed; // 装完就地生效：提示消失，模板按 umu 重新生成
-            Save.Clear();
-            Save.SetSuccess(_loc["launch_error_umu_done"]);
-            OnPropertyChanged(nameof(IsUmuAvailable));
-            OnPropertyChanged(nameof(IsUmuHintVisible));
-            if (SelectedLaunchMode?.Mode == LaunchMode.Umu)
-            {
-                ApplyGenerated(Flatten(CompatTools.BuildUmuLaunch(
-                    _game.Id, _umuRunPath, home: null, dataHome: _dataHome)));
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // 用户取消：安静收场
-        }
-        catch (Exception ex)
-        {
-            Save.SetFailure(ex.Message);
-        }
-        finally
-        {
-            IsInstallingUmu = false;
-        }
-    }
-
-    public IReadOnlyList<string> ProtonVersions => _protonVersions;
+    /// <summary>umu 启动可选的 Proton 发行版代号（显示名即代号；DW 在前为默认）。</summary>
+    public IReadOnlyList<string> ProtonFlavors => CompatTools.ProtonFlavors;
 
     [ObservableProperty]
-    private string? _selectedProtonVersion;
+    private string? _selectedProtonFlavor;
 
-    /// <summary>Proton 版本变化时触发：用所选版本重新生成命令模板与兼容环境。</summary>
-    partial void OnSelectedProtonVersionChanged(string? value)
+    /// <summary>Proton 发行版变化时触发：代号写入环境草稿的 PROTONPATH（启动/组件准备按代号拉 latest）。</summary>
+    partial void OnSelectedProtonFlavorChanged(string? value)
     {
-        if (SelectedLaunchMode?.Mode == LaunchMode.Proton && !string.IsNullOrWhiteSpace(value))
+        if (IsNativeUmuMode && !string.IsNullOrWhiteSpace(value))
         {
-            ApplyGenerated(Flatten(CompatTools.BuildProtonLaunch(
-                _game.Id, value, home: null, dataHome: _dataHome)));
+            var merged = ParseEnvironmentOrEmpty(EnvironmentText);
+            merged["PROTONPATH"] = value;
+            EnvironmentText = SerializeEnvironment(merged);
+            RefreshNativeUmuStatus();
         }
     }
 
     /// <summary>启动方式变化时触发：刷新可见性，按方式生成命令模板并增删兼容环境变量。</summary>
     partial void OnSelectedLaunchModeChanged(LaunchModeOption? value)
     {
-        OnPropertyChanged(nameof(IsProtonMode));
         OnPropertyChanged(nameof(IsNativeUmuMode));
-        OnPropertyChanged(nameof(IsUmuMode));
-        OnPropertyChanged(nameof(IsUmuAvailable));
-        OnPropertyChanged(nameof(IsUmuHintVisible));
         RefreshNativeUmuStatus();
         if (value is null)
         {
@@ -385,30 +324,11 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 break;
             case LaunchMode.NativeUmu:
                 ApplyGenerated(Flatten(CompatTools.BuildNativeUmuLaunch(
-                    _game.Id, home: null, dataHome: _dataHome)));
+                    _game.Id, home: null, dataHome: _dataHome, umuId: _game.Launch.UmuId,
+                    protonFlavor: SelectedProtonFlavor)));
                 break;
-            case LaunchMode.Umu:
-                ApplyGenerated(Flatten(CompatTools.BuildUmuLaunch(
-                    _game.Id, _umuRunPath, home: null, dataHome: _dataHome)));
-                break;
-            case LaunchMode.Wine:
-                ApplyGenerated(Flatten(CompatTools.BuildWineLaunch(
-                    _game.Id, _winePath, home: null, dataHome: _dataHome)));
-                break;
-            case LaunchMode.Proton:
-                if (string.IsNullOrWhiteSpace(SelectedProtonVersion) && ProtonVersions.Count > 0)
-                {
-                    SelectedProtonVersion = ProtonVersions[0]; // 触发生成
-                }
-                else if (!string.IsNullOrWhiteSpace(SelectedProtonVersion))
-                {
-                    ApplyGenerated(Flatten(CompatTools.BuildProtonLaunch(
-                        _game.Id, SelectedProtonVersion, home: null, dataHome: _dataHome)));
-                }
-                break;
-            case LaunchMode.Custom:
             default:
-                break; // 自定义：不动草稿
+                break; // 未在 UI 暴露的存量模式：不动草稿
         }
     }
 

@@ -71,7 +71,7 @@ public sealed class NativeUmuLauncher(
         return (protonPath, manifest, runtime);
     }
 
-    /// <summary>构建启动计划（不启动进程）：prefix + 环境 + 容器命令。</summary>
+    /// <summary>构建启动计划（不启动进程）：prefix + 环境 + 容器命令。umuId 覆盖 UMU_ID（空 = umu-{gameId}）。</summary>
     public UmuNativeLaunchPlan BuildPlan(
         string gameId,
         string installDir,
@@ -81,7 +81,8 @@ public sealed class NativeUmuLauncher(
         SteamRuntimeInfo runtime,
         IReadOnlyDictionary<string, string>? extraEnvironment = null,
         string? store = null,
-        string? dataHomeOverride = null)
+        string? dataHomeOverride = null,
+        string? umuId = null)
     {
         EnsureLinux();
 
@@ -110,12 +111,18 @@ public sealed class NativeUmuLauncher(
 
         var installFullPath = Path.GetFullPath(installDir);
         var request = new UmuLaunchRequest(
-            gameId, exe, installFullPath, protonPath, prefix, runtime, store);
+            gameId, exe, installFullPath, protonPath, prefix, runtime, store, UmuId: umuId);
         var environment = UmuEnvironment.Build(request);
         if (extraEnvironment is not null)
         {
             foreach (var (key, value) in extraEnvironment)
             {
+                // PROTONPATH 在配置里存的是发行版代号（DW-Proton 等），此处已被解析为绝对路径，不能回退覆盖
+                if (key.Equals("PROTONPATH", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
                 // 与 GameLauncherService.Expand 一致：环境值支持 {exe}/{installDir}
                 environment[key] = GameLauncherService.Expand(value, exe, installFullPath);
             }
@@ -139,7 +146,7 @@ public sealed class NativeUmuLauncher(
             manifest);
     }
 
-    /// <summary>解析组件 → 构建计划 → 即启即走启动，返回日志路径。</summary>
+    /// <summary>解析组件 → 构建计划 → 即启即走启动，返回日志路径。umuId 覆盖 UMU_ID（空 = umu-{gameId}）。</summary>
     public async Task<LaunchResult> LaunchAsync(
         string gameId,
         string installDir,
@@ -148,13 +155,14 @@ public sealed class NativeUmuLauncher(
         IReadOnlyDictionary<string, string>? extraEnvironment = null,
         string? store = null,
         IProgress<string>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? umuId = null)
     {
         var (protonPath, manifest, runtime) = await ResolveComponentsAsync(
             protonRequest, progress, cancellationToken).ConfigureAwait(false);
         var plan = BuildPlan(
             gameId, installDir, executablePath, protonPath, manifest, runtime,
-            extraEnvironment, store);
+            extraEnvironment, store, umuId: umuId);
 
         var logDirectory = Path.Combine(AppPaths.DataDirectory, "logs");
         Directory.CreateDirectory(logDirectory);

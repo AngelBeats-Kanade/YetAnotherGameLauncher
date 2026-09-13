@@ -13,7 +13,8 @@ public sealed record UmuLaunchRequest(
     SteamRuntimeInfo Runtime,
     string? Store = null,
     string ProtonVerb = "waitforexitandrun",
-    IReadOnlyDictionary<string, string>? ExtraEnvironment = null)
+    IReadOnlyDictionary<string, string>? ExtraEnvironment = null,
+    string? UmuId = null)
 {
     /// <summary>默认 Proton 动词（与上游一致）。</summary>
     public const string DefaultVerb = "waitforexitandrun";
@@ -64,8 +65,11 @@ public static class UmuEnvironment
             : UmuLaunchRequest.DefaultVerb;
 
         var gameId = string.IsNullOrWhiteSpace(request.GameId) ? "umu-default" : request.GameId;
-        var umuId = gameId.StartsWith("umu-", StringComparison.Ordinal) ? gameId : $"umu-{gameId}";
-        var store = string.IsNullOrWhiteSpace(request.Store) ? "none" : request.Store!;
+        // UMU_ID 覆盖优先（games.json launch.umuId，对齐 umu 数据库规范 ID）；缺省 umu-{gameId}
+        var umuId = !string.IsNullOrWhiteSpace(request.UmuId)
+            ? EnsureUmuPrefix(request.UmuId)
+            : EnsureUmuPrefix(gameId);
+        var store = string.IsNullOrWhiteSpace(request.Store) ? "" : request.Store!;
         // Proton 与容器 Runtime 一并挂进容器（两个键取值与上游一致）
         var toolPaths = string.IsNullOrEmpty(runtimePath) ? proton : $"{proton}:{runtimePath}";
 
@@ -90,19 +94,11 @@ public static class UmuEnvironment
             ["UMU_NO_PROTON"] = string.Empty,
         };
 
-        // 上游当前行为：STEAM_COMPAT_APP_ID = prefix 路径的 MD5 十六进制（SteamAppId/SteamGameId 取同值）
+        // 上游当前行为：STEAM_COMPAT_APP_ID 恒为 prefix 路径的 MD5 十六进制（SteamAppId/SteamGameId 取同值），
+        // 即便 UMU_ID 后缀是纯数字（如 umu-3513350）也不用数字直通
         env["STEAM_COMPAT_APP_ID"] = PrefixHash(pfx);
         env["SteamAppId"] = env["STEAM_COMPAT_APP_ID"];
         env["SteamGameId"] = env["STEAM_COMPAT_APP_ID"];
-
-        // umuId 由上方构造规则保证以 umu- 开头；<纯数字> 时把数字部分当作 Steam AppId（带连字符的游戏 id 保持 MD5）
-        var suffix = umuId["umu-".Length..];
-        if (suffix.Length > 0 && suffix.All(char.IsDigit))
-        {
-            env["STEAM_COMPAT_APP_ID"] = suffix;
-            env["SteamAppId"] = suffix;
-            env["SteamGameId"] = suffix;
-        }
 
         EnableSteamGameDrive(env, installDir);
 
@@ -116,6 +112,10 @@ public static class UmuEnvironment
 
         return env;
     }
+
+    /// <summary>补齐 umu- 前缀（UMU_ID 规范形式；已带前缀的原样保留）。</summary>
+    private static string EnsureUmuPrefix(string id) =>
+        id.StartsWith("umu-", StringComparison.Ordinal) ? id : $"umu-{id}";
 
     /// <summary>prefix 路径 MD5（小写 hex），用于 STEAM_COMPAT_APP_ID。</summary>
     public static string PrefixHash(string prefixPath)

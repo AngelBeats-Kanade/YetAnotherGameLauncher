@@ -1240,22 +1240,11 @@
                                                                     </DataTemplate>
                                                                 </ComboBox.ItemTemplate>
                                                             </ComboBox>
-                                                            <ComboBox ItemsSource="{Binding LaunchSettings.ProtonVersions}"
-                                                                      SelectedItem="{Binding LaunchSettings.SelectedProtonVersion}"
-                                                                      MinWidth="200"
-                                                                      IsVisible="{Binding LaunchSettings.IsProtonMode}">
-                                                            </ComboBox>
-                                                        </StackPanel>
-                                                        <!-- umu 未安装引导：说明 + 一键安装（安装后提示消失并按 umu 重新生成模板） -->
-                                                        <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,2,0,0"
-                                                                    IsVisible="{Binding LaunchSettings.IsUmuHintVisible}">
-                                                            <TextBlock Text="{Binding Loc[launch_umuNotInstalled]}"
-                                                                       Classes="card-caption" VerticalAlignment="Center"
-                                                                       TextWrapping="Wrap" MaxWidth="380"/>
-                                                            <Button Classes="btn-sm" Content="{Binding Loc[launch_umuInstall]}"
-                                                                    Command="{Binding LaunchSettings.InstallUmuCommand}"
-                                                                    IsEnabled="{Binding !LaunchSettings.IsInstallingUmu}"
-                                                                    VerticalAlignment="Center"/>
+                                                            <!-- Proton 发行版（仅 umu 启动）：代号写入 PROTONPATH，组件准备/启动拉对应仓库 latest -->
+                                                            <ComboBox ItemsSource="{Binding LaunchSettings.ProtonFlavors}"
+                                                                      SelectedItem="{Binding LaunchSettings.SelectedProtonFlavor}"
+                                                                      MinWidth="160"
+                                                                      IsVisible="{Binding LaunchSettings.IsNativeUmuMode}"/>
                                                         </StackPanel>
                                                         <!-- 原生 umu：组件状态 + 检查/下载 -->
                                                         <StackPanel Spacing="8" Margin="0,4,0,0"
@@ -1287,8 +1276,9 @@
                                                     </StackPanel>
                                                     <StackPanel Spacing="4">
                                                         <TextBlock Text="{Binding Loc[launch_environment]}" Classes="card-caption"/>
-                                                        <TextBox Text="{Binding LaunchSettings.EnvironmentText}"
-                                                                 AcceptsReturn="True" MinHeight="80" TextWrapping="NoWrap"
+                                                        <!-- 必须 Wrap：NoWrap+AcceptsReturn 会让 Fluent 悬浮横滚条盖住最后一行变量，无法点选 -->
+                                                        <TextBox x:Name="EnvironmentBox" Text="{Binding LaunchSettings.EnvironmentText}"
+                                                                 AcceptsReturn="True" MinHeight="80" TextWrapping="Wrap"
                                                                  FontFamily="Consolas, Cascadia Mono, monospace"/>
                                                         <TextBlock Text="{Binding Loc[launch_environmentHint]}" Classes="card-caption"/>
                                                     </StackPanel>

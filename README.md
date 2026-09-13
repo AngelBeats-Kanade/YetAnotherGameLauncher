@@ -6,7 +6,7 @@
 游戏本体通过 **配置文件** 驱动，代码不内置任何具体游戏；当前目标是：
 
 - 《鸣潮》（库洛官方启动器协议，支持 国服 / B服 / 国际服）
-- 《明日方舟：终末地》（GRYPHLINE / 鹰角启动器协议，支持 国际服 / 国服 / B服）
+- 《明日方舟：终末地》（GRYPHLINE / 鹰角启动器协议，支持 国服 / 国际服 / B服）
 
 > [!NOTE]
 > 《鸣潮》《明日方舟：终末地》均为 Windows 程序，在 Linux 上运行依赖 **wine / Proton**。
@@ -17,7 +17,7 @@
 | 功能 | 说明 |
 |---|---|
 | 游戏启动 | 命令模板 `{exe}` / `{installDir}` 占位符 + 环境变量注入；启动预检（主程序/运行时/prefix）给出类目化中文错误，游戏输出落盘启动日志（`~/.local/share/yagl/logs/`），失败弹主题化错误卡（含打开日志目录） |
-| Linux 启动方式选择器 | Direct / 原生 umu / umu-launcher / Wine / Proton 五选（+自定义模板）；默认走**原生 umu**（内置 C# 启动链，按 Proton 的 toolmanifest 自动下载 GE/UMU-Proton 与 Steam Runtime 并搭建容器与 prefix，无需外部 umu-run），也可自动发现 umu-run、系统 wine、Lutris runner 与 GE-Proton 改走外部链路，检测到 NVIDIA GPU 时推荐兼容环境；外部 umu-run 未装提供一键安装（GitHub release zipapp，装完即用）；Linux 首运自动把默认 `{exe}` 模板升级为推荐链（原生 umu → umu-run → Proton → wine）并落盘，开箱即可点启动 |
+| Linux 启动方式选择器 | **umu 启动 / 直接运行**二选一（仅 Linux 显示）；默认 **umu 启动**（内置 C# 启动链，按 Proton 的 toolmanifest 自动下载 Proton 与 Steam Runtime 并搭建容器与 prefix，无需外部 umu-run）；旁边可选 **Proton 发行版**：DW-Proton（默认，Dawn Winery 构建，dawn.wine）/ GE-Proton / UMU-Proton，按代号拉对应仓库 latest；UMU_ID 用 `launch.umuId` 对齐 umu 数据库规范 ID（鸣潮 `umu-3513350`、终末地 `umu-endfield`）；检测到 NVIDIA GPU 时推荐兼容环境；旧版 wine/umu-run/Proton 模板仍可运行；Linux 首运自动把默认 `{exe}` 模板升级为 umu 启动并落盘，开箱即可点启动 |
 | 全量下载 | 官方清单逐文件同步（鸣潮）/ 压缩包整包解压（终末地），size+MD5 双校验 |
 | 断点续传 | `.temp` 临时文件 + HTTP Range 续传，瞬态网络错误线性退避重试 |
 | 下载限速 | 可按字节/秒限制下载速度 |
@@ -25,7 +25,7 @@
 | 预更新（预下载） | 两段式：先“预下载”暂存到 `.yagl/predownload`，官方开放后一键“应用”；鸣潮走差分包、终末地走整包 |
 | 登记版本 | 包式渠道检测到本机已安装游戏文件时零下载直接登记（终末地检测态） |
 | 校验修复 | 按清单事后校验（MD5），自动修复缺失/损坏文件，清理游离文件（保留 `Saved/` 存档） |
-| 多服务器 | 鸣潮国服/B服/国际服、终末地国际服/国服/B服 一键切换（全部配置驱动） |
+| 多服务器 | 鸣潮国服/B服/国际服、终末地国服/国际服/B服 一键切换（全部配置驱动） |
 | 唤取（抽卡）记录 | 鸣潮：游戏内地址自动提取、官方接口拉取、本地缓存与保底统计 |
 | 现代化 UI | 圆角无边框窗口 + 自绘标题栏（拖拽区 / 最小化 / 最大化 / 关闭）；海报式详情页：当期海报全幅铺满主区域（左缘完整不裁切、无遮罩）+ 左上圆角全出血布局；侧栏选中指示点两段式动效；窗口宽度穿越阈值侧栏自动收放（带滞回防抖）；亮/暗/跟随系统三态主题；页面切换与按钮微动效；设置页可自定义应用背景 |
 | 背景视频 | 详情页播放官方当期背景视频：FFmpeg 硬解（Windows D3D11VA / Linux VAAPI→NVDEC），智能循环点 + 预卷零间隙续播（循环无缝）；Linux 上优先复用发行版 FFmpeg 9（libavcodec.so.63），缺失时自动下载 BtbN 构建到应用数据目录 |
@@ -33,6 +33,7 @@
 | 界面语言 | 简体中文 / English，跟随系统可选，切换即时生效（设置页调整） |
 | 代理设置 | 跟随系统 / 直连 / 手动三选 |
 | 开机自启动 | Windows 注册表 / Linux XDG autostart |
+| 原生 Wayland | Linux 上检测到 Wayland 会话（`WAYLAND_DISPLAY`）即走 Avalonia 12.1 原生 Wayland 后端（实验性）：合成器直供分数缩放（无需 Xft.dpi 补丁）；出问题可 `YAGL_FORCE_XWAYLAND=1` 退回 X11/XWayland（该路径仍保留 EGL 优先渲染与自动 DPI 同步） |
 | 启动设置 | 独立的游戏设置次页（从详情页齿轮进入）：位置 / 启动方式 / 启动参数，保存回配置文件 |
 | 存储路径可视化配置 | 设置页可改安装根目录；游戏设置页“位置”内可单独修改每个游戏的安装目录，保存即时生效 |
 | 官方图标 | 鸣潮/终末地使用官方应用图标（默认内置资源 `avares://YetAnotherGameLauncher/Assets/game-icons/*.jpg`，`icon` 字段仍支持 URL/本地路径，加载失败回退首字） |
@@ -44,8 +45,9 @@
 
 - .NET 10 SDK（开发/构建）；运行 self-contained 发布产物则**无需安装运行时**
 - Linux 上运行游戏：默认无需任何外部运行时——原生 umu 启动链会按需自动下载
-  **UMU-Proton 与 Steam Runtime**（启动设置卡可一键预下载/检查；组件下载失败可从错误卡重试或改选本机 Proton）；
-  也可自备 wine / Proton / umu-launcher（umu 未装时启动设置卡与错误提示内可一键安装）
+  **DW-Proton（默认发行版，可选 GE/UMU-Proton）与 Steam Runtime**
+  （启动设置卡可一键预下载/检查；组件下载失败可从错误卡重试或改选本机 Proton）；
+  也可手写 wine / Proton / umu-run 模板自备运行时
 - 鸣潮增量更新：需要 `hpatchz`（HDiffPatch）可执行文件，默认从 PATH 解析，
   也可在配置中指定路径（见下文）
 
@@ -67,7 +69,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（438 个，2026-09 实测）
+### 运行测试（472 个，2026-09 实测）
 
 ```bash
 # 4 个测试工程分别运行编译产物（Windows 亦可直接跑 .exe；本机 dotnet test 可能发现 0 个测试）：
@@ -81,6 +83,7 @@ dotnet tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLa
 全量同步、增量应用（含回滚）、包式安装、更新编排、渠道解析（鸣潮/终末地国服/国际服参数）、
 GPU 厂商探测、Wine 运行时发现（umu/wine/Lutris）与推荐链、Wine prefix 统一路径、
 启动预检与类目化错误、启动日志落盘、umu-launcher 引导安装、启动命令解析、
+Proton 发行版（DW/GE/UMU）latest 下载与离线回退、umuId 覆盖与校验、umu 环境对齐上游、
 本地化服务与语言切换、侧栏折叠/页面切换/关于页、主题切换、
 指示点几何落位与迁移编舞、详情页布局状态、玻璃按钮四态前景、
 启动失败覆盖层、ViewModel 状态机、以及 Avalonia.Headless 真实窗口集成测试。
@@ -155,7 +158,7 @@ YetAnotherGameLauncher.slnx
 | 预下载按钮不出现 | 官方未开放预下载窗口（鸣潮 `predownload.config` 不存在 / 终末地无 `patch` 节点） |
 | 终末地版本/下载报错 | GRYPHLINE 协议无官方文档，官方启动器更新后字段可能变化，欢迎提 issue |
 | Linux 启动失败 | 启动失败会弹出错误卡：原生 umu 组件下载失败可重试或改选本机已装 Proton；外部 umu-run 未装可一键安装；也可"打开日志目录"查看 `launch-*.log`，或到游戏设置页检查命令模板与运行时。Windows 直接 `{exe}` 即可 |
-| Linux 下界面小/发糊 | 启动器启动时会自动把 Hyprland 缩放同步到 `Xft.dpi`（仅在未设置时写入）；手动方案 `xrdb -merge <<< "Xft.dpi: 160"`（数值 = 96 × 合成器缩放） |
+| Linux 下界面小/发糊 | 仅 XWayland 路径存在此问题：启动器会自动把 Hyprland 缩放同步到 `Xft.dpi`（仅在未设置时写入）；手动方案 `xrdb -merge <<< "Xft.dpi: 160"`（数值 = 96 × 合成器缩放）。原生 Wayland 路径由合成器直供缩放，无此问题；若原生路径异常可 `YAGL_FORCE_XWAYLAND=1` 回退 |
 | 鸣潮背景不显示 | 官方 `switch.json` 当前未投放背景时属正常（本机有官方启动器缓存/历史投放会自动回退显示）；视频背景首次播放需联网下载 FFmpeg 库（约 50MB，失败时保留静态海报） |
 
 ## 许可与致谢

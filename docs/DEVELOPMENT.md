@@ -32,7 +32,7 @@ src/
                     GameUpdateService、GameLauncherService（启动预检/类目化错误/启动日志）、LocalStateService、SystemProcessRunner（输出泵落盘启动日志）、
                     NetworkProxyManager（全局共享 SocketsHttpHandler，代理切换即时生效）、SpeedLimiter（泄漏桶全局限速）、
                     AutostartService.cs（IAutostartService + WindowsAutostartService（HKCU Run 注册表）/ LinuxAutostartService（XDG autostart）双实现）、
-                    CompatTools（Linux 兼容层单一来源：umu/wine/Lutris/Proton 发现、prefix 统一路径、推荐链 BuildRecommendedLaunch、含 LaunchMode 枚举与 CompatLaunch）、
+                    CompatTools（Linux 兼容层单一来源：umu/wine/Lutris/Proton 发现、prefix 统一路径、推荐链 BuildRecommendedLaunch、Proton 发行版代号/umuId 解析、含 LaunchMode 枚举与 CompatLaunch）、
                     Umu/（原生 umu：UmuPaths、VdfMiniParser、SteamRuntimeCatalog、ToolManifest、UmuPrefix、UmuEnvironment、NativeUmuLauncher、IUmuComponentProvisioner）、
                     GameBackdropService（详情页背景远程解析 + 本地缓存编排）、KuroLauncherBackground（KRLauncher 官方背景探测）、
                     WebViewCacheScanner（Chromium 磁盘缓存文本流式正则提取）、WindowsPlatformInfo / LinuxPlatformInfo（IPlatformInfo 双实现）
@@ -47,13 +47,16 @@ src/
     EndfieldBackdropResolver（get_main_bg_image 背景解析：视频优先、静态图兜底）、
     HypergryphServiceCollectionExtensions（AddHypergryphChannel）、Models/（协议 DTO）
   YetAnotherGameLauncher/                       # Avalonia UI（MVVM）
-    Program.cs / App.axaml(.cs)（DI 组合根）、Themes/ThemeService
-    Services/       LocalizationService/ILocalizationService + LocExtension/LocBridge（JSON 资源本地化与 XAML 标记扩展）；
+    Program.cs / App.axaml(.cs)（DI 组合根；Program 按后端决策组装 AppBuilder）、Themes/ThemeService
+    Services/       WaylandBackendPolicy（Linux 窗口后端决策：WAYLAND_DISPLAY 存在即原生 Wayland，
+                    YAGL_FORCE_XWAYLAND=1 逃生舱回退 X11；纯函数，决策表测试见 App.Tests）；
+                    LocalizationService/ILocalizationService + LocExtension/LocBridge（JSON 资源本地化与 XAML 标记扩展）；
                     FfmpegVideoBackdropPlayer/IVideoBackdropPlayer（FFmpeg 背景视频解码播放）+ FfmpegLibraryResolver（原生库准备/下载）；
                     SeamAnalyzer（循环接缝分析）+ PrerollHandoff（预卷零间隙交接状态机）实现无缝循环；
                     BackgroundImageService（静态背景图加载与缓存，失败结果按 TTL 短暂缓存）、
                     UmuLauncherInstaller（外部 umu-run zipapp 引导安装，回退路径）、
-                    UmuComponentProvisioner（原生 umu 的 Proton/Runtime 下载与校验）、
+                    UmuComponentProvisioner（原生 umu 的 Proton/Runtime 下载与校验；Proton 发行版三源：
+                    DW-Proton 走 dawn.wine Forgejo API，GE/UMU-Proton 走 GitHub），
                     FilePickerService/IFilePickerService（系统文件/目录选择器封装）
     Controls/       AppBackdrop（应用背景层：主题渐变 + 光晕 + 自定义背景图）、FrameSurface（背景视频帧自绘渲染面）
     ViewModels/     MainWindowViewModel、GameItemViewModel、GameSettingsViewModel、LaunchSettingsViewModel、

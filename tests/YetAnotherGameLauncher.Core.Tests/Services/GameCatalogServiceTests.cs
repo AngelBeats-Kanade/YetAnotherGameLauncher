@@ -64,6 +64,46 @@ public class GameCatalogServiceTests : IDisposable
         Assert.Null(service.Catalog);
     }
 
+    [Theory]
+    [InlineData("umu-3513350", true)]   // 鸣潮：umu 数据库规范 ID（Steam AppId 形式）
+    [InlineData("umu-endfield", true)]  // 终末地：umu 数据库规范 ID（slug 形式）
+    [InlineData("3513350", false)]      // 缺 umu- 前缀
+    [InlineData("umu-", false)]         // 空后缀
+    [InlineData("umu-bad id!", false)]  // 非法字符（空格/感叹号）
+    public async Task LoadAsync_ValidatesUmuIdFormat(string umuId, bool valid)
+    {
+        var json = $$"""
+            {
+              "settings": { "installRoot": "~/Games", "theme": "Light" },
+              "games": [
+                {
+                  "id": "test-game",
+                  "displayName": "测试游戏",
+                  "channel": "kuro",
+                  "installDir": "TestGame",
+                  "executable": "game.exe",
+                  "launch": { "umuId": "{{umuId}}" },
+                  "servers": [ { "id": "s1", "name": "服务器1" } ]
+                }
+              ]
+            }
+            """;
+        await File.WriteAllTextAsync(_configPath, json, TestContext.Current.CancellationToken);
+        var service = new GameCatalogService(_configPath);
+
+        if (valid)
+        {
+            await service.LoadAsync(TestContext.Current.CancellationToken);
+            Assert.NotNull(service.Catalog);
+        }
+        else
+        {
+            var ex = await Assert.ThrowsAsync<GameCatalogValidationException>(
+                () => service.LoadAsync(TestContext.Current.CancellationToken));
+            Assert.Contains(ex.Errors, e => e.Contains("umuId", StringComparison.Ordinal));
+        }
+    }
+
     [Fact]
     public async Task SaveThenLoad_RoundTrips()
     {

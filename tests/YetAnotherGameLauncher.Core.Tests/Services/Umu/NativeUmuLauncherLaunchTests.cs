@@ -1,4 +1,5 @@
 using YetAnotherGameLauncher.Core.Abstractions;
+using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Services.Umu;
 using YetAnotherGameLauncher.TestSupport;
 using Xunit;
@@ -40,15 +41,27 @@ public sealed class NativeUmuLauncherLaunchTests : IDisposable
         var plan = launcher.BuildPlan(
             "wuthering-waves", install, "Game.exe", protonDir, manifest,
             SteamRuntimeCatalog.Default,
-            extraEnvironment: new Dictionary<string, string> { ["CUSTOM"] = "{installDir}/data" },
-            dataHomeOverride: _temp.Path);
+            extraEnvironment: new Dictionary<string, string>
+            {
+                ["CUSTOM"] = "{installDir}/data",
+                // 配置里的 PROTONPATH 是发行版代号（DW-Proton 等），不得覆盖已解析的绝对路径
+                ["PROTONPATH"] = "DW-Proton",
+            },
+            dataHomeOverride: _temp.Path,
+            umuId: "umu-3513350");
 
         Assert.EndsWith("_v2-entry-point", plan.FileName.Replace('\\', '/'));
         Assert.Contains("--verb=waitforexitandrun", plan.Arguments, StringComparison.Ordinal);
         Assert.Contains(exe, plan.Arguments, StringComparison.Ordinal);
         Assert.Equal(install, plan.WorkingDirectory);
-        Assert.Equal("umu-wuthering-waves", plan.Environment["GAMEID"]);
+        Assert.Equal("umu-3513350", plan.Environment["GAMEID"]);
+        Assert.Equal("umu-3513350", plan.Environment["UMU_ID"]);
+        Assert.Equal(protonDir, Path.GetFullPath(plan.Environment["PROTONPATH"]));
         Assert.Equal(Path.Combine(install, "data"), plan.Environment["CUSTOM"]);
+        // prefix 仍按游戏 id 定位（umuId 覆盖不影响存量 prefix）
+        Assert.Equal(
+            CompatTools.PrefixPathFor("wuthering-waves", null, _temp.Path),
+            plan.Environment["WINEPREFIX"]);
     }
 
     private static IReadOnlyList<string> BuildSampleEntry()

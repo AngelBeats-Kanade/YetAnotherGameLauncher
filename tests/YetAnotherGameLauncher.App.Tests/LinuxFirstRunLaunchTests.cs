@@ -28,6 +28,7 @@ public class LinuxFirstRunLaunchTests
         Assert.Contains("native-umu", saved, StringComparison.Ordinal);
         Assert.Contains("SteamOS", saved, StringComparison.Ordinal); // 鸣潮反作弊伪装随推荐一并落盘
         Assert.Contains("PROTON_ENABLE_NVAPI", saved, StringComparison.Ordinal); // NVIDIA 分支
+        Assert.Contains("PROTONPATH", saved, StringComparison.Ordinal); // 默认 DW-Proton 发行版代号落盘
         Assert.Equal(2, Regex.Matches(saved, "native-umu \\{exe\\}").Count);
     }
 
