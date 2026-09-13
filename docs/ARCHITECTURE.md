@@ -235,7 +235,9 @@ flowchart LR
 缓存到本地后由 FFmpeg 播放器后台解码上屏，并以循环点分析 + 预卷做到无缝循环。关键机制：
 
 - **背景解析**：keyed `IBackdropResolver` 按渠道解析——
-  `kuro`：官方运营配置 switch.json 的 `BackgroundFile`/`FirstFrameImage`（背景视频 + 首帧图），
+  `kuro`：官方运营配置直连两跳——launcher-config 的 `functionCode.background` 取当期投放哈希，
+  再取背景内容 JSON 的 `backgroundFile`/`firstFrameImage`（背景视频 + 首帧图；按语言投放，主语言
+  404 自动回退 en/zh-Hans。2026-09-13 实测：历史端点 switch.json 已停止投放背景，官方改哈希寻址），
   回退本机库洛启动器缓存与 `kr_game_cache` 帧探测（缓存根按平台探测：Windows 取
   `%APPDATA%\KRLauncher`；Linux 逐 Wine/Proton prefix 探测官启数据目录，`KuroLauncherBackground.LinuxCacheRoots`）；
   `hypergryph`：官方启动器 `get_main_bg_image` 接口（视频优先、静态图兜底）。

@@ -159,13 +159,13 @@ YetAnotherGameLauncher.slnx
 | 终末地版本/下载报错 | GRYPHLINE 协议无官方文档，官方启动器更新后字段可能变化，欢迎提 issue |
 | Linux 启动失败 | 启动失败会弹出错误卡：原生 umu 组件下载失败可重试或改选本机已装 Proton；外部 umu-run 未装可一键安装；也可"打开日志目录"查看 `launch-*.log`，或到游戏设置页检查命令模板与运行时。Windows 直接 `{exe}` 即可 |
 | Linux 下界面小/发糊 | 仅 XWayland 路径存在此问题：启动器会自动把 Hyprland 缩放同步到 `Xft.dpi`（仅在未设置时写入）；手动方案 `xrdb -merge <<< "Xft.dpi: 160"`（数值 = 96 × 合成器缩放）。原生 Wayland 路径由合成器直供缩放，无此问题；若原生路径异常可 `YAGL_FORCE_XWAYLAND=1` 回退 |
-| 鸣潮背景不显示 | 官方 `switch.json` 当前未投放背景时属正常（本机有官方启动器缓存/历史投放会自动回退显示）；视频背景首次播放需联网下载 FFmpeg 库（约 50MB，失败时保留静态海报） |
+| 鸣潮背景不显示 | 官方当前未投放背景时属正常（本机有官方启动器缓存/历史投放会自动回退显示）；视频背景首次播放需联网下载 FFmpeg 库（约 50MB，失败时保留静态海报） |
 
 ## 许可与致谢
 
 - 本项目以 [MIT License](LICENSE) 开源
 - Linux 原生 umu 启动链（prefix 布局 / Steam 兼容环境 / Runtime 解析下载）参考 [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher) 的行为以 C# 重新实现
-- 下载/更新/预更新流程与背景配置协议（switch.json / 启动器缓存）参考并致敬 [timetetng/wutheringwaves-cli-manager](https://github.com/timetetng/wutheringwaves-cli-manager)（鸣潮协议逆向）
+- 下载/更新/预更新流程与背景配置协议（启动器运营配置 / 启动器缓存）参考并致敬 [timetetng/wutheringwaves-cli-manager](https://github.com/timetetng/wutheringwaves-cli-manager)（鸣潮协议逆向）
 - 终末地协议参考 [LLauncher](https://github.com/AugustLigh/LLauncher) 与 [ak-endfield-api-archive](https://github.com/daydreamer-json/ak-endfield-api-archive)
 - 补丁工具为 [HDiffPatch](https://github.com/sisong/HDiffPatch)（MIT）
 - 背景视频解码基于 [FFmpeg](https://ffmpeg.org)（LGPL-2.1+，LGPL 共享构建，经 [FFmpeg.AutoGen](https://github.com/Ruslan-B/FFmpeg.AutoGen) 绑定），原生库缓存放置 `ffmpeg-Builds LGPL` 构建并在校验后解压；归档解压用 [SharpCompress](https://github.com/adamhathcock/sharpcompress)（MIT）

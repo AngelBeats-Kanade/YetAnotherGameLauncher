@@ -40,7 +40,7 @@ src/
   YetAnotherGameLauncher.Channels.Kuro/         # 库洛渠道（鸣潮）
     KuroChannelApi（index.json/indexFile 解析、CDN 选择、URL 拼接）
     KuroCdnSelector / KuroUrlBuilder、HpatchzApplier（HDiffPatch 目录模式；HpatchzApplierOptions 配置路径/超时）
-    KuroSwitchConfigClient（官方 switch.json 运营配置直连）、KuroBackdropResolver（背景解析：switch.json → WebView 缓存 → 本地帧序列）
+    KuroSwitchConfigClient（官方运营配置直连：launcher-config → 背景内容两跳）、KuroBackdropResolver（背景解析：运营配置直连 → WebView 缓存 → 本地帧序列）
     KuroGachaService（唤取记录：日志地址提取 → 官方接口 → 本地合并缓存）、KuroServiceCollectionExtensions（AddKuroChannel）、Models/（协议 DTO）
   YetAnotherGameLauncher.Channels.Hypergryph/   # GRYPHLINE 渠道（终末地，包式）
     GryphlineChannelApi（batch_proxy get_latest_game）、GryphlineProtocol（版本/背景接口共用的协议工具）
@@ -66,10 +66,10 @@ src/
 tests/
   YetAnotherGameLauncher.TestSupport/           # 共享测试设施（可复用的替身与工具）
     FakeDownloader / FakePatchApplier / FakeProcessRunner / FakeChannel / FakePlatformInfo / StubHttpHandler / TempDir / TestZip / ManualTimeProvider（虚拟时钟）
-  YetAnotherGameLauncher.Core.Tests/            # 领域层 229 个测试
-  YetAnotherGameLauncher.Channels.Kuro.Tests/   # 36 个测试
-  YetAnotherGameLauncher.Channels.Hypergryph.Tests/ # 17 个测试
-  YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口 156 个测试
+  YetAnotherGameLauncher.Core.Tests/            # 领域层 237 个测试（2026-09-13 实测）
+  YetAnotherGameLauncher.Channels.Kuro.Tests/   # 48 个测试（2026-09-13 实测）
+  YetAnotherGameLauncher.Channels.Hypergryph.Tests/ # 17 个测试（2026-09-13 实测）
+  YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口 182 个测试（2026-09-13 实测）
   # 数量为 2026-09 实测（共 438）；随开发增长，以实际运行为准
 ```
 

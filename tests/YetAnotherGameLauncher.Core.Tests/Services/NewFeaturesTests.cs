@@ -160,7 +160,8 @@ public class KuroLauncherBackgroundTests : IDisposable
     [Fact]
     public void FindLatestSwitchConfig_PicksNewestTimestampedResponse()
     {
-        // 伪造 Chromium 缓存块文件：两份历史配置（旧投放与较新投放），必须取 _t 较大的一份
+        // 伪造 Chromium 缓存块文件：旧投放走历史 switch.json 请求形态，较新投放走
+        // background/{哈希}/{语言}.json 形态（2026-09 起官方改版），时间戳提取必须兼容两者并取 _t 较大的一份
         var cacheDir = _home.FilePath("KRLauncher", "G152", "C10003", "KRWebViewUserData", "EBWebView", "Default", "Cache_Data");
         Directory.CreateDirectory(cacheDir);
         var noise = new string(' ', 64); // simple-cache 二进制噪声
@@ -170,7 +171,7 @@ public class KuroLauncherBackgroundTests : IDisposable
             """{"functionSwitch":1,"backgroundFile":"https://cdn.example.com/old.mp4","backgroundFileType":2,"firstFrameImage":"https://cdn.example.com/old.webp"}""" + noise);
         File.WriteAllText(
             Path.Combine(cacheDir, "data_2"),
-            $"{noise}…/switch.json?_t=1749488617{noise}" +
+            $"{noise}…/background/nmJutnA7saYMz2eJ46CL8mB3VUEZvyCs/zh-Hans.json?_t=1749488617{noise}" +
             """{"functionSwitch":1,"backgroundFile":"https://cdn.example.com/new.mp4","backgroundFileType":2,"firstFrameImage":"https://cdn.example.com/new.webp"}""" + noise);
 
         var config = KuroLauncherBackground.FindLatestSwitchConfig(
@@ -231,9 +232,10 @@ public class KuroLauncherBackgroundTests : IDisposable
             home: _home.FilePath("nonexistent"), winePrefix: null, steamRoots: []));
     }
 
-    /// <summary>伪造一个 KRLauncher 缓存目录并在其中写入指定时间戳的 switch.json 缓存响应。</summary>
+    /// <summary>伪造一个 KRLauncher 缓存目录并在其中写入指定时间戳的背景配置缓存响应（默认为新端点请求形态）。</summary>
     private static string WriteSwitchConfigCache(
-        string kuroDataDir, string fileName, long timestamp, string backgroundUrl, string noise)
+        string kuroDataDir, string fileName, long timestamp, string backgroundUrl, string noise,
+        string requestPath = "background/HASH123/zh-Hans.json")
     {
         var cacheDir = Path.Combine(
             kuroDataDir, "G152", "C10003", "KRWebViewUserData", "EBWebView", "Default", "Cache_Data");
@@ -241,7 +243,7 @@ public class KuroLauncherBackgroundTests : IDisposable
         var path = Path.Combine(cacheDir, fileName);
         File.WriteAllText(
             path,
-            $"{noise}…/switch.json?_t={timestamp}{noise}" +
+            $"{noise}…/{requestPath}?_t={timestamp}{noise}" +
             $$"""{"functionSwitch":1,"backgroundFile":"{{backgroundUrl}}","backgroundFileType":2}""" + noise);
         return kuroDataDir;
     }
@@ -258,13 +260,17 @@ public class KuroLauncherBackgroundTests : IDisposable
         Directory.CreateDirectory(cacheDir);
         var persistPath = _home.FilePath("persist.json");
         KuroLauncherBackground.PersistSwitchConfig(
-            new KuroSwitchConfig("https://cdn.example.com/kept.mp4", "https://cdn.example.com/kept.webp", null),
+            new KuroSwitchConfig(
+                "https://cdn.example.com/kept.mp4", "https://cdn.example.com/kept.webp", null,
+                FunctionSwitch: 1, BackgroundFileType: 2),
             persistPath);
 
-        // 缓存目录空（被 Chromium LRU 淘汰）：回退上次持久化的配置
+        // 缓存目录空（被 Chromium LRU 淘汰）：回退上次持久化的配置（含新字段的往返）
         var config = KuroLauncherBackground.FindLatestSwitchConfig([_home.FilePath("KRLauncher")], persistPath);
 
         Assert.Equal("https://cdn.example.com/kept.mp4", config!.BackgroundFile);
+        Assert.Equal(2, config.BackgroundFileType);
+        Assert.True(config.IsVideo);
     }
 
     [Fact]

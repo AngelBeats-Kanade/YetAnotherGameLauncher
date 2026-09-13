@@ -5,8 +5,9 @@ namespace YetAnotherGameLauncher.Core.Services;
 
 /// <summary>
 /// 库洛官方启动器（KRLauncher，WebView2 壳）背景数据探测：
-/// ① 启动器网页端拉取的运营配置（switch.json，含背景视频/首帧图直链）会被 Chromium 缓存在
-///    KRLauncher 数据目录的 Cache_Data 下，扫描提取即可复用官方同款背景。缓存根候选按平台取：
+/// ① 启动器网页端拉取的背景运营配置（background/{哈希}/{语言}.json，2026-09 前为 switch.json，
+///    含背景视频/首帧图直链）会被 Chromium 缓存在 KRLauncher 数据目录的 Cache_Data 下，
+///    扫描提取即可复用官方同款背景。缓存根候选按平台取：
 ///    Windows 为 %APPDATA%\KRLauncher；Linux 上官启是 Windows 程序，其 %APPDATA% 落在
 ///    Wine/Proton prefix 内（~/.wine、$WINEPREFIX、Steam compatdata），逐 prefix 探测；
 /// ② 游戏目录旁的 kr_game_cache/animate_bg/&lt;hash&gt;/home_N.jpg 帧序列（N 为帧序号）作为兜底。
@@ -24,8 +25,11 @@ public static partial class KuroLauncherBackground
     [GeneratedRegex(@"\{[^{}]*""backgroundFile"":""https?://[^""]+""[^{}]*\}")]
     private static partial Regex SwitchConfigRegex();
 
-    /// <summary>配置请求 key 里的缓存破坏时间戳（…/switch.json?_t=1749488617），用于在多份历史响应间取最新。</summary>
-    [GeneratedRegex(@"switch\.json\?_t=(\d+)")]
+    /// <summary>
+    /// 配置请求 key 里的缓存破坏时间戳（…/background/{哈希}/{语言}.json?_t=1749488617，历史缓存为
+    /// …/switch.json?_t=…），用于在多份历史响应间取最新。匹配任意 .json 的 _t 以兼容新旧两种请求形态。
+    /// </summary>
+    [GeneratedRegex(@"\.json\?_t=(\d+)")]
     private static partial Regex SwitchTimestampRegex();
 
     /// <summary>官启缓存根候选：Windows 取 %APPDATA%\KRLauncher 单根；Linux 逐 Wine/Proton prefix 探测。</summary>
@@ -262,27 +266,50 @@ public static partial class KuroLauncherBackground
     }
 }
 
-/// <summary>库洛启动器当期背景配置（来自 switch.json 或本地持久化）。</summary>
+/// <summary>库洛启动器当期背景配置（来自背景内容 JSON 或本地持久化）。</summary>
 /// <param name="BackgroundFile">背景视频（mp4）CDN 直链。</param>
 /// <param name="FirstFrameImage">首帧占位图（webp/png）直链，可缺省。</param>
 /// <param name="Slogan">横幅图直链，可缺省。</param>
-public sealed record KuroSwitchConfig(string BackgroundFile, string? FirstFrameImage, string? Slogan)
+/// <param name="FunctionSwitch">背景功能开关（1 开启 / 0 关闭）；null = 字段缺省，按开启处理。</param>
+/// <param name="BackgroundFileType">背景类型（2 = 视频）；null = 字段缺省，按视频处理（历史投放均为视频）。</param>
+public sealed record KuroSwitchConfig(
+    string BackgroundFile,
+    string? FirstFrameImage,
+    string? Slogan,
+    int? FunctionSwitch = null,
+    int? BackgroundFileType = null)
 {
-    /// <summary>从 switch.json 的对象元素解析背景配置；backgroundFile 缺失/空白（官方未投放背景）返回 null。</summary>
+    /// <summary>背景是否为视频（backgroundFileType=2 或缺省）。</summary>
+    public bool IsVideo => BackgroundFileType is null or 2;
+
+    /// <summary>从背景配置的对象元素解析；backgroundFile 缺失/空白（官方未投放背景）或功能关闭（functionSwitch=0）返回 null。</summary>
     public static KuroSwitchConfig? FromJson(JsonElement root)
     {
         var backgroundFile = GetStringOrNull(root, "backgroundFile");
-        return string.IsNullOrWhiteSpace(backgroundFile)
-            ? null
-            : new KuroSwitchConfig(
-                backgroundFile!,
-                GetStringOrNull(root, "firstFrameImage"),
-                GetStringOrNull(root, "slogan"));
+        if (string.IsNullOrWhiteSpace(backgroundFile) || GetIntOrNull(root, "functionSwitch") == 0)
+        {
+            return null;
+        }
+
+        return new KuroSwitchConfig(
+            backgroundFile!,
+            GetStringOrNull(root, "firstFrameImage"),
+            GetStringOrNull(root, "slogan"),
+            GetIntOrNull(root, "functionSwitch"),
+            GetIntOrNull(root, "backgroundFileType"));
 
         /// <summary>读取 JSON 对象的字符串字段；缺失或非字符串返回 null。</summary>
         static string? GetStringOrNull(JsonElement element, string name) =>
             element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
                 ? value.GetString()
+                : null;
+
+        /// <summary>读取 JSON 对象的整数字段；缺失或非数值返回 null。</summary>
+        static int? GetIntOrNull(JsonElement element, string name) =>
+            element.TryGetProperty(name, out var value)
+                && (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var n)
+                    || (value.ValueKind == JsonValueKind.String && int.TryParse(value.GetString(), out n)))
+                ? n
                 : null;
     }
 }
