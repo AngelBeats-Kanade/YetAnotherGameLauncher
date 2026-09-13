@@ -317,7 +317,8 @@
             </Style.Animations>
         </Style>
 
-        <!-- 圆角内容浮卡（游戏插画等全部裁剪在内）；最大化时去圆角与边距 -->
+        <!-- 圆角内容浮卡（游戏插画等全部裁剪在内）；左上圆角是侧栏与内容卡之间的内部角，
+             不贴屏幕边——最大化时也保留（去圆角仅窗口外缘两角做） -->
         <!-- 内容容器：透明底——设置类页面直接浮在应用背景（渐变+光晕）上；
              详情页的插画在页面模板内自带背景。仅负责裁剪与（详情态）圆角 -->
         <!-- 页面板（所有页面统一，同详情页海报）：从色带下方开始、左上角 10px 圆角、
@@ -327,10 +328,6 @@
             <Setter Property="CornerRadius" Value="10,0,0,0"/>
             <Setter Property="ClipToBounds" Value="True"/>
             <Setter Property="Margin" Value="0,46,0,0"/>
-        </Style>
-        <!-- 最大化：内容卡去掉左上圆角铺满全屏（侧栏/色带的同款适配已有） -->
-        <Style Selector="Border#ContentCard.maximized">
-            <Setter Property="CornerRadius" Value="0"/>
         </Style>
         <!-- 标题拖拽区：覆盖色带整条（46px），所有页面一致 -->
         <Style Selector="Border.title-drag">
@@ -580,8 +577,7 @@
                 <Border x:Name="TitleChrome" Height="56" VerticalAlignment="Top"
                         Classes.maximized="{Binding IsWindowMaximized}"
                         Background="{DynamicResource AppSidebarBackground}" IsHitTestVisible="False"/>
-                <Border x:Name="ContentCard" Classes="content-card"
-                        Classes.maximized="{Binding IsWindowMaximized}">
+                <Border x:Name="ContentCard" Classes="content-card">
                     <Panel>
                         <!-- 页面底：应用背景随页面板圆角裁剪，详情页海报照旧覆盖全板 -->
                         <controls:AppBackdrop/>

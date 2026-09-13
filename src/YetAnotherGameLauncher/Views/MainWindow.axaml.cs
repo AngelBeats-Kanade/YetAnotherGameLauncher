@@ -166,7 +166,8 @@ public partial class MainWindow : Window
     /// 后端先报 Maximized、客户区随后才铺开的序列中，两处时机缺一不可。</summary>
     private bool? _lastVisualMaximized;
 
-    /// <summary>窗口状态变化：重判视觉最大化（图标/圆角/内容卡边距全部由该属性经绑定驱动）。</summary>
+    /// <summary>窗口状态变化：重判视觉最大化（标题栏图标与窗口外缘顶角圆角由该属性经绑定驱动；
+    /// 内容卡左上圆角是内部角，不随最大化去除）。</summary>
     private void OnWindowPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
         if (e.Property != Window.WindowStateProperty)

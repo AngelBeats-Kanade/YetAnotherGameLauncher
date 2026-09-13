@@ -336,11 +336,14 @@ public class SidebarNavHeadlessTests : IDisposable
             Assert.NotNull(window.FindControl<Border>("ContentCard"));
             Assert.NotNull(window.FindControl<Border>("TitleChrome"));
 
-            // 最大化：标题钮图标切换为还原，页面板布局不变（统一 0,46,0,0 + 左上圆角）
+            // 最大化：标题钮图标切换为还原；窗口外缘顶角去圆角，
+            // 但内容卡左上角是侧栏与内容卡之间的内部角（不贴屏幕边）——最大化也保留
             window.WindowState = WindowState.Maximized;
             window.UpdateLayout();
             Assert.True(window.FindControl<Control>("RestoreIcon")!.IsVisible);
             Assert.False(window.FindControl<Control>("MaximizeIcon")!.IsVisible);
+            Assert.Equal(new CornerRadius(10, 0, 0, 0), window.FindControl<Border>("ContentCard")!.CornerRadius);
+            Assert.Equal(new CornerRadius(0), window.FindControl<Border>("TitleChrome")!.CornerRadius);
 
             // 还原：图标切回最大化
             window.WindowState = WindowState.Normal;
