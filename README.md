@@ -29,6 +29,7 @@
 | 唤取（抽卡）记录 | 鸣潮：游戏内地址自动提取、官方接口拉取、本地缓存与保底统计 |
 | 现代化 UI | 圆角无边框窗口 + 自绘标题栏（拖拽区 / 最小化 / 最大化 / 关闭）；海报式详情页：当期海报全幅铺满主区域（左缘完整不裁切、无遮罩）+ 左上圆角全出血布局；侧栏选中指示点两段式动效；窗口宽度穿越阈值侧栏自动收放（带滞回防抖）；亮/暗/跟随系统三态主题；页面切换与按钮微动效；设置页可自定义应用背景 |
 | 背景视频 | 详情页播放官方当期背景视频：FFmpeg 硬解（Windows D3D11VA / Linux VAAPI→NVDEC），智能循环点 + 预卷零间隙续播（循环无缝）；Linux 上优先复用发行版 FFmpeg 9（libavcodec.so.63），缺失时自动下载 BtbN 构建到应用数据目录 |
+| 资产缓存与预热 | 图标与背景全部本地缓存：启动即从磁盘缓存显示全部游戏图标并预加载背景（不等到选中），零网络；版本/预载检测每游戏每启动一次，游戏版本更新后才重新获取背景与图标（背景严格跟随游戏版本） |
 | Wine prefix | 统一放在应用数据目录 `~/.local/share/yagl/prefixes/<游戏id>`（Windows 形态的 STEAM_COMPAT_DATA_PATH 同样指向此处），绝不写入游戏安装目录——安装同步不会误删 |
 | 界面语言 | 简体中文 / English，跟随系统可选，切换即时生效（设置页调整） |
 | 代理设置 | 跟随系统 / 直连 / 手动三选 |
@@ -36,7 +37,7 @@
 | 原生 Wayland | Linux 上检测到 Wayland 会话（`WAYLAND_DISPLAY`）即走 Avalonia 12.1 原生 Wayland 后端（实验性）：合成器直供分数缩放（无需 Xft.dpi 补丁）；出问题可 `YAGL_FORCE_XWAYLAND=1` 退回 X11/XWayland（该路径仍保留 EGL 优先渲染与自动 DPI 同步） |
 | 启动设置 | 独立的游戏设置次页（从详情页齿轮进入）：位置 / 启动方式 / 启动参数，保存回配置文件 |
 | 存储路径可视化配置 | 设置页可改安装根目录；游戏设置页“位置”内可单独修改每个游戏的安装目录，保存即时生效 |
-| 官方图标 | 鸣潮/终末地使用官方应用图标（默认内置资源 `avares://YetAnotherGameLauncher/Assets/game-icons/*.jpg`，`icon` 字段仍支持 URL/本地路径，加载失败回退首字） |
+| 官方图标 | 鸣潮/终末地使用官方应用图标（默认内置资源 `avares://YetAnotherGameLauncher/Assets/game-icons/*.jpg`，`icon` 字段仍支持 URL/本地路径，URL 图标带磁盘缓存，加载失败回退首字） |
 | 架构 | 前后端分离：`Core`（领域层）→ `Channels.*`（厂商渠道）→ `App`（Avalonia UI），全部依赖抽象接口 |
 
 ## 快速开始
@@ -69,7 +70,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（491 个，2026-09 实测）
+### 运行测试（503 个，2026-09 实测）
 
 ```bash
 # 4 个测试工程分别运行编译产物（Windows 亦可直接跑 .exe；本机 dotnet test 可能发现 0 个测试）：
@@ -87,6 +88,7 @@ Proton 发行版（DW/GE/UMU）latest 下载与离线回退、umuId 覆盖与校
 本地化服务与语言切换、侧栏折叠/页面切换/关于页、主题切换、
 指示点几何落位与迁移编舞、详情页布局状态、玻璃按钮四态前景、
 Linux 窗口后端决策与视觉最大化判定（Wayland 平铺误报防护）、
+背景/图标缓存与版本门控、启动资产预热与一次性版本检测、
 启动失败覆盖层、ViewModel 状态机、以及 Avalonia.Headless 真实窗口集成测试。
 另附视觉自检截图工具（`artifacts/ui-review/`，见 docs/DEVELOPMENT.md）。
 

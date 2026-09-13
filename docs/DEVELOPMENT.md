@@ -34,7 +34,7 @@ src/
                     AutostartService.cs（IAutostartService + WindowsAutostartService（HKCU Run 注册表）/ LinuxAutostartService（XDG autostart）双实现）、
                     CompatTools（Linux 兼容层单一来源：umu/wine/Lutris/Proton 发现、prefix 统一路径、推荐链 BuildRecommendedLaunch、Proton 发行版代号/umuId 解析、含 LaunchMode 枚举与 CompatLaunch）、
                     Umu/（原生 umu：UmuPaths、VdfMiniParser、SteamRuntimeCatalog、ToolManifest、UmuPrefix、UmuEnvironment、NativeUmuLauncher、IUmuComponentProvisioner）、
-                    GameBackdropService（详情页背景远程解析 + 本地缓存编排）、WindowsPlatformInfo / LinuxPlatformInfo（IPlatformInfo 双实现）
+                    GameBackdropService（详情页背景远程解析 + 本地缓存编排：区域/游戏版本门控，版本一致零网络）、WindowsPlatformInfo / LinuxPlatformInfo（IPlatformInfo 双实现）
     Utilities/      Hashing（MD5 hex）、Json（统一序列化选项）、FileUtilities（原子写入/尽力删除）
   YetAnotherGameLauncher.Channels.Kuro/         # 库洛渠道（鸣潮）
     KuroChannelApi（index.json/indexFile 解析、CDN 选择、URL 拼接）
@@ -54,7 +54,7 @@ src/
                     LocalizationService/ILocalizationService + LocExtension/LocBridge（JSON 资源本地化与 XAML 标记扩展）；
                     FfmpegVideoBackdropPlayer/IVideoBackdropPlayer（FFmpeg 背景视频解码播放）+ FfmpegLibraryResolver（原生库准备/下载）；
                     SeamAnalyzer（循环接缝分析）+ PrerollHandoff（预卷零间隙交接状态机）实现无缝循环；
-                    BackgroundImageService（静态背景图加载与缓存，失败结果按 TTL 短暂缓存）、
+                    BackgroundImageService（静态背景图加载与缓存：会话内存 + http 来源磁盘缓存，失败结果按 TTL 短暂缓存；ReloadAsync 绕过缓存强制重取）、
                     UmuLauncherInstaller（外部 umu-run zipapp 引导安装，回退路径）、
                     UmuComponentProvisioner（原生 umu 的 Proton/Runtime 下载与校验；Proton 发行版三源：
                     DW-Proton 走 dawn.wine Forgejo API，GE/UMU-Proton 走 GitHub），

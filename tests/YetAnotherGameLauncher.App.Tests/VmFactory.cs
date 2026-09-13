@@ -61,8 +61,14 @@ public static class VmFactory
         /// <summary>按区域返回背景来源；null = 解析失败。</summary>
         public Func<string, BackdropSource?>? Resolver { get; set; }
 
-        public Task<BackdropSource?> GetBackdropUrlAsync(BackdropRequest request, CancellationToken cancellationToken = default) =>
-            Task.FromResult(Resolver?.Invoke(request.Region));
+        /// <summary>解析器被调用次数（验证"版本一致时跳过远程解析"用）。</summary>
+        public int ResolveCount { get; private set; }
+
+        public Task<BackdropSource?> GetBackdropUrlAsync(BackdropRequest request, CancellationToken cancellationToken = default)
+        {
+            ResolveCount++;
+            return Task.FromResult(Resolver?.Invoke(request.Region));
+        }
     }
 
     /// <summary>可编程的视频播放器假实现：记录起播/停止调用，帧事件由测试手动触发。</summary>
@@ -169,7 +175,8 @@ public static class VmFactory
             autostart ?? new WindowsAutostartService(new FakeProcessRunner()),
             new ThemeService(),
             new LocalizationService(),
-            new BackgroundImageService(new HttpClient(backgroundHandler)),
+            // 磁盘缓存根目录落临时目录：VM 测试的 http 图标不得写进真实用户配置目录
+            new BackgroundImageService(new HttpClient(backgroundHandler), diskCacheRoot: tempDir.FilePath("image-cache")),
             backdropService,
             channelKey => channelKey switch
             {

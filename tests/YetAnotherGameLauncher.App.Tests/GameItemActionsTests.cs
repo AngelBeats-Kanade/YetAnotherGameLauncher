@@ -90,6 +90,8 @@ public class GameItemActionsTests : IDisposable
         Assert.Equal("可预下载新版本", wuwa.StatusText);
 
         // 出现新版本：更新提示优先于预下载提示
+        // （版本检测每启动每服务器只做一次；测试经 internal 入口模拟重启后重新检测）
+        wuwa.ResetVersionCheckCache();
         _ctx.Kuro.VersionInfo = new ChannelVersionInfo { LatestVersion = "3.7.0" };
         await wuwa.RefreshAsync();
         Assert.True(wuwa.HasUpdate);

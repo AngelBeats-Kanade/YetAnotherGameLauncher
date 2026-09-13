@@ -171,6 +171,18 @@ public partial class GameItemViewModel(
     /// <summary>播放器帧通知订阅状态（避免重复订阅）。</summary>
     private bool _videoSubscribed;
 
+    /// <summary>版本检测结果按服务器的会话缓存（进行中或已成功的任务；每启动每服务器至多一次网络检测）。</summary>
+    private readonly Dictionary<GameServer, Task<ChannelVersionInfo>> _versionInfoTasks = [];
+
+    /// <summary>当前展示资产对应的区域（null = 尚未加载过；语言切换换区时触发重新解析）。</summary>
+    private string? _loadedRegion;
+
+    /// <summary>资产缓存对齐的游戏版本（磁盘缓存元数据记录值；版本检测成功后随之更新）。</summary>
+    private string? _assetVersion;
+
+    /// <summary>_assetVersion 是否已从磁盘缓存元数据装载（每会话一次读盘）。</summary>
+    private bool _assetVersionLoaded;
+
     /// <summary>主操作按钮文案：未安装→安装；检测到已有文件→文件式"校验修复"/包式"登记版本"；有更新→更新；已最新→校验修复。</summary>
     public string InstallButtonText => !IsInstalled
         ? CanLaunch
@@ -216,15 +228,16 @@ public partial class GameItemViewModel(
     /// <summary>服务器数量文案（如"服务器：2"）。</summary>
     public string ServerCountText => Loc.Format("game_info_servers_count", Servers.Count);
 
-    /// <summary>刷新安装状态/版本/预下载可用性（语言或渠道数据变化后也会调用）。</summary>
+    /// <summary>
+    /// 刷新安装状态/版本/预下载可用性（语言或渠道数据变化后也会调用）。
+    /// 版本/预载检测每服务器每启动至多一次（会话缓存），后续刷新零网络；
+    /// 资产（图标/背景）只在区域变化或检测到的游戏版本变化时重新解析，其余情况保持启动预加载结果。
+    /// </summary>
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
         // 语言可能已切换：显示名/图标首字随语言重建
         OnPropertyChanged(nameof(DisplayName));
         OnPropertyChanged(nameof(IconText));
-
-        // 背景为装饰性资源：后台加载，不阻塞状态刷新（否则 StatusText 等会晚到）
-        _ = LoadBackgroundImageAsync(cancellationToken);
 
         var state = new LocalStateService(_installDir).Load(Game.Id, SelectedServer.Id);
         var staged = IncrementalUpdateService.TryLoadStagedManifest(_installDir);
@@ -233,7 +246,7 @@ public partial class GameItemViewModel(
         ChannelVersionInfo info;
         try
         {
-            info = await channel.GetVersionInfoAsync(SelectedServer, cancellationToken);
+            info = await GetVersionInfoCachedAsync(SelectedServer, cancellationToken);
             StatusText = "";
         }
         catch (Exception ex) when (ex is UpdateException or HttpRequestException or TaskCanceledException)
@@ -248,7 +261,27 @@ public partial class GameItemViewModel(
             OnPropertyChanged(nameof(InstallIsPrimary));
             OnPropertyChanged(nameof(InstallIsSecondary));
             OnPropertyChanged(nameof(ShowPredownloadCue));
+
+            // 离线启动也要有缓存资产兜底：本会话尚未加载过资产时补一次纯磁盘加载（零网络）
+            var offlineRegion = RegionForLanguage(Loc.EffectiveCulture);
+            if (!string.Equals(_loadedRegion, offlineRegion, StringComparison.Ordinal))
+            {
+                _ = LoadAssetsCoreAsync(remote: false, reloadIcon: false, cancellationToken);
+            }
+
             return;
+        }
+
+        // 版本检测成功：区域变化（语言切换）或版本变化（含首次检测）才重走资产解析链路——
+        // 版本门控下缓存一致即零网络命中；版本变化时 http 图标一并强制重取
+        var region = RegionForLanguage(Loc.EffectiveCulture);
+        EnsureAssetVersionLoaded();
+        var versionChanged = !string.Equals(_assetVersion, info.LatestVersion, StringComparison.Ordinal);
+        var regionChanged = !string.Equals(_loadedRegion, region, StringComparison.Ordinal);
+        if (versionChanged || regionChanged)
+        {
+            _assetVersion = info.LatestVersion;
+            _ = LoadAssetsCoreAsync(remote: true, reloadIcon: versionChanged && IsHttpIcon, cancellationToken);
         }
 
         IsInstalled = state is not null;
@@ -276,12 +309,74 @@ public partial class GameItemViewModel(
         OnPropertyChanged(nameof(ShowPredownloadCue));
     }
 
-    private async Task LoadBackgroundImageAsync(CancellationToken cancellationToken)
+    /// <summary>启动预加载：图标与背景仅读磁盘缓存（零网络），启动时对全部游戏并行调用；
+    /// 缓存未命中（首次运行/换了区域）保持占位，待版本检测成功后的刷新链路补拉。</summary>
+    public Task PreloadAssetsAsync(CancellationToken cancellationToken = default) =>
+        LoadAssetsCoreAsync(remote: false, reloadIcon: false, cancellationToken);
+
+    /// <summary>清空版本检测会话缓存（internal 供单测模拟"重启后重新检测"；生产语义为每启动检测一次，运行期不重置）。</summary>
+    internal void ResetVersionCheckCache() => _versionInfoTasks.Clear();
+
+    /// <summary>版本检测（每服务器每启动至多一次网络）：同服务器复用会话缓存，进行中任务并发去重；失败不缓存（下次刷新重试）。</summary>
+    private async Task<ChannelVersionInfo> GetVersionInfoCachedAsync(
+        GameServer server, CancellationToken cancellationToken)
     {
+        if (_versionInfoTasks.TryGetValue(server, out var cached))
+        {
+            return await cached;
+        }
+
+        var task = channel.GetVersionInfoAsync(server, cancellationToken);
+        _versionInfoTasks[server] = task;
+        try
+        {
+            return await task;
+        }
+        catch
+        {
+            // 检测失败不作缓存：同服务器后续刷新重试（离线会话保持旧行为）
+            if (ReferenceEquals(_versionInfoTasks.GetValueOrDefault(server), task))
+            {
+                _versionInfoTasks.Remove(server);
+            }
+
+            throw;
+        }
+    }
+
+    /// <summary>确保 _assetVersion 已从背景缓存元数据装载（免网络对齐磁盘缓存记录的版本）。</summary>
+    private void EnsureAssetVersionLoaded()
+    {
+        if (_assetVersionLoaded)
+        {
+            return;
+        }
+
+        _assetVersionLoaded = true;
+        _assetVersion = backdropService.GetCachedGameVersion(Game.Id);
+    }
+
+    /// <summary>图标是否为 http 直链（版本变化时需要绕过缓存强制重取的类型；avares/本地文件本就随包/在盘）。</summary>
+    private bool IsHttpIcon =>
+        Uri.TryCreate(Game.Icon, UriKind.Absolute, out var iconUri) && iconUri.Scheme is "http" or "https";
+
+    /// <summary>
+    /// 加载图标与背景资产：remote=false 仅读磁盘缓存（启动预加载，零网络）；
+    /// remote=true 走版本门控的远程解析（版本/区域一致时同样命中磁盘缓存零网络）。
+    /// reloadIcon=true 时图标绕过缓存重取（仅 http 图标有实际网络动作）。装饰性资源失败静默回退。
+    /// </summary>
+    private async Task LoadAssetsCoreAsync(bool remote, bool reloadIcon, CancellationToken cancellationToken)
+    {
+        var region = RegionForLanguage(Loc.EffectiveCulture);
+        _loadedRegion = region; // 进入即记录：预加载与版本刷新并发触发时不重复解析
+        EnsureAssetVersionLoaded();
+
         // 图标与背景分别兜底：背景链路失败不应吞掉图标（图标失败同样回退首字贴片）
         try
         {
-            var icon = await backgroundImageService.LoadAsync(Game.Icon, cancellationToken);
+            var icon = reloadIcon
+                ? await backgroundImageService.ReloadAsync(Game.Icon, cancellationToken)
+                : await backgroundImageService.LoadAsync(Game.Icon, cancellationToken);
             GameIcon = icon;
             HasGameIcon = icon is not null;
         }
@@ -292,13 +387,13 @@ public partial class GameItemViewModel(
 
         try
         {
-            // 背景来源（配置文件不携带背景地址，每次打开都向渠道确认当期背景）：
-            // 渠道背景服务（远程接口/官方启动器缓存，含磁盘缓存）→ null 时回退主题渐变。
+            // 背景来源（配置文件不携带背景地址；版本门控决定是否向渠道确认当期地址）：
+            // 渠道背景服务（含磁盘缓存）→ null 时回退主题渐变。
             // 视频背景：先上海报（官方首帧图/静态兜底），首帧解码到达后视频层再接管
-            var region = RegionForLanguage(Loc.EffectiveCulture);
-            var backdrop = await backdropService.ResolveAsync(
-                new BackdropRequest(Game.Id, Game.Channel, region, _installDir, SelectServerOptions(region)),
-                cancellationToken);
+            var request = new BackdropRequest(Game.Id, Game.Channel, region, _installDir, SelectServerOptions(region));
+            var backdrop = remote
+                ? await backdropService.ResolveAsync(request, _assetVersion, cancellationToken)
+                : await backdropService.ResolveCachedAsync(request);
 
             if (backdrop?.Kind == BackdropKind.Video && backdrop.Source is { } videoPath)
             {
@@ -318,7 +413,16 @@ public partial class GameItemViewModel(
             }
             else
             {
-                StopVideo();
+                // 仅活动页才触碰共享播放器：其他游戏的后台资产加载不得停掉正在播放的背景视频
+                if (_detailActive)
+                {
+                    StopVideo();
+                }
+                else
+                {
+                    _pendingVideoPath = null;
+                }
+
                 _videoPath = null;
                 var image = await backgroundImageService.LoadAsync(backdrop?.Source, cancellationToken);
                 BackgroundImage = image;

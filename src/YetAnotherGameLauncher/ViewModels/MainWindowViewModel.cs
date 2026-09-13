@@ -506,6 +506,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         SelectedGame = Games.FirstOrDefault();
         NavigateTo(SelectedGame);
+        WarmupGames();
         OnPropertyChanged(nameof(GameCountText));
         OnPropertyChanged(nameof(InstallRoot));
 
@@ -696,8 +697,29 @@ public partial class MainWindowViewModel : ViewModelBase
         RebuildGames(catalog);
         SelectedGame = Games.FirstOrDefault();
         NavigateTo(keepPage ?? SelectedGame);
+        WarmupGames();
         OnPropertyChanged(nameof(InstallRoot));
         return true;
+    }
+
+    /// <summary>
+    /// 游戏列表就绪后的预热（启动与安装根目录变更重建列表后调用）：非选中游戏并行预加载
+    /// 图标与背景（仅读磁盘缓存，零网络）并做各自的一次版本/预载检测。
+    /// 选中游戏跳过——其完整刷新（含资产加载与版本检测）已由 SelectedGame 赋值触发；
+    /// 对它再跑预加载会在其背景视频起播后用"缓存未命中"分支误停共享播放器。
+    /// </summary>
+    private void WarmupGames()
+    {
+        foreach (var game in Games)
+        {
+            if (ReferenceEquals(game, SelectedGame))
+            {
+                continue;
+            }
+
+            _ = game.PreloadAssetsAsync();
+            _ = game.RefreshAsync();
+        }
     }
 
     /// <summary>

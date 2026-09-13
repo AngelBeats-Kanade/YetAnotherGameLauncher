@@ -16,8 +16,14 @@ public sealed class FakeChannel : IGameChannelApi
 
     public List<string> ManifestRequests { get; } = [];
 
-    public Task<ChannelVersionInfo> GetVersionInfoAsync(GameServer server, CancellationToken cancellationToken = default) =>
-        Task.FromResult(VersionInfo);
+    /// <summary>版本检测调用次数（按调用顺序记录请求的服务器 id；验证"每启动每服务器只检测一次"用）。</summary>
+    public List<string> VersionInfoRequests { get; } = [];
+
+    public Task<ChannelVersionInfo> GetVersionInfoAsync(GameServer server, CancellationToken cancellationToken = default)
+    {
+        VersionInfoRequests.Add(server.Id);
+        return Task.FromResult(VersionInfo);
+    }
 
     public Task<GameManifest> GetManifestAsync(GameServer server, string version, CancellationToken cancellationToken = default)
     {
