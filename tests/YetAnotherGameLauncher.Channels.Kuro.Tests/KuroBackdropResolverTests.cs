@@ -1,15 +1,14 @@
 using YetAnotherGameLauncher.Channels.Kuro;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
-using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.TestSupport;
 using Xunit;
 
 namespace YetAnotherGameLauncher.Channels.Kuro.Tests;
 
 /// <summary>
-/// 鸣潮背景解析的三级回退：①直连官方运营配置（launcher-config → 背景内容两跳）→ ②注入的缓存查找 →
-/// ③注入的帧查找。②③经构造函数委托隔离，①经 StubHttpHandler 隔离。
+/// 鸣潮背景解析：直连官方运营配置（launcher-config → 背景内容两跳，经 StubHttpHandler 隔离），
+/// 与终末地一致的单级模型——视频投放带首帧图兜底，解析失败返回 null。
 /// </summary>
 public class KuroBackdropResolverTests
 {
@@ -21,13 +20,8 @@ public class KuroBackdropResolverTests
             ? new Dictionary<string, string>()
             : new Dictionary<string, string> { [KuroChannelApi.IndexUrlOptionKey] = indexUrl });
 
-    private static KuroBackdropResolver CreateResolver(
-        Func<KuroSwitchConfig?>? cached = null,
-        Func<string?, string?>? frame = null,
-        StubHttpHandler? handler = null,
-        string? persistPath = null) =>
-        new(new KuroSwitchConfigClient(new HttpClient(handler ?? new StubHttpHandler())),
-            cachedConfigLookup: cached, frameLookup: frame, persistPath: persistPath);
+    private static KuroBackdropResolver CreateResolver(StubHttpHandler? handler = null) =>
+        new(new KuroSwitchConfigClient(new HttpClient(handler ?? new StubHttpHandler())));
 
     /// <summary>铺好两跳桩：launcher-config 返回背景哈希，zh-Hans 背景内容返回指定投放。</summary>
     private static void MapTwoHop(StubHttpHandler handler, string backgroundJson)
@@ -50,24 +44,14 @@ public class KuroBackdropResolverTests
              "backgroundFileType":2,
              "firstFrameImage":"https://cdn.example.com/first.webp"}
             """);
-        var persistPath = Path.Combine(Path.GetTempPath(), $"yagl-kuro-bg-{Guid.NewGuid():N}.json");
-        var resolver = CreateResolver(cached: () => null, frame: _ => null, handler, persistPath);
+        var resolver = CreateResolver(handler);
 
-        try
-        {
-            var source = await resolver.GetBackdropUrlAsync(Request());
+        var source = await resolver.GetBackdropUrlAsync(Request());
 
-            Assert.NotNull(source);
-            Assert.Equal(BackdropKind.Video, source.Kind);
-            Assert.Equal("https://cdn.example.com/loop.mp4", source.Url);
-            Assert.Equal("https://cdn.example.com/first.webp", source.PosterUrl);
-            // ①级命中后持久化（Chromium 缓存淘汰后的②级兜底来源）
-            Assert.True(File.Exists(persistPath));
-        }
-        finally
-        {
-            File.Delete(persistPath);
-        }
+        Assert.NotNull(source);
+        Assert.Equal(BackdropKind.Video, source.Kind);
+        Assert.Equal("https://cdn.example.com/loop.mp4", source.Url);
+        Assert.Equal("https://cdn.example.com/first.webp", source.PosterUrl);
     }
 
     [Fact]
@@ -80,7 +64,7 @@ public class KuroBackdropResolverTests
              "backgroundFileType":1,
              "firstFrameImage":"https://cdn.example.com/first.webp"}
             """);
-        var resolver = CreateResolver(cached: () => null, frame: _ => null, handler);
+        var resolver = CreateResolver(handler);
 
         var source = await resolver.GetBackdropUrlAsync(Request());
 
@@ -91,51 +75,9 @@ public class KuroBackdropResolverTests
     }
 
     [Fact]
-    public async Task GetBackdropUrlAsync_Offline_CachedSwitchConfig_ReturnsVideoWithPoster()
-    {
-        var resolver = CreateResolver(
-            cached: () => new KuroSwitchConfig("https://cdn/loop.mp4", "https://cdn/first.webp", "echoes"));
-
-        var source = await resolver.GetBackdropUrlAsync(Request(indexUrl: null));
-
-        Assert.NotNull(source);
-        Assert.Equal(BackdropKind.Video, source.Kind);
-        Assert.Equal("https://cdn/loop.mp4", source.Url);
-        Assert.Equal("https://cdn/first.webp", source.PosterUrl);
-    }
-
-    [Fact]
-    public async Task GetBackdropUrlAsync_Offline_CachedStaticConfig_ReturnsImage()
-    {
-        // 持久化兜底里的静态图投放（backgroundFileType=1）：Kind 按类型映射而非一律视频
-        var resolver = CreateResolver(cached: () =>
-            new KuroSwitchConfig("https://cdn/static.webp", null, null, FunctionSwitch: 1, BackgroundFileType: 1));
-
-        var source = await resolver.GetBackdropUrlAsync(Request(indexUrl: null));
-
-        Assert.NotNull(source);
-        Assert.Equal(BackdropKind.Image, source.Kind);
-        Assert.Equal("https://cdn/static.webp", source.Url);
-    }
-
-    [Fact]
-    public async Task GetBackdropUrlAsync_NoConfigNoCache_FallsBackToFrame()
-    {
-        string? framePath = "D:/games/ww/kr_game_cache/animate_bg/home_1.jpg";
-        var resolver = CreateResolver(cached: () => null, frame: _ => framePath);
-
-        var source = await resolver.GetBackdropUrlAsync(Request(indexUrl: null));
-
-        Assert.NotNull(source);
-        Assert.Equal(BackdropKind.Image, source.Kind);
-        Assert.Equal(framePath, source.Url);
-        Assert.Null(source.PosterUrl);
-    }
-
-    [Fact]
     public async Task GetBackdropUrlAsync_NothingAvailable_ReturnsNull()
     {
-        var resolver = CreateResolver(cached: () => null, frame: _ => null);
+        var resolver = CreateResolver();
 
         Assert.Null(await resolver.GetBackdropUrlAsync(Request(indexUrl: null)));
     }

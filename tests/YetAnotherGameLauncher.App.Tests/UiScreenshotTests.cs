@@ -86,13 +86,11 @@ public class UiScreenshotTests
                 host.UpdateLayout();
             }
 
-            // 模拟库洛官方启动器背景帧缓存：解析器走与 KuroBackdropResolver 相同的本地帧探测
+            // 模拟鸣潮背景图（resolver 已 stub，直接给本地测试图文件）
             var bgPath = ctx.TempDir.FilePath("kr_game_cache", "animate_bg", "h1", "home_1.jpg");
             Directory.CreateDirectory(Path.GetDirectoryName(bgPath)!);
             CreateTestBackground(bgPath);
-            ctx.KuroBackdrop.Resolver = _ => new BackdropSource(
-                YetAnotherGameLauncher.Core.Services.KuroLauncherBackground
-                    .FindLatestFrame(ctx.Vm.Games[0].InstallDirPath)!, BackdropKind.Image);
+            ctx.KuroBackdrop.Resolver = _ => new BackdropSource(bgPath, BackdropKind.Image);
             // headless 测试进程解析不了 app 的 avares:// 资源：图标走 stub http
             const string wuwaIconUrl = "https://is1-ssl.mzstatic.com/wuwa-icon.jpg";
             ctx.BackgroundHandler.Map(wuwaIconUrl, await new HttpClient().GetByteArrayAsync(endfieldIconUrl));

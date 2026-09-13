@@ -237,10 +237,10 @@ flowchart LR
 - **背景解析**：keyed `IBackdropResolver` 按渠道解析——
   `kuro`：官方运营配置直连两跳——launcher-config 的 `functionCode.background` 取当期投放哈希，
   再取背景内容 JSON 的 `backgroundFile`/`firstFrameImage`（背景视频 + 首帧图；按语言投放，主语言
-  404 自动回退 en/zh-Hans。2026-09-13 实测：历史端点 switch.json 已停止投放背景，官方改哈希寻址），
-  回退本机库洛启动器缓存与 `kr_game_cache` 帧探测（缓存根按平台探测：Windows 取
-  `%APPDATA%\KRLauncher`；Linux 逐 Wine/Proton prefix 探测官启数据目录，`KuroLauncherBackground.LinuxCacheRoots`）；
+  404 自动回退 en/zh-Hans。2026-09-13 实测：历史端点 switch.json 已停止投放背景，官方改哈希寻址）；
   `hypergryph`：官方启动器 `get_main_bg_image` 接口（视频优先、静态图兜底）。
+  两渠道一致的单级回退模型：视频不可用时首帧/静态图兜底，解析失败返回 null 交上层处理，不再探测
+  本机官方启动器缓存或本地帧序列。
   `GameBackdropService` 把远程背景流式下载缓存到 `%ConfigDirectory%/backdrops/<gameId>/`
   （`backdrop.*` + `poster.*` + `meta.json`），地址未变不重复下载，离线/下载失败回退上次缓存。
 - **播放**：`FfmpegVideoBackdropPlayer` 后台线程解码（Windows D3D11VA / Linux VAAPI→CUDA(NVDEC)

@@ -34,13 +34,12 @@ src/
                     AutostartService.cs（IAutostartService + WindowsAutostartService（HKCU Run 注册表）/ LinuxAutostartService（XDG autostart）双实现）、
                     CompatTools（Linux 兼容层单一来源：umu/wine/Lutris/Proton 发现、prefix 统一路径、推荐链 BuildRecommendedLaunch、Proton 发行版代号/umuId 解析、含 LaunchMode 枚举与 CompatLaunch）、
                     Umu/（原生 umu：UmuPaths、VdfMiniParser、SteamRuntimeCatalog、ToolManifest、UmuPrefix、UmuEnvironment、NativeUmuLauncher、IUmuComponentProvisioner）、
-                    GameBackdropService（详情页背景远程解析 + 本地缓存编排）、KuroLauncherBackground（KRLauncher 官方背景探测）、
-                    WebViewCacheScanner（Chromium 磁盘缓存文本流式正则提取）、WindowsPlatformInfo / LinuxPlatformInfo（IPlatformInfo 双实现）
+                    GameBackdropService（详情页背景远程解析 + 本地缓存编排）、WindowsPlatformInfo / LinuxPlatformInfo（IPlatformInfo 双实现）
     Utilities/      Hashing（MD5 hex）、Json（统一序列化选项）、FileUtilities（原子写入/尽力删除）
   YetAnotherGameLauncher.Channels.Kuro/         # 库洛渠道（鸣潮）
     KuroChannelApi（index.json/indexFile 解析、CDN 选择、URL 拼接）
     KuroCdnSelector / KuroUrlBuilder、HpatchzApplier（HDiffPatch 目录模式；HpatchzApplierOptions 配置路径/超时）
-    KuroSwitchConfigClient（官方运营配置直连：launcher-config → 背景内容两跳）、KuroBackdropResolver（背景解析：运营配置直连 → WebView 缓存 → 本地帧序列）
+    KuroSwitchConfigClient（官方运营配置直连：launcher-config → 背景内容两跳）、KuroSwitchConfig（背景投放 DTO）、KuroBackdropResolver（背景解析：运营配置直连，视频 + 首帧图单级回退）
     KuroGachaService（唤取记录：日志地址提取 → 官方接口 → 本地合并缓存）、KuroServiceCollectionExtensions（AddKuroChannel）、Models/（协议 DTO）
   YetAnotherGameLauncher.Channels.Hypergryph/   # GRYPHLINE 渠道（终末地，包式）
     GryphlineChannelApi（batch_proxy get_latest_game）、GryphlineProtocol（版本/背景接口共用的协议工具）
@@ -66,11 +65,11 @@ src/
 tests/
   YetAnotherGameLauncher.TestSupport/           # 共享测试设施（可复用的替身与工具）
     FakeDownloader / FakePatchApplier / FakeProcessRunner / FakeChannel / FakePlatformInfo / StubHttpHandler / TempDir / TestZip / ManualTimeProvider（虚拟时钟）
-  YetAnotherGameLauncher.Core.Tests/            # 领域层 237 个测试（2026-09-13 实测）
-  YetAnotherGameLauncher.Channels.Kuro.Tests/   # 48 个测试（2026-09-13 实测）
+  YetAnotherGameLauncher.Core.Tests/            # 领域层 224 个测试（2026-09-13 实测）
+  YetAnotherGameLauncher.Channels.Kuro.Tests/   # 45 个测试（2026-09-13 实测）
   YetAnotherGameLauncher.Channels.Hypergryph.Tests/ # 17 个测试（2026-09-13 实测）
   YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口 182 个测试（2026-09-13 实测）
-  # 数量为 2026-09 实测（共 438）；随开发增长，以实际运行为准
+  # 数量为 2026-09 实测（共 468）；随开发增长，以实际运行为准
 ```
 
 构建约定（`Directory.Build.props`）：`net10.0`、`Nullable=enable`、`ImplicitUsings`、

@@ -108,7 +108,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 
 - **详情页背景**：配置文件不携带背景地址。每次启动按界面语言选择渠道（中文 → 国服端点，其余 → 国际服端点）向官方接口确认当期背景，地址变化时自动下载到应用数据目录缓存（配置目录下 `backdrops/<gameId>/`，Windows 即 `%APPDATA%\yagl\backdrops\`），离线时回退上次缓存：
   - 终末地：官方启动器 `get_main_bg_image` 接口（当期版本主视觉，端点参数取自该游戏 `servers[].options`）。
-  - 鸣潮：直连官方启动器运营配置两跳取当期投放（launcher-config 的 `functionCode.background` 哈希 → 背景内容 JSON，背景视频 + 首帧图，随官方投放即时更新；2026-09 起官方弃用固定 `switch.json` 改哈希寻址）；不可用时回退本机库洛启动器 WebView 缓存，再回退本地帧序列（`kr_game_cache\animate_bg`）。
+  - 鸣潮：直连官方启动器运营配置两跳取当期投放（launcher-config 的 `functionCode.background` 哈希 → 背景内容 JSON，背景视频 + 首帧图，随官方投放即时更新；2026-09 起官方弃用固定 `switch.json` 改哈希寻址）。视频不可用时首帧图即一级回退，与终末地同款。
   - 均不可用时回退主题渐变背景。
 - **游戏名**：`nameLocalized` 按界面语言显示（样例模板已含鸣潮/终末地中英文名，旧配置自动迁移补齐）；服务器名等其余配置数据按配置文件原样显示。
 

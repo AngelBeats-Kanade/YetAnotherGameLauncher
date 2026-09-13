@@ -1,5 +1,4 @@
 using YetAnotherGameLauncher.Channels.Kuro;
-using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.TestSupport;
 using Xunit;
 

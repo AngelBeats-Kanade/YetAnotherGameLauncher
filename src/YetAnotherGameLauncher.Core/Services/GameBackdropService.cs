@@ -17,7 +17,7 @@ public sealed record ResolvedBackdrop(string? Source, BackdropKind Kind, string?
 /// <summary>
 /// 游戏详情页背景的远程解析 + 本地缓存编排。配置文件不携带背景地址：
 /// 每次启动向渠道解析器确认当期背景地址，地址变化（版本更新/卡池轮换/运营投放）时重新下载；
-/// 离线或下载失败时回退上次缓存，再由调用方回退到更低优先级的来源（如官方启动器本地帧）。
+/// 离线或下载失败时回退上次缓存，均不可用时由调用方回退主题渐变。
 /// 视频背景（可达数十 MB）与首帧海报一并缓存。
 /// </summary>
 public sealed class GameBackdropService(
@@ -75,15 +75,6 @@ public sealed class GameBackdropService(
         {
             logger?.LogInformation("Backdrop resolve failed for {GameId}: {Message}", request.GameId, ex.Message);
             remote = null;
-        }
-
-        // 解析器直接给出本地文件（如官方启动器本地帧缓存）：无需下载。
-        // 用前缀判断而非 Uri.TryCreate——"D:\..." 这类 Windows 路径会被解析成 file:// URI。
-        if (remote is not null && !IsHttpUrl(remote.Url))
-        {
-            return File.Exists(remote.Url)
-                ? new ResolvedBackdrop(remote.Url, remote.Kind, remote.PosterUrl)
-                : null;
         }
 
         var cacheDir = Path.Combine(_cacheRoot, Sanitize(request.GameId));
@@ -221,10 +212,6 @@ public sealed class GameBackdropService(
             // 缓存元数据写失败不致命：下次启动重试
         }
     }
-
-    private static bool IsHttpUrl(string value) =>
-        value.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
-        || value.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
 
     private static string Sanitize(string value) => string.Concat(value.Where(char.IsLetterOrDigit));
 

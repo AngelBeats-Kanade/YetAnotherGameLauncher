@@ -20,21 +20,6 @@ public class GameBackdropServiceTests : IDisposable
     public void Dispose() => _tempDir.Dispose();
 
     [Fact]
-    public async Task Resolve_LocalPathFromResolver_ReturnedAsIs()
-    {
-        var imagePath = _tempDir.FilePath("frame.jpg");
-        await File.WriteAllBytesAsync(imagePath, [1, 2, 3]);
-        var resolver = new StubResolver(_ => new BackdropSource(imagePath, BackdropKind.Image));
-
-        var source = await CreateService(resolver).ResolveAsync(Request());
-
-        Assert.Equal(imagePath, source!.Source);
-        Assert.Equal(BackdropKind.Image, source.Kind);
-        Assert.Null(source.PosterSource);
-        Assert.Empty(_handler.Requests);
-    }
-
-    [Fact]
     public async Task Resolve_RemoteUrl_DownloadsAndCaches()
     {
         _handler.Map("https://cdn.example.com/bg.png", [4, 5, 6, 7]);

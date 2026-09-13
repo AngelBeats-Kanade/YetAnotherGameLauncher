@@ -1,7 +1,6 @@
 using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
-using YetAnotherGameLauncher.Core.Services;
 
 namespace YetAnotherGameLauncher.Channels.Kuro;
 
@@ -16,7 +15,7 @@ namespace YetAnotherGameLauncher.Channels.Kuro;
 /// </summary>
 public sealed class KuroSwitchConfigClient(HttpClient httpClient, ILogger<KuroSwitchConfigClient>? logger = null)
 {
-    /// <summary>背景配置对时效不敏感：单请求 8 秒超时 + 一次瞬态重试，拿不到就走本地缓存扫描兜底，不阻塞启动链路。</summary>
+    /// <summary>背景配置对时效不敏感：单请求 8 秒超时 + 一次瞬态重试，拿不到即返回 null（上层回退上次缓存/主题渐变），不阻塞启动链路。</summary>
     private static readonly TimeSpan FetchTimeout = TimeSpan.FromSeconds(8);
 
     /// <summary>
