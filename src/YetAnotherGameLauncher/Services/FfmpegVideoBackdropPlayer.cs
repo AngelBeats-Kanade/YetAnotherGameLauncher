@@ -16,7 +16,7 @@ namespace YetAnotherGameLauncher.Services;
 /// <summary>
 /// 基于 FFmpeg 的背景视频播放器：后台线程循环解码（软解为基线，D3D11VA/VAAPI 硬解自动启用），
 /// 帧经 swscale 转成 BGRA 后逐行拷进 WriteableBitmap，UI 线程节流触发 <see cref="FrameUpdated"/>
-/// 重绘。静音（不解码音频轨）、分辨率 clamp ≤1080p。
+/// 重绘。静音（不解码音频轨）、分辨率 clamp ≤4K（防呆上限，官方投放原样渲染不降采样）。
 /// 无缝循环 = 智能循环点（头尾窗口找最相似帧对，接缝落在几乎相同的画面之间）
 /// + 预卷零间隙收编（临近结尾提前解码好下一循环开头几帧，接缝处直接换源续播，无停顿）；
 /// 预卷未就绪时回退关键帧回卷 + 交叉淡化。
@@ -30,11 +30,12 @@ public sealed class FfmpegVideoBackdropPlayer(
     /// 阈值若与视频帧间隔同频（30fps≈33ms），节拍抖动会把通知成对吞掉，画面呈 15fps 且不连贯。</summary>
     private static readonly TimeSpan NotifyInterval = TimeSpan.FromMilliseconds(16);
 
-    /// <summary>背景渲染尺寸上限：解码与 blit 都按此裁剪，超出部分纯浪费。</summary>
-    private const int MaxWidth = 1920;
+    /// <summary>背景渲染尺寸防呆上限：官方投放（2026-09 实测最高 2324×1392）原样渲染不降采样，
+    /// 仅拦截异常超大源；解码本就按源分辨率全量进行，此 clamp 只作用于 swscale 输出目标。</summary>
+    private const int MaxWidth = 3840;
 
-    /// <summary>渲染高度上限。</summary>
-    private const int MaxHeight = 1080;
+    /// <summary>渲染高度防呆上限。</summary>
+    private const int MaxHeight = 2160;
 
     /// <summary>swscale 双线性插值（FFmpeg 头文件的 SWS_BILINEAR 宏；AutoGen 未生成该常量）。</summary>
     private const int SwsBilinear = 2;
@@ -792,7 +793,8 @@ public sealed class FfmpegVideoBackdropPlayer(
         {
             var pixelFormat = context->pix_fmt;
             logger?.LogDebug(
-                "Video backdrop decoder negotiated {Format} ({Mode})",
+                "Video backdrop decoder negotiated {Width}x{Height} {Format} ({Mode})",
+                context->width, context->height,
                 PixelFormatName(pixelFormat), IsHardwarePixelFormat(pixelFormat) ? "hardware" : "software");
         }
 
