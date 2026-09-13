@@ -29,6 +29,10 @@ public partial class App : Application
             var services = BuildServices();
             var viewModel = services.GetRequiredService<MainWindowViewModel>();
             desktop.MainWindow = new MainWindow { DataContext = viewModel };
+            // 非"关窗"路径的程序性 Shutdown 也停视频（点 X 关闭已由窗口 Closing 覆盖）：
+            // 退出期平台拆除会弄坏 GPU 解码栈，解码循环必须先行停止
+            var videoPlayer = services.GetRequiredService<IVideoBackdropPlayer>();
+            desktop.ShutdownRequested += (_, _) => videoPlayer.Stop();
             _ = viewModel.InitializeAsync();
         }
 

@@ -226,6 +226,7 @@ public sealed class FfmpegVideoBackdropPlayer(
             double lastRenderedPts = -1;
             var notify = new NotifyThrottle();
             var failures = new DecodeFailureLog(logger);
+            var guard = new DecodeGuard();
 
             // 呈现一帧软帧：起点对帧丢弃 → 循环终点截断 → PTS 节拍等待 → 上屏 → 预卷触发；
             // 等待期间取消直接返回（外层 while 检查 token 退出），到达循环终点置 loopEndReached
@@ -289,6 +290,13 @@ public sealed class FfmpegVideoBackdropPlayer(
             // 否则回退关键帧回卷 + 交叉淡化。返回 false = 无法继续（应结束循环）
             bool HandleLoopEnd()
             {
+                // 取消（停止/退出）后不再重开/收编解码源：退出期 GPU 栈可能已坏，
+                // 设备创建只会向 stderr 刷错（外层 token 检查与这里之间存在取消落入的窗口）
+                if (token.IsCancellationRequested)
+                {
+                    return false;
+                }
+
                 loopEndReached = false;
                 if (preroll is not null && preroll.TryTake(out var payload))
                 {
@@ -310,12 +318,22 @@ public sealed class FfmpegVideoBackdropPlayer(
                     aligningToStart = false;
                     preroll = null;
                     prerollKicked = false;
+                    guard.Reset(); // 健康交接自带自愈：失败计数清零
                     clock?.Reset();
                     return true;
                 }
 
                 // 预卷未就绪：回退 = 重新打开全新解码源（不 seek——本构建的 mov seek 不可靠，
-                // 顺序读取最稳妥）；打开停顿由交叉淡化掩盖
+                // 顺序读取最稳妥）；打开停顿由交叉淡化掩盖。连续多路解码源都未产出有效回
+                // （GPU 解码栈坏死，如退出期平台拆除/驱动重置）则停止播放，帧清空后由海报兜底
+                if (guard.OnPassEnd((int)frameIndex, fps))
+                {
+                    logger?.LogInformation(
+                        "Video backdrop stopped: {Passes} consecutive decode sources produced no viable pass (lastPts {Pts:F2}s)",
+                        DecodeGuard.MaxDeadPasses, lastRenderedPts);
+                    return false;
+                }
+
                 preroll?.Abandon();
                 preroll = null;
                 prerollKicked = false;
@@ -353,9 +371,15 @@ public sealed class FfmpegVideoBackdropPlayer(
                     continue;
                 }
 
-                if (!TryDecodeNextSoftFrame(active, packet, frame, softwareFrame, out var pts, failures))
+                if (!TryDecodeNextSoftFrame(active, packet, frame, softwareFrame, token, out var pts, failures, guard))
                 {
-                    // 流结束（或不可恢复的读错误）：走循环终点处理
+                    // 取消（停止/退出）立即结束：退出期 GPU 解码栈可能已坏，重开解码源只会制造新的失败输出
+                    if (token.IsCancellationRequested)
+                    {
+                        break;
+                    }
+
+                    // 流结束（或不可恢复的读错误/解码器坏死）：走循环终点处理
                     if (!HandleLoopEnd())
                     {
                         break;
@@ -451,7 +475,7 @@ public sealed class FfmpegVideoBackdropPlayer(
             var tailPts = new List<double>();
             while (!token.IsCancellationRequested)
             {
-                if (!TryDecodeNextSoftFrame(source, packet, frame, softwareFrame, out var pts))
+                if (!TryDecodeNextSoftFrame(source, packet, frame, softwareFrame, token, out var pts))
                 {
                     break; // 流结束
                 }
@@ -538,7 +562,7 @@ public sealed class FfmpegVideoBackdropPlayer(
     {
         while (thumbs.Count < MaxAnalyzedFrames && !token.IsCancellationRequested)
         {
-            if (!TryDecodeNextSoftFrame(source, packet, frame, softwareFrame, out var pts))
+            if (!TryDecodeNextSoftFrame(source, packet, frame, softwareFrame, token, out var pts))
             {
                 return;
             }
@@ -590,10 +614,11 @@ public sealed class FfmpegVideoBackdropPlayer(
             frames = [];
             var pendingPts = new List<double>();
             var halfFrame = source.Fps > 0 ? 0.5 / source.Fps : 0.001;
+            var prerollGuard = new DecodeGuard();
             byte[]? firstThumb = null;
             while (frames.Count < PrerollFrames && !token.IsCancellationRequested)
             {
-                if (!TryDecodeNextSoftFrame(source, packet, frame, softwareFrame, out var pts))
+                if (!TryDecodeNextSoftFrame(source, packet, frame, softwareFrame, token, out var pts, guard: prerollGuard))
                 {
                     break;
                 }
@@ -797,18 +822,27 @@ public sealed class FfmpegVideoBackdropPlayer(
             or AVPixelFormat.AV_PIX_FMT_D3D11;
 
     /// <summary>读取并解码下一帧软帧：硬解输出回读系统内存，软解转移引用。<paramref name="ptsSeconds"/>
-    /// 取自原始解码帧（硬解回读不拷贝时间戳属性，必须在回读前捕获）；返回 false = 流结束或无法继续。</summary>
+    /// 取自原始解码帧（硬解回读不拷贝时间戳属性，必须在回读前捕获）；返回 false = 流结束、取消或无法继续
+    /// （取消/连续无输出包超限由调用方按终止处理）。</summary>
     private static unsafe bool TryDecodeNextSoftFrame(
         DecodeSource source,
         AVPacket* packet,
         AVFrame* frame,
         AVFrame* softwareFrame,
+        CancellationToken token,
         out double ptsSeconds,
-        DecodeFailureLog? failures = null)
+        DecodeFailureLog? failures = null,
+        DecodeGuard? guard = null)
     {
         ptsSeconds = double.NaN;
         while (true)
         {
+            // 停止/退出：立即终止，不再喂数据（退出期 GPU 栈可能已坏，喂包只会向 stderr 刷错）
+            if (token.IsCancellationRequested)
+            {
+                return false;
+            }
+
             var readResult = ffmpeg.av_read_frame(source.FormatContext, packet);
             if (readResult < 0)
             {
@@ -822,7 +856,7 @@ public sealed class FfmpegVideoBackdropPlayer(
 
             if (packet->stream_index != source.StreamIndex)
             {
-                // 音频/字幕/封面等其他流：直接跳过（背景视频不解码音轨）
+                // 音频/字幕/封面等其他流：直接跳过（背景视频不解码音轨，不计入无输出计数）
                 ffmpeg.av_packet_unref(packet);
                 continue;
             }
@@ -832,15 +866,27 @@ public sealed class FfmpegVideoBackdropPlayer(
             if (!sent)
             {
                 failures?.Log("packet rejected by decoder (stream {Stream})", source.StreamIndex);
+                if (guard?.OnPacketWithoutFrame() == true)
+                {
+                    return false;
+                }
+
                 continue;
             }
 
             if (ffmpeg.avcodec_receive_frame(source.CodecContext, frame) < 0)
             {
-                // 解码器内部缓冲未出帧（EAGAIN）：继续喂数据
+                // 解码器内部缓冲未出帧（EAGAIN，含 B 帧重排）：继续喂数据；
+                // 连续无输出超过合法重排深度数倍即判解码器坏死
+                if (guard?.OnPacketWithoutFrame() == true)
+                {
+                    return false;
+                }
+
                 continue;
             }
 
+            guard?.OnFrameDecoded();
             // 原始帧的时间戳由解码器写入；回读/转移后再读会丢失
             var capturedPts = BestEffortPts(frame, source.TimeBase);
             var ok = true;
@@ -1282,5 +1328,52 @@ internal sealed class PlaybackClock
         }
 
         return Math.Max(0, delayMs);
+    }
+}
+
+/// <summary>
+/// 解码韧性熔断器（纯状态机，internal 供单测）：区分「流正常走完」与「解码器坏死」。
+/// GPU 解码栈失效（驱动重置、应用退出期的平台拆除弄坏 VAAPI/NVDEC 等）时每个视频包都无输出帧，
+/// FFmpeg 会以每帧两条的速度向 stderr 刷 "hardware accelerator failed"。两级熔断把最坏输出
+/// 限制在有限几条并停止播放，帧位图清空后由静态海报兜底。阈值依据：正常 h264 B 帧重排深度
+/// 上限 16 帧，无输出包阈值必须明显高于它。
+/// </summary>
+internal sealed class DecodeGuard
+{
+    /// <summary>连续无输出视频包上限（2×h264 最大重排深度 16）：超过即判解码器坏死，放弃当前解码源。</summary>
+    internal const int MaxPacketsWithoutFrame = 32;
+
+    /// <summary>连续「未产出有效回」的解码源个数上限：超过后停止播放，等下次起播再试。</summary>
+    internal const int MaxDeadPasses = 3;
+
+    /// <summary>有效回的最少渲染帧数：不足 0.25s（且至少 8 帧）视为未真正起播。</summary>
+    internal static int MinViablePassFrames(double fps) => Math.Max(8, (int)(fps * 0.25));
+
+    private int _packetsWithoutFrame;
+
+    private int _deadPasses;
+
+    /// <summary>记录一个未产出帧的视频包；返回 true = 连续无输出超限，应放弃当前解码源。</summary>
+    public bool OnPacketWithoutFrame() => ++_packetsWithoutFrame >= MaxPacketsWithoutFrame;
+
+    /// <summary>记录一次成功输出的解码帧（无输出计数清零）。</summary>
+    public void OnFrameDecoded() => _packetsWithoutFrame = 0;
+
+    /// <summary>
+    /// 一路解码源走到终点（EOF/坏死/取消以外的终止）：本回渲染帧数达到有效回标准即清零失败计数，
+    /// 否则累计；返回 true = 连续坏死次数超限，应停止播放。
+    /// </summary>
+    public bool OnPassEnd(int renderedFrames, double fps)
+    {
+        _packetsWithoutFrame = 0;
+        _deadPasses = renderedFrames >= MinViablePassFrames(fps) ? 0 : _deadPasses + 1;
+        return _deadPasses >= MaxDeadPasses;
+    }
+
+    /// <summary>预卷源健康接管播放：失败计数与无输出包计数清零（交接自带自愈，新源重新计账）。</summary>
+    public void Reset()
+    {
+        _deadPasses = 0;
+        _packetsWithoutFrame = 0;
     }
 }

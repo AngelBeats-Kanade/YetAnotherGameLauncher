@@ -260,6 +260,13 @@ flowchart LR
   临近循环终点前 2s 由第二个解码源后台预解码下一循环开头 10 帧，经 `PrerollHandoff` 交接状态机
   交接，到达终点时预卷源整体收编、先消费预解码帧，零间隙续播；收编时按接缝差自适应——
   差值在阈值内直接硬化切，否则 0.6s 交叉淡化。预卷未就绪回退为重开全新解码源 + 交叉淡化。
+- **退出与解码失败韧性**：窗口 Closing / 程序性 `ShutdownRequested` 都会先停播放再进入平台拆除——
+  退出期 GPU 解码栈可能失效（2026-09 实测：NVIDIA + nvidia-vaapi-driver，点 X 退出时 VAAPI/CUDA
+  全部初始化失败），解码循环若继续运行会以每帧两条的速度向 stderr 刷
+  "hardware accelerator failed to decode picture"。运行期另有 `DecodeGuard` 两级熔断（纯状态机，
+  决策表单测）：单路解码源连续 32 个视频包无输出帧（正常 h264 B 帧重排深度上限 16）判坏死放弃；
+  重开/收编后的解码源仍未产出有效回（≥0.25s 且 ≥8 帧）连续 3 次即停止播放——帧位图清空后
+  `FrameSurface` 不绘制，静态海报自然兜底，下次进详情页重新起播可自愈。
 - **关键约束**：本机 BtbN FFmpeg n9.0 构建的 mov demuxer 上 seek 不可靠——
   所有路径一律顺序读取 + 帧丢弃对齐，禁止带时间戳的 seek。
 

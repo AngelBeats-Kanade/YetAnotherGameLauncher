@@ -517,6 +517,13 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// 停止背景视频播放（窗口关闭/应用退出时调用）。必须先于窗口销毁执行：退出期平台拆除会
+    /// 弄坏 GPU 解码栈（VAAPI/NVDEC 全部初始化失败），解码循环若继续运行会以每帧两条的速度
+    /// 向 stderr 刷硬件解码失败。静默：视频仅是装饰，失败不影响退出。
+    /// </summary>
+    public void StopBackdropVideo() => _videoPlayer?.Stop();
+
+    /// <summary>
     /// 窗口关闭时把当前尺寸/最大化状态写回配置（Closing 是同步事件，JSON 很小，
     /// 同步等待落盘保证进程退出前写完）。目录未加载（配置损坏）时静默跳过。
     /// </summary>

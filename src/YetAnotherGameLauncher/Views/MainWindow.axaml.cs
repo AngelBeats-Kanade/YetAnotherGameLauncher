@@ -153,12 +153,14 @@ public partial class MainWindow : Window
     }
 
     /// <summary>关闭时持久化窗口状态（先于窗口销毁读取 Width/Height；按"视觉最大化"记录，
-    /// 实验性 Wayland 后端对平铺窗口的 Maximized 误报不应写进配置）。</summary>
+    /// 实验性 Wayland 后端对平铺窗口的 Maximized 误报不应写进配置）；并停止背景视频解码——
+    /// 解码循环必须先于平台拆除停下，退出期 GPU 解码栈失效会让继续解码向 stderr 刷错。</summary>
     private void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
         if (DataContext is MainWindowViewModel viewModel)
         {
             viewModel.PersistWindowState(Width, Height, _lastVisualMaximized == true);
+            viewModel.StopBackdropVideo();
         }
     }
 
