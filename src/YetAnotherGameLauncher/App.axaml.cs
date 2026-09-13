@@ -44,8 +44,13 @@ public partial class App : Application
     {
         var services = new ServiceCollection();
 
+        // Debug 构建输出 Debug 级日志便于排查;Release 构建从 Info 起减少控制台噪音
         services.AddLogging(builder => builder
+#if DEBUG
             .SetMinimumLevel(LogLevel.Debug)
+#else
+            .SetMinimumLevel(LogLevel.Information)
+#endif
             .AddSimpleConsole(options => options.SingleLine = true));
 
         // 基础设施（代理管理器持有共享 SocketsHttpHandler：设置保存后代理即时生效）
