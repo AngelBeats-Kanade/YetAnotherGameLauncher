@@ -121,8 +121,7 @@ public class UiScreenshotTests
             // 并构造"检测到游戏文件"态：有主程序但未登记版本 → 状态胶囊提示 + 登记版本按钮）
             ctx.Vm.SelectedTheme = dark;
             ctx.Vm.Games[1].Game.Icon = endfieldIconUrl;
-            var endfieldExe = Path.Combine(
-                ctx.Vm.Games[1].InstallDirPath, "ArknightsEndfield", "Binaries", "Win64", "ArknightsEndfield.exe");
+            var endfieldExe = Path.Combine(ctx.Vm.Games[1].InstallDirPath, "Endfield.exe");
             Directory.CreateDirectory(Path.GetDirectoryName(endfieldExe)!);
             await File.WriteAllBytesAsync(endfieldExe, "MZ"u8.ToArray());
             ctx.Vm.SelectedGame = ctx.Vm.Games[1];

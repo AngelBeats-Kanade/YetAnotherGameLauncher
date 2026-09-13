@@ -47,7 +47,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `channel` | string | ✔ | 渠道实现键：`"kuro"`（鸣潮及库洛系）、`"hypergryph"`（终末地/GRYPHLINE） |
 | `icon` | string | | 官方游戏图标：http(s) URL 或本地路径；加载失败回退显示名首字 |
 | `installDir` | string | ✔ | 安装目录；相对 `settings.installRoot`，也可为绝对路径 |
-| `executable` | string | ✔ | 游戏可执行文件，相对 `installDir`（`/` 或 `\` 均可） |
+| `executable` | string | ✔ | 游戏可执行文件，相对 `installDir`（`/` 或 `\` 均可）。按实际游戏布局填（鸣潮 `Client/Binaries/Win64/Client-Win64-Shipping.exe`、终末地 `Endfield.exe`——2026-09 实测：官方安装/整包解压后主程序在安装目录根） |
 | `launch` | object | | 启动方式，见下 |
 | `servers[]` | array | ✔（≥1） | 服务器/渠道入口列表，见下 |
   服务器在启动器内通过游戏设置页（从详情页齿轮进入）的独立「服务器」卡切换，
@@ -137,7 +137,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
       "displayName": "明日方舟：终末地",
       "channel": "hypergryph",
       "installDir": "ArknightsEndfield",
-      "executable": "ArknightsEndfield/Binaries/Win64/ArknightsEndfield.exe",
+      "executable": "Endfield.exe",
       "servers": [ { "id": "cn", "name": "CN", "options": { "apiBase": "https://launcher.hypergryph.com/api", "appcode": "6LL0KJuqHBVz33WK", "channel": "1", "subChannel": "1" } } ]
     }
   ]

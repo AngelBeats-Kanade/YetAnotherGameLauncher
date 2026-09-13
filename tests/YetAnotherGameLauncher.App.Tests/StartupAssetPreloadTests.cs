@@ -43,7 +43,7 @@ public sealed class StartupAssetPreloadTests
               "channel": "hypergryph",
               "icon": "{{icon2}}",
               "installDir": "ArknightsEndfield",
-              "executable": "ArknightsEndfield/Binaries/Win64/ArknightsEndfield.exe",
+              "executable": "Endfield.exe",
               "servers": [ { "id": "global", "name": "国际服" } ]
             }
           ]

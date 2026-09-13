@@ -31,7 +31,7 @@ public static class VmFactory
               "nameLocalized": { "zh-CN": "明日方舟：终末地", "en-US": "Arknights: Endfield" },
               "channel": "hypergryph",
               "installDir": "ArknightsEndfield",
-              "executable": "ArknightsEndfield/Binaries/Win64/ArknightsEndfield.exe",
+              "executable": "Endfield.exe",
               "servers": [ { "id": "global", "name": "国际服" } ]
             }
           ]

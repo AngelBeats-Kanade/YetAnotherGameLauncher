@@ -57,7 +57,7 @@
       "icon": "avares://YetAnotherGameLauncher/Assets/game-icons/arknights-endfield.jpg",
       "channel": "hypergryph",
       "installDir": "ArknightsEndfield",
-      "executable": "ArknightsEndfield/Binaries/Win64/ArknightsEndfield.exe",
+      "executable": "Endfield.exe",
       "launch": {
         "commandTemplate": "{exe}",
         "workingDirectory": "{installDir}",

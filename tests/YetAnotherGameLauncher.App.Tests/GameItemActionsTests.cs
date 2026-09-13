@@ -235,8 +235,7 @@ public class GameItemActionsTests : IDisposable
         await _ctx.Vm.InitializeAsync();
         var endfield = _ctx.Vm.Games[1];
 
-        var exePath = Path.Combine(
-            endfield.InstallDirPath, "ArknightsEndfield", "Binaries", "Win64", "ArknightsEndfield.exe");
+        var exePath = Path.Combine(endfield.InstallDirPath, "Endfield.exe");
         Directory.CreateDirectory(Path.GetDirectoryName(exePath)!);
         await File.WriteAllBytesAsync(exePath, "MZ"u8.ToArray());
         await endfield.RefreshAsync();
