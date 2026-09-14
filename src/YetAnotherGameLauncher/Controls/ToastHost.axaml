@@ -25,8 +25,11 @@
                             <TextBlock Text="{Binding Message}" Classes="toast-message" TextWrapping="Wrap"/>
                         </StackPanel>
                         <Button Grid.Column="2" Classes="toast-close" Command="{Binding DismissCommand}"
-                                Content="✕"
-                                VerticalAlignment="Top"/>
+                                VerticalAlignment="Top">
+                            <Path Data="M 2 2 L 10 10 M 10 2 L 2 10"
+                                  Stroke="{Binding $parent[Button].Foreground}"
+                                  StrokeThickness="1" StrokeLineCap="Round"/>
+                        </Button>
                     </Grid>
                 </Border>
             </DataTemplate>

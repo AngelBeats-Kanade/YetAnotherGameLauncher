@@ -390,11 +390,25 @@
         <Style Selector="Border.toast-card.toast-warning Ellipse.toast-dot">
             <Setter Property="Fill" Value="{DynamicResource AppPredownloadBadge}"/>
         </Style>
+        <!-- Toast 关闭钮：幽灵图标钮（透明圆底 + 线条 X，hover 浮现浅圆底，pressed 加深一档） -->
         <Style Selector="Button.toast-close">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Padding" Value="6,2"/>
-            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Width" Value="22"/>
+            <Setter Property="Height" Value="22"/>
+            <Setter Property="CornerRadius" Value="11"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="Foreground" Value="{DynamicResource AppTextSecondary}"/>
+        </Style>
+        <Style Selector="Button.toast-close /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="Button.toast-close:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppSidebarHover}"/>
+        </Style>
+        <Style Selector="Button.toast-close:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppCardBorder}"/>
         </Style>
 
         <!-- ========== 启动失败覆盖层（详情页内）：纱罩 + 错误卡 + accent 关闭钮 ========== -->
