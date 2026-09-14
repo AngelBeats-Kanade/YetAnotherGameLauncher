@@ -281,6 +281,109 @@ public class UiScreenshotTests
         }, CancellationToken.None);
     }
 
+    /// <summary>
+    /// Proton 更新确认覆盖层的视觉自检：Linux 设置页选 GE-Proton → 检测到新版本 →
+    /// 纱罩 + 居中卡（新版本号 + 旧版本清理提示 + 更新/取消）。
+    /// </summary>
+    [Fact]
+    public async Task Export_ProtonUpdateConfirm_ForReview()
+    {
+        var outDir = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "..", "artifacts", "ui-review"));
+        Directory.CreateDirectory(outDir);
+
+        using var ctx = VmFactory.Build(
+            templateFactory: () => VmFactory.SampleConfigJson,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            linuxProtonVersions: [],
+            umuProvisioner: new UpdateConfirmProvisioner
+            {
+                InstalledProtonPath = "/compat/GE-Proton11-6",
+                LatestTag = "GE-Proton11-7",
+            });
+
+        await HeadlessSession.Instance.Dispatch(async () =>
+        {
+            await ctx.Vm.InitializeAsync();
+            var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
+            window.NavIndicatorAnimationEnabled = false;
+            window.Show();
+            window.UpdateLayout();
+
+            ctx.Vm.SelectedGame = ctx.Vm.Games[0];
+            ctx.Vm.ShowGameSettingsCommand.Execute(null);
+            window.UpdateLayout();
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+
+            var settings = (ctx.Vm.CurrentPage as GameSettingsViewModel)?.LaunchSettings;
+            Assert.NotNull(settings);
+            settings.SelectedProtonFlavor = "GE-Proton";
+
+            // 纱罩回归守卫：覆盖层弹出后，页面背景点必须比弹出前显著变暗
+            // （2026-09 实锤：视觉分析工具曾连续误报"纱罩未生效"，以像素级断言为准）
+            int LuminanceAt(int x, int y)
+            {
+                Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+                using var probe = window.CaptureRenderedFrame();
+                Assert.NotNull(probe);
+                using var fb = probe.Lock();
+                var addr = fb.Address + (y * fb.RowBytes) + (x * 4);
+                return System.Runtime.InteropServices.Marshal.ReadByte(addr)
+                    + System.Runtime.InteropServices.Marshal.ReadByte(addr + 1)
+                    + System.Runtime.InteropServices.Marshal.ReadByte(addr + 2);
+            }
+
+            var before = LuminanceAt(430, 130);
+            await settings.CheckProtonUpdateCommand.ExecuteAsync(null);
+            Assert.True(settings.ShowProtonUpdateConfirm);
+            var after = LuminanceAt(430, 130);
+            Assert.True(after < before, $"纱罩未压暗底页：before={before} after={after}");
+
+            window.UpdateLayout();
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+
+            Thread.Sleep(150);
+            Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+            var frame = window.CaptureRenderedFrame();
+            Assert.NotNull(frame);
+            frame.Save(Path.Combine(outDir, "15-proton-update-confirm-dark.png"), new PngBitmapEncoderOptions());
+
+            window.Close();
+            return 0;
+        }, CancellationToken.None);
+    }
+
+    /// <summary>更新确认截图的组件准备器替身：本地 11-6、上游 11-7 → 必然弹更新确认。</summary>
+    private sealed class UpdateConfirmProvisioner : YetAnotherGameLauncher.Core.Abstractions.IUmuComponentProvisioner
+    {
+        public string? InstalledProtonPath { get; set; }
+
+        public string LatestTag { get; set; } = "GE-Proton11-7";
+
+        public bool IsProtonReady(string protonPath) => true;
+
+        public bool IsRuntimeReady(string runtimeVariant) => true;
+
+        public (string Variant, string Name)? ResolveRequiredRuntime(string protonRequest) => null;
+
+        public string? FindInstalledProton(string protonRequest) => InstalledProtonPath;
+
+        public Task<string> FetchLatestProtonTagAsync(
+            string protonRequest, CancellationToken cancellationToken = default) => Task.FromResult(LatestTag);
+
+        public Task<string> UpdateProtonAsync(
+            string protonRequest, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+            => Task.FromResult(InstalledProtonPath ?? "/compat/GE-Proton11-7");
+
+        public Task<string> EnsureProtonAsync(
+            string protonRequest, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+            => Task.FromResult(InstalledProtonPath ?? "/compat/GE-Proton11-7");
+
+        public Task EnsureRuntimeAsync(
+            string runtimeVariant, string runtimeName,
+            IProgress<string>? progress = null, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
     /// <summary>画一张蓝色系渐变测试图，供详情页背景（模糊）截图使用。</summary>
     private static void CreateTestBackground(string path)
     {

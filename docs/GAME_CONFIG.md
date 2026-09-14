@@ -76,7 +76,9 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 > `CompatTools.BuildRecommendedLaunch`。）仅在首运生成那一刻执行一次，此后配置以用户修改为准。
 >
 > 设置页启动方式二选一：**umu 启动**（默认，旁边可选 Proton 发行版 DW/GE/UMU-Proton，
-> 选择写入 `environment.PROTONPATH` 代号，组件准备按对应仓库拉 latest）与**直接运行**；
+> 选择写入 `environment.PROTONPATH` 代号并即时保存——只下载所选发行版，空配置兜底 DW-Proton；
+> 下载资产按主机架构匹配（x86_64/aarch64），杜绝装错架构）与**直接运行**；
+> 发行版本体用"检查更新"按钮显式检测/更新（更新后自动清理同发行版旧版本目录）；
 > 旧版 wine/Proton/外部 umu-run 模板仍可运行，进设置页仅作 umu 显示映射，主动切换并保存后才会改写。
 >
 > Wine prefix 由启动器统一放在 `{数据目录}/yagl/prefixes/<游戏id>`
@@ -159,7 +161,7 @@ Steam Runtime 容器与 Proton，发行版三选一），由启动器自动生�
     "UMU_ID": "umu-3513350",
     "WINEPREFIX": "~/.local/share/yagl/prefixes/wuthering-waves",
     "STEAM_COMPAT_DATA_PATH": "~/.local/share/yagl/prefixes/wuthering-waves",
-    "PROTONPATH": "DW-Proton",           // 发行版代号：DW-Proton / GE-Proton / UMU-Proton，按代号拉对应仓库 latest
+    "PROTONPATH": "DW-Proton",           // 发行版代号：DW-Proton / GE-Proton / UMU-Proton（缺失时按代号下载本机架构 latest）
     "SteamOS": "1"                       // 鸣潮过 ACE 反作弊需伪装 SteamOS；NVIDIA 卡再加 PROTON_ENABLE_NVAPI=1
   }
 }

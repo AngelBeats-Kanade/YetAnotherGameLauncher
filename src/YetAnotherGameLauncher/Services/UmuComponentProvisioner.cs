@@ -2,8 +2,8 @@ using System.Formats.Tar;
 using System.Globalization;
 using System.IO.Compression;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using SharpCompress.Common;
 using SharpCompress.Compressors.Xz;
@@ -19,14 +19,18 @@ namespace YetAnotherGameLauncher.Services;
 /// 原生 umu 兼容组件准备器：解析/下载 DW-Proton / GE-Proton / UMU-Proton 到 compatibilitytools.d，
 /// 下载 Steam Linux Runtime 到 ~/.local/share/umu/&lt;variant&gt;。纯 C#，不依赖 Python umu-run。
 /// DW-Proton 托管在 dawn.wine（Forgejo，API 兼容 GitHub releases 字段但 latest 为数组根）；GE/UMU 在 GitHub。
+/// 资产按主机架构过滤（hostArchitecture 可注入供测试），解压后再以 wineserver 的 ELF 头兜底校验。
 /// </summary>
 public sealed class UmuComponentProvisioner(
     HttpClient httpClient,
     IDownloader downloader,
     ILogger? logger = null,
     string? dataHome = null,
-    string? cacheHome = null) : IUmuComponentProvisioner
+    string? cacheHome = null,
+    Architecture? hostArchitecture = null) : IUmuComponentProvisioner
 {
+    /// <summary>主机（或测试注入）架构；资产过滤与 ELF 兜底校验的判定基准。</summary>
+    private Architecture HostArchitecture => hostArchitecture ?? RuntimeInformation.ProcessArchitecture;
     /// <summary>GE-Proton 最新 release 的 GitHub API。</summary>
     public const string GeProtonReleaseApi =
         "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest";
@@ -112,37 +116,17 @@ public sealed class UmuComponentProvisioner(
     {
         if (string.IsNullOrWhiteSpace(protonRequest))
         {
-            protonRequest = "UMU-Proton";
+            protonRequest = CompatTools.DefaultProtonFlavor;
         }
 
-        var ready = FindInstalledProtonPath(protonRequest);
-
-        // 1) 绝对路径 / compatibilitytools.d 下的具体版本已就绪
-        if (ready is not null && !IsCodename(protonRequest))
+        // 本地已就绪即用（含代号前缀最新）——启动/组件准备不联网、不静默拉 latest；更新走 UpdateProtonAsync
+        var ready = FindInstalledProton(protonRequest);
+        if (ready is not null)
         {
             return ready;
         }
 
-        // 2) 代号：本地最新作离线回退；下载最新失败才回退，不得静默换成其它 Proton
-        if (ready is not null)
-        {
-            try
-            {
-                return await DownloadLatestProtonAsync(protonRequest, progress, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex) when (ex is UpdateException or HttpRequestException or IOException or LaunchException)
-            {
-                logger?.LogWarning(ex, "Proton 更新失败，回退本地 {Path}", ready);
-                return ready;
-            }
-        }
-
-        // 3) 具体版本名只下该 tag；代号走 latest
+        // 缺失才下载：代号走 latest，具体版本名只下该 tag
         progress?.Report($"正在准备 Proton（{protonRequest}）…");
         if (IsCodename(protonRequest))
         {
@@ -157,7 +141,7 @@ public sealed class UmuComponentProvisioner(
     /// <inheritdoc />
     public (string Variant, string Name)? ResolveRequiredRuntime(string protonRequest)
     {
-        var path = FindInstalledProtonPath(protonRequest);
+        var path = FindInstalledProton(protonRequest);
         if (path is null)
         {
             return null;
@@ -180,12 +164,12 @@ public sealed class UmuComponentProvisioner(
         }
     }
 
-    /// <summary>按与 EnsureProtonAsync 相同的规则做纯本地解析（不下载）：绝对路径、compatibilitytools.d 版本名、代号前缀最新。</summary>
-    private string? FindInstalledProtonPath(string protonRequest)
+    /// <inheritdoc />
+    public string? FindInstalledProton(string protonRequest)
     {
         if (string.IsNullOrWhiteSpace(protonRequest))
         {
-            protonRequest = "UMU-Proton";
+            protonRequest = CompatTools.DefaultProtonFlavor;
         }
 
         if (Path.IsPathRooted(protonRequest) && IsProtonReady(protonRequest))
@@ -193,8 +177,9 @@ public sealed class UmuComponentProvisioner(
             return Path.GetFullPath(protonRequest);
         }
 
+        // 已装目录同样做架构校验：错架构的历史残留视同缺失（触发自愈重装），不让启动走到 exec 才失败
         var byName = Path.Combine(UmuPaths.SteamCompatRoot(dataHome), protonRequest);
-        if (IsProtonReady(byName))
+        if (IsProtonReady(byName) && MatchesHostArch(byName))
         {
             return Path.GetFullPath(byName);
         }
@@ -225,6 +210,189 @@ public sealed class UmuComponentProvisioner(
         progress?.Report($"正在下载 Steam Runtime（{runtimeVariant}）…");
         await DownloadRuntimeAsync(runtimeVariant, runtimeName, progress, cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<string> FetchLatestProtonTagAsync(
+        string protonRequest,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(protonRequest))
+        {
+            protonRequest = CompatTools.DefaultProtonFlavor;
+        }
+
+        var (_, json) = await FetchLatestReleaseAsync(protonRequest, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var release = SelectLatestRelease(document.RootElement);
+            if (release.ValueKind == JsonValueKind.Object
+                && release.TryGetProperty("tag_name", out var tag)
+                && !string.IsNullOrWhiteSpace(tag.GetString()))
+            {
+                return tag.GetString()!;
+            }
+
+            throw new LaunchException(
+                LaunchFailureKind.ProtonDownloadFailed,
+                "Proton 版本信息里缺少可用的 tag_name。");
+        }
+        catch (JsonException ex)
+        {
+            throw new LaunchException(
+                LaunchFailureKind.ProtonDownloadFailed,
+                $"Proton 版本信息解析失败：{ex.Message}",
+                ex);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<string> UpdateProtonAsync(
+        string protonRequest,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(protonRequest))
+        {
+            protonRequest = CompatTools.DefaultProtonFlavor;
+        }
+
+        // 非代号（绝对路径 / 具体版本名）没有发行版前缀语义，退化为确保就绪（不做旧版清理）
+        if (!IsCodename(protonRequest))
+        {
+            return await EnsureProtonAsync(protonRequest, progress, cancellationToken).ConfigureAwait(false);
+        }
+
+        var flavor = MatchFlavor(protonRequest)
+            ?? throw new LaunchException(
+                LaunchFailureKind.ProtonDownloadFailed,
+                $"不支持的 Proton 代号「{protonRequest}」（可用：DW-Proton / GE-Proton / UMU-Proton）。");
+
+        progress?.Report($"正在下载 {protonRequest} 最新版本…");
+        var newPath = await DownloadLatestProtonAsync(protonRequest, progress, cancellationToken)
+            .ConfigureAwait(false);
+        PruneOtherProtonVersions(newPath, flavor.LocalPrefix);
+        return newPath;
+    }
+
+    /// <summary>删除 compatibilitytools.d 下同发行版前缀、非当前目录的已就绪 Proton 旧版本（更新后清理）。
+    /// 与安装共用 proton.lock（下载锁已释放，此处串行化清理与并发安装）；删除失败仅记日志不中断——
+    /// 旧版残留只占磁盘，不影响运行。</summary>
+    private void PruneOtherProtonVersions(string keepPath, string localPrefix)
+    {
+        using (UmuPrefix.AcquireLock(UmuPaths.LockFile("proton.lock")))
+        {
+            var root = UmuPaths.SteamCompatRoot(dataHome);
+            if (!Directory.Exists(root))
+            {
+                return;
+            }
+
+            var keep = Path.GetFullPath(keepPath);
+            foreach (var dir in Directory.EnumerateDirectories(root))
+            {
+                var name = Path.GetFileName(dir);
+                if (!name.StartsWith(localPrefix, StringComparison.OrdinalIgnoreCase)
+                    || !IsProtonReady(dir)
+                    || string.Equals(Path.GetFullPath(dir), keep, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    Directory.Delete(dir, recursive: true);
+                    logger?.LogInformation("Pruned old Proton {Dir}", dir);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    logger?.LogWarning(ex, "旧版 Proton 目录删除失败：{Dir}", dir);
+                }
+            }
+        }
+    }
+
+    /// <summary>ELF e_machine 常量：x86-64 与 aarch64（Proton 的 wineserver 均为 64 位 ELF）。</summary>
+    private const ushort ElfMachineX86_64 = 0x3E;
+
+    /// <summary>ELF e_machine 常量：aarch64。</summary>
+    private const ushort ElfMachineAarch64 = 0xB7;
+
+    /// <summary>主机（或测试注入）架构对应的 wineserver ELF e_machine；其余架构 null（无从判别，跳过校验）。</summary>
+    private ushort? ExpectedElfMachine => HostArchitecture switch
+    {
+        Architecture.X64 => ElfMachineX86_64,
+        Architecture.Arm64 => ElfMachineAarch64,
+        _ => null,
+    };
+
+    /// <summary>读 Proton 目录内 files/bin/wineserver 的 ELF e_machine；文件缺失/过短/非 ELF/不可读返回 null（跳过校验）。</summary>
+    internal static ushort? ReadWineserverElfMachine(string protonDir)
+    {
+        var path = Path.Combine(protonDir, "files", "bin", "wineserver");
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(path);
+            Span<byte> header = stackalloc byte[20];
+            var filled = 0;
+            while (filled < header.Length)
+            {
+                var read = stream.Read(header[filled..]);
+                if (read == 0)
+                {
+                    return null;
+                }
+
+                filled += read;
+            }
+
+            if (header[0] != 0x7F || header[1] != (byte)'E' || header[2] != (byte)'L' || header[3] != (byte)'F')
+            {
+                return null;
+            }
+
+            return (ushort)(header[18] | (header[19] << 8));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>解压出的 Proton 是否与主机架构一致（wineserver 的 ELF e_machine 对照；无法判别时视为一致）。</summary>
+    private bool MatchesHostArch(string protonDir)
+    {
+        var machine = ReadWineserverElfMachine(protonDir);
+        return machine is null || ExpectedElfMachine is not { } expected || machine == expected;
+    }
+
+    /// <summary>ELF e_machine → 架构名（错误消息用）。</summary>
+    private static string ArchDisplayName(ushort machine) => machine switch
+    {
+        ElfMachineX86_64 => "x86_64",
+        ElfMachineAarch64 => "aarch64",
+        _ => $"unknown(0x{machine:X})",
+    };
+
+    /// <summary>尽力删除目录（不存在或失败均静默；架构拦截回滚用）。</summary>
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
     }
 
     /// <summary>按 release tag 下载指定版本 Proton；找不到该 tag 时抛可操作错误（禁止静默换成最新）。</summary>
@@ -273,12 +441,12 @@ public sealed class UmuComponentProvisioner(
         try
         {
             using var document = JsonDocument.Parse(json);
-            asset = SelectTarAsset(document.RootElement, requiredPrefix: null);
+            asset = SelectTarAsset(document.RootElement, requiredPrefix: null, ArchSuffixFor(HostArchitecture));
             if (string.IsNullOrEmpty(asset.Url))
             {
                 throw new LaunchException(
                     LaunchFailureKind.ProtonDownloadFailed,
-                    $"Proton {tagName} 的 release 里没有 .tar.gz/.tar.xz 资产。");
+                    $"Proton {tagName} 的 release 里没有适配本机架构的 .tar.gz/.tar.xz 资产。");
             }
         }
         catch (LaunchException)
@@ -304,40 +472,18 @@ public sealed class UmuComponentProvisioner(
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
-        var flavor = MatchFlavor(protonRequest)
-            ?? throw new LaunchException(
-                LaunchFailureKind.ProtonDownloadFailed,
-                $"不支持的 Proton 代号「{protonRequest}」（可用：DW-Proton / GE-Proton / UMU-Proton）。");
-
-        string json;
-        try
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Get, flavor.LatestApi);
-            request.Headers.UserAgent.ParseAdd("YetAnotherGameLauncher");
-            using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-            json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
-        {
-            throw new LaunchException(
-                LaunchFailureKind.ProtonDownloadFailed,
-                $"无法获取 Proton 版本信息（请检查网络或代理）：{ex.Message}",
-                ex);
-        }
+        var (flavor, json) = await FetchLatestReleaseAsync(protonRequest, cancellationToken).ConfigureAwait(false);
 
         (string Name, string Url) asset;
         try
         {
             using var document = JsonDocument.Parse(json);
-            asset = SelectTarAsset(SelectLatestRelease(document.RootElement), flavor.AssetPrefix);
+            asset = SelectTarAsset(
+                SelectLatestRelease(document.RootElement), flavor.AssetPrefix, ArchSuffixFor(HostArchitecture));
             if (string.IsNullOrEmpty(asset.Url))
             {
-                throw new UpdateException($"Proton release 里没有匹配 {flavor.AssetPrefix}*.tar.gz/.tar.xz 的资产。");
+                throw new UpdateException(
+                    $"Proton release 里没有匹配 {flavor.AssetPrefix}* 且适配本机架构的 .tar.gz/.tar.xz 资产。");
             }
         }
         catch (JsonException ex)
@@ -351,6 +497,38 @@ public sealed class UmuComponentProvisioner(
         progress?.Report($"正在下载 {asset.Name}…");
         var (targetDir, tarPath) = ResolveProtonInstallPaths(asset.Name);
         return await InstallProtonAssetAsync(asset, targetDir, tarPath, tagName: null, cancellationToken);
+    }
+
+    /// <summary>GET 发行版 latest API，返回发行版定义与 release JSON 文本（Forgejo 数组根由 SelectLatestRelease 归一）。
+    /// 代号不受支持、网络失败抛 LaunchException；下载与"仅查版本"共用。</summary>
+    private async Task<(ProtonFlavor Flavor, string Json)> FetchLatestReleaseAsync(
+        string protonRequest, CancellationToken cancellationToken)
+    {
+        var flavor = MatchFlavor(protonRequest)
+            ?? throw new LaunchException(
+                LaunchFailureKind.ProtonDownloadFailed,
+                $"不支持的 Proton 代号「{protonRequest}」（可用：DW-Proton / GE-Proton / UMU-Proton）。");
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, flavor.LatestApi);
+            request.Headers.UserAgent.ParseAdd("YetAnotherGameLauncher");
+            using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            return (flavor, json);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            throw new LaunchException(
+                LaunchFailureKind.ProtonDownloadFailed,
+                $"无法获取 Proton 版本信息（请检查网络或代理）：{ex.Message}",
+                ex);
+        }
     }
 
     /// <summary>取"最新 release"元素：GitHub latest 为对象根原样返回；Forgejo（dawn.wine）为数组根，取首个非 draft/prerelease。</summary>
@@ -374,8 +552,11 @@ public sealed class UmuComponentProvisioner(
         return default;
     }
 
-    /// <summary>从 release 资产里选第一个可用的 .tar.gz/.tar.xz（排除校验与种子文件）；requiredPrefix 非空时限定文件名前缀。</summary>
-    private static (string Name, string Url) SelectTarAsset(JsonElement release, string? requiredPrefix)
+    /// <summary>从 release 资产里选适配主机架构的 .tar.gz/.tar.xz（排除校验与种子文件）；requiredPrefix 非空时限定文件名前缀。
+    /// GitHub 资产顺序即上传顺序（GE-Proton 曾把 aarch64 排在 x86_64 之前），不能取第一个匹配：
+    /// 优先带本机架构后缀的资产，其次无架构后缀的资产；与主机相反的架构一律排除。</summary>
+    internal static (string Name, string Url) SelectTarAsset(
+        JsonElement release, string? requiredPrefix, string? hostArchSuffix)
     {
         if (release.ValueKind != JsonValueKind.Object
             || !release.TryGetProperty("assets", out var assets)
@@ -384,7 +565,7 @@ public sealed class UmuComponentProvisioner(
             return default;
         }
 
-        return assets.EnumerateArray()
+        var candidates = assets.EnumerateArray()
             .Select(a => (
                 Name: a.GetProperty("name").GetString() ?? "",
                 Url: a.GetProperty("browser_download_url").GetString() ?? ""))
@@ -395,9 +576,53 @@ public sealed class UmuComponentProvisioner(
                         && !a.Name.Contains("sha512", StringComparison.OrdinalIgnoreCase)
                         && !a.Name.Contains("sha256sum", StringComparison.OrdinalIgnoreCase)
                         && !a.Name.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase))
-            .ToArray()
-            .FirstOrDefault();
+            // 带架构后缀但与主机不符的资产排除；主机架构未知（null）时无从判别，保留全部
+            .Where(a => AssetArchSuffix(AssetStem(a.Name)) is not { } assetSuffix
+                        || hostArchSuffix is null
+                        || string.Equals(assetSuffix, hostArchSuffix, StringComparison.Ordinal))
+            .ToList();
+
+        var hostMatched = candidates.FirstOrDefault(a =>
+            hostArchSuffix is not null
+            && string.Equals(AssetArchSuffix(AssetStem(a.Name)), hostArchSuffix, StringComparison.Ordinal));
+        if (!string.IsNullOrEmpty(hostMatched.Url))
+        {
+            return hostMatched;
+        }
+
+        // 无架构后缀的资产（UMU-Proton 单架构发布形态）对任何主机可用
+        return candidates.FirstOrDefault(a => AssetArchSuffix(AssetStem(a.Name)) is null);
     }
+
+    /// <summary>资产名去 .tar.gz/.tar.xz 扩展后的主体（架构后缀判断的基准）。</summary>
+    private static string AssetStem(string assetName) =>
+        assetName.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)
+            ? assetName[..^".tar.gz".Length]
+            : assetName.EndsWith(".tar.xz", StringComparison.OrdinalIgnoreCase)
+                ? assetName[..^".tar.xz".Length]
+                : assetName;
+
+    /// <summary>主体名携带的架构后缀（"-x86_64" / "-aarch64"）；没有返回 null。</summary>
+    private static string? AssetArchSuffix(string stem)
+    {
+        foreach (var suffix in ArchSuffixes)
+        {
+            if (stem.EndsWith(suffix, StringComparison.Ordinal) && stem.Length > suffix.Length)
+            {
+                return suffix;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>架构 → 资产名后缀映射；x86_64/arm64 之外返回 null（无从判别，仅接受无后缀资产）。</summary>
+    private static string? ArchSuffixFor(Architecture architecture) => architecture switch
+    {
+        Architecture.X64 => "-x86_64",
+        Architecture.Arm64 => "-aarch64",
+        _ => null,
+    };
 
     /// <summary>计算 Proton 压缩包的解压目标目录（compatibilitytools.d 下）与缓存归档路径，并建好所需目录。</summary>
     private (string TargetDir, string TarPath) ResolveProtonInstallPaths(string assetName)
@@ -414,28 +639,18 @@ public sealed class UmuComponentProvisioner(
     /// （dwproton-11.0-12-x86_64.tar.xz → dwproton-11.0-12，与 GE/UMU 的版本目录命名对齐）。</summary>
     private static string ProtonExtractDirectoryName(string assetName)
     {
-        var name = assetName.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)
-            ? assetName[..^".tar.gz".Length]
-            : assetName.EndsWith(".tar.xz", StringComparison.OrdinalIgnoreCase)
-                ? assetName[..^".tar.xz".Length]
-                : Path.GetFileNameWithoutExtension(assetName);
-        foreach (var arch in ArchSuffixes)
-        {
-            if (name.EndsWith(arch, StringComparison.Ordinal) && name.Length > arch.Length)
-            {
-                return name[..^arch.Length];
-            }
-        }
-
-        return name;
+        var stem = AssetStem(assetName);
+        var arch = AssetArchSuffix(stem);
+        return arch is null ? stem : stem[..^arch.Length];
     }
 
     /// <summary>发布资产名里可能携带的架构后缀。</summary>
     private static readonly string[] ArchSuffixes = ["-x86_64", "-aarch64"];
 
     /// <summary>
-    /// proton.lock 互斥下的落位流程：已就绪直接返回；否则下载归档 → 解包 → 校验目录布局 → 补执行位，
-    /// 归档无论成败用后即删。tagName 仅用于日志（按 tag 下载时记录版本名）。返回 Proton 绝对目录。
+    /// proton.lock 互斥下的落位流程：已就绪且架构相符直接返回（架构不符视同缺失，走重装覆盖）；
+    /// 否则下载归档 → 解包 → 校验目录布局 → 校验 wineserver 架构 → 补执行位，归档无论成败用后即删。
+    /// tagName 仅用于日志（按 tag 下载时记录版本名）。返回 Proton 绝对目录。
     /// </summary>
     private async Task<string> InstallProtonAssetAsync(
         (string Name, string Url) asset,
@@ -446,7 +661,7 @@ public sealed class UmuComponentProvisioner(
     {
         using (UmuPrefix.AcquireLock(UmuPaths.LockFile("proton.lock")))
         {
-            if (IsProtonReady(targetDir))
+            if (IsProtonReady(targetDir) && MatchesHostArch(targetDir))
             {
                 return Path.GetFullPath(targetDir);
             }
@@ -466,6 +681,16 @@ public sealed class UmuComponentProvisioner(
                     throw new LaunchException(
                         LaunchFailureKind.ProtonDownloadFailed,
                         $"Proton 包「{asset.Name}」解压后缺少 proton 或 toolmanifest.vdf。");
+                }
+
+                // 兜底校验：无架构后缀的资产也可能装错架构（wineserver 的 ELF e_machine 对照主机）
+                var machine = ReadWineserverElfMachine(targetDir);
+                if (machine is not null && ExpectedElfMachine is { } expected && machine != expected)
+                {
+                    TryDeleteDirectory(targetDir);
+                    throw new LaunchException(
+                        LaunchFailureKind.ProtonDownloadFailed,
+                        $"Proton 包「{asset.Name}」是 {ArchDisplayName(machine.Value)} 架构，与本机不符，已中止安装并清理。");
                 }
 
                 TryChmod(Path.Combine(targetDir, "proton"));
@@ -806,17 +1031,17 @@ public sealed class UmuComponentProvisioner(
             return null;
         }
 
-        // 数字段自然序：GE-Proton10-* 应排在 GE-Proton9-* 之前
+        // 数字段自然序（单一事实源 CompatTools.NumericSortKey）：GE-Proton10-* 应排在 GE-Proton9-* 之前；
+        // 架构不符的已装目录跳过（视同缺失，调用方走下载自愈）
         return Directory.EnumerateDirectories(root)
             .Where(d =>
             {
                 var name = Path.GetFileName(d);
-                return IsProtonReady(d) && name.StartsWith(filter, StringComparison.OrdinalIgnoreCase);
+                return IsProtonReady(d)
+                    && MatchesHostArch(d)
+                    && name.StartsWith(filter, StringComparison.OrdinalIgnoreCase);
             })
-            .OrderByDescending(
-                d => string.Concat(Regex
-                    .Matches(Path.GetFileName(d), @"\d+").Select(m => m.Value.PadLeft(6, '0'))),
-                StringComparer.Ordinal)
+            .OrderByDescending(d => CompatTools.NumericSortKey(Path.GetFileName(d)), StringComparer.Ordinal)
             .Select(Path.GetFullPath)
             .FirstOrDefault();
     }

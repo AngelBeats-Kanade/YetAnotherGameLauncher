@@ -129,14 +129,21 @@ Linux 上如何运行（umu / 直接运行）完全由配置决定，代码零�
 设置页启动方式二选一：**umu 启动**（默认，`native-umu {exe}`）与**直接运行**（`{exe}`，Windows 唯一方式）；
 旧版 wine/Proton/外部 umu-run 模板仍可执行，仅不再出现在选择器中。
 umu 模式旁有 **Proton 发行版选择**（DW-Proton / GE-Proton / UMU-Proton，默认 DW-Proton）：
-代号写入 `environment.PROTONPATH`，启动解析与组件准备共用它（`CompatTools.ResolveNativeProtonRequest`
-优先读 PROTONPATH），代号语义 = 按对应仓库拉 latest、离线回退该前缀本地最新。
+代号写入 `environment.PROTONPATH` 并即时保存，启动解析与组件准备共用它
+（`CompatTools.ResolveNativeProtonRequest` 优先读 PROTONPATH，空配置兜底 DW-Proton——绝不回退 UMU-Proton）。
+代号语义 = 只下载所选发行版：本地已装该前缀最新且**架构相符**（wineserver ELF 判定）即直接用
+（启动/组件准备不联网、不静默更新），缺失或已装为错架构才按代号拉对应仓库 latest（自愈重装）；
+版本更新由设置页"检查更新"按钮显式触发
+（`FetchLatestProtonTagAsync` 查上游 tag，确认后 `UpdateProtonAsync` 装新版并清理同发行版旧目录）。
 UMU_ID 由 `launch.umuId` 覆盖（对齐 umu 数据库规范 ID：鸣潮 `umu-3513350`、终末地 `umu-endfield`）。
 推荐链单一事实源在 `CompatTools.BuildRecommendedLaunch`（默认原生 umu）。原生链在
 `NativeUmuLauncher` + `IUmuComponentProvisioner`：
 
 1. 解析/下载 Proton（DW-Proton [dawn.wine Forgejo] / GE-Proton / UMU-Proton [GitHub]
-   → `~/.local/share/Steam/compatibilitytools.d`；DW 资产 tar.xz 且目录名去架构后缀）
+   → `~/.local/share/Steam/compatibilitytools.d`；DW 资产 tar.xz 且目录名去架构后缀）。
+   资产按**主机架构过滤**（`-x86_64`/`-aarch64` 后缀：优先同架构、次选无后缀、排除反向——
+   GitHub 资产顺序即上传顺序，GE-Proton11-6 曾把 aarch64 排在 x86_64 之前），解压后再以
+   `files/bin/wineserver` 的 ELF e_machine 兜底校验，架构不符即中止并清理
 2. 读 `toolmanifest.vdf` 得所需 Steam Runtime，缺失则下载到 `~/.local/share/umu/<variant>`（SHA256 校验）
 3. `UmuPrefix.Setup` 布好 Proton 兼容 prefix（pfx 符号链接、shadercache、steamuser）
 4. `UmuEnvironment.Build` 写完整 STEAM_COMPAT_* / UMU_* 环境

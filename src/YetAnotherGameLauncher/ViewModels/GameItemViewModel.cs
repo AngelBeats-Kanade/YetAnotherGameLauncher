@@ -590,8 +590,7 @@ public partial class GameItemViewModel(
             // 抛出明确的「仅支持 Linux」错误，而不是把 native-umu 当命令名报「找不到」
             if (IsNativeUmuTemplate() && _nativeUmu is not null)
             {
-                var proton = CompatTools.ResolveNativeProtonRequest(
-                    Game.Launch.Environment, CompatTools.FindProtonVersions());
+                var proton = CompatTools.ResolveNativeProtonRequest(Game.Launch.Environment);
                 var progress = new Progress<string>(msg => StatusText = msg);
                 await _nativeUmu.LaunchAsync(
                     Game.Id, _installDir, Game.Executable, proton,

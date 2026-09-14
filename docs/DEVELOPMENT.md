@@ -57,7 +57,9 @@ src/
                     BackgroundImageService（静态背景图加载与缓存：会话内存 + http 来源磁盘缓存，失败结果按 TTL 短暂缓存；ReloadAsync 绕过缓存强制重取）、
                     UmuLauncherInstaller（外部 umu-run zipapp 引导安装，回退路径）、
                     UmuComponentProvisioner（原生 umu 的 Proton/Runtime 下载与校验；Proton 发行版三源：
-                    DW-Proton 走 dawn.wine Forgejo API，GE/UMU-Proton 走 GitHub），
+                    DW-Proton 走 dawn.wine Forgejo API，GE/UMU-Proton 走 GitHub；资产按主机架构过滤
+                    ——-x86_64/-aarch64 后缀 + wineserver ELF 头兜底；另提供上游 tag 查询与更新
+                    ——装新版并清理同发行版旧目录，供设置页"检查更新"按钮使用），
                     FilePickerService/IFilePickerService（系统文件/目录选择器封装）
     Controls/       AppBackdrop（应用背景层：主题渐变 + 光晕 + 自定义背景图）、FrameSurface（背景视频帧自绘渲染面）、
                     AboutPage/GachaPage/SettingsPage/GameSettingsPage（四个整页 UserControl，从 MainWindow 内联
@@ -72,11 +74,11 @@ src/
 tests/
   YetAnotherGameLauncher.TestSupport/           # 共享测试设施（可复用的替身与工具）
     FakeDownloader / FakePatchApplier / FakeProcessRunner / FakeChannel / FakePlatformInfo / StubHttpHandler / TempDir / TestZip / ManualTimeProvider（虚拟时钟）
-  YetAnotherGameLauncher.Core.Tests/            # 领域层 224 个测试（2026-09-13 实测）
-  YetAnotherGameLauncher.Channels.Kuro.Tests/   # 45 个测试（2026-09-13 实测）
-  YetAnotherGameLauncher.Channels.Hypergryph.Tests/ # 17 个测试（2026-09-13 实测）
-  YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口 199 个测试（2026-09-13 实测）
-  # 数量为 2026-09 实测（共 485）；随开发增长，以实际运行为准
+  YetAnotherGameLauncher.Core.Tests/            # 领域层 232 个测试（2026-09-14 实测）
+  YetAnotherGameLauncher.Channels.Kuro.Tests/   # 45 个测试（2026-09-14 实测）
+  YetAnotherGameLauncher.Channels.Hypergryph.Tests/ # 17 个测试（2026-09-14 实测）
+  YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口 235 个测试（2026-09-14 实测）
+  # 数量为 2026-09-14 实测（共 529）；随开发增长，以实际运行为准
 ```
 
 构建约定（`Directory.Build.props`）：`net10.0`、`Nullable=enable`、`ImplicitUsings`、

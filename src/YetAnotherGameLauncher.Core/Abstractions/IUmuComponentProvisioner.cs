@@ -39,4 +39,25 @@ public interface IUmuComponentProvisioner
         string runtimeName,
         IProgress<string>? progress = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>按与 EnsureProtonAsync 相同的规则纯本地解析 Proton 请求（不下载），返回绝对目录；没有返回 null。
+    /// 代号请求返回该发行版前缀下已装的最新版本目录。</summary>
+    /// <param name="protonRequest">绝对路径、版本名（GE-Proton9-27）或代号（GE-Proton / UMU-Proton）。</param>
+    string? FindInstalledProton(string protonRequest);
+
+    /// <summary>查询指定发行版上游仓库的最新 release tag（如 GE-Proton11-6），不下载任何资产。</summary>
+    /// <param name="protonRequest">发行版代号（DW-Proton / GE-Proton / UMU-Proton）。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <exception cref="YetAnotherGameLauncher.Core.Abstractions.LaunchException">网络失败、版本信息不可解析或发行版不受支持。</exception>
+    Task<string> FetchLatestProtonTagAsync(string protonRequest, CancellationToken cancellationToken = default);
+
+    /// <summary>下载指定发行版的最新构建并删除同发行版前缀的旧版本目录（其它发行版不受影响）；返回新版绝对目录。
+    /// 与 EnsureProtonAsync 的区别：更新语义（装后清理旧版），供"检查更新"按钮使用。</summary>
+    /// <param name="protonRequest">发行版代号（DW-Proton / GE-Proton / UMU-Proton）。</param>
+    /// <param name="progress">下载/安装进度文本回调（供 UI 展示）；不需要时传 null。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    Task<string> UpdateProtonAsync(
+        string protonRequest,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default);
 }

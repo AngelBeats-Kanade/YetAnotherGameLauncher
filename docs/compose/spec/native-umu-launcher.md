@@ -162,7 +162,8 @@ Windows 主机上 Native umu 路径不激活（`OperatingSystem.IsLinux()` 门�
 #### 2.3.7 下载与校验
 
 - 复用 `IDownloader`（Range 续传、重试）。
-- Proton：GitHub API `releases/latest`（User-Agent 必填）；资产匹配 `GE-Proton*` 或 `UMU-Proton*` 的 `.tar.gz`；可选 `.sha512sum`；解压后校验目录内存在 `proton` + `toolmanifest.vdf`。
+- Proton：GitHub API `releases/latest`（User-Agent 必填）；资产匹配发行版前缀的 `.tar.gz/.tar.xz` 并**按主机架构过滤**（`-x86_64`/`-aarch64` 后缀：同架构优先、无后缀次之、反向排除——GitHub 资产顺序即上传顺序；解压后再以 `files/bin/wineserver` 的 ELF e_machine 兜底校验）；解压后校验目录内存在 `proton` + `toolmanifest.vdf`。
+- 版本更新为显式动作（设置页"检查更新"）：`FetchLatestProtonTagAsync` 只查 tag，确认后 `UpdateProtonAsync` 装新版并清理同发行版旧目录；启动/组件准备本地已装即用，不静默拉 latest。
 - Runtime：`SHA256SUMS` 按文件名匹配校验后再落位。**解压用 System.Formats.Tar 逐条目落盘并按 tar 头还原 Unix 权限位**（含执行位与符号链接——SharpCompress 的解压不保留执行位，Proton/Runtime 树离开执行位无法启动；xz 容器仍用 SharpCompress 的 `XZStream`，BCL 无 XZ 解码）。
 
 **分层裁决**：网络大文件下载与解压实现放 **App 层服务**（`UmuComponentProvisioner`，实现 `IUmuComponentProvisioner`），Core 只定义接口 + 纯逻辑。与 `UmuLauncherInstaller` 现状一致（App 下载、Core 发现）。

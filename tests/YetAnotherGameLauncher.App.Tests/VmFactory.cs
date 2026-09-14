@@ -129,7 +129,8 @@ public static class VmFactory
         string? linuxUmuPath = "",
         string? linuxWinePath = "",
         string? linuxDataHome = null,
-        YetAnotherGameLauncher.Core.Services.Umu.NativeUmuLauncher? nativeUmu = null)
+        YetAnotherGameLauncher.Core.Services.Umu.NativeUmuLauncher? nativeUmu = null,
+        YetAnotherGameLauncher.Core.Abstractions.IUmuComponentProvisioner? umuProvisioner = null)
     {
         var tempDir = new TempDir();
         var configPath = tempDir.FilePath("games.json");
@@ -198,7 +199,8 @@ public static class VmFactory
             linuxWinePath: linuxWinePath,
             linuxDataHome: linuxDataHome ?? tempDir.FilePath("data-home"),
             umuInstaller: umuInstaller,
-            nativeUmu: nativeUmu);
+            nativeUmu: nativeUmu,
+            umuProvisioner: umuProvisioner);
 
         return new Context
         {

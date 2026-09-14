@@ -192,21 +192,19 @@ public sealed class NativeUmuCoreTests : IDisposable
     }
 
     [Fact]
-    public void ResolveNativeProtonRequest_UsesEnvThenRecommended()
+    public void ResolveNativeProtonRequest_UsesEnvThenDefaultFlavor()
     {
         Assert.Equal(
             "/x/GE-Proton",
             CompatTools.ResolveNativeProtonRequest(
-                new Dictionary<string, string> { ["PROTONPATH"] = "/x/GE-Proton" },
-                ["GE-Proton10-9"]));
+                new Dictionary<string, string> { ["PROTONPATH"] = "/x/GE-Proton" }));
+        // 空环境一律回 UI 默认发行版 DW-Proton（与下拉框默认一致，绝不回退 UMU-Proton）
         Assert.Equal(
-            "GE-Proton10-9",
-            CompatTools.ResolveNativeProtonRequest(
-                new Dictionary<string, string>(),
-                ["GE-Proton10-9", "dw-proton"]));
+            "DW-Proton",
+            CompatTools.ResolveNativeProtonRequest(new Dictionary<string, string>()));
         Assert.Equal(
-            "UMU-Proton",
-            CompatTools.ResolveNativeProtonRequest(null, []));
+            "DW-Proton",
+            CompatTools.ResolveNativeProtonRequest(null));
     }
 
     [Fact]

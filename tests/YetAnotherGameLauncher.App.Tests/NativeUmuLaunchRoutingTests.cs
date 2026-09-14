@@ -98,6 +98,15 @@ public class NativeUmuLaunchRoutingTests : IDisposable
             string runtimeVariant, string runtimeName,
             IProgress<string>? progress = null, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
+
+        public string? FindInstalledProton(string protonRequest) => protonDir;
+
+        public Task<string> FetchLatestProtonTagAsync(string protonRequest, CancellationToken cancellationToken = default)
+            => Task.FromResult(protonRequest);
+
+        public Task<string> UpdateProtonAsync(
+            string protonRequest, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+            => Task.FromResult(protonDir);
     }
 
     private string CreateFakeProton()

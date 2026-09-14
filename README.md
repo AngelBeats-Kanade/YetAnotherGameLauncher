@@ -17,7 +17,7 @@
 | 功能 | 说明 |
 |---|---|
 | 游戏启动 | 命令模板 `{exe}` / `{installDir}` 占位符 + 环境变量注入；启动预检（主程序/运行时/prefix）给出类目化中文错误，游戏输出落盘启动日志（`~/.local/share/yagl/logs/`），失败弹主题化错误卡（含打开日志目录） |
-| Linux 启动方式选择器 | **umu 启动 / 直接运行**二选一（仅 Linux 显示）；默认 **umu 启动**（内置 C# 启动链，按 Proton 的 toolmanifest 自动下载 Proton 与 Steam Runtime 并搭建容器与 prefix，无需外部 umu-run）；旁边可选 **Proton 发行版**：DW-Proton（默认，Dawn Winery 构建，dawn.wine）/ GE-Proton / UMU-Proton，按代号拉对应仓库 latest；UMU_ID 用 `launch.umuId` 对齐 umu 数据库规范 ID（鸣潮 `umu-3513350`、终末地 `umu-endfield`）；检测到 NVIDIA GPU 时推荐兼容环境；旧版 wine/umu-run/Proton 模板仍可运行；Linux 首运自动把默认 `{exe}` 模板升级为 umu 启动并落盘，开箱即可点启动 |
+| Linux 启动方式选择器 | **umu 启动 / 直接运行**二选一（仅 Linux 显示）；默认 **umu 启动**（内置 C# 启动链，按 Proton 的 toolmanifest 自动下载 Proton 与 Steam Runtime 并搭建容器与 prefix，无需外部 umu-run）；旁边可选 **Proton 发行版**：DW-Proton（默认，Dawn Winery 构建，dawn.wine）/ GE-Proton / UMU-Proton——**选择即保存，只下载所选发行版**，下载资产按主机架构（x86_64/aarch64）匹配绝不装错；发行版本体带**检查更新**按钮：检测到新版本弹确认框，确认后更新并自动清理旧版本目录；UMU_ID 用 `launch.umuId` 对齐 umu 数据库规范 ID（鸣潮 `umu-3513350`、终末地 `umu-endfield`）；检测到 NVIDIA GPU 时推荐兼容环境；旧版 wine/umu-run/Proton 模板仍可运行；Linux 首运自动把默认 `{exe}` 模板升级为 umu 启动并落盘，开箱即可点启动 |
 | 全量下载 | 官方清单逐文件同步（鸣潮）/ 压缩包整包解压（终末地），size+MD5 双校验 |
 | 断点续传 | `.temp` 临时文件 + HTTP Range 续传，瞬态网络错误线性退避重试 |
 | 下载限速 | 可按字节/秒限制下载速度 |
@@ -47,7 +47,8 @@
 - .NET 10 SDK（开发/构建）；运行 self-contained 发布产物则**无需安装运行时**
 - Linux 上运行游戏：默认无需任何外部运行时——原生 umu 启动链会按需自动下载
   **DW-Proton（默认发行版，可选 GE/UMU-Proton）与 Steam Runtime**
-  （启动设置卡可一键预下载/检查；组件下载失败可从错误卡重试或改选本机 Proton）；
+  （资产按本机架构匹配下载；启动设置卡可一键预下载/检查，并有"检查更新"按钮做版本更新与旧版清理；
+  组件下载失败可从错误卡重试或改选本机 Proton）；
   也可手写 wine / Proton / umu-run 模板自备运行时
 - 鸣潮增量更新：需要 `hpatchz`（HDiffPatch）可执行文件，默认从 PATH 解析，
   也可在配置中指定路径（见下文）
@@ -70,7 +71,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（513 个，2026-09 实测）
+### 运行测试（529 个，2026-09 实测）
 
 ```bash
 # 4 个测试工程分别运行编译产物（Windows 亦可直接跑 .exe；本机 dotnet test 可能发现 0 个测试）：

@@ -293,8 +293,8 @@ public static class CompatTools
     }
 
     /// <summary>自然排序键：把字符串里的数字段左侧补零成定长（"GE-Proton10-31" → …000010000031），
-    /// 使数字比较正确（"10-31" &gt; "10-9"）。</summary>
-    internal static string NumericSortKey(string version) =>
+    /// 使数字比较正确（"10-31" &gt; "10-9"）。Proton 版本比较的单一事实源（组件准备器与更新检测共用）。</summary>
+    public static string NumericSortKey(string version) =>
         string.Concat(Regex.Matches(version, @"\d+").Select(m => m.Value.PadLeft(6, '0')));
 
     /// <summary>
@@ -371,11 +371,9 @@ public static class CompatTools
 
     /// <summary>
     /// 原生 umu 启动/状态共用的 Proton 请求解析：
-    /// 配置 PROTONPATH 优先，否则本机推荐版本，再否则 UMU-Proton 代号（启动时自动下载）。
+    /// 配置 PROTONPATH 优先，否则默认发行版代号 DW-Proton（与设置页下拉框默认一致，绝不回退 UMU-Proton）。
     /// </summary>
-    public static string ResolveNativeProtonRequest(
-        IReadOnlyDictionary<string, string>? environment,
-        IReadOnlyList<string> protonVersions)
+    public static string ResolveNativeProtonRequest(IReadOnlyDictionary<string, string>? environment)
     {
         if (environment is not null
             && environment.TryGetValue("PROTONPATH", out var path)
@@ -384,7 +382,7 @@ public static class CompatTools
             return path;
         }
 
-        return PickRecommendedProton(protonVersions) ?? "UMU-Proton";
+        return DefaultProtonFlavor;
     }
 
     /// <summary>是否为 Proton 发行版代号（DW/GE/UMU-Proton 及 *-Latest 变体，忽略大小写）；

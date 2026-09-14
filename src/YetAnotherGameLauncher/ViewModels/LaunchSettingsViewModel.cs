@@ -12,7 +12,8 @@ namespace YetAnotherGameLauncher.ViewModels;
 /// <summary>
 /// 详情页"启动设置"卡：编辑命令模板 / 工作目录 / 环境变量并保存回 games.json。
 /// Linux 启动方式二选一（umu 启动 / 直接运行）；umu 模式旁选 Proton 发行版
-/// （DW/GE/UMU-Proton，写入 PROTONPATH 代号，组件准备据此拉对应仓库 latest）。
+/// （DW/GE/UMU-Proton，代号写入 PROTONPATH 并即时落盘，启动/组件准备只下载所选发行版）；
+/// 发行版旁可检查上游更新（有新版弹确认覆盖层，确认后更新并清理旧版本）。
 /// 环境变量以多行 KEY=VALUE 文本编辑（解析容错，错误行给出行内容提示）。
 /// </summary>
 public partial class LaunchSettingsViewModel : ViewModelBase
@@ -68,6 +69,14 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         var detectedFlavor = DetectProtonFlavor(game.Launch.Environment.GetValueOrDefault("PROTONPATH"));
         _selectedProtonFlavor = CompatTools.ProtonFlavors.FirstOrDefault(
             f => string.Equals(f, detectedFlavor, StringComparison.Ordinal)) ?? CompatTools.DefaultProtonFlavor;
+        // 计算属性里的文案不经 Loc[key] 绑定索引器，语言切换需手动刷新
+        _loc.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is "Item[]" or "Item" or null)
+            {
+                OnPropertyChanged(nameof(ProtonCheckButtonText));
+            }
+        };
 
         // Linux 默认最佳配置：裸 {exe} 无法运行 Windows 客户端 → 应用社区推荐链（进草稿，保存后才落盘；
         // 用户已有任何自定义模板则完全不动）
@@ -161,7 +170,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
 
     /// <summary>解析原生 umu 用的 Proton 请求（与启动路径共用 CompatTools.ResolveNativeProtonRequest）。</summary>
     private string ResolveNativeProtonRequest() =>
-        CompatTools.ResolveNativeProtonRequest(ParseEnvironmentOrEmpty(EnvironmentText), _protonVersions);
+        CompatTools.ResolveNativeProtonRequest(ParseEnvironmentOrEmpty(EnvironmentText));
 
     /// <summary>Proton 本地不存在或清单不可读时的回退 Runtime（steamrt4，最新 UMU/GE-Proton 所需）。</summary>
     private static (string Variant, string Name) FallbackRuntime =>
@@ -177,6 +186,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         {
             NativeUmuStatusText = "";
             OnPropertyChanged(nameof(CanPrepareUmuComponents));
+            OnPropertyChanged(nameof(CanCheckProtonUpdate));
             return;
         }
 
@@ -198,6 +208,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         }
 
         OnPropertyChanged(nameof(CanPrepareUmuComponents));
+        OnPropertyChanged(nameof(CanCheckProtonUpdate));
     }
 
     private bool IsProtonRequestReady(string protonRequest)
@@ -207,37 +218,11 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             return false;
         }
 
-        if (_umuProvisioner.IsProtonReady(protonRequest))
-        {
-            return true;
-        }
-
-        if (Path.IsPathRooted(protonRequest))
-        {
-            return false;
-        }
-
-        var root = UmuPaths.SteamCompatRoot(_dataHome);
-        var asName = Path.Combine(root, protonRequest);
-        if (_umuProvisioner.IsProtonReady(asName))
-        {
-            return true;
-        }
-
-        // 代号（DW/GE/UMU-Proton，与准备器同一判定）：该发行版前缀下最新已装即可
-        if (!CompatTools.IsProtonCodename(protonRequest))
-        {
-            return false;
-        }
-
-        var prefix = protonRequest.StartsWith("UMU", StringComparison.OrdinalIgnoreCase)
-            ? "UMU-Proton"
-            : protonRequest.StartsWith("GE", StringComparison.OrdinalIgnoreCase)
-                ? "GE-Proton"
-                : "dwproton";
-        return _protonVersions.Any(v =>
-            v.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-            && _umuProvisioner.IsProtonReady(Path.Combine(root, v)));
+        // 统一走准备器的本地解析（绝对路径/版本名/代号前缀最新），与启动路径同一规则——
+        // 不用构造期 _protonVersions 快照，更新/清理旧版后状态即时准确
+        return Path.IsPathRooted(protonRequest)
+            ? _umuProvisioner.IsProtonReady(protonRequest)
+            : _umuProvisioner.FindInstalledProton(protonRequest) is not null;
     }
 
     /// <summary>检查/下载原生 umu 兼容组件（Proton + Steam Runtime）；结果写入保存消息槽。</summary>
@@ -288,13 +273,162 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     /// <summary>是否处于 umu 启动方式（决定 Proton 发行版选择器与组件状态卡可见性）。</summary>
     public bool IsNativeUmuMode => SelectedLaunchMode?.Mode == LaunchMode.NativeUmu;
 
+    /// <summary>Proton 更新检查状态（驱动检查按钮文案与可用性）。</summary>
+    [ObservableProperty]
+    private ProtonUpdateCheckState _protonUpdateState;
+
+    /// <summary>检测到的上游新版本 tag（UpdateAvailable / Updating 状态下有值）。</summary>
+    [ObservableProperty]
+    private string? _pendingProtonUpdateTag;
+
+    /// <summary>是否显示 Proton 更新确认覆盖层。</summary>
+    [ObservableProperty]
+    private bool _showProtonUpdateConfirm;
+
+    /// <summary>更新确认覆盖层正文（弹出时计算，含新旧版本名）。</summary>
+    [ObservableProperty]
+    private string _protonUpdateConfirmMessage = "";
+
+    /// <summary>检查更新按钮文案：空闲"检查更新"，检测到新版本后"更新到 {tag}"。</summary>
+    public string ProtonCheckButtonText =>
+        ProtonUpdateState is ProtonUpdateCheckState.UpdateAvailable or ProtonUpdateCheckState.Updating
+        && !string.IsNullOrEmpty(PendingProtonUpdateTag)
+            ? _loc.Format("launch_proton_update_to", PendingProtonUpdateTag!)
+            : _loc["launch_proton_check_update"];
+
+    /// <summary>是否可点检查/更新按钮（查询与下载进行中禁用）。</summary>
+    public bool CanCheckProtonUpdate =>
+        IsNativeUmuMode && IsLinux && _umuProvisioner is not null
+        && ProtonUpdateState is not (ProtonUpdateCheckState.Checking or ProtonUpdateCheckState.Updating);
+
+    /// <summary>更新查询或下载进行中（覆盖层确认钮防重入）。</summary>
+    public bool IsProtonUpdateInProgress =>
+        ProtonUpdateState is ProtonUpdateCheckState.Checking or ProtonUpdateCheckState.Updating;
+
+    partial void OnProtonUpdateStateChanged(ProtonUpdateCheckState value)
+    {
+        OnPropertyChanged(nameof(ProtonCheckButtonText));
+        OnPropertyChanged(nameof(CanCheckProtonUpdate));
+        OnPropertyChanged(nameof(IsProtonUpdateInProgress));
+    }
+
+    partial void OnPendingProtonUpdateTagChanged(string? value)
+        => OnPropertyChanged(nameof(ProtonCheckButtonText));
+
+    /// <summary>当前发行版请求（检查更新/更新的目标；下拉框值为代号，缺省回 UI 默认）。</summary>
+    private string SelectedProtonRequest => SelectedProtonFlavor ?? CompatTools.DefaultProtonFlavor;
+
+    /// <summary>查询所选发行版的上游最新 tag；本地不落后即提示已是最新，否则弹确认覆盖层并切换按钮为更新。</summary>
+    [RelayCommand]
+    private async Task CheckProtonUpdateAsync(CancellationToken cancellationToken)
+    {
+        if (_umuProvisioner is null || !IsLinux || !IsNativeUmuMode
+            || ProtonUpdateState is ProtonUpdateCheckState.Checking or ProtonUpdateCheckState.Updating)
+        {
+            return;
+        }
+
+        ProtonUpdateState = ProtonUpdateCheckState.Checking;
+        Save.Clear();
+        try
+        {
+            var tag = await _umuProvisioner
+                .FetchLatestProtonTagAsync(SelectedProtonRequest, cancellationToken);
+            var local = _umuProvisioner.FindInstalledProton(SelectedProtonRequest);
+            var localName = LocalProtonName(local);
+            if (localName is not null && !IsUpstreamNewer(localName, tag))
+            {
+                ProtonUpdateState = ProtonUpdateCheckState.Idle;
+                Save.SetSuccess(_loc.Format("launch_proton_up_to_date", localName));
+                return;
+            }
+
+            PendingProtonUpdateTag = tag;
+            // 删旧版对运行中的游戏有风险（延迟加载的 .so 失效），确认文案明示先退出
+            ProtonUpdateConfirmMessage = _loc.Format(
+                "launch_proton_update_confirm",
+                tag,
+                localName ?? _loc["launch_proton_not_installed"])
+                + "\n" + _loc["launch_proton_update_running_hint"];
+            ProtonUpdateState = ProtonUpdateCheckState.UpdateAvailable;
+            ShowProtonUpdateConfirm = true;
+        }
+        catch (OperationCanceledException)
+        {
+            ProtonUpdateState = ProtonUpdateCheckState.Idle;
+        }
+        catch (Exception ex)
+        {
+            ProtonUpdateState = ProtonUpdateCheckState.Idle;
+            Save.SetFailure(ex.Message);
+        }
+    }
+
+    /// <summary>确认更新：下载所选发行版最新版并清理旧版本；完成后按钮回到"检查更新"。</summary>
+    [RelayCommand]
+    private async Task ConfirmProtonUpdateAsync(CancellationToken cancellationToken)
+    {
+        if (_umuProvisioner is null || ProtonUpdateState != ProtonUpdateCheckState.UpdateAvailable)
+        {
+            return;
+        }
+
+        ProtonUpdateState = ProtonUpdateCheckState.Updating;
+        ShowProtonUpdateConfirm = false;
+        Save.Clear();
+        try
+        {
+            var progress = new Progress<string>(msg =>
+            {
+                Save.Clear();
+                Save.SetSuccess(msg);
+            });
+            var newPath = await _umuProvisioner
+                .UpdateProtonAsync(SelectedProtonRequest, progress, cancellationToken);
+            var newName = LocalProtonName(newPath) ?? newPath;
+            PendingProtonUpdateTag = null;
+            ProtonUpdateState = ProtonUpdateCheckState.Idle;
+            Save.Clear();
+            Save.SetSuccess(_loc.Format("launch_proton_updated", newName));
+            RefreshNativeUmuStatus();
+        }
+        catch (OperationCanceledException)
+        {
+            // 取消后保持"更新"可用态（新版本信息仍在）
+            ProtonUpdateState = PendingProtonUpdateTag is null
+                ? ProtonUpdateCheckState.Idle
+                : ProtonUpdateCheckState.UpdateAvailable;
+        }
+        catch (Exception ex)
+        {
+            Save.SetFailure(ex.Message);
+            ProtonUpdateState = ProtonUpdateCheckState.UpdateAvailable;
+            RefreshNativeUmuStatus();
+        }
+    }
+
+    /// <summary>关闭更新确认覆盖层（新版本信息保留，按钮保持"更新到 {tag}"随时可再更新）。</summary>
+    [RelayCommand]
+    private void CancelProtonUpdate() => ShowProtonUpdateConfirm = false;
+
+    /// <summary>本地 Proton 绝对路径 → 版本目录名；null/空路径返回 null。</summary>
+    private static string? LocalProtonName(string? protonPath) =>
+        string.IsNullOrWhiteSpace(protonPath)
+            ? null
+            : Path.GetFileName(protonPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+
+    /// <summary>上游 tag 是否比本地版本新（数字段自然序，单一事实源 CompatTools.NumericSortKey）。</summary>
+    private static bool IsUpstreamNewer(string localName, string tag) =>
+        string.CompareOrdinal(CompatTools.NumericSortKey(tag), CompatTools.NumericSortKey(localName)) > 0;
+
     /// <summary>umu 启动可选的 Proton 发行版代号（显示名即代号；DW 在前为默认）。</summary>
     public IReadOnlyList<string> ProtonFlavors => CompatTools.ProtonFlavors;
 
     [ObservableProperty]
     private string? _selectedProtonFlavor;
 
-    /// <summary>Proton 发行版变化时触发：代号写入环境草稿的 PROTONPATH（启动/组件准备按代号拉 latest）。</summary>
+    /// <summary>Proton 发行版变化时触发：代号写入环境草稿的 PROTONPATH 并即时落盘——
+    /// 启动链读的是已保存 env，只写草稿不保存会出现"显示 GE-Proton、实际按旧配置启动"的错位。</summary>
     partial void OnSelectedProtonFlavorChanged(string? value)
     {
         if (IsNativeUmuMode && !string.IsNullOrWhiteSpace(value))
@@ -303,6 +437,21 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             merged["PROTONPATH"] = value;
             EnvironmentText = SerializeEnvironment(merged);
             RefreshNativeUmuStatus();
+            _ = SaveSelectedFlavorAsync();
+        }
+    }
+
+    /// <summary>把发行版选择立即保存回 games.json（选择即生效）。可预期失败已由 SaveAsync 写入消息槽；
+    /// 此处兜底捕获防未观察任务异常。</summary>
+    private async Task SaveSelectedFlavorAsync()
+    {
+        try
+        {
+            await SaveAsync(CancellationToken.None);
+        }
+        catch (Exception)
+        {
+            // SaveAsync 消息槽已提示用户；静默防崩
         }
     }
 
@@ -563,3 +712,19 @@ public partial class LaunchSettingsViewModel : ViewModelBase
 
 /// <summary>启动方式选项（模式 + 已本地化文案）。</summary>
 public sealed record LaunchModeOption(LaunchMode Mode, string Name);
+
+/// <summary>Proton 更新检查状态（检查按钮文案与可用性的驱动源）。</summary>
+public enum ProtonUpdateCheckState
+{
+    /// <summary>空闲：按钮显示"检查更新"。</summary>
+    Idle,
+
+    /// <summary>正在查询上游最新版本。</summary>
+    Checking,
+
+    /// <summary>检测到新版本：按钮显示"更新到 {tag}"。</summary>
+    UpdateAvailable,
+
+    /// <summary>正在下载并安装更新。</summary>
+    Updating,
+}

@@ -8,147 +8,188 @@
          DataTemplate 提取，绑定契约不变（DataContext = GameSettingsViewModel，.page 类命中切换动画）；
          具名元素 InstallDirBox/LaunchCard/EnvironmentBox 供窗口级 Enter 保存类处理器按名分发与测试定位 -->
     <Border Classes="page">
-        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-            <StackPanel MaxWidth="720" HorizontalAlignment="Stretch" Spacing="18">
+        <Grid>
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                <StackPanel MaxWidth="720" HorizontalAlignment="Stretch" Spacing="18">
 
-                <StackPanel Orientation="Horizontal" Spacing="14" Margin="0,4,0,4">
-                    <TextBlock Text="{Binding Loc[game_settings_title]}" FontSize="28" FontWeight="Bold"
-                               VerticalAlignment="Center"/>
-                    <TextBlock Text="{Binding Game.DisplayName}" FontSize="18"
-                               Foreground="{DynamicResource AppTextSecondary}"
-                               VerticalAlignment="Center"/>
+                    <StackPanel Orientation="Horizontal" Spacing="14" Margin="0,4,0,4">
+                        <TextBlock Text="{Binding Loc[game_settings_title]}" FontSize="28" FontWeight="Bold"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding Game.DisplayName}" FontSize="18"
+                                   Foreground="{DynamicResource AppTextSecondary}"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <!-- 服务器独立卡（先选区、再选目录）：切换即时刷新版本与安装状态 -->
+                    <Border Classes="card" Margin="0,0,0,4">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="{Binding Loc[game_server]}" FontSize="15" FontWeight="SemiBold"/>
+                            <ComboBox ItemsSource="{Binding Game.Servers}"
+                                      SelectedItem="{Binding Game.SelectedServer}"
+                                      MinWidth="200" HorizontalAlignment="Left">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="models:GameServer">
+                                        <TextBlock Text="{Binding Name}"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBlock Text="{Binding Loc[launch_serverHint]}" Classes="card-caption"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 位置 -->
+                    <Border Classes="card">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="{Binding Loc[settings_section_location]}" FontSize="15" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding Loc[launch_installDir]}" Classes="card-caption" Margin="0,4,0,0"/>
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                <TextBox Grid.Column="0" x:Name="InstallDirBox" Text="{Binding LaunchSettings.InstallDirDraft}"
+                                         Padding="10,7"/>
+                                <Button Grid.Column="1" Content="{Binding Loc[launch_installDirBrowse]}"
+                                        Command="{Binding LaunchSettings.BrowseInstallDirCommand}"
+                                        Classes="pressable btn-sm"/>
+                            </Grid>
+                            <TextBlock Text="{Binding Loc[launch_installDirHint]}" Classes="card-caption"/>
+                            <TextBlock Text="{Binding Loc[launch_executable]}" Classes="card-caption" Margin="0,4,0,0"/>
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                <TextBox Grid.Column="0" Text="{Binding LaunchSettings.ExecutableDraft}"/>
+                                <Button Grid.Column="1" Content="{Binding Loc[launch_executableBrowse]}"
+                                        Command="{Binding LaunchSettings.BrowseExecutableCommand}"
+                                        Classes="pressable btn-sm"/>
+                            </Grid>
+                            <TextBlock Text="{Binding Loc[launch_executableHint]}" Classes="card-caption"/>
+                            <TextBlock Classes="save-msg"
+                                       Text="{Binding LaunchSettings.Save.Message}"
+                                       IsVisible="{Binding LaunchSettings.Save.HasMessage}"
+                                       Classes.failed="{Binding LaunchSettings.Save.Failed}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 启动 -->
+                    <Border Classes="card" x:Name="LaunchCard">
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="{Binding Loc[settings_section_launch]}" FontSize="15" FontWeight="SemiBold"/>
+
+                            <StackPanel Spacing="4" IsVisible="{Binding LaunchSettings.IsLinux}">
+                                <TextBlock Text="{Binding Loc[launch_compat]}" Classes="card-caption"/>
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <ComboBox ItemsSource="{Binding LaunchSettings.LaunchModes}"
+                                              SelectedItem="{Binding LaunchSettings.SelectedLaunchMode}"
+                                              MinWidth="220">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:LaunchModeOption">
+                                                <TextBlock Text="{Binding Name}"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <!-- Proton 发行版（仅 umu 启动）：代号写入 PROTONPATH 即时落盘，只下载所选发行版 -->
+                                    <ComboBox ItemsSource="{Binding LaunchSettings.ProtonFlavors}"
+                                              SelectedItem="{Binding LaunchSettings.SelectedProtonFlavor}"
+                                              MinWidth="160"
+                                              IsVisible="{Binding LaunchSettings.IsNativeUmuMode}"/>
+                                </StackPanel>
+                                <!-- 原生 umu：组件状态 + 检查/下载 + 发行版更新检测 -->
+                                <StackPanel Spacing="8" Margin="0,4,0,0"
+                                            IsVisible="{Binding LaunchSettings.IsNativeUmuMode}">
+                                    <TextBlock Text="{Binding LaunchSettings.NativeUmuStatusText}"
+                                               Classes="card-caption"
+                                               TextWrapping="Wrap" MaxWidth="420"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <Button Classes="btn-sm"
+                                                Content="{Binding Loc[launch_native_prepare]}"
+                                                Command="{Binding LaunchSettings.PrepareUmuComponentsCommand}"
+                                                IsEnabled="{Binding LaunchSettings.CanPrepareUmuComponents}"
+                                                HorizontalAlignment="Left"/>
+                                        <!-- 检测到新版本后文案切换为"更新到 {tag}"（LaunchSettings.ProtonCheckButtonText） -->
+                                        <Button Classes="btn-sm"
+                                                Content="{Binding LaunchSettings.ProtonCheckButtonText}"
+                                                Command="{Binding LaunchSettings.CheckProtonUpdateCommand}"
+                                                IsEnabled="{Binding LaunchSettings.CanCheckProtonUpdate}"
+                                                HorizontalAlignment="Left"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
+                            <TextBlock Text="{Binding Loc[launch_windowsDefaultHint]}"
+                                       Classes="card-caption"
+                                       IsVisible="{Binding !LaunchSettings.IsLinux}"/>
+
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="{Binding Loc[launch_commandTemplate]}" Classes="card-caption"/>
+                                <TextBox Text="{Binding LaunchSettings.CommandTemplate}"
+                                         PlaceholderText="{}{exe} / {installDir}"/>
+                                <TextBlock Text="{Binding Loc[launch_commandTemplateHint]}" Classes="card-caption"/>
+                            </StackPanel>
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="{Binding Loc[launch_workingDirectory]}" Classes="card-caption"/>
+                                <TextBox Text="{Binding LaunchSettings.WorkingDirectory}"/>
+                                <TextBlock Text="{Binding Loc[launch_workingDirectoryHint]}" Classes="card-caption"/>
+                            </StackPanel>
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="{Binding Loc[launch_environment]}" Classes="card-caption"/>
+                                <!-- 必须 Wrap：NoWrap+AcceptsReturn 会让 Fluent 悬浮横滚条盖住最后一行变量，无法点选 -->
+                                <TextBox x:Name="EnvironmentBox" Text="{Binding LaunchSettings.EnvironmentText}"
+                                         AcceptsReturn="True" MinHeight="80" TextWrapping="Wrap"
+                                         FontFamily="Consolas, Cascadia Mono, monospace"/>
+                                <TextBlock Text="{Binding Loc[launch_environmentHint]}" Classes="card-caption"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 游戏信息 -->
+                    <Border Classes="card">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="{Binding Loc[settings_section_info]}" FontSize="15" FontWeight="SemiBold"/>
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                                <TextBlock Grid.Column="0" Text="{Binding Loc[game_info_channel]}" Classes="card-caption" Width="110"/>
+                                <TextBlock Grid.Column="1" Text="{Binding Game.ChannelDisplayName}" FontSize="13.5"/>
+                            </Grid>
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                                <TextBlock Grid.Column="0" Text="{Binding Loc[game_info_server]}" Classes="card-caption" Width="110"/>
+                                <TextBlock Grid.Column="1" Text="{Binding Game.SelectedServer.Name}" FontSize="13.5"/>
+                            </Grid>
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                                <TextBlock Grid.Column="0" Text="{Binding Loc[game_info_installDir]}" Classes="card-caption" Width="110"/>
+                                <TextBlock Grid.Column="1" Text="{Binding Game.InstallDirPath}" FontSize="13.5"
+                                           TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Game.InstallDirPath}"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Button Content="{Binding Loc[common_backToGames]}" Command="{Binding BackToGameCommand}"
+                            Classes="pressable back-btn"/>
                 </StackPanel>
+            </ScrollViewer>
 
-                <!-- 服务器独立卡（先选区、再选目录）：切换即时刷新版本与安装状态 -->
-                <Border Classes="card" Margin="0,0,0,4">
-                    <StackPanel Spacing="8">
-                        <TextBlock Text="{Binding Loc[game_server]}" FontSize="15" FontWeight="SemiBold"/>
-                        <ComboBox ItemsSource="{Binding Game.Servers}"
-                                  SelectedItem="{Binding Game.SelectedServer}"
-                                  MinWidth="200" HorizontalAlignment="Left">
-                            <ComboBox.ItemTemplate>
-                                <DataTemplate x:DataType="models:GameServer">
-                                    <TextBlock Text="{Binding Name}"/>
-                                </DataTemplate>
-                            </ComboBox.ItemTemplate>
-                        </ComboBox>
-                        <TextBlock Text="{Binding Loc[launch_serverHint]}" Classes="card-caption"/>
-                    </StackPanel>
-                </Border>
-
-                <!-- 位置 -->
-                <Border Classes="card">
-                    <StackPanel Spacing="8">
-                        <TextBlock Text="{Binding Loc[settings_section_location]}" FontSize="15" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding Loc[launch_installDir]}" Classes="card-caption" Margin="0,4,0,0"/>
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                            <TextBox Grid.Column="0" x:Name="InstallDirBox" Text="{Binding LaunchSettings.InstallDirDraft}"
-                                     Padding="10,7"/>
-                            <Button Grid.Column="1" Content="{Binding Loc[launch_installDirBrowse]}"
-                                    Command="{Binding LaunchSettings.BrowseInstallDirCommand}"
-                                    Classes="pressable btn-sm"/>
-                        </Grid>
-                        <TextBlock Text="{Binding Loc[launch_installDirHint]}" Classes="card-caption"/>
-                        <TextBlock Text="{Binding Loc[launch_executable]}" Classes="card-caption" Margin="0,4,0,0"/>
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                            <TextBox Grid.Column="0" Text="{Binding LaunchSettings.ExecutableDraft}"/>
-                            <Button Grid.Column="1" Content="{Binding Loc[launch_executableBrowse]}"
-                                    Command="{Binding LaunchSettings.BrowseExecutableCommand}"
-                                    Classes="pressable btn-sm"/>
-                        </Grid>
-                        <TextBlock Text="{Binding Loc[launch_executableHint]}" Classes="card-caption"/>
-                        <TextBlock Classes="save-msg"
-                                   Text="{Binding LaunchSettings.Save.Message}"
-                                   IsVisible="{Binding LaunchSettings.Save.HasMessage}"
-                                   Classes.failed="{Binding LaunchSettings.Save.Failed}"/>
-                    </StackPanel>
-                </Border>
-
-                <!-- 启动 -->
-                <Border Classes="card" x:Name="LaunchCard">
+            <!-- Proton 更新确认覆盖层（LaunchErrorOverlay 同款纱罩+居中卡；确认后更新并清理旧版本） -->
+            <Grid IsVisible="{Binding LaunchSettings.ShowProtonUpdateConfirm}">
+                <Border Background="{DynamicResource AppOverlayScrimBrush}"/>
+                <Border Classes="launch-error-card"
+                        MinWidth="340"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                        MaxWidth="420" Margin="24">
                     <StackPanel Spacing="12">
-                        <TextBlock Text="{Binding Loc[settings_section_launch]}" FontSize="15" FontWeight="SemiBold"/>
-
-                        <StackPanel Spacing="4" IsVisible="{Binding LaunchSettings.IsLinux}">
-                            <TextBlock Text="{Binding Loc[launch_compat]}" Classes="card-caption"/>
-                            <StackPanel Orientation="Horizontal" Spacing="10">
-                                <ComboBox ItemsSource="{Binding LaunchSettings.LaunchModes}"
-                                          SelectedItem="{Binding LaunchSettings.SelectedLaunchMode}"
-                                          MinWidth="220">
-                                    <ComboBox.ItemTemplate>
-                                        <DataTemplate x:DataType="vm:LaunchModeOption">
-                                            <TextBlock Text="{Binding Name}"/>
-                                        </DataTemplate>
-                                    </ComboBox.ItemTemplate>
-                                </ComboBox>
-                                <!-- Proton 发行版（仅 umu 启动）：代号写入 PROTONPATH，组件准备/启动拉对应仓库 latest -->
-                                <ComboBox ItemsSource="{Binding LaunchSettings.ProtonFlavors}"
-                                          SelectedItem="{Binding LaunchSettings.SelectedProtonFlavor}"
-                                          MinWidth="160"
-                                          IsVisible="{Binding LaunchSettings.IsNativeUmuMode}"/>
-                            </StackPanel>
-                            <!-- 原生 umu：组件状态 + 检查/下载 -->
-                            <StackPanel Spacing="8" Margin="0,4,0,0"
-                                        IsVisible="{Binding LaunchSettings.IsNativeUmuMode}">
-                                <TextBlock Text="{Binding LaunchSettings.NativeUmuStatusText}"
-                                           Classes="card-caption"
-                                           TextWrapping="Wrap" MaxWidth="420"/>
-                                <Button Classes="btn-sm"
-                                        Content="{Binding Loc[launch_native_prepare]}"
-                                        Command="{Binding LaunchSettings.PrepareUmuComponentsCommand}"
-                                        IsEnabled="{Binding LaunchSettings.CanPrepareUmuComponents}"
-                                        HorizontalAlignment="Left"/>
-                            </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Path Data="M12,2 C17.52,2 22,6.48 22,12 C22,17.52 17.52,22 12,22 C6.48,22 2,17.52 2,12 C2,6.48 6.48,2 12,2 Z M11,7 L13,7 L13,13 L11,13 Z M11,15 L13,15 L13,17 L11,17 Z"
+                                  Fill="{DynamicResource AppTextSecondary}" Stretch="Uniform"
+                                  Width="21" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding Loc[launch_proton_update_title]}"
+                                       FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"/>
                         </StackPanel>
-                        <TextBlock Text="{Binding Loc[launch_windowsDefaultHint]}"
-                                   Classes="card-caption"
-                                   IsVisible="{Binding !LaunchSettings.IsLinux}"/>
-
-                        <StackPanel Spacing="4">
-                            <TextBlock Text="{Binding Loc[launch_commandTemplate]}" Classes="card-caption"/>
-                            <TextBox Text="{Binding LaunchSettings.CommandTemplate}"
-                                     PlaceholderText="{}{exe} / {installDir}"/>
-                            <TextBlock Text="{Binding Loc[launch_commandTemplateHint]}" Classes="card-caption"/>
-                        </StackPanel>
-                        <StackPanel Spacing="4">
-                            <TextBlock Text="{Binding Loc[launch_workingDirectory]}" Classes="card-caption"/>
-                            <TextBox Text="{Binding LaunchSettings.WorkingDirectory}"/>
-                            <TextBlock Text="{Binding Loc[launch_workingDirectoryHint]}" Classes="card-caption"/>
-                        </StackPanel>
-                        <StackPanel Spacing="4">
-                            <TextBlock Text="{Binding Loc[launch_environment]}" Classes="card-caption"/>
-                            <!-- 必须 Wrap：NoWrap+AcceptsReturn 会让 Fluent 悬浮横滚条盖住最后一行变量，无法点选 -->
-                            <TextBox x:Name="EnvironmentBox" Text="{Binding LaunchSettings.EnvironmentText}"
-                                     AcceptsReturn="True" MinHeight="80" TextWrapping="Wrap"
-                                     FontFamily="Consolas, Cascadia Mono, monospace"/>
-                            <TextBlock Text="{Binding Loc[launch_environmentHint]}" Classes="card-caption"/>
+                        <TextBlock Text="{Binding LaunchSettings.ProtonUpdateConfirmMessage}" FontSize="13.5"
+                                   TextWrapping="Wrap" LineHeight="20"/>
+                        <StackPanel Orientation="Horizontal" Spacing="10"
+                                    HorizontalAlignment="Right">
+                            <Button Classes="launch-error-secondary"
+                                    Command="{Binding LaunchSettings.CancelProtonUpdateCommand}"
+                                    Content="{Binding Loc[launch_proton_update_cancel]}"/>
+                            <Button Classes="launch-error-primary"
+                                    Command="{Binding LaunchSettings.ConfirmProtonUpdateCommand}"
+                                    IsEnabled="{Binding !LaunchSettings.IsProtonUpdateInProgress}"
+                                    Content="{Binding Loc[launch_proton_update_confirm_yes]}"/>
                         </StackPanel>
                     </StackPanel>
                 </Border>
-
-                <!-- 游戏信息 -->
-                <Border Classes="card">
-                    <StackPanel Spacing="8">
-                        <TextBlock Text="{Binding Loc[settings_section_info]}" FontSize="15" FontWeight="SemiBold"/>
-                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
-                            <TextBlock Grid.Column="0" Text="{Binding Loc[game_info_channel]}" Classes="card-caption" Width="110"/>
-                            <TextBlock Grid.Column="1" Text="{Binding Game.ChannelDisplayName}" FontSize="13.5"/>
-                        </Grid>
-                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
-                            <TextBlock Grid.Column="0" Text="{Binding Loc[game_info_server]}" Classes="card-caption" Width="110"/>
-                            <TextBlock Grid.Column="1" Text="{Binding Game.SelectedServer.Name}" FontSize="13.5"/>
-                        </Grid>
-                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
-                            <TextBlock Grid.Column="0" Text="{Binding Loc[game_info_installDir]}" Classes="card-caption" Width="110"/>
-                            <TextBlock Grid.Column="1" Text="{Binding Game.InstallDirPath}" FontSize="13.5"
-                                       TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Game.InstallDirPath}"/>
-                        </Grid>
-                    </StackPanel>
-                </Border>
-
-                <Button Content="{Binding Loc[common_backToGames]}" Command="{Binding BackToGameCommand}"
-                        Classes="pressable back-btn"/>
-            </StackPanel>
-        </ScrollViewer>
+            </Grid>
+        </Grid>
     </Border>
 </UserControl>

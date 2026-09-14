@@ -30,6 +30,25 @@ public sealed class NativeUmuUiActionTests : IDisposable
         /// <summary>EnsureRuntimeAsync 收到的 (variant, name)（验证一键下载按 manifest 结果准备）。</summary>
         public (string Variant, string Name)? RuntimePrepared { get; private set; }
 
+        /// <summary>FindInstalledProton 的固定返回（null = 未安装）。</summary>
+        public string? InstalledProtonPath { get; set; }
+
+        /// <summary>FetchLatestProtonTagAsync 的固定返回。</summary>
+        public string LatestTag { get; set; } = "GE-Proton11-6";
+
+        /// <summary>FetchLatestProtonTagAsync 收到的请求（验证按所选发行版查询）。</summary>
+        public string? LastTagRequest { get; private set; }
+
+        public int FetchTagCalls { get; private set; }
+
+        public int UpdateCalls { get; private set; }
+
+        /// <summary>UpdateProtonAsync 收到的请求。</summary>
+        public string? LastUpdateRequest { get; private set; }
+
+        /// <summary>UpdateProtonAsync 的返回路径。</summary>
+        public string UpdateResultPath { get; set; } = "/compat/GE-Proton11-7";
+
         public bool IsProtonReady(string protonPath) => ProtonReady;
 
         public bool IsRuntimeReady(string runtimeVariant)
@@ -39,6 +58,27 @@ public sealed class NativeUmuUiActionTests : IDisposable
         }
 
         public (string Variant, string Name)? ResolveRequiredRuntime(string protonRequest) => ResolvedRuntime;
+
+        // ProtonReady 旗标 = "已装在默认路径"；Ensure/Update 后 FindInstalledProton 必须能找到
+        public string? FindInstalledProton(string protonRequest) =>
+            InstalledProtonPath ?? (ProtonReady ? "/tmp/GE-Proton" : null);
+
+        public Task<string> FetchLatestProtonTagAsync(string protonRequest, CancellationToken cancellationToken = default)
+        {
+            FetchTagCalls++;
+            LastTagRequest = protonRequest;
+            return Task.FromResult(LatestTag);
+        }
+
+        public Task<string> UpdateProtonAsync(
+            string protonRequest, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+        {
+            UpdateCalls++;
+            LastUpdateRequest = protonRequest;
+            ProtonReady = true;
+            InstalledProtonPath = UpdateResultPath; // 更新后本地可解析到新版
+            return Task.FromResult(UpdateResultPath);
+        }
 
         public Task<string> EnsureProtonAsync(
             string protonRequest, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
@@ -111,6 +151,119 @@ public sealed class NativeUmuUiActionTests : IDisposable
         Assert.Equal(1, provisioner.EnsureRuntimeCalls);
         Assert.Equal(("steamrt3", "sniper"), provisioner.RuntimePrepared);
     }
+
+    [Fact]
+    public async Task LaunchSettings_CheckProtonUpdate_NewVersion_ShowsConfirmAndButtonBecomesUpdate()
+    {
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        var provisioner = new FakeProvisioner
+        {
+            InstalledProtonPath = "/compat/GE-Proton11-6",
+            LatestTag = "GE-Proton11-7",
+        };
+
+        var settings = NewLinuxNativeUmuSettings(game.Game, game.InstallDirPath, provisioner);
+        settings.SelectedProtonFlavor = "GE-Proton";
+
+        await settings.CheckProtonUpdateCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, provisioner.FetchTagCalls);
+        Assert.Equal("GE-Proton", provisioner.LastTagRequest);
+        Assert.True(settings.ShowProtonUpdateConfirm);
+        Assert.Equal(ProtonUpdateCheckState.UpdateAvailable, settings.ProtonUpdateState);
+        Assert.Contains("GE-Proton11-7", settings.ProtonCheckButtonText, StringComparison.Ordinal);
+        Assert.Contains("GE-Proton11-6", settings.ProtonUpdateConfirmMessage, StringComparison.Ordinal);
+        Assert.Contains("正在运行", settings.ProtonUpdateConfirmMessage, StringComparison.Ordinal); // 删旧版前的运行中提示
+
+        // 取消只关覆盖层：按钮保持"更新"态
+        settings.CancelProtonUpdateCommand.Execute(null);
+        Assert.False(settings.ShowProtonUpdateConfirm);
+        Assert.Equal(ProtonUpdateCheckState.UpdateAvailable, settings.ProtonUpdateState);
+        Assert.Contains("GE-Proton11-7", settings.ProtonCheckButtonText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LaunchSettings_ConfirmProtonUpdate_UpdatesAndResetsButton()
+    {
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        var provisioner = new FakeProvisioner
+        {
+            InstalledProtonPath = "/compat/GE-Proton11-6",
+            LatestTag = "GE-Proton11-7",
+        };
+
+        var settings = NewLinuxNativeUmuSettings(game.Game, game.InstallDirPath, provisioner);
+        settings.SelectedProtonFlavor = "GE-Proton";
+        await settings.CheckProtonUpdateCommand.ExecuteAsync(null);
+
+        await settings.ConfirmProtonUpdateCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, provisioner.UpdateCalls);
+        Assert.Equal("GE-Proton", provisioner.LastUpdateRequest);
+        Assert.False(settings.ShowProtonUpdateConfirm);
+        Assert.Equal(ProtonUpdateCheckState.Idle, settings.ProtonUpdateState);
+        Assert.Null(settings.PendingProtonUpdateTag);
+        Assert.Contains("GE-Proton11-7", settings.Save.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LaunchSettings_CheckProtonUpdate_UpToDate_NoDialog()
+    {
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        var provisioner = new FakeProvisioner
+        {
+            InstalledProtonPath = "/compat/GE-Proton11-6",
+            LatestTag = "GE-Proton11-6",
+        };
+
+        var settings = NewLinuxNativeUmuSettings(game.Game, game.InstallDirPath, provisioner);
+
+        await settings.CheckProtonUpdateCommand.ExecuteAsync(null);
+
+        Assert.False(settings.ShowProtonUpdateConfirm);
+        Assert.Equal(ProtonUpdateCheckState.Idle, settings.ProtonUpdateState);
+        Assert.Contains("GE-Proton11-6", settings.Save.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LaunchSettings_FlavorSelection_PersistsProtonPathImmediately()
+    {
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        var provisioner = new FakeProvisioner { ProtonReady = true, RuntimeReady = true };
+
+        var settings = NewLinuxNativeUmuSettings(game.Game, game.InstallDirPath, provisioner);
+        settings.SelectedProtonFlavor = "GE-Proton";
+
+        // 选择即落盘：草稿与模型同步更新（启动链读已保存 env，不再有草稿/存盘错位）
+        Assert.Equal("GE-Proton", game.Game.Launch.Environment.GetValueOrDefault("PROTONPATH"));
+        Assert.Contains("PROTONPATH=GE-Proton", settings.EnvironmentText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LaunchSettings_LanguageSwitch_RefreshesCheckButtonText()
+    {
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        var provisioner = new FakeProvisioner { ProtonReady = true, RuntimeReady = true };
+
+        var settings = NewLinuxNativeUmuSettings(game.Game, game.InstallDirPath, provisioner);
+
+        // 计算属性文案不在 Loc[key] 绑定路径上，靠 VM 订阅 Item[] 通知手动刷新
+        game.Loc.SetLanguage("en-US");
+        Assert.Equal("Check for updates", settings.ProtonCheckButtonText);
+        game.Loc.SetLanguage("zh-CN");
+        Assert.Equal("检查更新", settings.ProtonCheckButtonText);
+    }
+
+    private LaunchSettingsViewModel NewLinuxNativeUmuSettings(
+        Core.Models.GameDefinition definition, string installDir, FakeProvisioner provisioner) =>
+        new(
+            definition, installDir, _ctx.CatalogService, _ctx.Vm.Games[0].Loc, _ctx.Vm.Games[0],
+            platformInfo: new FakePlatformInfo(isLinux: true), umuProvisioner: provisioner);
 
     [Fact]
     public async Task LaunchError_DownloadKind_ExposesRetry()

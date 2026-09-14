@@ -1,7 +1,9 @@
 using System.Formats.Tar;
 using System.IO.Compression;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Xunit;
+using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Services.Umu;
 using YetAnotherGameLauncher.Services;
 using YetAnotherGameLauncher.TestSupport;
@@ -10,11 +12,18 @@ namespace YetAnotherGameLauncher.AppTests;
 
 /// <summary>
 /// 原生 umu 组件准备器：三代号（DW/GE/UMU-Proton）latest 下载的源分流与资产选择 +
-/// SHA256SUMS 解析。网络面全部替身（StubHttpHandler + FakeDownloader）；
+/// 架构过滤（资产名后缀 + wineserver ELF 兜底）、更新清理旧版、SHA256SUMS 解析。
+/// 网络面全部替身（StubHttpHandler + FakeDownloader）；
 /// DW 源是 dawn.wine Forgejo（数组根），GE/UMU 是 GitHub（对象根）。
 /// </summary>
 public sealed class UmuComponentProvisionerTests : IDisposable
 {
+    /// <summary>ELF e_machine：x86-64（与被测常量 0x3E 对应）。</summary>
+    private const ushort ElfX86_64 = 0x3E;
+
+    /// <summary>ELF e_machine：aarch64（与被测常量 0xB7 对应）。</summary>
+    private const ushort ElfAarch64 = 0xB7;
+
     private readonly TempDir _tempDir = new();
     private readonly StubHttpHandler _http = new();
     private readonly FakeDownloader _downloader = new();
@@ -27,6 +36,11 @@ public sealed class UmuComponentProvisionerTests : IDisposable
     }
 
     public void Dispose() => _tempDir.Dispose();
+
+    /// <summary>按注入架构构造准备器（架构过滤与 ELF 兜底的确定性测试基准）。</summary>
+    private UmuComponentProvisioner NewProvisioner(Architecture hostArchitecture) =>
+        new(new HttpClient(_http), _downloader,
+            dataHome: _tempDir.Path, cacheHome: _tempDir.Path, hostArchitecture: hostArchitecture);
 
     [Fact]
     public async Task EnsureProtonAsync_DWCodename_DownloadsForgejoLatestAndStripsArchSuffix()
@@ -89,9 +103,9 @@ public sealed class UmuComponentProvisionerTests : IDisposable
     }
 
     [Fact]
-    public async Task EnsureProtonAsync_CodenameDownloadFails_FallsBackToInstalledLatest()
+    public async Task EnsureProtonAsync_LocalInstalled_ReturnsWithoutNetwork()
     {
-        // 本地已有该发行版旧版：latest 下载失败（API 未注册 → 404）时离线回退，不静默换发行版
+        // 本地已有该发行版旧版：启动/组件准备直接用本地，不联网拉 latest（更新走 UpdateProtonAsync）
         InstallReadyProton("GE-Proton10-9");
 
         var path = await _provisioner.EnsureProtonAsync("GE-Proton");
@@ -99,10 +113,11 @@ public sealed class UmuComponentProvisionerTests : IDisposable
         Assert.EndsWith(
             Path.Combine("compatibilitytools.d", "GE-Proton10-9"),
             path.Replace('\\', '/').Replace(Path.DirectorySeparatorChar, '/'));
+        Assert.Empty(_downloader.Requests); // 未发起任何下载
     }
 
     [Fact]
-    public async Task EnsureProtonAsync_DWCodename_FallsBackToLocalDwproton()
+    public async Task EnsureProtonAsync_DWCodename_UsesLocalDwproton()
     {
         InstallReadyProton("dwproton-11.0-12");
 
@@ -111,6 +126,233 @@ public sealed class UmuComponentProvisionerTests : IDisposable
         Assert.EndsWith(
             Path.Combine("compatibilitytools.d", "dwproton-11.0-12"),
             path.Replace('\\', '/').Replace(Path.DirectorySeparatorChar, '/'));
+    }
+
+    [Fact]
+    public void SelectTarAsset_DualArchAssets_PrefersHostArchSuffix()
+    {
+        // GitHub 资产顺序 = 上传顺序：GE-Proton 曾把 aarch64 排在 x86_64 之前，取"第一个"必错
+        var release = JsonDocument.Parse("""
+            {
+              "assets": [
+                { "name": "GE-Proton11-6-aarch64.sha512sum", "browser_download_url": "https://x/sum1" },
+                { "name": "GE-Proton11-6-aarch64.tar.gz", "browser_download_url": "https://x/arm" },
+                { "name": "GE-Proton11-6-x86_64.sha512sum", "browser_download_url": "https://x/sum2" },
+                { "name": "GE-Proton11-6-x86_64.tar.gz", "browser_download_url": "https://x/x64" }
+              ]
+            }
+            """).RootElement;
+
+        Assert.Equal("GE-Proton11-6-x86_64.tar.gz",
+            UmuComponentProvisioner.SelectTarAsset(release, "GE-Proton", "-x86_64").Name);
+        Assert.Equal("GE-Proton11-6-aarch64.tar.gz",
+            UmuComponentProvisioner.SelectTarAsset(release, "GE-Proton", "-aarch64").Name);
+    }
+
+    [Fact]
+    public void SelectTarAsset_UnsuffixedAsset_WorksWithAnyHost()
+    {
+        // UMU-Proton 单架构发布形态：无后缀资产对任意主机可用
+        var release = JsonDocument.Parse("""
+            {
+              "assets": [
+                { "name": "UMU-Proton-10.0-4.tar.gz", "browser_download_url": "https://x/umu" }
+              ]
+            }
+            """).RootElement;
+
+        Assert.Equal("UMU-Proton-10.0-4.tar.gz",
+            UmuComponentProvisioner.SelectTarAsset(release, "UMU-Proton", "-x86_64").Name);
+        Assert.Equal("UMU-Proton-10.0-4.tar.gz",
+            UmuComponentProvisioner.SelectTarAsset(release, "UMU-Proton", "-aarch64").Name);
+    }
+
+    [Fact]
+    public void SelectTarAsset_OnlyOppositeArch_ReturnsEmpty()
+    {
+        // 只有相反架构资产时不得下载（调用方据此报"无适配架构资产"）
+        var release = JsonDocument.Parse("""
+            {
+              "assets": [
+                { "name": "GE-Proton11-6-aarch64.tar.gz", "browser_download_url": "https://x/arm" }
+              ]
+            }
+            """).RootElement;
+
+        var asset = UmuComponentProvisioner.SelectTarAsset(release, "GE-Proton", "-x86_64");
+        Assert.True(string.IsNullOrEmpty(asset.Url)); // 调用方按"无适配资产"报错，不得下载反向架构
+    }
+
+    [Fact]
+    public async Task EnsureProtonAsync_GECodename_DualAssets_DownloadsHostArchAsset()
+    {
+        ServeGitHubRelease(UmuComponentProvisioner.GeProtonReleaseApi, "GE-Proton11-6", [
+            ("GE-Proton11-6-aarch64.tar.gz", "https://github.com/x/GE-Proton11-6-aarch64.tar.gz"),
+            ("GE-Proton11-6-x86_64.tar.gz", "https://github.com/x/GE-Proton11-6-x86_64.tar.gz"),
+        ]);
+        _downloader.Serve(
+            "https://github.com/x/GE-Proton11-6-x86_64.tar.gz",
+            BuildProtonArchive("GE-Proton11-6-x86_64", wineserverElfMachine: ElfX86_64));
+
+        var path = await NewProvisioner(Architecture.X64).EnsureProtonAsync("GE-Proton");
+
+        Assert.EndsWith(
+            Path.Combine("compatibilitytools.d", "GE-Proton11-6"),
+            path.Replace('\\', '/').Replace(Path.DirectorySeparatorChar, '/'));
+        Assert.Equal(["https://github.com/x/GE-Proton11-6-x86_64.tar.gz"], _downloader.Requests);
+    }
+
+    [Fact]
+    public async Task EnsureProtonAsync_GECodename_OnArm64Host_DownloadsAarch64Asset()
+    {
+        ServeGitHubRelease(UmuComponentProvisioner.GeProtonReleaseApi, "GE-Proton11-6", [
+            ("GE-Proton11-6-aarch64.tar.gz", "https://github.com/x/GE-Proton11-6-aarch64.tar.gz"),
+            ("GE-Proton11-6-x86_64.tar.gz", "https://github.com/x/GE-Proton11-6-x86_64.tar.gz"),
+        ]);
+        _downloader.Serve(
+            "https://github.com/x/GE-Proton11-6-aarch64.tar.gz",
+            BuildProtonArchive("GE-Proton11-6-aarch64", wineserverElfMachine: ElfAarch64));
+
+        var path = await NewProvisioner(Architecture.Arm64).EnsureProtonAsync("GE-Proton");
+
+        Assert.EndsWith(
+            Path.Combine("compatibilitytools.d", "GE-Proton11-6"),
+            path.Replace('\\', '/').Replace(Path.DirectorySeparatorChar, '/'));
+        Assert.Equal(["https://github.com/x/GE-Proton11-6-aarch64.tar.gz"], _downloader.Requests);
+    }
+
+    [Fact]
+    public async Task EnsureProtonAsync_WineserverArchMismatch_AbortsAndCleans()
+    {
+        // 无后缀资产名骗过名称过滤时，wineserver 的 ELF e_machine 兜底拦截
+        ServeGitHubRelease(UmuComponentProvisioner.GeProtonReleaseApi, "GE-Proton11-6", [
+            ("GE-Proton11-6.tar.gz", "https://github.com/x/GE-Proton11-6.tar.gz"),
+        ]);
+        _downloader.Serve(
+            "https://github.com/x/GE-Proton11-6.tar.gz",
+            BuildProtonArchive("GE-Proton11-6", wineserverElfMachine: ElfAarch64));
+
+        var ex = await Assert.ThrowsAsync<LaunchException>(
+            () => NewProvisioner(Architecture.X64).EnsureProtonAsync("GE-Proton"));
+
+        Assert.Equal(LaunchFailureKind.ProtonDownloadFailed, ex.Kind);
+        Assert.Contains("架构", ex.Message, StringComparison.Ordinal);
+        Assert.False(Directory.Exists(
+            Path.Combine(UmuPaths.SteamCompatRoot(_tempDir.Path), "GE-Proton11-6"))); // 已清理
+    }
+
+    [Fact]
+    public async Task EnsureProtonAsync_WineserverArchMatches_Installs()
+    {
+        ServeGitHubRelease(UmuComponentProvisioner.GeProtonReleaseApi, "GE-Proton11-6", [
+            ("GE-Proton11-6.tar.gz", "https://github.com/x/GE-Proton11-6.tar.gz"),
+        ]);
+        _downloader.Serve(
+            "https://github.com/x/GE-Proton11-6.tar.gz",
+            BuildProtonArchive("GE-Proton11-6", wineserverElfMachine: ElfX86_64));
+
+        var path = await NewProvisioner(Architecture.X64).EnsureProtonAsync("GE-Proton");
+
+        Assert.True(_provisioner.IsProtonReady(path));
+    }
+
+    [Fact]
+    public void FindInstalledProton_WrongArchLocal_Skipped_CorrectArch_Found()
+    {
+        // 错架构已装目录视同缺失（自愈前提）；对架构目录照常解析
+        var wrong = InstallReadyProton("GE-Proton11-6");
+        WriteWineserverElf(wrong, ElfAarch64);
+
+        var arm = NewProvisioner(Architecture.Arm64);
+        var x64 = NewProvisioner(Architecture.X64);
+        Assert.Null(x64.FindInstalledProton("GE-Proton")); // 代号前缀路径
+        Assert.Null(x64.FindInstalledProton("GE-Proton11-6")); // 版本名路径
+        Assert.NotNull(arm.FindInstalledProton("GE-Proton11-6")); // aarch64 主机上同目录可用
+
+        WriteWineserverElf(wrong, ElfX86_64);
+        Assert.NotNull(x64.FindInstalledProton("GE-Proton")); // 换成对架构后恢复可解析
+    }
+
+    [Fact]
+    public async Task EnsureProtonAsync_PreinstalledWrongArch_SelfHealsByRedownload()
+    {
+        // 事故自愈路径：本地已装 aarch64 GE-Proton11-6（x86_64 主机）→ 视同缺失 →
+        // 同版本重下（ExtractSingleTopLevel 原地替换）→ wineserver 变为本机架构
+        var wrong = InstallReadyProton("GE-Proton11-6");
+        WriteWineserverElf(wrong, ElfAarch64);
+        ServeGitHubRelease(UmuComponentProvisioner.GeProtonReleaseApi, "GE-Proton11-6", [
+            ("GE-Proton11-6-x86_64.tar.gz", "https://github.com/x/GE-Proton11-6-x86_64.tar.gz"),
+        ]);
+        _downloader.Serve(
+            "https://github.com/x/GE-Proton11-6-x86_64.tar.gz",
+            BuildProtonArchive("GE-Proton11-6-x86_64", wineserverElfMachine: ElfX86_64));
+
+        var path = await NewProvisioner(Architecture.X64).EnsureProtonAsync("GE-Proton");
+
+        Assert.EndsWith(
+            Path.Combine("compatibilitytools.d", "GE-Proton11-6"),
+            path.Replace('\\', '/').Replace(Path.DirectorySeparatorChar, '/'));
+        Assert.Equal(["https://github.com/x/GE-Proton11-6-x86_64.tar.gz"], _downloader.Requests);
+        Assert.Equal(ElfX86_64, UmuComponentProvisioner.ReadWineserverElfMachine(path)); // 已替换为本机架构
+    }
+
+    [Fact]
+    public async Task FetchLatestProtonTagAsync_ResolvesCodenameToUpstreamTag()
+    {
+        ServeGitHubRelease(UmuComponentProvisioner.GeProtonReleaseApi, "GE-Proton11-7", []);
+        ServeForgejoReleases([]); // Forgejo 数组根同样能取 tag
+        ServeGitHubRelease(UmuComponentProvisioner.UmuProtonReleaseApi, "UMU-Proton-10.0-9", []);
+
+        Assert.Equal("GE-Proton11-7", await _provisioner.FetchLatestProtonTagAsync("GE-Proton"));
+        Assert.Equal("dwproton-11.0-99", await _provisioner.FetchLatestProtonTagAsync("DW-Proton"));
+        Assert.Equal("UMU-Proton-10.0-9", await _provisioner.FetchLatestProtonTagAsync("UMU-Proton"));
+    }
+
+    [Fact]
+    public async Task FetchLatestProtonTagAsync_UnsupportedCodename_Throws()
+    {
+        var ex = await Assert.ThrowsAsync<LaunchException>(
+            () => _provisioner.FetchLatestProtonTagAsync("XX-Proton"));
+
+        Assert.Equal(LaunchFailureKind.ProtonDownloadFailed, ex.Kind);
+    }
+
+    [Fact]
+    public async Task UpdateProtonAsync_InstallsLatestAndPrunesSameFlavorOldVersions()
+    {
+        InstallReadyProton("GE-Proton10-9");
+        InstallReadyProton("UMU-Proton-10.0-1"); // 其它发行版不受影响
+        ServeGitHubRelease(UmuComponentProvisioner.GeProtonReleaseApi, "GE-Proton11-6", [
+            ("GE-Proton11-6-x86_64.tar.gz", "https://github.com/x/GE-Proton11-6-x86_64.tar.gz"),
+        ]);
+        _downloader.Serve(
+            "https://github.com/x/GE-Proton11-6-x86_64.tar.gz",
+            BuildProtonArchive("GE-Proton11-6-x86_64", wineserverElfMachine: ElfX86_64));
+
+        var path = await NewProvisioner(Architecture.X64).UpdateProtonAsync("GE-Proton");
+
+        var root = UmuPaths.SteamCompatRoot(_tempDir.Path);
+        Assert.EndsWith(
+            Path.Combine("compatibilitytools.d", "GE-Proton11-6"),
+            path.Replace('\\', '/').Replace(Path.DirectorySeparatorChar, '/'));
+        Assert.False(Directory.Exists(Path.Combine(root, "GE-Proton10-9"))); // 同发行版旧版已删
+        Assert.True(Directory.Exists(Path.Combine(root, "UMU-Proton-10.0-1"))); // 其它发行版保留
+    }
+
+    [Fact]
+    public async Task UpdateProtonAsync_AlreadyLatest_ReturnsExistingWithoutDownload()
+    {
+        InstallReadyProton("GE-Proton11-6");
+        ServeGitHubRelease(UmuComponentProvisioner.GeProtonReleaseApi, "GE-Proton11-6", [
+            ("GE-Proton11-6.tar.gz", "https://github.com/x/GE-Proton11-6.tar.gz"),
+        ]);
+
+        var path = await _provisioner.UpdateProtonAsync("GE-Proton");
+
+        Assert.EndsWith(
+            Path.Combine("compatibilitytools.d", "GE-Proton11-6"),
+            path.Replace('\\', '/').Replace(Path.DirectorySeparatorChar, '/'));
+        Assert.Empty(_downloader.Requests);
     }
 
     [Fact]
@@ -130,13 +372,30 @@ public sealed class UmuComponentProvisionerTests : IDisposable
         Assert.Equal(string.Empty, UmuComponentProvisioner.ParseSha256For("deadbeef  a.tar.xz\n", "b.tar.xz"));
     }
 
-    /// <summary>在 compatibilitytools.d 下放一个"就绪"的 Proton 目录（toolmanifest.vdf + proton）。</summary>
-    private void InstallReadyProton(string name)
+    /// <summary>在 compatibilitytools.d 下放一个"就绪"的 Proton 目录（toolmanifest.vdf + proton），返回目录路径。</summary>
+    private string InstallReadyProton(string name)
     {
         var dir = Path.Combine(UmuPaths.SteamCompatRoot(_tempDir.Path), name);
         Directory.CreateDirectory(dir);
         File.WriteAllText(Path.Combine(dir, "toolmanifest.vdf"), "\"manifest\" { }");
         File.WriteAllText(Path.Combine(dir, "proton"), "#!/bin/sh\n");
+        return dir;
+    }
+
+    /// <summary>向已装 Proton 目录写入指定 e_machine 的 wineserver ELF 头（本地架构过滤测试用）。</summary>
+    private static void WriteWineserverElf(string protonDir, ushort machine)
+    {
+        var bin = Path.Combine(protonDir, "files", "bin");
+        Directory.CreateDirectory(bin);
+        var elf = new byte[20];
+        elf[0] = 0x7F;
+        elf[1] = (byte)'E';
+        elf[2] = (byte)'L';
+        elf[3] = (byte)'F';
+        elf[4] = 2;
+        elf[18] = (byte)(machine & 0xFF);
+        elf[19] = (byte)(machine >> 8);
+        File.WriteAllBytes(Path.Combine(bin, "wineserver"), elf);
     }
 
     /// <summary>注册 Forgejo releases 数组响应（dawn.wine，数组根，取首个非 draft/prerelease）。</summary>
@@ -168,10 +427,11 @@ public sealed class UmuComponentProvisionerTests : IDisposable
 
     /// <summary>
     /// 构造顶层目录含 toolmanifest.vdf 与 proton 的 gzip+tar（IsProtonReady 认这两份文件）。
-    /// 解压按魔数而非扩展名分发，故 DW 的 .tar.xz 资产名配 gzip 内容即可（SharpCompress 无 XZ 编码器，
-    /// 与 UmuArchiveExtractionTests 同一取舍）。
+    /// wineserverElfMachine 非空时附加 files/bin/wineserver（20 字节 ELF 头，e_machine 为给定值），
+    /// 供架构兜底校验测试。解压按魔数而非扩展名分发，故 DW 的 .tar.xz 资产名配 gzip 内容即可
+    /// （SharpCompress 无 XZ 编码器，与 UmuArchiveExtractionTests 同一取舍）。
     /// </summary>
-    private static byte[] BuildProtonArchive(string topDir)
+    private static byte[] BuildProtonArchive(string topDir, ushort? wineserverElfMachine = null)
     {
         using var tarBuffer = new MemoryStream();
         using (var writer = new TarWriter(tarBuffer, TarEntryFormat.Pax, leaveOpen: true))
@@ -187,6 +447,22 @@ public sealed class UmuComponentProvisionerTests : IDisposable
                 DataStream = new MemoryStream("#!/bin/sh\n"u8.ToArray()),
             };
             writer.WriteEntry(proton);
+            if (wineserverElfMachine is { } machine)
+            {
+                var elf = new byte[20];
+                elf[0] = 0x7F;
+                elf[1] = (byte)'E';
+                elf[2] = (byte)'L';
+                elf[3] = (byte)'F';
+                elf[4] = 2; // 64 位
+                elf[18] = (byte)(machine & 0xFF);
+                elf[19] = (byte)(machine >> 8);
+                var wineserver = new PaxTarEntry(TarEntryType.RegularFile, $"{topDir}/files/bin/wineserver")
+                {
+                    DataStream = new MemoryStream(elf),
+                };
+                writer.WriteEntry(wineserver);
+            }
         }
 
         using var result = new MemoryStream();
