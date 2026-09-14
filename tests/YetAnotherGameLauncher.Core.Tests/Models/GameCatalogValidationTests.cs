@@ -1,6 +1,6 @@
+using Xunit;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
-using Xunit;
 
 namespace YetAnotherGameLauncher.Core.Tests.Models;
 

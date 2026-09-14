@@ -1,6 +1,6 @@
+using Microsoft.Extensions.Logging;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
-using Microsoft.Extensions.Logging;
 
 namespace YetAnotherGameLauncher.Core.Services;
 

@@ -1,8 +1,7 @@
-using YetAnotherGameLauncher.AppTests;
+using Xunit;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.TestSupport;
 using YetAnotherGameLauncher.ViewModels;
-using Xunit;
 
 namespace YetAnotherGameLauncher.AppTests;
 

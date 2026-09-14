@@ -1,7 +1,8 @@
 using System.ComponentModel;
+using Microsoft.Extensions.Logging;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
-using Microsoft.Extensions.Logging;
+using YetAnotherGameLauncher.Core.Utilities;
 
 namespace YetAnotherGameLauncher.Core.Services;
 
@@ -123,7 +124,7 @@ public sealed class GameLauncherService(
                 "可能原因：Proton / Wine 目录被移动或删除，可在启动设置里重新选择启动方式。");
         }
 
-        if (!OperatingSystem.IsWindows() && !IsExecutable(fileName))
+        if (!OperatingSystem.IsWindows() && !FileUtilities.IsExecutableFile(fileName))
         {
             // 从压缩包解出来的 proton / umu 脚本常见缺执行位：能补就补，失败再报错
             try
@@ -171,33 +172,7 @@ public sealed class GameLauncherService(
     /// <summary>启动日志路径：{logDir}/launch-{gameId}-{yyyyMMdd-HHmmss}.log。</summary>
     private string ComposeLogPath(string gameId) => Path.Combine(
         _logDirectory,
-        $"launch-{SanitizeGameId(gameId)}-{DateTime.Now:yyyyMMdd-HHmmss}.log");
-
-    /// <summary>gameId 只保留文件名安全字符，其余替换为 '-'。</summary>
-    private static string SanitizeGameId(string gameId)
-    {
-        var sanitized = new string(gameId.Select(c =>
-            char.IsAsciiLetterOrDigit(c) || c is '-' or '_' ? c : '-').ToArray());
-        return sanitized.Length == 0 ? "game" : sanitized;
-    }
-
-    /// <summary>Linux 可执行位检查（Windows 无此概念，存在即可）。</summary>
-    private static bool IsExecutable(string path)
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            return true;
-        }
-
-        try
-        {
-            return File.GetUnixFileMode(path).HasFlag(UnixFileMode.UserExecute);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
-    }
+        $"launch-{FileUtilities.SanitizeGameId(gameId)}-{DateTime.Now:yyyyMMdd-HHmmss}.log");
 
     /// <summary>替换模板占位符。{exe} 展开为带引号的路径——命令按空格切分，
     /// 路径含空格（如 D:\Wuthering Waves）不加引号会被截断成不存在的文件；兼容已手写引号的 "{exe}"。</summary>

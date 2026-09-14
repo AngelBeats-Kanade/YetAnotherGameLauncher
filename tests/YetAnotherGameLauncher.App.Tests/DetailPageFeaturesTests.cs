@@ -1,11 +1,8 @@
-using System.Net;
 using System.Security.Cryptography;
 using System.Text;
-using Avalonia.Controls;
-using YetAnotherGameLauncher.AppTests;
+using Xunit;
 using YetAnotherGameLauncher.Services;
 using YetAnotherGameLauncher.TestSupport;
-using Xunit;
 
 namespace YetAnotherGameLauncher.AppTests;
 

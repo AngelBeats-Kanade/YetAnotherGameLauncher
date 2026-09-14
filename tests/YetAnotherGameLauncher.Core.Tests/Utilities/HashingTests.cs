@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
-using YetAnotherGameLauncher.Core.Utilities;
 using Xunit;
+using YetAnotherGameLauncher.Core.Utilities;
 
 namespace YetAnotherGameLauncher.Core.Tests.Utilities;
 

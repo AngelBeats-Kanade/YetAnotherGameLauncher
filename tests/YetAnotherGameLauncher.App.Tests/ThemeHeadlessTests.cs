@@ -1,9 +1,9 @@
 using Avalonia;
 using Avalonia.Styling;
+using Xunit;
 using YetAnotherGameLauncher.AppTests;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Themes;
-using Xunit;
 
 namespace YetAnotherGameLauncher.UiTests;
 

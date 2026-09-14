@@ -1,6 +1,5 @@
 using Avalonia.Media;
 using YetAnotherGameLauncher.Core.Abstractions;
-using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Services;
 using YetAnotherGameLauncher.TestSupport;
@@ -98,7 +97,12 @@ public static class VmFactory
             return Task.FromResult(PlayHandler?.Invoke(videoPath) ?? true);
         }
 
-        public void Stop() => StopCount++;
+        public void Stop()
+        {
+            StopCount++;
+            // 契约：Stop 清空帧缓冲（与 FfmpegVideoBackdropPlayer 一致）
+            Frame = null;
+        }
 
         /// <summary>模拟解码器产出帧（测试手动驱动，UI 线程触发）。</summary>
         public void RaiseFrame() => FrameUpdated?.Invoke(this, EventArgs.Empty);
@@ -124,11 +128,12 @@ public static class VmFactory
         IReadOnlyList<string>? linuxProtonVersions = null,
         string? linuxUmuPath = "",
         string? linuxWinePath = "",
-        string? linuxDataHome = null)
+        string? linuxDataHome = null,
+        YetAnotherGameLauncher.Core.Services.Umu.NativeUmuLauncher? nativeUmu = null)
     {
         var tempDir = new TempDir();
         var configPath = tempDir.FilePath("games.json");
-        var gamesRoot = tempDir.FilePath("games-root").Replace(System.IO.Path.DirectorySeparatorChar, '/');
+        var gamesRoot = tempDir.FilePath("games-root").Replace(Path.DirectorySeparatorChar, '/');
         if (configJson is not null)
         {
             // 安装根目录必须落在临时目录内，避免测试间状态泄漏
@@ -192,7 +197,8 @@ public static class VmFactory
             linuxUmuPath: linuxUmuPath,
             linuxWinePath: linuxWinePath,
             linuxDataHome: linuxDataHome ?? tempDir.FilePath("data-home"),
-            umuInstaller: umuInstaller);
+            umuInstaller: umuInstaller,
+            nativeUmu: nativeUmu);
 
         return new Context
         {

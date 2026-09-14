@@ -34,13 +34,13 @@ public sealed record KuroSwitchConfig(
             GetIntOrNull(root, "functionSwitch"),
             GetIntOrNull(root, "backgroundFileType"));
 
-        /// <summary>读取 JSON 对象的字符串字段；缺失或非字符串返回 null。</summary>
+        // 读取 JSON 对象的字符串字段；缺失或非字符串返回 null。
         static string? GetStringOrNull(JsonElement element, string name) =>
             element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
                 ? value.GetString()
                 : null;
 
-        /// <summary>读取 JSON 对象的整数字段；缺失或非数值返回 null。</summary>
+        // 读取 JSON 对象的整数字段；缺失或非数值返回 null。
         static int? GetIntOrNull(JsonElement element, string name) =>
             element.TryGetProperty(name, out var value)
                 && (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var n)

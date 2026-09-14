@@ -1,14 +1,13 @@
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
-using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using YetAnotherGameLauncher.AppTests;
-using YetAnotherGameLauncher.Views;
-using YetAnotherGameLauncher.ViewModels;
 using Xunit;
+using YetAnotherGameLauncher.AppTests;
+using YetAnotherGameLauncher.ViewModels;
+using YetAnotherGameLauncher.Views;
 
 namespace YetAnotherGameLauncher.UiTests;
 

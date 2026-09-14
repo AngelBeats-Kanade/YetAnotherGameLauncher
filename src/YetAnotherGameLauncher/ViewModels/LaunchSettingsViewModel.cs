@@ -324,7 +324,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 break;
             case LaunchMode.NativeUmu:
                 ApplyGenerated(Flatten(CompatTools.BuildNativeUmuLaunch(
-                    _game.Id, home: null, dataHome: _dataHome, umuId: _game.Launch.UmuId,
+                    _game.Id, dataHome: _dataHome, umuId: _game.Launch.UmuId,
                     protonFlavor: SelectedProtonFlavor)));
                 break;
             default:
@@ -445,7 +445,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     }
 
     /// <summary>目录路径统一为正斜杠（与示例配置一致；读取端 Path.GetFullPath 兼容两种斜杠）。</summary>
-    private static string NormalizeDirectoryPath(string path) => path.Replace('\\', '/');
+    internal static string NormalizeDirectoryPath(string path) => path.Replace('\\', '/');
 
     /// <summary>把位于安装目录内的绝对路径换算为相对路径；目录外保持绝对（Path.Combine 对两者都兼容）。</summary>
     private string RelativeToInstallDir(string normalizedPath)
@@ -505,6 +505,8 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 ? "{installDir}"
                 : WorkingDirectory.Trim(),
             Environment = environment,
+            // games.json 的 launch.umuId 不经设置卡编辑，重建 Launch 时必须保留（否则 UMU_ID 退化为 umu-{gameId}）
+            UmuId = _game.Launch.UmuId,
         };
 
         try

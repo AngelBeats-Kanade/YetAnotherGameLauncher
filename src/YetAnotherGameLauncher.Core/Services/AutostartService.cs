@@ -1,4 +1,3 @@
-using System.Runtime.Versioning;
 using YetAnotherGameLauncher.Core.Abstractions;
 
 namespace YetAnotherGameLauncher.Core.Services;

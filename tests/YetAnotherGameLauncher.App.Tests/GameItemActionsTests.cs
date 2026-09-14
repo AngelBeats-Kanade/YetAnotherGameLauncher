@@ -1,9 +1,9 @@
 using System.Text.Json;
+using Xunit;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Utilities;
 using YetAnotherGameLauncher.TestSupport;
 using YetAnotherGameLauncher.ViewModels;
-using Xunit;
 
 namespace YetAnotherGameLauncher.AppTests;
 

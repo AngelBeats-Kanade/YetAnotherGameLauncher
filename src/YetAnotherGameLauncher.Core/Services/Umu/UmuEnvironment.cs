@@ -1,5 +1,5 @@
-using System.Security.Cryptography;
 using System.Text;
+using YetAnotherGameLauncher.Core.Utilities;
 
 namespace YetAnotherGameLauncher.Core.Services.Umu;
 
@@ -118,11 +118,8 @@ public static class UmuEnvironment
         id.StartsWith("umu-", StringComparison.Ordinal) ? id : $"umu-{id}";
 
     /// <summary>prefix 路径 MD5（小写 hex），用于 STEAM_COMPAT_APP_ID。</summary>
-    public static string PrefixHash(string prefixPath)
-    {
-        var bytes = Encoding.UTF8.GetBytes(prefixPath);
-        return Convert.ToHexString(MD5.HashData(bytes)).ToLowerInvariant();
-    }
+    public static string PrefixHash(string prefixPath) =>
+        Hashing.Md5Hex(Encoding.UTF8.GetBytes(prefixPath));
 
     /// <summary>
     /// 移植上游 enable_steam_game_drive 的核心：STEAM_RUNTIME_LIBRARY_PATH = 现有 LD_LIBRARY_PATH + 安装目录，

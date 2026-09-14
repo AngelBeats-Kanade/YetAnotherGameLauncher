@@ -2,7 +2,6 @@ using System.Collections.ObjectModel;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using YetAnotherGameLauncher.Core;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
@@ -297,11 +296,13 @@ public partial class GameItemViewModel(
 
         // 状态优先级：未登记但文件在 → 可直接启动（官启等来源的既有安装）；
         // 已登记 → 有更新 / 可预下载 / 已是最新
-        StatusText = !IsInstalled
+        var newStatus = !IsInstalled
             ? CanLaunch ? Loc["status_detected"] : Loc["status_notInstalled"]
             : HasUpdate
                 ? Loc["status_hasUpdate"]
                 : PredownloadAvailable ? Loc["status_predownload"] : Loc["status_upToDate"];
+        RaiseStatusToast(newStatus);
+        StatusText = newStatus;
 
         OnPropertyChanged(nameof(InstallButtonText));
         OnPropertyChanged(nameof(InstallIsPrimary));
@@ -486,8 +487,43 @@ public partial class GameItemViewModel(
         HasBackgroundVideo = false;
     }
 
-    /// <summary>播放器帧就绪：首帧到达后隐藏海报、显示视频层（幂等，重设同值不触发通知）。</summary>
-    private void OnVideoFrameUpdated(object? sender, EventArgs e) => HasBackgroundVideo = true;
+    /// <summary>播放器帧就绪：首帧到达后隐藏海报、显示视频层（幂等，重设同值不触发通知）。
+    /// 以帧缓冲非空为准——停止瞬间迟到的陈旧通知（共享播放器上一游戏最后一帧经 UI 线程
+    /// 异步投递）不得点亮新页面的视频层。</summary>
+    private void OnVideoFrameUpdated(object? sender, EventArgs e) =>
+        HasBackgroundVideo = VideoPlayer?.Frame is not null;
+
+    /// <summary>瞬态状态变化通知（主窗口转发为右下角轻提示）：检测到游戏文件/有更新/可预下载。</summary>
+    public event Action<string, string, ToastKind>? StatusToastRequested;
+
+    /// <summary>状态文案的语义键（跨语言稳定）：RefreshAsync 早期会把 StatusText 清空，
+    /// toast 的"是否变化"判定必须用这里记录的上次语义，而非 StatusText 现值——否则每次刷新
+    /// （含语言切换）都会误判为变化而重复弹泡。</summary>
+    private string? _lastStatusSemantic;
+
+    /// <summary>首轮刷新（启动预热）不弹——状态胶囊本就承载；此后状态语义变化且属于值得被动
+    /// 告知的类别（检测到游戏/有更新/可预下载）才弹，已是最新/未安装/断网静默。</summary>
+    private void RaiseStatusToast(string newStatus)
+    {
+        var semantic = newStatus == Loc["status_detected"] ? "detected"
+            : newStatus == Loc["status_hasUpdate"] ? "hasUpdate"
+            : newStatus == Loc["status_predownload"] ? "predownload"
+            : "other";
+        var previous = _lastStatusSemantic;
+        _lastStatusSemantic = semantic;
+        var wasArmed = _statusToastArmed;
+        _statusToastArmed = true;
+        if (!wasArmed || previous == semantic || semantic == "other")
+        {
+            return;
+        }
+
+        StatusToastRequested?.Invoke(
+            DisplayName, newStatus, semantic == "detected" ? ToastKind.Success : ToastKind.Warning);
+    }
+
+    /// <summary>状态轻提示已武装（首轮刷新完成后置位；见 <see cref="RaiseStatusToast"/>）。</summary>
+    private bool _statusToastArmed;
 
     /// <summary>界面语言决定背景区域：中文走国服渠道，其余走国际服渠道。</summary>
     private static string RegionForLanguage(string culture) =>

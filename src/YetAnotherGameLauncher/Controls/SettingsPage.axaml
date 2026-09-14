@@ -1,0 +1,164 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:YetAnotherGameLauncher.ViewModels"
+             x:Class="YetAnotherGameLauncher.Controls.SettingsPage"
+             x:DataType="vm:SettingsViewModel">
+    <!-- 设置页：外观 / 应用背景 / 下载 / 网络（代理）/ 配置文件。原 MainWindow.axaml 内联
+         DataTemplate 提取，绑定契约不变（DataContext = SettingsViewModel，.page 类命中切换动画）；
+         具名元素 InstallRootBox/ProxyCard/ProxyManualRadio 供窗口级 Enter 保存类处理器按名分发 -->
+    <Border Classes="page">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <StackPanel MaxWidth="720" HorizontalAlignment="Stretch" Spacing="18">
+
+                <TextBlock Text="{Binding Loc[settings_title]}" FontSize="28" FontWeight="Bold" Margin="0,4,0,4"/>
+
+                <!-- 外观 -->
+                <Border Classes="card">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="{Binding Loc[settings_appearance]}" FontSize="15" FontWeight="SemiBold"/>
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="24">
+                            <StackPanel Grid.Column="0" Spacing="6">
+                                <TextBlock Text="{Binding Loc[settings_theme]}" Classes="card-caption"/>
+                                <ComboBox ItemsSource="{Binding ThemeModes}"
+                                          SelectedItem="{Binding SelectedTheme}"
+                                          HorizontalAlignment="Stretch">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:ThemeOption">
+                                            <TextBlock Text="{Binding DisplayName}"/>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="6">
+                                <TextBlock Text="{Binding Loc[settings_language]}" Classes="card-caption"/>
+                                <ComboBox ItemsSource="{Binding Languages}"
+                                          SelectedItem="{Binding SelectedLanguage}"
+                                          HorizontalAlignment="Stretch">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:LanguageOption">
+                                            <TextBlock Text="{Binding DisplayName}"/>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock Text="{Binding Loc[settings_appearanceHint]}" Classes="card-caption"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 应用背景（设置/关于/侧栏底色；游戏详情页背景不受影响） -->
+                <Border Classes="card">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="{Binding Loc[settings_appBackground]}" FontSize="15" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding Loc[settings_appBackground_hint]}" Classes="card-caption" TextWrapping="Wrap"/>
+                        <TextBox Text="{Binding AppBackgroundPath}" IsReadOnly="True"
+                                 PlaceholderText="{Binding Loc[settings_appBackground_watermark]}"/>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Button Content="{Binding Loc[settings_appBackground_browse]}"
+                                    Command="{Binding BrowseAppBackgroundCommand}"
+                                    Classes="pressable btn-sm"/>
+                            <Button Content="{Binding Loc[settings_appBackground_reset]}"
+                                    Command="{Binding ResetAppBackgroundCommand}"
+                                    Classes="glass pressable btn-sm"/>
+                            <TextBlock Classes="save-msg" VerticalAlignment="Center"
+                                       Text="{Binding AppBackgroundSave.Message}"
+                                       IsVisible="{Binding AppBackgroundSave.HasMessage}"
+                                       Classes.failed="{Binding AppBackgroundSave.Failed}"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- 下载：安装根目录（可编辑） -->
+                <Border Classes="card">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="{Binding Loc[settings_downloads]}" FontSize="15" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding Loc[settings_installRoot]}" Classes="card-caption"/>
+                        <TextBox x:Name="InstallRootBox" Text="{Binding InstallRootDraft}"/>
+                        <TextBlock Text="{Binding Loc[settings_installRootEdit]}" Classes="card-caption"/>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Button Content="{Binding Loc[settings_installRootBrowse]}"
+                                    Command="{Binding BrowseInstallRootCommand}"
+                                    Classes="pressable btn-sm"/>
+                            <TextBlock Classes="save-msg" VerticalAlignment="Center"
+                                       Text="{Binding InstallRootSave.Message}"
+                                       IsVisible="{Binding InstallRootSave.HasMessage}"
+                                       Classes.failed="{Binding InstallRootSave.Failed}"/>
+                        </StackPanel>
+                        <StackPanel Spacing="4" Margin="0,8,0,0">
+                            <TextBlock Text="{Binding Loc[settings_downloadLimit]}" Classes="card-caption"/>
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <TextBox Text="{Binding SpeedLimitMbDraft}" Width="140"/>
+                                <TextBlock Text="{Binding Loc[settings_downloadLimitHint]}" Classes="card-caption"
+                                           VerticalAlignment="Center"/>
+                                <Button Content="{Binding Loc[common_save]}"
+                                        Command="{Binding SaveDownloadLimitCommand}"
+                                        Classes="glass pressable btn-sm"/>
+                                <TextBlock Classes="save-msg" VerticalAlignment="Center"
+                                           Text="{Binding SpeedLimitSave.Message}"
+                                           IsVisible="{Binding SpeedLimitSave.HasMessage}"
+                                           Classes.failed="{Binding SpeedLimitSave.Failed}"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <ToggleSwitch Content="{Binding Loc[settings_autostart]}"
+                                      OnContent="{Binding Loc[settings_autostart_on]}"
+                                      OffContent="{Binding Loc[settings_autostart_off]}"
+                                      IsChecked="{Binding IsAutostart, Mode=OneWay}"
+                                      Command="{Binding ToggleAutostartCommand}" Margin="0,6,0,0"/>
+                        <TextBlock Classes="save-msg"
+                                   Text="{Binding AutostartSave.Message}"
+                                   IsVisible="{Binding AutostartSave.HasMessage}"
+                                   Classes.failed="{Binding AutostartSave.Failed}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 网络（代理）：三个直白单选，去掉"模式"概念 -->
+                <Border Classes="card" x:Name="ProxyCard">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="{Binding Loc[settings_proxy]}" FontSize="15" FontWeight="SemiBold"/>
+                        <StackPanel Spacing="6" Margin="0,4,0,0">
+                            <RadioButton GroupName="proxy" Content="{Binding Loc[settings_proxy_method_system]}"
+                                         IsChecked="{Binding ProxyFollowSystem}"/>
+                            <RadioButton GroupName="proxy" Content="{Binding Loc[settings_proxy_method_direct]}"
+                                         IsChecked="{Binding ProxyDirect}"/>
+                            <RadioButton GroupName="proxy" x:Name="ProxyManualRadio"
+                                         Content="{Binding Loc[settings_proxy_method_manual]}"
+                                         IsChecked="{Binding ProxyManual}"/>
+                            <TextBox Margin="22,2,0,0"
+                                     PlaceholderText="{Binding Loc[settings_proxyAddress]}"
+                                     Text="{Binding ProxyAddressDraft}"
+                                     IsEnabled="{Binding IsProxyAddressEnabled}"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding Loc[settings_proxyHint]}" FontSize="12"
+                                   Foreground="{DynamicResource AppTextSecondary}" TextWrapping="Wrap"/>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Button Classes="pressable glass" Command="{Binding SaveProxyCommand}"
+                                    Content="{Binding Loc[settings_proxySave]}"
+                                    Padding="18,8"/>
+                            <TextBlock Text="{Binding ProxySave.Message}" FontSize="12"
+                                       VerticalAlignment="Center"
+                                       IsVisible="{Binding ProxySave.HasMessage}"
+                                       Classes.failed="{Binding ProxySave.Failed}"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- 配置文件 -->
+                <Border Classes="card">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="{Binding Loc[settings_configFile]}" FontSize="15" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding ConfigFilePath}" FontSize="12.5"
+                                   Foreground="{DynamicResource AppTextSecondary}"
+                                   TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding Loc[settings_configFileHint]}" Classes="card-caption"/>
+                        <Button Content="{Binding Loc[settings_openConfigDir]}" Command="{Binding OpenConfigFolderCommand}"
+                                HorizontalAlignment="Left" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <Button Content="{Binding Loc[common_backToGames]}" Command="{Binding ShowGamesCommand}"
+                        Classes="pressable back-btn"/>
+            </StackPanel>
+        </ScrollViewer>
+    </Border>
+</UserControl>

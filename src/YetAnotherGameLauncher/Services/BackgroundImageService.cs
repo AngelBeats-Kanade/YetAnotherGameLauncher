@@ -1,8 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
 using Avalonia.Media;
-using Avalonia.Platform;
 using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 using YetAnotherGameLauncher.Core;
 
 namespace YetAnotherGameLauncher.Services;

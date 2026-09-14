@@ -1,9 +1,7 @@
-using YetAnotherGameLauncher.Channels.Kuro;
-using YetAnotherGameLauncher.Core.Abstractions;
-using YetAnotherGameLauncher.Core.Models;
-using YetAnotherGameLauncher.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
+using YetAnotherGameLauncher.Core.Abstractions;
+using YetAnotherGameLauncher.Core.Models;
 
 namespace YetAnotherGameLauncher.Channels.Kuro.Tests;
 

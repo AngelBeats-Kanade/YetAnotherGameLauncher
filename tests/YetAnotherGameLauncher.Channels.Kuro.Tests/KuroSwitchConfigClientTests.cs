@@ -1,6 +1,5 @@
-using YetAnotherGameLauncher.Channels.Kuro;
-using YetAnotherGameLauncher.TestSupport;
 using Xunit;
+using YetAnotherGameLauncher.TestSupport;
 
 namespace YetAnotherGameLauncher.Channels.Kuro.Tests;
 

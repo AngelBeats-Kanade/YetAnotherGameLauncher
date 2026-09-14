@@ -1,9 +1,9 @@
 using System.Net;
 using System.Net.Http.Headers;
+using Microsoft.Extensions.Logging;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Utilities;
-using Microsoft.Extensions.Logging;
 
 namespace YetAnotherGameLauncher.Core.Services;
 

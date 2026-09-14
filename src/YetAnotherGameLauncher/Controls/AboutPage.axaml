@@ -1,0 +1,65 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:YetAnotherGameLauncher.ViewModels"
+             x:Class="YetAnotherGameLauncher.Controls.AboutPage"
+             x:DataType="vm:AboutViewModel">
+    <!-- 关于页：应用信息、版本与第三方声明。原 MainWindow.axaml 内联 DataTemplate 提取，
+         绑定契约不变（DataContext = AboutViewModel，页面切换动画经 .page 类继续命中） -->
+    <Border Classes="page">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <StackPanel MaxWidth="720" HorizontalAlignment="Stretch" Spacing="18">
+
+                <TextBlock Text="{Binding Loc[about_title]}" FontSize="28" FontWeight="Bold" Margin="0,4,0,4"/>
+
+                <Border Classes="card">
+                    <StackPanel Orientation="Horizontal" Spacing="18">
+                        <Image Width="60" Height="60"
+                               Source="avares://YetAnotherGameLauncher/Assets/app-icon.png"/>
+                        <StackPanel VerticalAlignment="Center" Spacing="4">
+                            <TextBlock Text="YetAnotherGameLauncher" FontSize="20" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding Loc[about_description]}" FontSize="12.5"
+                                       Foreground="{DynamicResource AppTextSecondary}" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="card">
+                    <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                            <TextBlock Grid.Column="0" Text="{Binding Loc[about_version]}" Classes="card-caption" Width="90"/>
+                            <TextBlock Grid.Column="1" Text="{Binding AppVersion}" FontSize="13.5"/>
+                        </Grid>
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                            <TextBlock Grid.Column="0" Text="{Binding Loc[about_runtime]}" Classes="card-caption" Width="90"/>
+                            <TextBlock Grid.Column="1" Text="{Binding RuntimeVersion}" FontSize="13.5"/>
+                        </Grid>
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                            <TextBlock Grid.Column="0" Text="{Binding Loc[about_configFile]}" Classes="card-caption" Width="90"/>
+                            <TextBlock Grid.Column="1" Text="{Binding ConfigFilePath}" FontSize="13.5"
+                                       TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding ConfigFilePath}"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="card">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="{Binding Loc[about_thirdParty]}" FontSize="15" FontWeight="SemiBold"/>
+                        <ItemsControl ItemsSource="{Binding ThirdParty}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnDefinitions="*,Auto" Margin="0,1">
+                                        <TextBlock Text="{Binding Name}" FontSize="13"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding License}" Classes="card-caption"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <Button Content="{Binding Loc[common_backToGames]}" Command="{Binding ShowGamesCommand}"
+                        Classes="pressable back-btn"/>
+            </StackPanel>
+        </ScrollViewer>
+    </Border>
+</UserControl>

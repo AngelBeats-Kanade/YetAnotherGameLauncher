@@ -1,7 +1,7 @@
+using Xunit;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Services.Umu;
 using YetAnotherGameLauncher.TestSupport;
-using Xunit;
 
 namespace YetAnotherGameLauncher.Core.Tests.Services.Umu;
 
@@ -253,7 +253,7 @@ public sealed class NativeUmuCoreTests : IDisposable
         Assert.Equal("umu-endfield", launch.Environment["UMU_ID"]);
         Assert.Equal("umu-endfield", launch.Environment["GAMEID"]);
         // prefix 路径不受 umuId 影响（继续按游戏 id，不迁移存量 prefix）
-        Assert.Equal(CompatTools.PrefixPathFor("arknights-endfield", null, _temp.Path), launch.Environment["WINEPREFIX"]);
+        Assert.Equal(CompatTools.PrefixPathFor("arknights-endfield", _temp.Path), launch.Environment["WINEPREFIX"]);
     }
 
     [Fact]

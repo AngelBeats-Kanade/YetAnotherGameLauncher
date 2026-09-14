@@ -1,18 +1,17 @@
-using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
 using Avalonia;
-using Avalonia.VisualTree;
+using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.VisualTree;
+using Xunit;
 using YetAnotherGameLauncher.AppTests;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Utilities;
 using YetAnotherGameLauncher.TestSupport;
-using YetAnotherGameLauncher.Themes;
+using YetAnotherGameLauncher.ViewModels;
 using YetAnotherGameLauncher.Views;
-using Xunit;
 
 namespace YetAnotherGameLauncher.UiTests;
 
@@ -270,6 +269,12 @@ public class UiScreenshotTests
             launchCard?.BringIntoView();
             window.UpdateLayout();
             Capture("11-launch-settings-linux-dark.png");
+
+            // 轻提示：两条不同种类的 toast 叠在右上（状态变化时由 VM 自动弹出，此处手动注入）
+            ctx.Vm.ShowToast("鸣潮", "检测到游戏文件，可直接启动", ToastKind.Success);
+            ctx.Vm.ShowToast("鸣潮", "可预下载新版本，本地 3.6.0", ToastKind.Warning);
+            window.UpdateLayout();
+            Capture("14-toast-dark.png");
 
             window.Close();
             return 0;

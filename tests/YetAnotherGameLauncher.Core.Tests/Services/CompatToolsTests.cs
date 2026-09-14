@@ -1,6 +1,6 @@
+using Xunit;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.TestSupport;
-using Xunit;
 
 namespace YetAnotherGameLauncher.Core.Tests.Services;
 
@@ -70,7 +70,9 @@ public sealed class ProtonCompatTests : IDisposable
     {
         InstallProton("GE-Proton10-9");
 
-        var launch = CompatTools.BuildProtonLaunch("wuthering-waves", "GE-Proton10-9", _home.Path);
+        // 数据根显式注入：缺省取 AppPaths.DataHomeDirectory，不随 home 推导
+        var launch = CompatTools.BuildProtonLaunch(
+            "wuthering-waves", "GE-Proton10-9", _home.Path, dataHome: _home.FilePath(".local", "share"));
 
         Assert.StartsWith("\"", launch.CommandTemplate);
         Assert.Contains("GE-Proton10-9", launch.CommandTemplate, StringComparison.Ordinal);

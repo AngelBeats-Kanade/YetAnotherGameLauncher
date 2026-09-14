@@ -1,8 +1,8 @@
 using System.Formats.Tar;
 using System.IO.Compression;
+using Xunit;
 using YetAnotherGameLauncher.Services;
 using YetAnotherGameLauncher.TestSupport;
-using Xunit;
 
 namespace YetAnotherGameLauncher.AppTests;
 

@@ -22,12 +22,18 @@ public interface IUmuComponentProvisioner
     /// 返回 Proton 绝对目录。
     /// </summary>
     /// <param name="protonRequest">绝对路径、版本名（GE-Proton9-27）或代号（GE-Proton / UMU-Proton）。</param>
+    /// <param name="progress">下载/安装进度文本回调（供 UI 展示）；不需要时传 null。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
     Task<string> EnsureProtonAsync(
         string protonRequest,
         IProgress<string>? progress = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>确保 Steam Runtime 就绪；缺失时从 repo.steampowered.com 下载并校验。</summary>
+    /// <param name="runtimeVariant">Runtime 目录变体名。</param>
+    /// <param name="runtimeName">Runtime 逻辑代号（显示用名称）。</param>
+    /// <param name="progress">下载/安装进度文本回调（供 UI 展示）；不需要时传 null。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
     Task EnsureRuntimeAsync(
         string runtimeVariant,
         string runtimeName,

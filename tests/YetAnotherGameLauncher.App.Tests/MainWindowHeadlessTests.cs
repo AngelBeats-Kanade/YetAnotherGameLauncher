@@ -1,8 +1,8 @@
 using Avalonia.Controls;
 using Avalonia.VisualTree;
+using Xunit;
 using YetAnotherGameLauncher.AppTests;
 using YetAnotherGameLauncher.Views;
-using Xunit;
 
 namespace YetAnotherGameLauncher.UiTests;
 

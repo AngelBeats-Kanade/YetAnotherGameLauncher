@@ -1,10 +1,9 @@
-using System.Net;
+using Xunit;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
-using YetAnotherGameLauncher.TestSupport;
 using YetAnotherGameLauncher.Core.Utilities;
-using Xunit;
+using YetAnotherGameLauncher.TestSupport;
 
 namespace YetAnotherGameLauncher.Core.Tests.Services;
 

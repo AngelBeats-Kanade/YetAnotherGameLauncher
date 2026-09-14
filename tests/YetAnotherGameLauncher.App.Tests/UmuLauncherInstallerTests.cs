@@ -1,7 +1,6 @@
-using System.Text;
 using System.Text.Json;
-using YetAnotherGameLauncher.Services;
 using Xunit;
+using YetAnotherGameLauncher.Services;
 using YetAnotherGameLauncher.TestSupport;
 
 namespace YetAnotherGameLauncher.AppTests;
@@ -42,7 +41,7 @@ public sealed class UmuLauncherInstallerTests : IDisposable
         if (!OperatingSystem.IsWindows())
         {
             Assert.True(
-                File.GetUnixFileMode(installed).HasFlag(System.IO.UnixFileMode.UserExecute),
+                File.GetUnixFileMode(installed).HasFlag(UnixFileMode.UserExecute),
                 "umu-run 必须带可执行位");
         }
     }

@@ -1,5 +1,3 @@
-using System.Globalization;
-
 namespace YetAnotherGameLauncher.Core.Services.Umu;
 
 /// <summary>Steam Linux Runtime 描述（与上游 umu RUNTIME_VERSIONS 对齐）。</summary>

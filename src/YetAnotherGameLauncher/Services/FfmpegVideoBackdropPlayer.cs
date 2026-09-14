@@ -72,8 +72,10 @@ public sealed class FfmpegVideoBackdropPlayer(
     /// <summary>淡化时长（秒）：覆盖循环接缝的交叉淡化窗口（仅预卷未就绪或接缝差异大时启用）。</summary>
     private const double FadeSeconds = 0.6;
 
-    /// <summary>当前播放的取消源与代际（旧代循环的输出一律丢弃，避免 Stop/Play 竞争）。</summary>
+    /// <summary>当前播放的取消源（Stop 时取消解码/渲染循环）。</summary>
     private CancellationTokenSource? _cts;
+
+    /// <summary>播放代际：Play/Stop 各递增一次；循环凭代际比对丢弃旧代的输出（避免 Stop/Play 竞争）。</summary>
     private int _generation;
 
     /// <inheritdoc/>
@@ -160,7 +162,8 @@ public sealed class FfmpegVideoBackdropPlayer(
     /// <inheritdoc/>
     public void Stop() => StopCore();
 
-    /// <summary>取消当前解码循环并推进代际（旧循环的收尾清理自动失效）。</summary>
+    /// <summary>停止播放：取消解码循环、推进代际并清空帧缓冲（渲染层立即回到海报/渐变兜底；
+    /// 共享播放器切游戏时，迟到的陈旧帧通知以空帧缓冲为证不再点亮新页面）。</summary>
     private void StopCore()
     {
         Interlocked.Increment(ref _generation);
@@ -169,6 +172,8 @@ public sealed class FfmpegVideoBackdropPlayer(
         {
             cts.Cancel();
         }
+
+        ClearFrame();
     }
 
     /// <summary>
@@ -233,6 +238,13 @@ public sealed class FfmpegVideoBackdropPlayer(
             // 等待期间取消直接返回（外层 while 检查 token 退出），到达循环终点置 loopEndReached
             void PresentFrame(AVFrame* softFrame, double ptsSeconds)
             {
+                // 代际门：被新一代 Play/Stop 取代后禁止再写入共享帧缓冲——否则迟到的旧循环帧
+                // 会在 ClearFrame 之后经 EnsureFrame 重建位图，把旧画面"复活"到新游戏页面上
+                if (Interlocked.CompareExchange(ref _generation, 0, 0) != generation)
+                {
+                    return;
+                }
+
                 if (aligningToStart)
                 {
                     if (!double.IsNaN(ptsSeconds) && ptsSeconds < loopStartPts - halfFrame)

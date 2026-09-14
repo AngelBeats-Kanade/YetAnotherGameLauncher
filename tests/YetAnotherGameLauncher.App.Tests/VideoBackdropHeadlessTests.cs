@@ -1,12 +1,11 @@
-using Avalonia.Controls;
 using Avalonia.Media.Imaging;
 using Avalonia.Styling;
 using Avalonia.VisualTree;
+using Xunit;
 using YetAnotherGameLauncher.AppTests;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.ViewModels;
 using YetAnotherGameLauncher.Views;
-using Xunit;
 
 namespace YetAnotherGameLauncher.UiTests;
 
@@ -127,6 +126,71 @@ public class VideoBackdropHeadlessTests : IDisposable
             window.Close();
         }, CancellationToken.None);
     }
+
+    [Fact]
+    public async Task VideoSource_SwitchingGames_LateStaleNotifyDoesNotLightNewGame()
+    {
+        // 两个游戏共享一个播放器（与生产 DI 单例一致）。切游戏后，上一游戏解码循环"最后一帧"
+        // 的帧通知经 UI 线程 Dispatcher 异步投递，可能落在新游戏订阅之后——若共享帧缓冲仍持有
+        // 旧帧，新详情页会点亮视频层并短暂显示上一游戏的画面（背景残留）。
+        // 契约：Stop 必须清空帧缓冲，迟到的陈旧通知以空帧缓冲为证不再点亮。
+        var videoA = _ctx.TempDir.FilePath("cached", "a.mp4");
+        var videoB = _ctx.TempDir.FilePath("cached", "b.mp4");
+        Directory.CreateDirectory(Path.GetDirectoryName(videoA)!);
+        await File.WriteAllTextAsync(videoA, "fake");
+        await File.WriteAllTextAsync(videoB, "fake");
+        _ctx.KuroBackdrop.Resolver = _ => new BackdropSource(videoA, BackdropKind.Video);
+        _ctx.GryphlineBackdrop.Resolver = _ => new BackdropSource(videoB, BackdropKind.Video);
+
+        await _ctx.Vm.InitializeAsync();
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            window.Show();
+            window.UpdateLayout();
+
+            var a = _ctx.Vm.Games[0];
+            var b = _ctx.Vm.Games[1];
+
+            // A 详情页起播并出首帧：视频层可见
+            _ctx.Vm.GameNavSelection = a;
+            window.UpdateLayout();
+            Assert.Equal([videoA], _player.PlayedPaths);
+            _player.Frame = NewFrame();
+            _player.RaiseFrame();
+            window.UpdateLayout();
+            Assert.True(a.HasBackgroundVideo);
+
+            // 切到 B：A 停止且共享帧缓冲清空；B 起播但首帧未到，视频层保持隐藏
+            _ctx.Vm.GameNavSelection = b;
+            window.UpdateLayout();
+            Assert.Equal(videoB, _player.PlayedPaths[^1]);
+            Assert.Null(_player.Frame);
+            Assert.False(b.HasBackgroundVideo);
+            AssertSurfaceVisible(window, b, expected: false);
+
+            // 迟到的陈旧帧通知（A 循环停止瞬间的最后一帧）：不得点亮 B 的视频层
+            _player.RaiseFrame();
+            window.UpdateLayout();
+            Assert.False(b.HasBackgroundVideo);
+            AssertSurfaceVisible(window, b, expected: false);
+
+            // B 自己的首帧到达：视频层正常点亮
+            _player.Frame = NewFrame();
+            _player.RaiseFrame();
+            window.UpdateLayout();
+            Assert.True(b.HasBackgroundVideo);
+            AssertSurfaceVisible(window, b, expected: true);
+
+            window.Close();
+        }, CancellationToken.None);
+    }
+
+    /// <summary>新建 4×4 测试帧位图（测试不释放——Render/播放器仍会访问）。</summary>
+    private static WriteableBitmap NewFrame() =>
+        new(new Avalonia.PixelSize(4, 4), new Avalonia.Vector(96, 96),
+            Avalonia.Platform.PixelFormats.Bgra8888, Avalonia.Platform.AlphaFormat.Opaque);
 
     /// <summary>详情页模板里的 FrameSurface 可见性与播放器接线断言；页面已切走（模板卸载）视为隐藏。</summary>
     private static void AssertSurfaceVisible(MainWindow window, GameItemViewModel game, bool expected)

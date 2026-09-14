@@ -1,7 +1,7 @@
 using System.Diagnostics;
+using Xunit;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Services;
-using Xunit;
 
 namespace YetAnotherGameLauncher.Core.Tests.Services;
 

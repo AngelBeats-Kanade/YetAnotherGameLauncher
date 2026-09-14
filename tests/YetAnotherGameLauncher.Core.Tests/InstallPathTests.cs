@@ -1,4 +1,3 @@
-using YetAnotherGameLauncher.Core;
 using Xunit;
 
 namespace YetAnotherGameLauncher.Core.Tests;

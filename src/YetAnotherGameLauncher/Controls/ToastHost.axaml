@@ -1,0 +1,35 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:YetAnotherGameLauncher.ViewModels"
+             x:Class="YetAnotherGameLauncher.Controls.ToastHost"
+             x:DataType="vm:MainWindowViewModel">
+    <!-- 轻提示宿主：挂在窗口右上（标题钮下方），卡片可点、宿主面板穿透；
+         容量与自动消失由 MainWindowViewModel.Toasts 管理（超容量丢最旧，4s 自灭） -->
+    <ItemsControl ItemsSource="{Binding Toasts}" IsHitTestVisible="False">
+        <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+                <StackPanel Spacing="10"/>
+            </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:ToastItem">
+                <Border Classes="toast-card"
+                        Classes.toast-success="{Binding IsSuccess}"
+                        Classes.toast-warning="{Binding IsWarning}"
+                        IsHitTestVisible="True">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                        <Ellipse Grid.Column="0" Classes="toast-dot"
+                                 Width="9" Height="9" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Title}" Classes="toast-title"/>
+                            <TextBlock Text="{Binding Message}" Classes="toast-message" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <Button Grid.Column="2" Classes="toast-close" Command="{Binding DismissCommand}"
+                                Content="✕"
+                                VerticalAlignment="Top"/>
+                    </Grid>
+                </Border>
+            </DataTemplate>
+        </ItemsControl.ItemTemplate>
+    </ItemsControl>
+</UserControl>

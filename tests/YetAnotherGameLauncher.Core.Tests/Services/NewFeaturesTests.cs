@@ -1,6 +1,6 @@
+using Xunit;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.TestSupport;
-using Xunit;
 
 namespace YetAnotherGameLauncher.Core.Tests.Services;
 
@@ -72,7 +72,9 @@ public class CompatToolsTests : IDisposable
     {
         Directory.CreateDirectory(_home.FilePath(".steam/steam/compatibilitytools.d/dw-proton"));
 
-        var launch = CompatTools.BuildProtonLaunch("wuthering-waves", "dw-proton", _home.Path);
+        // 数据根显式注入：缺省取 AppPaths.DataHomeDirectory，不随 home 推导
+        var launch = CompatTools.BuildProtonLaunch(
+            "wuthering-waves", "dw-proton", _home.Path, dataHome: _home.FilePath(".local", "share"));
 
         Assert.Contains("dw-proton", launch.CommandTemplate);
         Assert.Contains("proton\" run {exe}", launch.CommandTemplate);
@@ -109,6 +111,6 @@ public class AutostartContentTests
         var path = LinuxAutostartService.DesktopFilePath("/home/user");
 
         Assert.StartsWith("/home/user", path);
-        Assert.EndsWith(System.IO.Path.Combine(".config", "autostart", "yetanothergamelauncher.desktop"), path);
+        Assert.EndsWith(Path.Combine(".config", "autostart", "yetanothergamelauncher.desktop"), path);
     }
 }

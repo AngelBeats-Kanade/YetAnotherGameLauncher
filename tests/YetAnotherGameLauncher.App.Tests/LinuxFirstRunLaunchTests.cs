@@ -1,7 +1,6 @@
 using System.Text.RegularExpressions;
-using YetAnotherGameLauncher.TestSupport;
-using YetAnotherGameLauncher.ViewModels;
 using Xunit;
+using YetAnotherGameLauncher.TestSupport;
 
 namespace YetAnotherGameLauncher.AppTests;
 

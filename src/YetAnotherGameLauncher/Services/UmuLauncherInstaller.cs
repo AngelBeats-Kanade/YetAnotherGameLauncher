@@ -4,7 +4,6 @@ using SharpCompress.Common;
 using SharpCompress.Readers;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
-using YetAnotherGameLauncher.Core.Services;
 
 namespace YetAnotherGameLauncher.Services;
 

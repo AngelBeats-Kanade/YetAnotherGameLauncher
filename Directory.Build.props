@@ -7,6 +7,11 @@
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <AnalysisLevel>latest</AnalysisLevel>
+    <!-- 构建期强制 .editorconfig 风格规则（含 IDE0005 未使用 using）；IDE0005 需要 GenerateDocumentationFile 才可靠 -->
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- XML 注释按仓库约定人工保证，不用 CS1591 在构建期强制 -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
     <Version>0.1.0</Version>
   </PropertyGroup>
 

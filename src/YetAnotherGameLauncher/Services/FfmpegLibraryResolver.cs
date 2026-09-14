@@ -1,13 +1,12 @@
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using FFmpeg.AutoGen;
 using Microsoft.Extensions.Logging;
-using SharpCompress.Common;
 using SharpCompress.Readers;
 using YetAnotherGameLauncher.Core;
+using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Utilities;
 using static FFmpeg.AutoGen.ffmpeg;
 
@@ -21,7 +20,7 @@ namespace YetAnotherGameLauncher.Services;
 /// </summary>
 [ExcludeFromCodeCoverage]
 public sealed partial class FfmpegLibraryResolver(
-    YetAnotherGameLauncher.Core.Services.NetworkProxyManager proxyManager,
+    NetworkProxyManager proxyManager,
     ILogger<FfmpegLibraryResolver>? logger = null)
 {
     /// <summary>大文件下载专用 client：共享底层 handler（代理设置同步生效），仅放宽超时。</summary>
@@ -36,13 +35,13 @@ public sealed partial class FfmpegLibraryResolver(
     /// <summary>下载大文件（约 50MB）不能复用全局 30 秒超时的 HttpClient：专用慢速超时。</summary>
     private static readonly TimeSpan DownloadTimeout = TimeSpan.FromMinutes(15);
 
-    // 解析状态：0=未尝试（下载失败后停留于此，允许下次重试）/ 1=已就绪 / 2=永久失败（绑定已实际尝试，
-    // ffmpeg 类型的静态初始化只有一次机会，失败后的函数委托是不可重试的 throw stub）
-    private const int ResolveNotAttempted = 0;
+    // 解析状态（_resolveState）：0=未尝试（下载失败后停留于此，允许下次重试；字段默认值即此态）/
+    // 1=已就绪 / 2=永久失败（绑定已实际尝试，ffmpeg 类型的静态初始化只有一次机会，
+    // 失败后的函数委托是不可重试的 throw stub）
     private const int ResolveReady = 1;
     private const int ResolveFailedPermanently = 2;
 
-    /// <summary>解析状态（原子读写，见 <see cref="ResolveNotAttempted"/> 等常量）。</summary>
+    /// <summary>解析状态（原子读写，取值见上方状态注释）。</summary>
     private int _resolveState;
 
     /// <summary>解析器单例：必须在 ffmpeg 类型首次触碰前注入，目录随后设置。</summary>
@@ -178,7 +177,7 @@ public sealed partial class FfmpegLibraryResolver(
                 await http.CopyToAsync(file, timeout.Token).ConfigureAwait(false);
             }
 
-            VerifySha256(tempFile, expected);
+            await VerifySha256(tempFile, expected, cancellationToken).ConfigureAwait(false);
             ExtractArchive(tempFile, DownloadRoot);
             logger?.LogInformation("FFmpeg libraries installed to {Directory}", DownloadRoot);
         }
@@ -202,9 +201,9 @@ public sealed partial class FfmpegLibraryResolver(
     }
 
     /// <summary>校验下载文件的 SHA256，不符抛异常（并阻止解压）。</summary>
-    private static void VerifySha256(string path, string expectedSha256)
+    private static async Task VerifySha256(string path, string expectedSha256, CancellationToken cancellationToken)
     {
-        var actual = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path)));
+        var actual = await Hashing.Sha256HexAsync(path, cancellationToken).ConfigureAwait(false);
         if (!string.Equals(actual, expectedSha256, StringComparison.OrdinalIgnoreCase))
         {
             throw new System.Security.Cryptography.CryptographicException(

@@ -31,3 +31,5 @@ dotnet_style_readonly_field = true:warning
 dotnet_style_qualification_for_field = false:warning
 dotnet_style_qualification_for_property = false:warning
 dotnet_style_qualification_for_method = false:warning
+# 未使用 using 在构建期报错（EnforceCodeStyleInBuild + TreatWarningsAsErrors）
+dotnet_diagnostic.IDE0005.severity = warning

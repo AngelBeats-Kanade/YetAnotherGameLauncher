@@ -1,16 +1,17 @@
 using System.Formats.Tar;
 using System.Globalization;
 using System.IO.Compression;
-using System.Security.Cryptography;
+using System.Net;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using SharpCompress.Common;
 using SharpCompress.Compressors.Xz;
-using YetAnotherGameLauncher.Core;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Services.Umu;
+using YetAnotherGameLauncher.Core.Utilities;
 
 namespace YetAnotherGameLauncher.Services;
 
@@ -242,7 +243,7 @@ public sealed class UmuComponentProvisioner(
             using var request = new HttpRequestMessage(HttpMethod.Get, apiUrl);
             request.Headers.UserAgent.ParseAdd("YetAnotherGameLauncher");
             using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            if (response.StatusCode == HttpStatusCode.NotFound)
             {
                 throw new LaunchException(
                     LaunchFailureKind.ProtonDownloadFailed,
@@ -813,7 +814,7 @@ public sealed class UmuComponentProvisioner(
                 return IsProtonReady(d) && name.StartsWith(filter, StringComparison.OrdinalIgnoreCase);
             })
             .OrderByDescending(
-                d => string.Concat(System.Text.RegularExpressions.Regex
+                d => string.Concat(Regex
                     .Matches(Path.GetFileName(d), @"\d+").Select(m => m.Value.PadLeft(6, '0'))),
                 StringComparer.Ordinal)
             .Select(Path.GetFullPath)
@@ -848,11 +849,10 @@ public sealed class UmuComponentProvisioner(
         return string.Empty;
     }
 
+    /// <summary>校验下载的 Steam Runtime 包 SHA256，不符抛 LaunchException（启动失败覆盖层展示）。</summary>
     private static async Task VerifySha256Async(string path, string expected, CancellationToken cancellationToken)
     {
-        await using var stream = File.OpenRead(path);
-        var hash = await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);
-        var actual = Convert.ToHexString(hash).ToLowerInvariant();
+        var actual = await Hashing.Sha256HexAsync(path, cancellationToken).ConfigureAwait(false);
         if (!string.Equals(actual, expected.Trim().ToLowerInvariant(), StringComparison.Ordinal))
         {
             throw new LaunchException(

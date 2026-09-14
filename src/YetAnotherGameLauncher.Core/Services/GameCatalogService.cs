@@ -58,6 +58,7 @@ public sealed class GameCatalogService
     /// 可选的默认内容模板（如随应用分发的示例配置）。模板必须能通过完整校验，
     /// 否则回退到内置最小默认（空游戏列表 + 推荐设置）。
     /// </param>
+    /// <param name="cancellationToken">取消令牌。</param>
     /// <returns>true 表示本次创建了文件；文件已存在时不做任何改动并返回 false。</returns>
     public async Task<bool> CreateDefaultFileAsync(string? templateJson = null, CancellationToken cancellationToken = default)
     {

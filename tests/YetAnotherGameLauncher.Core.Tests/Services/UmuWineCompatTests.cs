@@ -1,7 +1,6 @@
-using YetAnotherGameLauncher.Core.Abstractions;
+using Xunit;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.TestSupport;
-using Xunit;
 
 namespace YetAnotherGameLauncher.Core.Tests.Services;
 
@@ -96,7 +95,7 @@ public sealed class UmuWineCompatTests : IDisposable
     {
         Assert.Equal(
             _dataHome.FilePath("yagl", "prefixes"),
-            CompatTools.PrefixRoot(_home.Path, _dataHome.Path));
+            CompatTools.PrefixRoot(_dataHome.Path));
     }
 
     [Fact]
@@ -104,7 +103,7 @@ public sealed class UmuWineCompatTests : IDisposable
     {
         Assert.Equal(
             _dataHome.FilePath("yagl", "prefixes", "wuthering-waves"),
-            CompatTools.PrefixPathFor("wuthering-waves", _home.Path, _dataHome.Path));
+            CompatTools.PrefixPathFor("wuthering-waves", _dataHome.Path));
     }
 
     [Fact]
@@ -131,7 +130,7 @@ public sealed class UmuWineCompatTests : IDisposable
     public void BuildUmuLaunch_SetsUmuEnvWithoutSteamCompat()
     {
         var launch = CompatTools.BuildUmuLaunch(
-            "wuthering-waves", "/home/u/.local/share/yagl/umu/umu-run", _home.Path, _dataHome.Path);
+            "wuthering-waves", "/home/u/.local/share/yagl/umu/umu-run", _dataHome.Path);
 
         Assert.Equal(LaunchMode.Umu, launch.Mode);
         Assert.Equal("umu", launch.RuntimeName);
@@ -148,7 +147,7 @@ public sealed class UmuWineCompatTests : IDisposable
     public void BuildWineLaunch_SetsWinePrefix()
     {
         var launch = CompatTools.BuildWineLaunch(
-            "wuthering-waves", "wine", _home.Path, _dataHome.Path);
+            "wuthering-waves", "wine", _dataHome.Path);
 
         Assert.Equal(LaunchMode.Wine, launch.Mode);
         Assert.StartsWith("wine", launch.CommandTemplate, StringComparison.Ordinal);

@@ -1,11 +1,9 @@
-using System.Text.Json;
+using Xunit;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
-using YetAnotherGameLauncher.Channels.Kuro;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Utilities;
 using YetAnotherGameLauncher.TestSupport;
-using Xunit;
 
 namespace YetAnotherGameLauncher.Channels.Kuro.Tests;
 

@@ -1,3 +1,4 @@
+using System.Net;
 using YetAnotherGameLauncher.Core.Models;
 
 namespace YetAnotherGameLauncher.Core.Services;
@@ -11,7 +12,7 @@ public sealed class NetworkProxyManager
     /// <summary>共享底层 handler：所有 HttpClient（版本/下载/背景/渠道）共用，保证代理一处生效。</summary>
     public SocketsHttpHandler Handler { get; } = new()
     {
-        AutomaticDecompression = System.Net.DecompressionMethods.All,
+        AutomaticDecompression = DecompressionMethods.All,
         ConnectTimeout = TimeSpan.FromSeconds(30),
     };
 
@@ -27,7 +28,7 @@ public sealed class NetworkProxyManager
                 break;
             case ProxyMode.Manual when Uri.TryCreate(settings.ProxyAddress, UriKind.Absolute, out var proxy)
                 && proxy.Scheme is "http" or "https":
-                Handler.Proxy = new System.Net.WebProxy(proxy);
+                Handler.Proxy = new WebProxy(proxy);
                 Handler.UseProxy = true;
                 break;
             default:

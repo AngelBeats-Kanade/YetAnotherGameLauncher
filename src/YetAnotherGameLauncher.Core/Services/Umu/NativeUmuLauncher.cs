@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Logging;
 using YetAnotherGameLauncher.Core.Abstractions;
-using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Utilities;
 
 namespace YetAnotherGameLauncher.Core.Services.Umu;
@@ -95,7 +94,7 @@ public sealed class NativeUmuLauncher(
         }
 
         var home = dataHomeOverride ?? dataHome ?? AppPaths.DataHomeDirectory;
-        var prefix = CompatTools.PrefixPathFor(gameId, home: null, dataHome: home);
+        var prefix = CompatTools.PrefixPathFor(gameId, dataHome: home);
 
         try
         {
@@ -168,7 +167,7 @@ public sealed class NativeUmuLauncher(
         Directory.CreateDirectory(logDirectory);
         var logPath = Path.Combine(
             logDirectory,
-            $"launch-{SanitizeGameId(gameId)}-{DateTime.Now:yyyyMMdd-HHmmss}.log");
+            $"launch-{FileUtilities.SanitizeGameId(gameId)}-{DateTime.Now:yyyyMMdd-HHmmss}.log");
 
         var spec = new ProcessStartSpec(
             plan.FileName,
@@ -253,13 +252,6 @@ public sealed class NativeUmuLauncher(
                 LaunchFailureKind.Unknown,
                 "原生 umu 启动仅支持 Linux。Windows 请使用直接运行。");
         }
-    }
-
-    private static string SanitizeGameId(string gameId)
-    {
-        var sanitized = new string(gameId.Select(c =>
-            char.IsAsciiLetterOrDigit(c) || c is '-' or '_' ? c : '-').ToArray());
-        return sanitized.Length == 0 ? "game" : sanitized;
     }
 
     /// <summary>把含空格的参数包上双引号后以空格拼接。</summary>

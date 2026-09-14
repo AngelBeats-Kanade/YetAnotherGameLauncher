@@ -9,7 +9,7 @@ namespace YetAnotherGameLauncher.Services;
 /// </summary>
 public interface IVideoBackdropPlayer
 {
-    /// <summary>当前帧（视频尺寸确定后创建，内容随播放持续更新）；未播放为 null。</summary>
+    /// <summary>当前帧（视频尺寸确定后创建，内容随播放持续更新）；未播放或 Stop 后为 null。</summary>
     IImage? Frame { get; }
 
     /// <summary>循环回卷的淡化层：上一循环的最后一帧，随播放逐帧淡出（消除循环接缝）；非淡化期为 null。</summary>
@@ -29,6 +29,7 @@ public interface IVideoBackdropPlayer
     /// <param name="cancellationToken">外部取消令牌（应用退出）。</param>
     Task<bool> PlayAsync(string videoPath, CancellationToken cancellationToken = default);
 
-    /// <summary>停止播放并取消解码循环（帧缓冲保留，由调用方决定何时隐藏渲染层）。</summary>
+    /// <summary>停止播放、取消解码循环并清空帧缓冲（渲染层立即回到海报/渐变兜底；
+    /// 迟到的陈旧帧通知以空帧缓冲为证不再点亮视频层）。</summary>
     void Stop();
 }

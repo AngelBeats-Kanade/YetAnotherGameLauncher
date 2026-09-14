@@ -2,7 +2,6 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using YetAnotherGameLauncher.Channels.Kuro;
-using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Services;
 
 namespace YetAnotherGameLauncher.ViewModels;
@@ -10,9 +9,6 @@ namespace YetAnotherGameLauncher.ViewModels;
 /// <summary>鸣潮唤取（抽卡）记录页：从游戏日志提取地址 → 官方接口拉取 → 本地合并缓存与展示。</summary>
 public partial class GachaViewModel : ViewModelBase
 {
-    /// <summary>官方每页条数下限：返回条数少于此值视为最后一页（用于游标翻页停止判断）。</summary>
-    private const int FullPageSize = 6;
-
     private readonly MainWindowViewModel _owner;
     private readonly KuroGachaService _gachaService;
     private readonly GameItemViewModel _game;

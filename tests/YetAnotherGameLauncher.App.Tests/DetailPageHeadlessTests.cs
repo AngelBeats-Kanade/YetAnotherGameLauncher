@@ -1,3 +1,4 @@
+using System.Windows.Input;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
@@ -5,12 +6,10 @@ using Avalonia.Headless;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Styling;
-using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Xunit;
 using YetAnotherGameLauncher.AppTests;
 using YetAnotherGameLauncher.Views;
-using Xunit;
-using System.Windows.Input;
 
 namespace YetAnotherGameLauncher.UiTests;
 

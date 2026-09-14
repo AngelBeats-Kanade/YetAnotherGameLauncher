@@ -1,7 +1,6 @@
-using YetAnotherGameLauncher.Channels.Hypergryph;
-using YetAnotherGameLauncher.Core.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
+using YetAnotherGameLauncher.Core.Abstractions;
 
 namespace YetAnotherGameLauncher.Channels.Hypergryph.Tests;
 

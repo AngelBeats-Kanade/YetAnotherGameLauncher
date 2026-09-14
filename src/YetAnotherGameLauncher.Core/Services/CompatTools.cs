@@ -1,7 +1,7 @@
 namespace YetAnotherGameLauncher.Core.Services;
 
-using System.Globalization;
 using System.Text.RegularExpressions;
+using YetAnotherGameLauncher.Core.Utilities;
 
 /// <summary>Linux 下的启动方式（与 UI 的选择器一一对应）。</summary>
 public enum LaunchMode
@@ -55,14 +55,6 @@ public static class CompatTools
 
     /// <summary>默认 Proton 发行版（Dawn Winery 构建，对鸣潮/终末地的社区口碑最好，终末地 ACE 仅在其上稳定）。</summary>
     public const string DefaultProtonFlavor = "DW-Proton";
-
-    /// <summary>Steam 常见安装根目录（库目录的父级；Proton 版本扫描与 compatdata prefix 探测共用）。</summary>
-    internal static string[] SteamRoots(string home) =>
-    [
-        Path.Combine(home, ".steam", "steam"),
-        Path.Combine(home, ".local", "share", "Steam"),
-        Path.Combine(home, ".steam", "root"),
-    ];
 
     /// <summary>Steam 兼容工具与自带运行时的常见根目录（供版本扫描与定位共用）。</summary>
     private static string[] ProtonRoots(string home) =>
@@ -129,7 +121,7 @@ public static class CompatTools
 
         foreach (var candidate in UmuFixedLocations(home))
         {
-            if (IsExecutableFile(candidate))
+            if (FileUtilities.IsExecutableFile(candidate))
             {
                 return candidate;
             }
@@ -172,16 +164,16 @@ public static class CompatTools
         home ??= Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var wine = Path.Combine(
             home, ".local", "share", "lutris", "runners", "wine", version, "bin", "wine");
-        return IsExecutableFile(wine) ? wine : null;
+        return FileUtilities.IsExecutableFile(wine) ? wine : null;
     }
 
-    /// <summary>Wine prefix 统一根目录：{dataHome}/yagl/prefixes（dataHome 缺省 ~/.local/share）。</summary>
-    public static string PrefixRoot(string? home = null, string? dataHome = null) =>
-        Path.Combine(dataHome ?? DefaultDataHome(home), "yagl", "prefixes");
+    /// <summary>Wine prefix 统一根目录：{dataHome}/yagl/prefixes（dataHome 缺省取 AppPaths.DataHomeDirectory，Linux 尊重 XDG_DATA_HOME）。</summary>
+    public static string PrefixRoot(string? dataHome = null) =>
+        Path.Combine(dataHome ?? AppPaths.DataHomeDirectory, "yagl", "prefixes");
 
     /// <summary>指定游戏的 Wine prefix 路径：{dataHome}/yagl/prefixes/&lt;gameId&gt;。</summary>
-    public static string PrefixPathFor(string gameId, string? home = null, string? dataHome = null) =>
-        Path.Combine(PrefixRoot(home, dataHome), gameId);
+    public static string PrefixPathFor(string gameId, string? dataHome = null) =>
+        Path.Combine(PrefixRoot(dataHome), gameId);
 
     /// <summary>解析最终 UMU_ID：显式 umuId 优先（自动补 umu- 前缀），缺省 umu-{gameId}（已带前缀的原样保留）。</summary>
     private static string ResolveUmuId(string gameId, string? umuId)
@@ -197,7 +189,7 @@ public static class CompatTools
     /// umuRunPath 为 null 表示尚未安装（生成裸 umu-run 模板供引导安装就位后直接使用）。
     /// </summary>
     public static CompatLaunch BuildUmuLaunch(
-        string gameId, string? umuRunPath, string? home = null, string? dataHome = null,
+        string gameId, string? umuRunPath, string? dataHome = null,
         string? umuId = null)
     {
         var resolvedUmuId = ResolveUmuId(gameId, umuId);
@@ -205,7 +197,7 @@ public static class CompatTools
         {
             ["GAMEID"] = resolvedUmuId,
             ["UMU_ID"] = resolvedUmuId,
-            ["WINEPREFIX"] = PrefixPathFor(gameId, home, dataHome),
+            ["WINEPREFIX"] = PrefixPathFor(gameId, dataHome),
         };
         return new CompatLaunch(
             LaunchMode.Umu,
@@ -221,7 +213,7 @@ public static class CompatTools
     /// 用于推荐链默认项与 games.json 首运落盘（无需外部 umu-run）。
     /// </summary>
     public static CompatLaunch BuildNativeUmuLaunch(
-        string gameId, string? home = null, string? dataHome = null,
+        string gameId, string? dataHome = null,
         string? umuId = null, string? protonFlavor = null)
     {
         var resolvedUmuId = ResolveUmuId(gameId, umuId);
@@ -229,8 +221,8 @@ public static class CompatTools
         {
             ["GAMEID"] = resolvedUmuId,
             ["UMU_ID"] = resolvedUmuId,
-            ["WINEPREFIX"] = PrefixPathFor(gameId, home, dataHome),
-            ["STEAM_COMPAT_DATA_PATH"] = PrefixPathFor(gameId, home, dataHome),
+            ["WINEPREFIX"] = PrefixPathFor(gameId, dataHome),
+            ["STEAM_COMPAT_DATA_PATH"] = PrefixPathFor(gameId, dataHome),
             ["PROTONPATH"] = string.IsNullOrWhiteSpace(protonFlavor) ? DefaultProtonFlavor : protonFlavor,
         };
         // token 供 DetectLaunchMode / 启动拦截识别；真正 PROTONPATH 在启动时解析
@@ -244,11 +236,11 @@ public static class CompatTools
     /// <summary>生成系统 Wine 启动配置：`wine {exe}` + WINEPREFIX 指向统一 prefix 位置。
     /// winePath 为 null 表示尚未安装（生成裸 wine 模板，路径由 PATH 解析）。</summary>
     public static CompatLaunch BuildWineLaunch(
-        string gameId, string? winePath, string? home = null, string? dataHome = null)
+        string gameId, string? winePath, string? dataHome = null)
     {
         var environment = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["WINEPREFIX"] = PrefixPathFor(gameId, home, dataHome),
+            ["WINEPREFIX"] = PrefixPathFor(gameId, dataHome),
         };
         return new CompatLaunch(
             LaunchMode.Wine,
@@ -273,7 +265,7 @@ public static class CompatTools
         var command = $"\"{Path.Combine(protonDir, "proton")}\" run {{exe}}";
         var environment = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["STEAM_COMPAT_DATA_PATH"] = PrefixPathFor(gameId, home, dataHome),
+            ["STEAM_COMPAT_DATA_PATH"] = PrefixPathFor(gameId, dataHome),
             ["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = Path.Combine(home, ".steam", "steam"),
         };
         return new CompatLaunch(LaunchMode.Proton, protonVersion, command, environment);
@@ -350,11 +342,11 @@ public static class CompatTools
         CompatLaunch launch;
         if (preferNativeUmu)
         {
-            launch = BuildNativeUmuLaunch(gameId, home, dataHome, umuId);
+            launch = BuildNativeUmuLaunch(gameId, dataHome, umuId);
         }
         else if (umuRunPath is not null)
         {
-            launch = BuildUmuLaunch(gameId, umuRunPath, home, dataHome, umuId);
+            launch = BuildUmuLaunch(gameId, umuRunPath, dataHome, umuId);
         }
         else if (PickRecommendedProton(protonVersions) is { } version)
         {
@@ -362,11 +354,11 @@ public static class CompatTools
         }
         else if (winePath is not null)
         {
-            launch = BuildWineLaunch(gameId, winePath, home, dataHome);
+            launch = BuildWineLaunch(gameId, winePath, dataHome);
         }
         else
         {
-            launch = BuildNativeUmuLaunch(gameId, home, dataHome, umuId);
+            launch = BuildNativeUmuLaunch(gameId, dataHome, umuId);
         }
 
         foreach (var (key, value) in RecommendedEnvironment(gameId, nvidiaGpuPresent))
@@ -442,7 +434,7 @@ public static class CompatTools
         foreach (var dir in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             var candidate = Path.Combine(dir, name);
-            if (IsExecutableFile(candidate))
+            if (FileUtilities.IsExecutableFile(candidate))
             {
                 return candidate;
             }
@@ -451,41 +443,7 @@ public static class CompatTools
         return null;
     }
 
-    /// <summary>文件是否存在且可执行：Linux 校验 UserExecute 位；Windows 无执行位概念，存在即可。</summary>
-    private static bool IsExecutableFile(string path)
-    {
-        if (!File.Exists(path))
-        {
-            return false;
-        }
-
-        if (OperatingSystem.IsWindows())
-        {
-            return true;
-        }
-
-        try
-        {
-            return File.GetUnixFileMode(path).HasFlag(UnixFileMode.UserExecute);
-        }
-        catch (IOException)
-        {
-            return false;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return false;
-        }
-    }
-
     /// <summary>路径含空格时加引号（模板按空格切分，含空格的运行时路径不加引号会被截断）。</summary>
     private static string QuoteIfNeeded(string path) =>
         path.Contains(' ') ? $"\"{path}\"" : path;
-
-    /// <summary>数据目录缺省值：~/.local/share（XDG_DATA_HOME 由组合根经 AppPaths 解析后注入）。</summary>
-    private static string DefaultDataHome(string? home)
-    {
-        home ??= Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        return Path.Combine(home, ".local", "share");
-    }
 }

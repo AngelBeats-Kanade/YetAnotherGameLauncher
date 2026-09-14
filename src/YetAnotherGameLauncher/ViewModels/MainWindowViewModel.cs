@@ -1,6 +1,5 @@
-using System.ComponentModel;
-using System.Diagnostics;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -9,6 +8,7 @@ using YetAnotherGameLauncher.Core;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
+using YetAnotherGameLauncher.Core.Services.Umu;
 using YetAnotherGameLauncher.Services;
 using YetAnotherGameLauncher.Themes;
 
@@ -32,11 +32,11 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly KuroGachaService? _gachaService;
 
     /// <summary>平台环境（打开目录等 OS 差异的抽象）。</summary>
-    private readonly Core.Abstractions.IPlatformInfo _platform;
+    private readonly IPlatformInfo _platform;
 
     /// <summary>平台环境（供子 ViewModel 复用，测试可注入假实现）。</summary>
-    internal Core.Abstractions.IPlatformInfo Platform => _platform;
-    private readonly Core.Services.NetworkProxyManager? _proxyManager;
+    internal IPlatformInfo Platform => _platform;
+    private readonly NetworkProxyManager? _proxyManager;
     private readonly Func<string?>? _defaultConfigTemplateFactory;
 
     /// <summary>Linux 首运推荐模板用的 Proton 版本清单（null = 现场扫描；测试注入固定值保证确定性）。</summary>
@@ -51,7 +51,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly UmuLauncherInstaller? _umuInstaller;
 
     /// <summary>原生 umu 启动器（null = 测试/未注册）。</summary>
-    private readonly Core.Services.Umu.NativeUmuLauncher? _nativeUmu;
+    private readonly NativeUmuLauncher? _nativeUmu;
 
     /// <summary>原生 umu 组件准备器（null = 测试/未注册）。</summary>
     private readonly IUmuComponentProvisioner? _umuProvisioner;
@@ -86,14 +86,14 @@ public partial class MainWindowViewModel : ViewModelBase
         IFilePickerService? filePicker = null,
         IVideoBackdropPlayer? videoPlayer = null,
         KuroGachaService? gachaService = null,
-        Core.Services.NetworkProxyManager? proxyManager = null,
-        Core.Abstractions.IPlatformInfo? platformInfo = null,
+        NetworkProxyManager? proxyManager = null,
+        IPlatformInfo? platformInfo = null,
         IReadOnlyList<string>? linuxProtonVersions = null,
         string? linuxUmuPath = null,
         string? linuxWinePath = null,
         string? linuxDataHome = null,
         UmuLauncherInstaller? umuInstaller = null,
-        Core.Services.Umu.NativeUmuLauncher? nativeUmu = null,
+        NativeUmuLauncher? nativeUmu = null,
         IUmuComponentProvisioner? umuProvisioner = null)
     {
         _catalogService = catalogService;
@@ -120,10 +120,10 @@ public partial class MainWindowViewModel : ViewModelBase
         _umuProvisioner = umuProvisioner;
         _platform = platformInfo
             ?? (OperatingSystem.IsLinux()
-                ? new Core.Services.LinuxPlatformInfo()
-                : new Core.Services.WindowsPlatformInfo());
+                ? new LinuxPlatformInfo()
+                : new WindowsPlatformInfo());
         Loc = localization;
-        LocBridge.Instance = localization; // 供 {svc:Loc key} 标记扩展取 Source
+        LocBridge.Instance = localization; // 静态桥：LaunchSettingsViewModel 构造期（属性初始化器）经此取文案
         _loc.PropertyChanged += OnLanguageChanged;
         RebuildThemeModes(keepMode: null);
         SelectedTheme = ThemeModes[0];
@@ -226,6 +226,23 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private string _statusMessage = "";
 
+    /// <summary>右下角轻提示集合（瞬态信息：版本检测结果/检测到游戏）；容量 3，过载丢弃最旧。</summary>
+    public ObservableCollection<ToastItem> Toasts { get; } = [];
+
+    /// <summary>弹出轻提示（UI 线程调用；toast 不排队等待，超容量直接丢最旧——状态胶囊承载全量状态）。</summary>
+    public void ShowToast(string title, string message, ToastKind kind)
+    {
+        const int MaxToasts = 3;
+        while (Toasts.Count >= MaxToasts)
+        {
+            Toasts.RemoveAt(0);
+        }
+
+        var toast = new ToastItem(title, message, kind, TimeSpan.FromSeconds(4), t => Toasts.Remove(t));
+        Toasts.Add(toast);
+        toast.StartAutoDismiss(); // 非 UI 线程（headless 测试直调）时静默跳过，由测试手动 Dismiss
+    }
+
     /// <summary>当前状态提示是否为错误（驱动侧栏红字样式）。</summary>
     [ObservableProperty]
     private bool _configError;
@@ -291,7 +308,8 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    /// <summary>语言切换回调：重建主题/计数文案并刷新各游戏，强制重建当前页让 {svc:Loc} 取到新语言。</summary>
+    /// <summary>语言切换回调：重建主题/计数文案并刷新各游戏；强制重建当前页刷新构造期生成的内容
+    /// （如启动设置卡的 LaunchModes 列表——属性初始化器只在构造时取一次文案）。</summary>
     private void OnLanguageChanged(object? sender, PropertyChangedEventArgs e)
     {
         RebuildThemeModes(SelectedTheme?.Mode);
@@ -301,7 +319,7 @@ public partial class MainWindowViewModel : ViewModelBase
             _ = game.RefreshAsync();
         }
 
-        // 兜底：强制重建当前页面，保证所有 {svc:Loc} 标记扩展拿到新语言
+        // 兜底：强制重建当前页面，刷新构造期生成、不随索引器通知更新的内容
         var page = CurrentPage;
         CurrentPage = null;
         CurrentPage = page;
@@ -346,10 +364,10 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>侧栏游戏计数文案（随语言切换刷新）。</summary>
     public string GameCountText => _loc.Format("sidebar_games_count", Games.Count);
 
-    /// <summary>侧栏展开/收起（收起 = 68px 图标窄条），宽度驱动侧栏过渡动画。</summary>
+    /// <summary>侧栏展开宽度（宽度驱动侧栏过渡动画）。</summary>
     private const double SidebarExpandedWidth = 264;
 
-    /// <summary>侧栏收起时的窄条宽度。</summary>
+    /// <summary>侧栏收起时的窄条宽度（68px 图标条）。</summary>
     private const double SidebarCollapsedWidth = 68;
 
     /// <summary>窗口宽度阈值（滞回）：低于下限自动收起侧栏、高于上限自动展开，区间内保持现状。</summary>
@@ -577,6 +595,10 @@ public partial class MainWindowViewModel : ViewModelBase
                 _umuInstaller,
                 _nativeUmu,
                 _umuProvisioner));
+
+            // 游戏状态变化中的瞬态信息（检测到游戏/有更新/可预下载）经事件转发为右下角轻提示
+            var added = Games[^1];
+            added.StatusToastRequested += (title, message, kind) => ShowToast(title, message, kind);
         }
 
         return unknownChannels;
@@ -764,9 +786,9 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>把目录内所有裸 {exe} 模板升级为推荐链；有改动返回 true（版本清单单一来源：BuildRecommendedLaunch）。</summary>
     private bool UpgradeBareTemplatesToRecommended(GameCatalog catalog)
     {
-        var versions = _linuxProtonVersions ?? Core.Services.CompatTools.FindProtonVersions();
-        var umuPath = _linuxUmuPath ?? Core.Services.CompatTools.FindUmuRun();
-        var winePath = _linuxWinePath ?? Core.Services.CompatTools.FindSystemWine();
+        var versions = _linuxProtonVersions ?? CompatTools.FindProtonVersions();
+        var umuPath = _linuxUmuPath ?? CompatTools.FindUmuRun();
+        var winePath = _linuxWinePath ?? CompatTools.FindSystemWine();
         var dataHome = _linuxDataHome ?? AppPaths.DataHomeDirectory; // CompatTools 语义要求数据根（不含 yagl 后缀）
         var changed = false;
         foreach (var game in catalog.Games)
@@ -776,7 +798,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 continue; // 用户已有自定义模板：完全不动
             }
 
-            var launch = Core.Services.CompatTools.BuildRecommendedLaunch(
+            var launch = CompatTools.BuildRecommendedLaunch(
                 game.Id, versions, _platform.IsNvidiaGpuPresent,
                 dataHome: dataHome, umuRunPath: umuPath, winePath: winePath);
             game.Launch.CommandTemplate = launch.CommandTemplate;
@@ -1125,12 +1147,9 @@ public partial class SettingsViewModel : ViewModelBase
             return;
         }
 
-        InstallRootDraft = NormalizeDirectoryPath(path);
+        InstallRootDraft = LaunchSettingsViewModel.NormalizeDirectoryPath(path);
         await SaveInstallRootAsync(cancellationToken);
     }
-
-    /// <summary>目录路径统一为正斜杠（与示例配置一致；读取端 Path.GetFullPath 兼容两种斜杠）。</summary>
-    private static string NormalizeDirectoryPath(string path) => path.Replace('\\', '/');
 
     /// <summary>可选主题列表（转发主窗口，显示名随语言重建）。</summary>
     public IReadOnlyList<ThemeOption> ThemeModes => _owner.ThemeModes;

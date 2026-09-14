@@ -1,8 +1,7 @@
 using System.Text;
-using YetAnotherGameLauncher.Core.Abstractions;
-using YetAnotherGameLauncher.Channels.Hypergryph;
-using YetAnotherGameLauncher.TestSupport;
 using Xunit;
+using YetAnotherGameLauncher.Core.Abstractions;
+using YetAnotherGameLauncher.TestSupport;
 
 namespace YetAnotherGameLauncher.Channels.Hypergryph.Tests;
 

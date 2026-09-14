@@ -1,0 +1,78 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:YetAnotherGameLauncher.ViewModels"
+             x:Class="YetAnotherGameLauncher.Controls.LaunchErrorOverlay"
+             x:DataType="vm:GameItemViewModel">
+    <!-- 启动失败覆盖层：类目化原因 + 技术详情 + 日志入口 + umu 引导安装。
+         从 MainWindow.axaml 内联提取；覆盖整个详情页（宿主为详情页 Panel 的最后一个子元素） -->
+    <Grid IsVisible="{Binding HasLaunchError}">
+        <Border Background="{DynamicResource AppOverlayScrimBrush}"/>
+        <Border Classes="launch-error-card"
+                HorizontalAlignment="Center" VerticalAlignment="Center"
+                MaxWidth="480" Margin="24">
+            <StackPanel Spacing="12">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Path Data="M12,2 C17.52,2 22,6.48 22,12 C22,17.52 17.52,22 12,22 C6.48,22 2,17.52 2,12 C2,6.48 6.48,2 12,2 Z M11,7 L13,7 L13,13 L11,13 Z M11,15 L13,15 L13,17 L11,17 Z"
+                          Fill="{DynamicResource AppErrorText}" Stretch="Uniform"
+                          Width="21" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding Loc[launch_error_title]}"
+                               FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                </StackPanel>
+                <TextBlock Text="{Binding LaunchError.Message}" FontSize="13.5"
+                           TextWrapping="Wrap" LineHeight="20"/>
+                <TextBlock Text="{Binding LaunchError.ExtraStatus}" FontSize="13"
+                           TextWrapping="Wrap"
+                           Foreground="{DynamicResource AppTextSecondary}"
+                           IsVisible="{Binding LaunchError.HasExtraStatus}"/>
+                <Button Classes="launch-error-secondary"
+                        Command="{Binding LaunchError.InstallUmuCommand}"
+                        IsVisible="{Binding LaunchError.CanInstallUmu}"
+                        HorizontalAlignment="Left"
+                        IsEnabled="{Binding !LaunchError.IsInstallingUmu}">
+                    <TextBlock Text="{Binding Loc[launch_error_install_umu]}"/>
+                </Button>
+                <Button Classes="launch-error-secondary"
+                        Command="{Binding LaunchError.RetryCommand}"
+                        IsVisible="{Binding LaunchError.CanRetry}"
+                        HorizontalAlignment="Left">
+                    <TextBlock Text="{Binding Loc[launch_error_retry]}"/>
+                </Button>
+                <StackPanel Orientation="Horizontal" Spacing="8"
+                            IsVisible="{Binding LaunchError.CanPickLocalProton}"
+                            HorizontalAlignment="Left">
+                    <TextBlock Text="{Binding Loc[launch_error_pick_local_proton]}"
+                               Classes="card-caption" VerticalAlignment="Center"
+                               TextWrapping="Wrap" MaxWidth="150"/>
+                    <ComboBox ItemsSource="{Binding LaunchError.LocalProtonVersions}"
+                              SelectedItem="{Binding LaunchError.SelectedLocalProton}"
+                              MinWidth="160" MaxWidth="200"/>
+                    <Button Classes="btn-sm"
+                            Content="{Binding Loc[launch_error_use_local_proton]}"
+                            Command="{Binding LaunchError.UseLocalProtonCommand}"
+                            VerticalAlignment="Center"/>
+                </StackPanel>
+                <Expander IsVisible="{Binding LaunchError.HasDetail}"
+                          IsExpanded="{Binding LaunchError.DetailsExpanded, Mode=TwoWay}"
+                          Background="Transparent">
+                    <Expander.Header>
+                        <TextBlock Text="{Binding Loc[launch_error_details]}" FontSize="12.5"
+                                   Foreground="{DynamicResource AppTextSecondary}"/>
+                    </Expander.Header>
+                    <SelectableTextBlock Text="{Binding LaunchError.Detail}"
+                                         TextWrapping="Wrap" FontSize="12"
+                                         Foreground="{DynamicResource AppTextSecondary}"/>
+                </Expander>
+                <StackPanel Orientation="Horizontal" Spacing="10"
+                            HorizontalAlignment="Right">
+                    <Button Classes="launch-error-secondary"
+                            Command="{Binding LaunchError.OpenLogDirectoryCommand}"
+                            IsVisible="{Binding LaunchError.HasLogPath}"
+                            Content="{Binding Loc[launch_error_open_log]}"/>
+                    <Button Classes="launch-error-primary"
+                            Command="{Binding LaunchError.DismissCommand}"
+                            Content="{Binding Loc[launch_error_close]}"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

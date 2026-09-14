@@ -5,9 +5,9 @@ using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Xunit;
 using YetAnotherGameLauncher.AppTests;
 using YetAnotherGameLauncher.Views;
-using Xunit;
 
 namespace YetAnotherGameLauncher.UiTests;
 

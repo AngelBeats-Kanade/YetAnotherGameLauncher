@@ -1,8 +1,7 @@
-using YetAnotherGameLauncher.Core.Abstractions;
+using Xunit;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Services.Umu;
 using YetAnotherGameLauncher.TestSupport;
-using Xunit;
 
 namespace YetAnotherGameLauncher.Core.Tests.Services.Umu;
 
@@ -60,7 +59,7 @@ public sealed class NativeUmuLauncherLaunchTests : IDisposable
         Assert.Equal(Path.Combine(install, "data"), plan.Environment["CUSTOM"]);
         // prefix 仍按游戏 id 定位（umuId 覆盖不影响存量 prefix）
         Assert.Equal(
-            CompatTools.PrefixPathFor("wuthering-waves", null, _temp.Path),
+            CompatTools.PrefixPathFor("wuthering-waves", _temp.Path),
             plan.Environment["WINEPREFIX"]);
     }
 

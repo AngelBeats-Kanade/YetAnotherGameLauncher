@@ -1,4 +1,3 @@
-using YetAnotherGameLauncher.AppTests;
 using Xunit;
 
 namespace YetAnotherGameLauncher.AppTests;

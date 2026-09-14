@@ -1,7 +1,7 @@
+using Xunit;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.TestSupport;
-using Xunit;
 
 namespace YetAnotherGameLauncher.Core.Tests.Services;
 
@@ -106,14 +106,14 @@ public class GpuVendorDetectionTests : IDisposable
     private void WriteVendor(string card, string vendor)
     {
         var path = _tempDir.FilePath("sys", "class", "drm", card, "device", "vendor");
-        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, vendor + "\n");
     }
 
     private string WriteNvidiaProbe()
     {
         var probe = _tempDir.FilePath("proc", "nvidia", "version");
-        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(probe)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(probe)!);
         File.WriteAllText(probe, "NVIDIA UNIX Open Kernel Module");
         return probe;
     }

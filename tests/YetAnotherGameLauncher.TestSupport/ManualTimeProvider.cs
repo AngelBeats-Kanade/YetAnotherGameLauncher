@@ -1,5 +1,3 @@
-using System.Diagnostics;
-
 namespace YetAnotherGameLauncher.TestSupport;
 
 /// <summary>测试用的时间源：手动推进虚拟时钟（GetUtcNow 与 GetTimestamp 同步推进，SpeedLimiter 等基于 TimeProvider 的服务用）。</summary>

@@ -1,7 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
-using YetAnotherGameLauncher.Services;
 using Xunit;
+using YetAnotherGameLauncher.Services;
 
 namespace YetAnotherGameLauncher.AppTests;
 

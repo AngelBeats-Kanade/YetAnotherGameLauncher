@@ -128,7 +128,7 @@ public partial class MainWindow : Window
             // 与应用自绘 chrome 形成双标题——Linux 显式去装饰（必须在 InitializeComponent 之后：
             // XAML 的 WindowDecorations 属性会在初始化时覆盖构造函数先写入的值）。
             // Windows 保持 BorderOnly（DWM 边框+阴影）。
-            WindowDecorations = Avalonia.Controls.WindowDecorations.None;
+            WindowDecorations = WindowDecorations.None;
         }
         GamesList.SelectionChanged += (_, _) => QueueIndicatorMove();
         GamesList.TemplateApplied += OnGamesListTemplateApplied;
@@ -448,7 +448,7 @@ public partial class MainWindow : Window
 
         var (translateValues, scaleValues) = BuildTransferCues(oldCenter, newCenter, height);
         var cues = new[] { 0.0, 0.45, 0.55, 1.0 };
-        // 跳变段（帧1）线性：46ms 内原样平移，观感为"跳"而非"滑"
+        // 跳变段（帧1，45%→55%）线性：42ms 内原样平移，观感为"跳"而非"滑"
         var splines = new KeySpline?[] { EaseOutSpline, null, EaseOutSpline, null };
         var translate = new Animation { Duration = TransferDuration };
         var scale = new Animation { Duration = TransferDuration };

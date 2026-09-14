@@ -1,10 +1,10 @@
 using System.Formats.Tar;
 using System.IO.Compression;
 using System.Text.Json;
+using Xunit;
 using YetAnotherGameLauncher.Core.Services.Umu;
 using YetAnotherGameLauncher.Services;
 using YetAnotherGameLauncher.TestSupport;
-using Xunit;
 
 namespace YetAnotherGameLauncher.AppTests;
 

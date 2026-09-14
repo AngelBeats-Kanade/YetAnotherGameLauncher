@@ -1,8 +1,8 @@
+using Xunit;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Utilities;
 using YetAnotherGameLauncher.TestSupport;
-using Xunit;
 
 namespace YetAnotherGameLauncher.Core.Tests.Services;
 
@@ -19,7 +19,7 @@ public class ManifestVerifierTests : IDisposable
 
     private static void WriteFile(string path, byte[] content)
     {
-        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllBytes(path, content);
     }
 

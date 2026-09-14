@@ -1,5 +1,5 @@
-using YetAnotherGameLauncher.Core.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
+using YetAnotherGameLauncher.Core.Abstractions;
 
 namespace YetAnotherGameLauncher.Channels.Kuro;
 

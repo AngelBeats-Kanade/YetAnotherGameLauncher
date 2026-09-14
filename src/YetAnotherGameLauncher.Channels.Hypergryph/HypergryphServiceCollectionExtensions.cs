@@ -1,7 +1,7 @@
-using YetAnotherGameLauncher.Core.Abstractions;
-using YetAnotherGameLauncher.Core.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using YetAnotherGameLauncher.Core.Abstractions;
+using YetAnotherGameLauncher.Core.Services;
 
 namespace YetAnotherGameLauncher.Channels.Hypergryph;
 

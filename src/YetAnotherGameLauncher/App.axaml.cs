@@ -4,11 +4,12 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using YetAnotherGameLauncher.Channels.Hypergryph;
+using YetAnotherGameLauncher.Channels.Kuro;
 using YetAnotherGameLauncher.Core;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Services;
-using YetAnotherGameLauncher.Channels.Hypergryph;
-using YetAnotherGameLauncher.Channels.Kuro;
+using YetAnotherGameLauncher.Core.Services.Umu;
 using YetAnotherGameLauncher.Services;
 using YetAnotherGameLauncher.Themes;
 using YetAnotherGameLauncher.ViewModels;
@@ -70,13 +71,13 @@ public partial class App : Application
             new SystemProcessRunner(
                 sp.GetRequiredService<ILoggerFactory>().CreateLogger<SystemProcessRunner>(),
                 supportsElevationRetry: OperatingSystem.IsWindows()));
-        services.AddSingleton<Core.Abstractions.IPlatformInfo>(sp =>
+        services.AddSingleton<IPlatformInfo>(sp =>
             OperatingSystem.IsLinux()
-                ? new Core.Services.LinuxPlatformInfo()
-                : new Core.Services.WindowsPlatformInfo());
+                ? new LinuxPlatformInfo()
+                : new WindowsPlatformInfo());
         services.AddSingleton<IAutostartService>(sp => OperatingSystem.IsLinux()
-            ? new Core.Services.LinuxAutostartService()
-            : new Core.Services.WindowsAutostartService(sp.GetRequiredService<IProcessRunner>()));
+            ? new LinuxAutostartService()
+            : new WindowsAutostartService(sp.GetRequiredService<IProcessRunner>()));
         services.AddSingleton<IPatchApplier>(sp => new HpatchzApplier(sp.GetRequiredService<IProcessRunner>()));
 
         // 渠道（keyed by games.json 的 game.channel）
@@ -105,10 +106,10 @@ public partial class App : Application
             sp.GetRequiredService<HttpClient>(),
             sp.GetRequiredService<IDownloader>(),
             sp.GetRequiredService<ILoggerFactory>().CreateLogger<UmuComponentProvisioner>()));
-        services.AddSingleton(sp => new Core.Services.Umu.NativeUmuLauncher(
+        services.AddSingleton(sp => new NativeUmuLauncher(
             sp.GetRequiredService<IProcessRunner>(),
             sp.GetRequiredService<IUmuComponentProvisioner>(),
-            sp.GetRequiredService<ILoggerFactory>().CreateLogger<Core.Services.Umu.NativeUmuLauncher>()));
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger<NativeUmuLauncher>()));
 
         // 游戏背景解析（按渠道键注册；配置文件不携带背景地址，启动时向渠道确认当期背景）
         services.AddSingleton<KuroSwitchConfigClient>();
@@ -144,7 +145,7 @@ public partial class App : Application
                 sp.GetRequiredService<IVideoBackdropPlayer>(),
                 sp.GetRequiredService<KuroGachaService>(),
                 umuInstaller: sp.GetRequiredService<UmuLauncherInstaller>(),
-                nativeUmu: sp.GetRequiredService<Core.Services.Umu.NativeUmuLauncher>(),
+                nativeUmu: sp.GetRequiredService<NativeUmuLauncher>(),
                 umuProvisioner: sp.GetRequiredService<IUmuComponentProvisioner>());
         });
 

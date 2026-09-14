@@ -1,9 +1,8 @@
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using YetAnotherGameLauncher.Channels.Kuro.Models;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
-using YetAnotherGameLauncher.Channels.Kuro.Models;
-using Microsoft.Extensions.Logging;
-
 using YetAnotherGameLauncher.Core.Utilities;
 
 namespace YetAnotherGameLauncher.Channels.Kuro;

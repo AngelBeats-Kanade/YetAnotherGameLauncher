@@ -51,7 +51,7 @@ src/
                     YAGL_FORCE_XWAYLAND=1 逃生舱回退 X11；纯函数，决策表测试见 App.Tests）；
                     WindowStateMapper（视觉最大化判定：Wayland 实验后端把平铺误报 Maximized，
                     需校验客户区铺满工作区才去圆角；纯函数，决策表测试见 App.Tests）；
-                    LocalizationService/ILocalizationService + LocExtension/LocBridge（JSON 资源本地化与 XAML 标记扩展）；
+                    LocalizationService/ILocalizationService + LocBridge（JSON 资源本地化；LocBridge 为构造期取文案的静态桥）；
                     FfmpegVideoBackdropPlayer/IVideoBackdropPlayer（FFmpeg 背景视频解码播放）+ FfmpegLibraryResolver（原生库准备/下载）；
                     SeamAnalyzer（循环接缝分析）+ PrerollHandoff（预卷零间隙交接状态机）实现无缝循环；
                     BackgroundImageService（静态背景图加载与缓存：会话内存 + http 来源磁盘缓存，失败结果按 TTL 短暂缓存；ReloadAsync 绕过缓存强制重取）、
@@ -59,7 +59,12 @@ src/
                     UmuComponentProvisioner（原生 umu 的 Proton/Runtime 下载与校验；Proton 发行版三源：
                     DW-Proton 走 dawn.wine Forgejo API，GE/UMU-Proton 走 GitHub），
                     FilePickerService/IFilePickerService（系统文件/目录选择器封装）
-    Controls/       AppBackdrop（应用背景层：主题渐变 + 光晕 + 自定义背景图）、FrameSurface（背景视频帧自绘渲染面）
+    Controls/       AppBackdrop（应用背景层：主题渐变 + 光晕 + 自定义背景图）、FrameSurface（背景视频帧自绘渲染面）、
+                    AboutPage/GachaPage/SettingsPage/GameSettingsPage（四个整页 UserControl，从 MainWindow 内联
+                    DataTemplate 提取；DataContext = 各页 ViewModel，窗口级 Enter 保存类处理器按元素名继续分发）、
+                    DetailActionDock/LaunchErrorOverlay（详情页操作坞/启动失败覆盖层）、
+                    ToastHost + ToastItem（右上角轻提示：版本检测结果/检测到游戏，容量 3 丢最旧、4s 自灭；
+                    状态变化经 GameItemViewModel.StatusToastRequested 事件转发，首轮预热不弹）
     ViewModels/     MainWindowViewModel、GameItemViewModel、GameSettingsViewModel、LaunchSettingsViewModel、
                     LaunchErrorViewModel（启动失败覆盖层：类目化原因/技术详情/日志入口/umu 一键安装）、
                     GachaViewModel（鸣潮唤取记录页）、SaveMessageSlot（表单保存结果消息槽）、ViewModelBase
@@ -135,9 +140,10 @@ tests/
 - `LocalizationService`（`Services/`）负责加载与切换，`SetLanguage` 必须同时发
   `"Item[]"` 与 `"Item"` 通知——Avalonia 的索引器绑定只认 `"Item"`（WPF 习惯的
   `"Item[]"` 不刷新）。
-- XAML 中取文案用 `{svc:Loc settings_title}` 标记扩展（`LocBridge.Instance` 静态桥
-  在 `MainWindowViewModel` 构造时指向当前服务）。不要写 `{Binding Loc[key]}`：
-  Avalonia 对 `属性.索引器` 组合路径求值失败（静默返回空）。
+- XAML 中取文案用 `{Binding Loc[key]}`（`Loc` 是 VM 暴露的服务属性，索引器通知依赖
+  上一条的 `Item[]` + `Item` 双通知）。曾用 `{svc:Loc key}` 标记扩展，已随绑定迁移删除；
+  `LocBridge.Instance` 静态桥现仅供 `LaunchSettingsViewModel.LaunchModes` 属性初始化器
+  （构造期早于实例 `_loc` 可用）与测试确定性注入使用。
 - VM 内文案用注入的 `ILocalizationService`：`_loc["key"]` / `_loc.Format("key", args)`。
   `Format` 无参数时原样返回（资源串里的 `{exe}` 等占位符不会被 string.Format 误解析）。
 - 新增文案：两个 JSON 同步加键（有键集一致性测试防漏译），VM/axaml 用下划线键名。

@@ -1,9 +1,9 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using YetAnotherGameLauncher.Channels.Hypergryph.Models;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
-using YetAnotherGameLauncher.Channels.Hypergryph.Models;
-using Microsoft.Extensions.Logging;
 
 namespace YetAnotherGameLauncher.Channels.Hypergryph;
 
