@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:YetAnotherGameLauncher.ViewModels"
         xmlns:controls="using:YetAnotherGameLauncher.Controls"
+        xmlns:conv="using:Avalonia.Data.Converters"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="720"
@@ -204,13 +205,25 @@
 
         <!-- 详情页底部操作坞：通栏玻璃条，收拢信息列与全部按钮（原按钮行/进度卡/页脚三行合并于此） -->
         <Style Selector="Border.action-dock">
-            <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+            <Setter Property="Background" Value="{DynamicResource AppOnArtworkDockBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppOnArtworkCardBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="14"/>
-            <Setter Property="Padding" Value="20,14"/>
+            <Setter Property="Padding" Value="18,12"/>
         </Style>
         <Style Selector="TextBlock.dock-caption">
-            <Setter Property="FontSize" Value="11.5"/>
-            <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkSecondary}"/>
+            <!-- 方案 A .info i：11px 三级弱化标签，比值列暗两档撑起层级 -->
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkTertiary}"/>
+        </Style>
+
+        <!-- 详情页顶部 chips（方案 A）：插画上的胶囊族（状态/版本），自带 1px 轮廓 -->
+        <Style Selector="Border.onart-chip">
+            <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppOnArtworkCardBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="14"/>
+            <Setter Property="Padding" Value="14,7"/>
         </Style>
 
         <!-- 唤取记录稀有度：五星金 / 四星紫 -->
@@ -362,14 +375,15 @@
 
         <!-- ========== 轻提示气泡（右上角瞬态信息：版本检测结果/检测到游戏） ========== -->
         <Style Selector="Border.toast-card">
-            <Setter Property="Background" Value="{DynamicResource AppCardBackground}"/>
+            <!-- 近实心专属底（方案 A toast .94）+ 加重阴影；不用共享 AppCardBackground（太透） -->
+            <Setter Property="Background" Value="{DynamicResource AppToastBackground}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource AppCardBorder}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="10"/>
             <Setter Property="Padding" Value="14,12"/>
             <Setter Property="MinWidth" Value="260"/>
             <Setter Property="MaxWidth" Value="360"/>
-            <Setter Property="BoxShadow" Value="0 8 24 #33000000"/>
+            <Setter Property="BoxShadow" Value="0 8 24 #59000000"/>
         </Style>
         <Style Selector="Border.toast-card TextBlock.toast-title">
             <Setter Property="FontSize" Value="13"/>
@@ -595,7 +609,7 @@
                             Background="{DynamicResource AppAccentBrush}"
                             IsHitTestVisible="False" IsVisible="False"
                             RenderTransformOrigin="0,0"
-                            BoxShadow="0 0 8 #592E7CF6">
+                            BoxShadow="0 0 8 #593D7DFF">
                         <Border.RenderTransform>
                             <!-- 子顺序即语义：先 Scale 后 Translate（原点 0,0）→ 视觉区间 [TranslateY, TranslateY+Height×ScaleY]；
                                  若反过来写，平移量会被缩放系数压缩（指示点首个版本错位的根因）。
@@ -659,15 +673,22 @@
                                                Margin="0,0,56,72" Opacity="0.13"/>
                                     </Grid>
 
-                                    <Grid RowDefinitions="*,Auto" Margin="42,36,42,30">
+                                    <!-- 顶部渐变纱带（方案 A .ch）：chips 与标题的可读底，全出血、不拦交互 -->
+                                    <Border Height="150" VerticalAlignment="Top" IsHitTestVisible="False"
+                                            Background="{DynamicResource AppOnArtworkScrimBrush}"/>
 
-                                        <!-- 状态区（页中上方居中）：状态胶囊自带对比底，无遮罩也可读；确认条悬其上方 -->
-                                        <StackPanel Grid.Row="0" VerticalAlignment="Top" HorizontalAlignment="Center"
-                                                    Margin="0,18,0,0" Spacing="12">
+                                    <Grid RowDefinitions="*,Auto" Margin="16,36,16,14">
+
+                                        <!-- 顶部信息簇（方案 A，左对齐）：确认条 → chips 行 → 标题上墙。
+                                             左缩进 12 = 距内容卡左缘 28px（对齐预览标题位） -->
+                                        <StackPanel Grid.Row="0" VerticalAlignment="Top" HorizontalAlignment="Left"
+                                                    Margin="12,10,0,0" Spacing="14">
                                             <!-- 校验修复确认条（包式渠道无逐文件清单：修复=整包重下覆盖安装，需确认） -->
-                                            <Border HorizontalAlignment="Center"
+                                            <Border HorizontalAlignment="Left"
                                                     Padding="16,12" CornerRadius="12"
                                                     Background="{DynamicResource AppOnArtworkCard}"
+                                                    BorderBrush="{DynamicResource AppOnArtworkCardBorder}"
+                                                    BorderThickness="1"
                                                     BoxShadow="0 8 24 #40000000"
                                                     IsVisible="{Binding ShowRepairConfirm}">
                                                 <StackPanel Orientation="Horizontal" Spacing="14">
@@ -685,34 +706,62 @@
                                                             VerticalAlignment="Center"/>
                                                 </StackPanel>
                                             </Border>
-                                            <!-- 状态胶囊：点 + 状态文案 + 预下载徽章 + 版本贴片。
-                                                 MaxWidth + 换行：失败类长文案（启动预检的可操作提示）不设防会横穿窗口被裁 -->
-                                            <Border HorizontalAlignment="Center" MaxWidth="640"
-                                                    Background="{DynamicResource AppOnArtworkCard}"
-                                                    CornerRadius="12" Padding="16,9">
-                                                <StackPanel Orientation="Horizontal" Spacing="10">
-                                                    <Ellipse Classes="dot" Width="11" Height="11" VerticalAlignment="Center"
-                                                             Classes.installed="{Binding CanLaunch}"
-                                                             Classes.has-update="{Binding HasUpdate}"
-                                                             Classes.predownload="{Binding ShowPredownloadCue}"/>
-                                                    <TextBlock Text="{Binding StatusText}" FontSize="15" FontWeight="SemiBold"
-                                                               MaxWidth="430" TextWrapping="Wrap"
-                                                               VerticalAlignment="Center"
-                                                               Foreground="{DynamicResource AppOnArtworkBrush}"/>
-                                                    <Border Padding="10,3" CornerRadius="7" VerticalAlignment="Center"
-                                                            Background="{DynamicResource AppPredownloadBadge}"
-                                                            IsVisible="{Binding HasStagedPredownload}">
-                                                        <TextBlock Text="{Binding Loc[game_stagedBadge]}" FontSize="12" Foreground="White"/>
-                                                    </Border>
-                                                    <!-- 版本号贴片：自带对比底面，压在背景插画上仍清晰可读 -->
-                                                    <Border Padding="9,3" CornerRadius="7" VerticalAlignment="Center" Margin="4,0,0,0"
-                                                            Background="{DynamicResource AppVersionChipBackground}">
-                                                        <TextBlock Text="{Binding VersionText}" FontSize="13"
-                                                                   FontWeight="SemiBold"
+                                            <!-- chips 行：状态 + 已暂存徽章 + 版本迁移（金色数字段）。
+                                                 行级 MaxWidth + 状态文案换行：失败类长文案不设防会横穿窗口被裁 -->
+                                            <StackPanel Orientation="Horizontal" Spacing="10" MaxWidth="640">
+                                                <Border Classes="onart-chip" VerticalAlignment="Center">
+                                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                                        <Ellipse Classes="dot" Width="11" Height="11" VerticalAlignment="Center"
+                                                                 Classes.installed="{Binding CanLaunch}"
+                                                                 Classes.has-update="{Binding HasUpdate}"
+                                                                 Classes.predownload="{Binding ShowPredownloadCue}"/>
+                                                        <TextBlock Text="{Binding StatusText}" FontSize="14" FontWeight="SemiBold"
+                                                                   MaxWidth="430" TextWrapping="Wrap"
+                                                                   VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource AppOnArtworkBrush}"/>
+                                                    </StackPanel>
+                                                </Border>
+                                                <Border Padding="10,3" CornerRadius="14" VerticalAlignment="Center"
+                                                        Background="{DynamicResource AppPredownloadBadge}"
+                                                        IsVisible="{Binding HasStagedPredownload}">
+                                                    <TextBlock Text="{Binding Loc[game_stagedBadge]}" FontSize="12" Foreground="White"/>
+                                                </Border>
+                                                <!-- 版本 chip：前导 + 金色号码（+ 迁移中段 + 金色目标号码），独立胶囊 -->
+                                                <Border Padding="11,5" CornerRadius="14" VerticalAlignment="Center"
+                                                        Background="{DynamicResource AppVersionChipBackground}">
+                                                    <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding VersionChipLead}" FontSize="13"
+                                                                   VerticalAlignment="Center"
                                                                    Foreground="{DynamicResource AppVersionChipText}"/>
-                                                    </Border>
-                                                </StackPanel>
-                                            </Border>
+                                                        <TextBlock Text="{Binding VersionChipNumber}" FontSize="13" FontWeight="SemiBold"
+                                                                   VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource AppVersionChipAccent}"/>
+                                                        <TextBlock Text="{Binding VersionChipMid}" FontSize="13"
+                                                                   VerticalAlignment="Center"
+                                                                   IsVisible="{Binding VersionChipMid, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
+                                                                   Foreground="{DynamicResource AppVersionChipText}"/>
+                                                        <TextBlock Text="{Binding VersionChipTarget}" FontSize="13" FontWeight="SemiBold"
+                                                                   VerticalAlignment="Center"
+                                                                   IsVisible="{Binding VersionChipTarget, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
+                                                                   Foreground="{DynamicResource AppVersionChipAccent}"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </StackPanel>
+                                            <!-- 标题上墙（方案 A）：30px 游戏名 + 渠道·服务器·背景来源元信息行 -->
+                                            <StackPanel Spacing="6">
+                                                <TextBlock Text="{Binding DisplayName}" FontSize="30" FontWeight="SemiBold"
+                                                           MaxWidth="640" TextWrapping="Wrap"
+                                                           Foreground="{DynamicResource AppOnArtworkBrush}">
+                                                    <TextBlock.Effect>
+                                                        <!-- 海报/视频上的可读性兜底（对应预览 text-shadow 0 2px 14px）：
+                                                             Avalonia 12 的 DropShadowEffect 用 OffsetX/Y 表达偏移 -->
+                                                        <DropShadowEffect OffsetX="0" OffsetY="2" BlurRadius="14" Opacity="0.5"/>
+                                                    </TextBlock.Effect>
+                                                </TextBlock>
+                                                <TextBlock Text="{Binding DetailMetaText}" FontSize="13"
+                                                           MaxWidth="640" TextWrapping="Wrap"
+                                                           Foreground="{DynamicResource AppOnArtworkSecondary}"/>
+                                            </StackPanel>
                                         </StackPanel>
 
                                         <!-- 底部操作坞（通栏玻璃条）：左列渠道/目录信息（busy 时变进度条），

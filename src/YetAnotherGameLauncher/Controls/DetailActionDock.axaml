@@ -6,29 +6,35 @@
     <!-- 详情页底部操作坞（通栏玻璃条）：左列渠道/目录信息（busy 时变进度条），
          右列按钮按"图标 → 次级 → 主 CTA 最右"排布——原按钮行/进度卡/页脚三行合并于此。
          从 MainWindow.axaml 内联提取；宿主处挂 Grid.Row="1"。跨窗口命令经 $parent[Window] 取主 VM -->
-    <Border Classes="action-dock" Margin="0,16,0,2">
+    <!-- 方案 A：dock 通栏贴边（左右 16 / 距底 14 由宿主 Grid Margin 提供），自身只留顶部呼吸间距 -->
+    <Border Classes="action-dock" Margin="0,12,0,0">
         <Grid ColumnDefinitions="*,Auto">
             <!-- ClipToBounds：英文等宽文案下信息列被按钮列挤压时，溢出绘制会叠到按钮上（judge 07 号截图实锤） -->
             <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="4"
                         IsVisible="{Binding !IsBusy}" Margin="0,0,24,0"
                         ClipToBounds="True">
                 <!-- 信息行与设置页"游戏信息卡"同构：标签弱化 caption、数值 12.5px 主前景。
-                     服务器数量此前挂在行尾且与截断的渠道名脱节（位置/层级都不立），独立成行 -->
+                     服务器数量此前挂在行尾且与截断的渠道名脱节（位置/层级都不立），独立成行。
+                     行距 22 = 预览 1.75 倍行高（12.5px 值列 × 1.75 ≈ 22） -->
+                <!-- 值列必须显式插画上前景：坞底恒为深色玻璃，继承主题前景会在亮色主题变黑字（judge 02 实锤） -->
                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14"
-                      RowDefinitions="Auto,Auto,Auto" RowSpacing="3">
+                      RowDefinitions="Auto,Auto,Auto" RowSpacing="0">
                     <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding Loc[game_info_channel]}"
-                               Classes="dock-caption" VerticalAlignment="Center"/>
+                               Classes="dock-caption" LineHeight="22" VerticalAlignment="Center"/>
                     <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding ChannelDisplayName}"
-                               FontSize="12.5" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                               FontSize="12.5" LineHeight="22" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                               Foreground="{DynamicResource AppOnArtworkBrush}"/>
                     <TextBlock Grid.Row="1" Grid.Column="0" Text="{Binding Loc[game_server]}"
-                               Classes="dock-caption" VerticalAlignment="Center"/>
+                               Classes="dock-caption" LineHeight="22" VerticalAlignment="Center"/>
                     <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ServerCountText}"
-                               FontSize="12.5" VerticalAlignment="Center"/>
+                               FontSize="12.5" LineHeight="22" VerticalAlignment="Center"
+                               Foreground="{DynamicResource AppOnArtworkBrush}"/>
                     <TextBlock Grid.Row="2" Grid.Column="0" Text="{Binding Loc[game_info_installDir]}"
-                               Classes="dock-caption" VerticalAlignment="Center"/>
+                               Classes="dock-caption" LineHeight="22" VerticalAlignment="Center"/>
                     <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding InstallDirPath}"
-                               FontSize="12.5" TextTrimming="CharacterEllipsis"
-                               ToolTip.Tip="{Binding InstallDirPath}" VerticalAlignment="Center"/>
+                               FontSize="12.5" LineHeight="22" TextTrimming="CharacterEllipsis"
+                               ToolTip.Tip="{Binding InstallDirPath}" VerticalAlignment="Center"
+                               Foreground="{DynamicResource AppOnArtworkBrush}"/>
                 </Grid>
             </StackPanel>
             <!-- busy 时信息列让位给进度（不再弹独立进度卡，页面不跳动） -->

@@ -131,6 +131,44 @@ public class DetailPageHeadlessTests : IDisposable
         }, CancellationToken.None);
     }
 
+    [Fact]
+    public async Task GameDetailPage_TitleBlockAndChips_ProposalALayout()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            window.Show();
+            window.UpdateLayout();
+
+            var page = window.GetVisualDescendants().OfType<Panel>().First(p => p.Classes.Contains("page"));
+
+            // 标题上墙（方案 A）：30px 游戏名 + 元信息行，位于详情页顶部左侧
+            var title = page.GetVisualDescendants().OfType<TextBlock>()
+                .First(t => t.FontSize == 30 && t.Text == _ctx.Vm.Games[0].DisplayName);
+            var titleOrigin = title.TranslatePoint(new Point(0, 0), page)!.Value;
+            Assert.True(titleOrigin.X < 60 && titleOrigin.Y < 120,
+                $"标题应落在详情页左上角，实际 {titleOrigin}");
+            var meta = page.GetVisualDescendants().OfType<TextBlock>()
+                .First(t => t.Text == _ctx.Vm.Games[0].DetailMetaText);
+            Assert.Equal(13, meta.FontSize);
+
+            // 顶部 chips：状态胶囊与版本号分段胶囊（onart-chip 族），不再有页中上方居中的旧合并胶囊
+            var chips = page.GetVisualDescendants().OfType<Border>().Where(b => b.Classes.Contains("onart-chip")).ToList();
+            var statusChip = chips.Single(c => c.Child?.GetVisualDescendants().OfType<TextBlock>()
+                .Any(t => t.Text == _ctx.Vm.Games[0].StatusText) == true);
+            var texts = page.GetVisualDescendants().OfType<TextBlock>().ToList();
+            Assert.Contains(texts, t => t.Text == _ctx.Vm.Games[0].VersionChipLead);
+            Assert.Contains(texts, t => t.Text == _ctx.Vm.Games[0].VersionChipNumber);
+            // 顶部纱带：全出血渐变底，不拦交互
+            var scrim = page.GetVisualDescendants().OfType<Border>()
+                .First(b => ReferenceEquals(b.Background, window.FindResource("AppOnArtworkScrimBrush")));
+            Assert.False(scrim.IsHitTestVisible);
+            window.Close();
+        }, CancellationToken.None);
+    }
+
     /// <summary>按命令找到详情页操作行里的玻璃按钮（预下载/应用预下载/启动都可能带 glass-onart）。</summary>
     private static Button FindGlassOnArtButton(MainWindow window, ICommand command) =>
         window.GetVisualDescendants().OfType<Button>()

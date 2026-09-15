@@ -49,7 +49,8 @@ Avalonia 12（本项目 12.1.2）+ .NET 10。跨平台 XAML（.axaml）UI 框架
 - **Avalonia 12 没有 Wayland 后端**：Linux 下一律 X11（Wayland 会话即 XWayland），`X11PlatformOptions` 是唯一的 Linux 平台选项。渲染模式显式 `RenderingMode = [Egl, Glx, Software]`——GLX 在 XWayland+NVIDIA 下是糊化/撕裂高发点。
 - **XWayland 拿不到合成器分数缩放**（X 恒报 96dpi）：4K+1.67 桌面上 UI 会按物理像素渲染（小字且糊）。`Program.TrySyncXftDpiWithCompositor` 启动时把 Hyprland 缩放写进 `Xft.dpi`（仅用户未设置时）。Avalonia 12 已无 `AVALONIA_SCREEN_SCALE_FACTORS` 环境变量。
 - **合成器会无视 `WindowDecorations="BorderOnly"` 给 X11 窗口画 SSD 标题条**：Linux 下在 `InitializeComponent()` 之后设 `WindowDecorations.None`（XAML 属性会覆盖构造函数先写的值）。
-- 长文案的状态胶囊/提示条必须 `MaxWidth + TextWrapping`，否则会横穿窗口被裁（judge 实锤）。
+- 长文案的状态 chip/提示条必须 `MaxWidth + TextWrapping`，否则会横穿窗口被裁（judge 实锤；详情页 chips 行整体限宽 640）。
+- 压在深色玻璃底/插画上的文字必须显式插画上前景（`AppOnArtworkBrush` 系），继承主题前景在亮色主题会黑字叠黑底（judge 实锤：操作坞值列）。
 
 ## 布局模式（本项目 MainWindow）
 

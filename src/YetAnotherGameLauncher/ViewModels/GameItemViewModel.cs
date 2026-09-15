@@ -100,8 +100,17 @@ public partial class GameItemViewModel(
 
     /// <summary>状态栏提示（连接失败/未安装/可更新等）。</summary>
     [ObservableProperty] private string _statusText = "";
-    /// <summary>版本展示文案（本地/最新/可更新对照）。</summary>
-    [ObservableProperty] private string _versionText = "";
+
+    // 版本 chip 分段（方案 A："本地 x → 最新 y"，金色数字由 XAML 按段渲染）。
+    // 空 Mid/Target 表示单段展示（仅前导 + 号码）；四段均在 RefreshAsync/离线分支随状态重算。
+    /// <summary>版本 chip 前导文案（"本地"/"最新版本"/离线"未安装"）。</summary>
+    [ObservableProperty] private string _versionChipLead = "";
+    /// <summary>版本 chip 主版本号（金色强调段之一）。</summary>
+    [ObservableProperty] private string _versionChipNumber = "";
+    /// <summary>版本 chip 迁移中段（"→ 最新"；空 = 无迁移可展示）。</summary>
+    [ObservableProperty] private string _versionChipMid = "";
+    /// <summary>版本 chip 目标版本号（有更新时的金色第二段）。</summary>
+    [ObservableProperty] private string _versionChipTarget = "";
     /// <summary>当前服务器是否已安装。</summary>
     [ObservableProperty] private bool _isInstalled;
     /// <summary>是否满足启动条件（游戏可执行文件存在——无论是否由启动器安装登记）。</summary>
@@ -116,7 +125,17 @@ public partial class GameItemViewModel(
     }
 
     /// <summary>切换服务器即刷新状态（不同服务器的安装目录/版本上下文相互独立）。</summary>
-    partial void OnSelectedServerChanged(GameServer value) => _ = RefreshAsync();
+    partial void OnSelectedServerChanged(GameServer value)
+    {
+        OnPropertyChanged(nameof(DetailMetaText)); // 服务器段即时随选区切换，不等刷新网络往返
+        _ = RefreshAsync();
+    }
+
+    /// <summary>背景视频就绪状态变化：元信息行的背景来源段随之切换。</summary>
+    partial void OnHasBackgroundVideoChanged(bool value) => OnPropertyChanged(nameof(DetailMetaText));
+
+    /// <summary>背景图加载状态变化：元信息行的背景来源段随之切换。</summary>
+    partial void OnHasBackgroundImageChanged(bool value) => OnPropertyChanged(nameof(DetailMetaText));
     /// <summary>本地版本落后于远端最新版。</summary>
     [ObservableProperty] private bool _hasUpdate;
     /// <summary>渠道提供预下载且尚未暂存。</summary>
@@ -221,15 +240,50 @@ public partial class GameItemViewModel(
     public string ServerCountText => Loc.Format("game_info_servers_count", Servers.Count);
 
     /// <summary>
+    /// 详情页标题下的元信息行（方案 A）：渠道 · 服务器 · 背景来源。
+    /// 服务器段取当前服务器名（空名回退数量文案）；无背景素材时来源段整体省略。
+    /// </summary>
+    public string DetailMetaText
+    {
+        get
+        {
+            var segments = new List<string> { ChannelDisplayName, ServerMetaSegment };
+            var source = BackgroundSourceText;
+            if (source.Length > 0)
+            {
+                segments.Add(source);
+            }
+
+            return string.Join(" · ", segments);
+        }
+    }
+
+    /// <summary>元信息行的服务器段：优先服务器名，缺失回退"数量"文案。</summary>
+    private string ServerMetaSegment
+    {
+        get
+        {
+            var name = SelectedServer.Name;
+            return name.Length > 0 ? name : ServerCountText;
+        }
+    }
+
+    /// <summary>背景来源段：视频循环中 &gt; 静态图 &gt; 无（空串 = 省略段）。</summary>
+    private string BackgroundSourceText => HasBackgroundVideo
+        ? Loc["detail_meta_video"]
+        : HasBackgroundImage ? Loc["detail_meta_image"] : "";
+
+    /// <summary>
     /// 刷新安装状态/版本/预下载可用性（语言或渠道数据变化后也会调用）。
     /// 版本/预载检测每服务器每启动至多一次（会话缓存），后续刷新零网络；
     /// 资产（图标/背景）只在区域变化或检测到的游戏版本变化时重新解析，其余情况保持启动预加载结果。
     /// </summary>
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
-        // 语言可能已切换：显示名/图标首字随语言重建
+        // 语言可能已切换：显示名/图标首字随语言重建（元信息行的本地化段同批刷新）
         OnPropertyChanged(nameof(DisplayName));
         OnPropertyChanged(nameof(IconText));
+        OnPropertyChanged(nameof(DetailMetaText));
 
         var state = new LocalStateService(_installDir).Load(Game.Id, SelectedServer.Id);
         var staged = IncrementalUpdateService.TryLoadStagedManifest(_installDir);
@@ -244,7 +298,7 @@ public partial class GameItemViewModel(
         catch (Exception ex) when (ex is UpdateException or HttpRequestException or TaskCanceledException)
         {
             StatusText = Loc["status_noConnection"];
-            VersionText = state is null ? Loc["status_notInstalledShort"] : Loc.Format("status_localVersion", state.Version);
+            SetVersionChip(state?.Version, latestVersion: null);
             IsInstalled = state is not null;
             HasUpdate = false;
             PredownloadAvailable = false;
@@ -281,11 +335,7 @@ public partial class GameItemViewModel(
         HasUpdate = VersionComparison.IsNewer(info.LatestVersion, state?.Version);
         PredownloadAvailable = info.PredownloadAvailable && !HasStagedPredownload;
 
-        VersionText = state is null
-            ? Loc.Format("version_latest", info.LatestVersion)
-            : HasUpdate
-                ? Loc.Format("version_canUpdate", state.Version, info.LatestVersion)
-                : Loc.Format("version_local", state.Version);
+        SetVersionChip(state?.Version, info.LatestVersion);
 
         // 状态优先级：未登记但文件在 → 可直接启动（官启等来源的既有安装）；
         // 已登记 → 有更新 / 可预下载 / 已是最新
@@ -301,6 +351,28 @@ public partial class GameItemViewModel(
         OnPropertyChanged(nameof(InstallIsPrimary));
         OnPropertyChanged(nameof(InstallIsSecondary));
         OnPropertyChanged(nameof(ShowPredownloadCue));
+    }
+
+    /// <summary>
+    /// 组装版本 chip 分段文案：未登记→"最新版本 x"（离线且无远端信息→"未安装"）；
+    /// 有更新→"本地 x → 最新 y"；其余→"本地 x"。金色数字由 XAML 按段渲染，此处只管分段。
+    /// </summary>
+    private void SetVersionChip(string? localVersion, string? latestVersion)
+    {
+        if (localVersion is null)
+        {
+            VersionChipLead = latestVersion is not null ? Loc["version_label_latest"] : Loc["status_notInstalledShort"];
+            VersionChipNumber = latestVersion ?? "";
+            VersionChipMid = "";
+            VersionChipTarget = "";
+            return;
+        }
+
+        VersionChipLead = Loc["version_label_local"];
+        VersionChipNumber = localVersion;
+        var hasUpdate = latestVersion is not null && VersionComparison.IsNewer(latestVersion, localVersion);
+        VersionChipMid = hasUpdate ? Loc["version_mid_update"] : "";
+        VersionChipTarget = hasUpdate ? latestVersion! : "";
     }
 
     /// <summary>启动预加载：图标与背景仅读磁盘缓存（零网络），启动时对全部游戏并行调用；

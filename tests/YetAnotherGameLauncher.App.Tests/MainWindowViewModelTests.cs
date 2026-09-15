@@ -103,7 +103,7 @@ public class MainWindowViewModelTests : IDisposable
         await Task.Yield();
 
         Assert.Same(_ctx.Vm.Games[1], _ctx.Vm.CurrentPage);
-        Assert.Contains("最新", _ctx.Vm.Games[1].VersionText);
+        Assert.Equal("最新版本", _ctx.Vm.Games[1].VersionChipLead);
     }
 
     [Fact]

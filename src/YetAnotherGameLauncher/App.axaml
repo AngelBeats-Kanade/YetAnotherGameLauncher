@@ -24,6 +24,10 @@
                     <!-- 详情页版本号贴片：自带对比底面，压在任何插画上都可读 -->
                     <SolidColorBrush x:Key="AppVersionChipBackground" Color="#C7FFFFFF"/>
                     <SolidColorBrush x:Key="AppVersionChipText" Color="#2A2F36"/>
+                    <!-- 版本号金色强调（方案 A）：亮底用深金保证对比度，与暗色 #FFC861 成对 -->
+                    <SolidColorBrush x:Key="AppVersionChipAccent" Color="#A96E10"/>
+                    <!-- 轻提示卡片底色：近乎实心（预览规范 .94+），压在视频/插画上文字不吃背景干扰 -->
+                    <SolidColorBrush x:Key="AppToastBackground" Color="#F2FFFFFF"/>
                     <!-- 应用自有背景（设置/关于/侧栏底色）：浅色 = 淡雾蓝渐变 + 柔和光晕 -->
                     <LinearGradientBrush x:Key="AppBackdropBaseBrush" StartPoint="0%,0%" EndPoint="35%,100%">
                         <GradientStop Color="#EFF2F8" Offset="0"/>
@@ -40,8 +44,9 @@
                     </RadialGradientBrush>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
-                    <SolidColorBrush x:Key="AppAccentBrush" Color="#4C8DFF"/>
-                    <SolidColorBrush x:Key="AppAccentHoverBrush" Color="#3B7BE8"/>
+                    <!-- accent #3D7DFF 与 hover 取自方案 A「沉浸影院」设计令牌（2026-09 采纳） -->
+                    <SolidColorBrush x:Key="AppAccentBrush" Color="#3D7DFF"/>
+                    <SolidColorBrush x:Key="AppAccentHoverBrush" Color="#2E68E0"/>
                     <SolidColorBrush x:Key="AppSidebarBackground" Color="#D9191920"/>
                     <SolidColorBrush x:Key="AppSidebarHover" Color="#5C2E2E38"/>
                     <SolidColorBrush x:Key="AppSidebarSelected" Color="#99304978"/>
@@ -54,6 +59,10 @@
                     <SolidColorBrush x:Key="AppErrorCardBackground" Color="#F2202937"/>
                     <SolidColorBrush x:Key="AppVersionChipBackground" Color="#99000000"/>
                     <SolidColorBrush x:Key="AppVersionChipText" Color="#EEF1F6"/>
+                    <!-- 版本号金色强调（方案 A .chip b #FFC861）：仅用于版本号数字段 -->
+                    <SolidColorBrush x:Key="AppVersionChipAccent" Color="#FFC861"/>
+                    <!-- 轻提示卡片底色：近实心深板岩（方案 A toast rgba(22,25,36,.94)） -->
+                    <SolidColorBrush x:Key="AppToastBackground" Color="#F0161924"/>
                     <!-- 应用自有背景：深空蓝黑渐变 + 蓝橙光晕（呼应应用图标） -->
                     <LinearGradientBrush x:Key="AppBackdropBaseBrush" StartPoint="0%,0%" EndPoint="35%,100%">
                         <GradientStop Color="#0C0F1D" Offset="0"/>
@@ -79,11 +88,23 @@
             <StreamGeometry x:Key="GachaIconGeo">M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zM11.5 9.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z</StreamGeometry>
             <!-- 启动主按钮的播放三角（Material play_arrow） -->
             <StreamGeometry x:Key="PlayIconGeo">M8 5v14l11-7z</StreamGeometry>
-            <!-- 详情页"插画上"前景：标题/状态用主色，次要信息用次色 -->
+            <!-- 详情页"插画上"前景：标题/状态用主色，次要信息用次色。
+                 以下均压在海报/视频上，亮暗主题同值（先例：AppOnArtwork 系列） -->
             <SolidColorBrush x:Key="AppOnArtworkBrush" Color="#F2F4F8"/>
             <SolidColorBrush x:Key="AppOnArtworkSecondary" Color="#C9CED8"/>
             <SolidColorBrush x:Key="AppOnArtworkCard" Color="#B3202029"/>
             <SolidColorBrush x:Key="AppOnArtworkCardHover" Color="#D9323040"/>
+            <!-- 操作坞三级弱化标签（方案 A .info i #8F95A6）：比次色再暗一档，撑起标签/值层级 -->
+            <SolidColorBrush x:Key="AppOnArtworkTertiary" Color="#8F95A6"/>
+            <!-- 操作坞专属底色（方案 A rgba(13,16,26,.78)）：比通用插画卡更深更稳，通栏玻璃条用 -->
+            <SolidColorBrush x:Key="AppOnArtworkDockBrush" Color="#C70D101A"/>
+            <!-- 插画上卡片描边（方案 A rgba(255,255,255,.09)）：操作坞/玻璃件的 1px 轮廓 -->
+            <SolidColorBrush x:Key="AppOnArtworkCardBorder" Color="#17FFFFFF"/>
+            <!-- 详情页顶部渐变纱带（方案 A .ch rgba(6,9,18,.55)→透明）：给 chips 与标题提供可读底 -->
+            <LinearGradientBrush x:Key="AppOnArtworkScrimBrush" StartPoint="0%,0%" EndPoint="0%,100%">
+                <GradientStop Color="#8C060912" Offset="0"/>
+                <GradientStop Color="#00060912" Offset="1"/>
+            </LinearGradientBrush>
         </ResourceDictionary>
     </Application.Resources>
 
