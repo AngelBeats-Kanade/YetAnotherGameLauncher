@@ -69,6 +69,7 @@ dotnet format whitespace --verify-no-changes
 - **ComboBox 的 SelectedItem 按引用匹配**：从枚举"解析"出的选项若不是 `ItemsSource` 集合内的实例，下拉框显示空白（`LaunchSettingsViewModel.DetectLaunchMode` 返回 `LaunchModes.First(...)` 即此故）。
 - **headless 会话 `Dispatch` 只收 `Action`**（async lambda 即 async void），且不在 Dispatch 期间泵异步续体：服务内部 `await HttpClient` 之类的真异步调用挂进去会永久卡死。非 UI 的异步服务调用在会话启动（`HeadlessSession.Instance` 触发全局 locator 初始化）后**测试线程直调**即可（先例：`BackgroundResilienceTests`）；要碰 UI 对象才进 Dispatch。
 - **headless 平台窗口只在 `Show()` 前接受 `Width/Height`，且设 `WindowState=Maximized` 不会自动铺满**（真合成器会铺满工作区，headless 不会）：测最大化相关视觉（图标/圆角）须构造时按 `Screens.ScreenFromWindow` 的工作区定尺寸再 `Show`（先例：`SidebarNavHeadlessTests.CustomTitleBar_ButtonsPresent_AndMaximizeIconToggles`；`MainWindow.axaml` 写死了 `Width="1464" Height="720"`，不覆盖就会用默认尺寸）。
+- **测窄窗口布局必须连 `MinWidth` 一起解除，并断言目标行为实际发生**：`MainWindow.axaml` 还写死了 `MinWidth="920"`，设 Width 低于它会被钳回 920，且 920 恰好触发侧栏自动收起（内容区反而变 852px）——两股力叠加后，想测的"放不下的窄布局"可能根本不存在，测试对旧代码假绿（2026-09-16 实锤：chips 行换行测试设 860 被钳回 920，最长行 790px 在收起态内容区里放得下，对修复前的 StackPanel 代码照样绿）。先例：`GameDetailPage_ChipsRow_LongStatus_WrapsInsteadOfClipping`（`MinWidth = 0` + `Width = 640` 构造，断言"版本 chip 换到状态 chip 下一行"这个行为本身，而非只断言"不越界"）。
 
 ## 其他坑
 
