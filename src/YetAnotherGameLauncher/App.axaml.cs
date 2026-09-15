@@ -97,11 +97,7 @@ public partial class App : Application
         services.AddSingleton<FfmpegLibraryResolver>();
         services.AddSingleton<IVideoBackdropPlayer, FfmpegVideoBackdropPlayer>();
 
-        // Linux 兼容层：原生 umu（内置 C#）+ 外部 umu-run 引导安装（回退）
-        services.AddSingleton(sp => new UmuLauncherInstaller(
-            sp.GetRequiredService<HttpClient>(),
-            sp.GetRequiredService<HttpFileDownloader>(),
-            sp.GetRequiredService<ILoggerFactory>().CreateLogger<UmuLauncherInstaller>()));
+        // Linux 兼容层：原生 umu（内置 C# 启动链，自动准备 Proton 与 Steam Runtime）
         services.AddSingleton<IUmuComponentProvisioner>(sp => new UmuComponentProvisioner(
             sp.GetRequiredService<HttpClient>(),
             sp.GetRequiredService<IDownloader>(),
@@ -144,7 +140,6 @@ public partial class App : Application
                 sp.GetRequiredService<IFilePickerService>(),
                 sp.GetRequiredService<IVideoBackdropPlayer>(),
                 sp.GetRequiredService<KuroGachaService>(),
-                umuInstaller: sp.GetRequiredService<UmuLauncherInstaller>(),
                 nativeUmu: sp.GetRequiredService<NativeUmuLauncher>(),
                 umuProvisioner: sp.GetRequiredService<IUmuComponentProvisioner>());
         });

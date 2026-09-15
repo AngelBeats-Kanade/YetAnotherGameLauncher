@@ -24,7 +24,6 @@ public partial class GameItemViewModel(
     IVideoBackdropPlayer? videoPlayer = null,
     IFilePickerService? filePicker = null,
     IPlatformInfo? platformInfo = null,
-    UmuLauncherInstaller? umuInstaller = null,
     NativeUmuLauncher? nativeUmu = null,
     IUmuComponentProvisioner? umuProvisioner = null) : ViewModelBase
 {
@@ -37,9 +36,6 @@ public partial class GameItemViewModel(
 
     /// <summary>原生 umu 组件准备器（设置卡检查/下载；null = 不可用）。</summary>
     private readonly IUmuComponentProvisioner? _umuProvisioner = umuProvisioner;
-
-    /// <summary>umu-launcher 引导安装器（Linux 启动失败时供错误覆盖层一键安装；null = 不可用）。</summary>
-    public UmuLauncherInstaller? UmuInstaller { get; } = umuInstaller;
 
     /// <summary>背景视频播放器（单例共享；null = 测试场景或平台无解码能力）。</summary>
     public IVideoBackdropPlayer? VideoPlayer { get; } = videoPlayer;
@@ -623,13 +619,10 @@ public partial class GameItemViewModel(
         }
     }
 
-    /// <summary>按失败类目构建错误覆盖层：外部 umu 缺失→一键安装；原生组件失败→重试/选本机 Proton。</summary>
+    /// <summary>按失败类目构建错误覆盖层：原生组件失败→重试/选本机 Proton。</summary>
     private LaunchErrorViewModel CreateLaunchError(
         string message, string detail, string? logPath, LaunchFailureKind kind)
     {
-        var umuMissing = kind == LaunchFailureKind.RuntimeMissing
-            && Platform.IsLinux
-            && IsUmuTemplate();
         var canRetry = Platform.IsLinux && kind is
             LaunchFailureKind.ProtonDownloadFailed
             or LaunchFailureKind.UmuRuntimeDownloadFailed
@@ -638,9 +631,7 @@ public partial class GameItemViewModel(
             ? CompatTools.FindProtonVersions()
             : [];
         var error = new LaunchErrorViewModel(
-            Loc, message, detail, logPath,
-            canInstallUmu: umuMissing,
-            umuInstaller: UmuInstaller,
+            message, detail, logPath,
             platform: Platform,
             failureKind: kind,
             canRetry: canRetry,
@@ -679,10 +670,6 @@ public partial class GameItemViewModel(
         LaunchError = null;
         await LaunchAsync();
     }
-
-    /// <summary>当前启动模板是否走 umu（决定失败时是否提供引导安装）。</summary>
-    private bool IsUmuTemplate() =>
-        Game.Launch.CommandTemplate.Contains("umu-run", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>当前启动模板是否为原生 umu（内置 C# 启动链）。</summary>
     private bool IsNativeUmuTemplate() =>

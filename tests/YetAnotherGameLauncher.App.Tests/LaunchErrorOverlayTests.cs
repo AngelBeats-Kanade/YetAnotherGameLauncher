@@ -6,7 +6,7 @@ namespace YetAnotherGameLauncher.AppTests;
 
 /// <summary>
 /// 启动失败 UX：不可启动不再静默、预检失败弹主题化错误覆盖层
-/// （类目化原因 + umu 引导安装按钮 + 可关闭），成功启动清掉残留覆盖层。
+/// （类目化原因 + 可关闭），成功启动清掉残留覆盖层。
 /// </summary>
 [Collection("sequential")]
 public class LaunchErrorOverlayTests
@@ -33,20 +33,19 @@ public class LaunchErrorOverlayTests
     }
 
     [Fact]
-    public async Task LaunchAsync_RuntimeMissing_ShowsOverlayWithUmuInstall()
+    public async Task LaunchAsync_RuntimeMissing_ShowsOverlay()
     {
         using var ctx = BuildLinux();
         await ctx.Vm.InitializeAsync();
         var wuwa = ctx.Vm.Games[0];
         await CreateGameExecutableAsync(wuwa); // 主程序就位：越过 ExecutableMissing，命中运行时预检
-        wuwa.Game.Launch.CommandTemplate = "umu-run {exe}"; // 裸 umu-run：PATH 已禁用 → 运行时缺失
+        wuwa.Game.Launch.CommandTemplate = "wine \"{exe}\""; // PATH 已禁用 → wine 缺失
 
         await wuwa.LaunchCommand.ExecuteAsync(null);
 
         Assert.True(wuwa.HasLaunchError);
         Assert.NotNull(wuwa.LaunchError);
-        Assert.Contains("umu-run", wuwa.LaunchError!.Message, StringComparison.Ordinal);
-        Assert.True(wuwa.LaunchError.CanInstallUmu); // umu 模板失败 → 提供一键安装
+        Assert.Contains("wine", wuwa.LaunchError!.Message, StringComparison.Ordinal);
         Assert.True(wuwa.LaunchError.HasDetail); // 技术详情可展开
         Assert.False(wuwa.LaunchError.HasLogPath); // 预检失败没有日志
     }
@@ -58,7 +57,7 @@ public class LaunchErrorOverlayTests
         await ctx.Vm.InitializeAsync();
         var wuwa = ctx.Vm.Games[0];
         await CreateGameExecutableAsync(wuwa);
-        wuwa.Game.Launch.CommandTemplate = "umu-run {exe}";
+        wuwa.Game.Launch.CommandTemplate = "wine \"{exe}\"";
         await wuwa.LaunchCommand.ExecuteAsync(null);
         Assert.True(wuwa.HasLaunchError);
 
@@ -73,7 +72,7 @@ public class LaunchErrorOverlayTests
         using var ctx = BuildLinux();
         await ctx.Vm.InitializeAsync();
         var wuwa = ctx.Vm.Games[0];
-        wuwa.Game.Launch.CommandTemplate = "umu-run {exe}";
+        wuwa.Game.Launch.CommandTemplate = "wine \"{exe}\"";
         await CreateGameExecutableAsync(wuwa);
 
         await wuwa.LaunchCommand.ExecuteAsync(null);

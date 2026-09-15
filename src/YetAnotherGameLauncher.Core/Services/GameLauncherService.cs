@@ -91,7 +91,10 @@ public sealed class GameLauncherService(
         }
     }
 
-    /// <summary>启动预检：模板首段（运行时/解释器）必须存在且（Linux 上）可执行。</summary>
+    /// <summary>
+    /// 启动预检：模板首段（运行时/解释器）必须存在且（Linux 上）可执行。
+    /// 裸命令名走通用 PATH 语义；不再对 umu-run 做任何特殊处理（外部 umu-launcher 已移除）。
+    /// </summary>
     private void ValidateCommand(string fileName)
     {
         var isAbsolute = Path.IsPathRooted(fileName);
@@ -109,8 +112,7 @@ public sealed class GameLauncherService(
                 throw new LaunchException(
                     LaunchFailureKind.RuntimeMissing,
                     $"找不到启动命令「{fileName}」。" +
-                    "可能的原因：Wine / umu-launcher 尚未安装（可在启动设置里一键安装 umu-launcher），" +
-                    "或自定义启动命令里的程序名写错了。");
+                    "可能的原因：Wine 尚未安装，或自定义启动命令里的程序名写错了。");
             }
 
             return;

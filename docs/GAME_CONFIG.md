@@ -35,7 +35,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `appBackgroundImage` | string | | 应用自有背景图（设置/关于页与侧栏底色）：本地文件路径或 http(s) URL；留空使用内置的主题感知渐变。可在设置页"应用背景"卡选择图片或恢复默认。游戏详情页背景不受此项影响 |
 | `proxyMode` | `"System" \| "None" \| "Manual"` | `"System"` | 出站网络代理：System 跟随系统代理 / None 直连 / Manual 使用 `proxyAddress` |
 | `proxyAddress` | string | | 手动代理地址（如 `http://127.0.0.1:7890`）；`proxyMode` 为 `"Manual"` 时必填且须为可解析的 http(s) URL，其余模式可有可无 |
-| `schemaVersion` | int | `0` | 配置结构版本（内部使用）。旧版本配置首次被新版加载时自动迁移：补齐内置模板中同一游戏新增的官方服务器与本地化名称，并写回 `schemaVersion: 3`，仅执行一次 |
+| `schemaVersion` | int | `0` | 配置结构版本（内部使用）。旧版本配置首次被新版加载时自动迁移并写回版本号，仅执行一次：`3` 补齐内置模板中同一游戏新增的官方服务器与本地化名称；`4` 把 Linux 裸 `{exe}` 启动模板升级为推荐链；`5` 把存量 `umu-run {exe}` 模板（历史自动生成形态）升级为推荐链 |
 
 ### games[]（GameDefinition）
 
@@ -71,7 +71,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 > Linux 首运生成默认配置时，裸 `{exe}` 模板（无法运行 Windows 客户端）会被自动升级为
 > 社区推荐链 + 兼容环境变量并写盘：**原生 umu**（`native-umu {exe}` + GAMEID/UMU_ID/WINEPREFIX/
 > STEAM_COMPAT_DATA_PATH/PROTONPATH，内置 C# 启动链，启动时自动准备 Proton 与 Steam Runtime）→
-> 外部 umu-run → **Proton** → **系统 wine**。
+> **Proton** → **系统 wine**。
 > （`MainWindowViewModel.ApplyLinuxFirstRunLaunchDefaultsAsync`，推荐逻辑单一来源
 > `CompatTools.BuildRecommendedLaunch`。）仅在首运生成那一刻执行一次，此后配置以用户修改为准。
 >
@@ -79,7 +79,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 > 选择写入 `environment.PROTONPATH` 代号并即时保存——只下载所选发行版，空配置兜底 DW-Proton；
 > 下载资产按主机架构匹配（x86_64/aarch64），杜绝装错架构）与**直接运行**；
 > 发行版本体用"检查更新"按钮显式检测/更新（更新后自动清理同发行版旧版本目录）；
-> 旧版 wine/Proton/外部 umu-run 模板仍可运行，进设置页仅作 umu 显示映射，主动切换并保存后才会改写。
+> 旧版 wine/Proton 模板仍可运行，进设置页仅作 umu 显示映射，主动切换并保存后才会改写。
 >
 > Wine prefix 由启动器统一放在 `{数据目录}/yagl/prefixes/<游戏id>`
 > （Linux `~/.local/share/yagl/prefixes/`），不写入游戏安装目录——

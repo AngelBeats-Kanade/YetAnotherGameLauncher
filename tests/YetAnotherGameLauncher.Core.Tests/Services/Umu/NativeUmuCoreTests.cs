@@ -234,7 +234,6 @@ public sealed class NativeUmuCoreTests : IDisposable
             "endfield",
             protonVersions: ["GE-Proton9-27"],
             dataHome: _temp.Path,
-            umuRunPath: "/x/umu-run",
             winePath: "/x/wine");
         Assert.Equal(LaunchMode.NativeUmu, launch.Mode);
         Assert.StartsWith("native-umu", launch.CommandTemplate, StringComparison.Ordinal);
@@ -255,16 +254,16 @@ public sealed class NativeUmuCoreTests : IDisposable
     }
 
     [Fact]
-    public void BuildRecommendedLaunch_NativeDisabled_FallsBackToExternalUmu()
+    public void BuildRecommendedLaunch_NativeDisabled_NoProtonInstalled_FallsBackToNativeTemplate()
     {
+        // 原生链被显式禁用且没有 Proton/wine 时：仍落原生 umu 模板（启动时组件准备器自动下载）
         var launch = CompatTools.BuildRecommendedLaunch(
             "endfield",
             protonVersions: [],
             dataHome: _temp.Path,
-            umuRunPath: "/x/umu-run",
             winePath: null,
             preferNativeUmu: false);
-        Assert.Equal(LaunchMode.Umu, launch.Mode);
-        Assert.StartsWith("/x/umu-run", launch.CommandTemplate, StringComparison.Ordinal);
+        Assert.Equal(LaunchMode.NativeUmu, launch.Mode);
+        Assert.StartsWith("native-umu", launch.CommandTemplate, StringComparison.Ordinal);
     }
 }

@@ -37,7 +37,6 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         IFilePickerService? filePicker = null,
         IPlatformInfo? platformInfo = null,
         IReadOnlyList<string>? protonVersions = null,
-        string? umuRunPath = null,
         string? winePath = null,
         string? dataHome = null,
         IUmuComponentProvisioner? umuProvisioner = null)
@@ -53,10 +52,6 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         _installDirDraft = installDir;
         _executableDraft = game.Executable;
         _protonVersions = protonVersions ?? (_platform.IsLinux ? CompatTools.FindProtonVersions() : []);
-        // 显式空串 = 声明"没装"（测试禁用真机 PATH 扫描）；null = 现场（仅 Linux）发现
-        var resolvedUmuRunPath = umuRunPath is null
-            ? (IsLinux ? CompatTools.FindUmuRun() : null)
-            : (umuRunPath.Length == 0 ? null : umuRunPath);
         var resolvedWinePath = winePath is null
             ? (IsLinux ? CompatTools.FindSystemWine() : null)
             : (winePath.Length == 0 ? null : winePath);
@@ -84,7 +79,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         {
             var launch = CompatTools.BuildRecommendedLaunch(
                 _game.Id, _protonVersions, _platform.IsNvidiaGpuPresent,
-                dataHome: _dataHome, umuRunPath: resolvedUmuRunPath, winePath: resolvedWinePath,
+                dataHome: _dataHome, winePath: resolvedWinePath,
                 umuId: _game.Launch.UmuId);
             SelectedLaunchMode = LaunchModes.First(m => m.Mode == launch.Mode);
             ApplyGenerated((launch.CommandTemplate, launch.Environment));

@@ -115,8 +115,7 @@ sequenceDiagram
 ③ `WINEPREFIX` / `STEAM_COMPAT_DATA_PATH` 目录创建（Proton 要求已存在，
 失败 → `PrefixCreateFailed`）。失败抛 `LaunchException`（`UpdateException` 子类，
 携带 `LaunchFailureKind` 与日志路径），UI 据此弹主题化错误覆盖层：
-类目化中文原因 + 可折叠技术详情 + 打开日志目录；umu 模板且 umu 未装时提供一键安装
-（`UmuLauncherInstaller` 从 GitHub release 拉 zipapp 解到应用数据目录）。
+类目化中文原因 + 可折叠技术详情 + 打开日志目录。
 
 Windows 上若游戏可执行文件的清单要求管理员权限（requireAdministrator），
 `CreateProcess` 抛 Win32Exception 740（ERROR_ELEVATION_REQUIRED，无法自提升）：
@@ -127,7 +126,9 @@ Windows 上若游戏可执行文件的清单要求管理员权限（requireAdmin
 命令模板支持引号包裹（含空格路径），例如 `wine "{exe}"`；
 Linux 上如何运行（umu / 直接运行）完全由配置决定，代码零平台假设。
 设置页启动方式二选一：**umu 启动**（默认，`native-umu {exe}`）与**直接运行**（`{exe}`，Windows 唯一方式）；
-旧版 wine/Proton/外部 umu-run 模板仍可执行，仅不再出现在选择器中。
+旧版 wine/Proton 模板仍可执行（裸命令名走通用 PATH 语义），仅不再出现在选择器中；
+存量 `umu-run {exe}` 模板由 `schemaVersion 5` 一次性迁移升级为推荐链（`MigrateLinuxLegacyUmuTemplatesAsync`）——
+外部 umu-launcher 代码已整体移除，手写自定义模板不受影响。
 umu 模式旁有 **Proton 发行版选择**（DW-Proton / GE-Proton / UMU-Proton，默认 DW-Proton）：
 代号写入 `environment.PROTONPATH` 并即时保存，启动解析与组件准备共用它
 （`CompatTools.ResolveNativeProtonRequest` 优先读 PROTONPATH，空配置兜底 DW-Proton——绝不回退 UMU-Proton）。
@@ -151,7 +152,7 @@ UMU_ID 由 `launch.umuId` 覆盖（对齐 umu 数据库规范 ID：鸣潮 `umu-3
    配置里的 PROTONPATH 代号不覆盖已解析的绝对路径）
 5. 经 `{runtime}/_v2-entry-point --verb=… -- {proton}/proton <verb> {exe}` 启动（`IProcessRunner`，即启即走）
 
-外部 `umu-run` zipapp 路径保留为回退（`UmuLauncherInstaller`，仅供存量模板与错误覆盖层）。
+外部 `umu-run` zipapp 路径（`UmuLauncherInstaller`）已整体移除；存量模板经 schemaVersion 5 迁移转入原生链。
 Wine prefix 统一在 `{数据目录}/yagl/prefixes/<游戏id>`（`STEAM_COMPAT_DATA_PATH` 同址），
 绝不写入游戏安装目录——安装同步的清单外清理不会误删 prefix（`compatdata` 另在保留名单纵深防御）。
 （唯一例外是首运配置生成：Linux 会把默认 `{exe}` 升级为推荐链再落盘，见 GAME_CONFIG.md。）

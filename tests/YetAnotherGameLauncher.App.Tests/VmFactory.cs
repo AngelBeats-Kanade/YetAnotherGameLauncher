@@ -49,7 +49,6 @@ public static class VmFactory
         public required FakeBackdropResolver KuroBackdrop { get; init; }
         public required FakeBackdropResolver GryphlineBackdrop { get; init; }
         public StubHttpHandler BackgroundHandler { get; init; } = new();
-        public required UmuLauncherInstaller UmuInstaller { get; init; }
 
         public void Dispose() => TempDir.Dispose();
     }
@@ -126,7 +125,6 @@ public static class VmFactory
         IVideoBackdropPlayer? videoPlayer = null,
         IPlatformInfo? platformInfo = null,
         IReadOnlyList<string>? linuxProtonVersions = null,
-        string? linuxUmuPath = "",
         string? linuxWinePath = "",
         string? linuxDataHome = null,
         YetAnotherGameLauncher.Core.Services.Umu.NativeUmuLauncher? nativeUmu = null,
@@ -166,13 +164,11 @@ public static class VmFactory
             cacheRoot: tempDir.FilePath("backdrops"));
 
         var catalogService = new GameCatalogService(configPath);
-        // pathValue 空串 = 禁用真机 PATH 扫描（wine/umu 预检确定性失败），日志落临时目录
+        // pathValue 空串 = 禁用真机 PATH 扫描（wine 预检确定性失败），日志落临时目录
         var launcherService = new GameLauncherService(
             new FakeProcessRunner(),
             logDirectory: tempDir.FilePath("logs"),
             pathValue: "");
-        var umuInstaller = new UmuLauncherInstaller(
-            new HttpClient(backgroundHandler), httpDownloader);
         var vm = new MainWindowViewModel(
             catalogService,
             new GameUpdateService(downloader, new FakePatchApplier()),
@@ -195,10 +191,8 @@ public static class VmFactory
             videoPlayer,
             platformInfo: platformInfo ?? new FakePlatformInfo(isLinux: false),
             linuxProtonVersions: linuxProtonVersions,
-            linuxUmuPath: linuxUmuPath,
             linuxWinePath: linuxWinePath,
             linuxDataHome: linuxDataHome ?? tempDir.FilePath("data-home"),
-            umuInstaller: umuInstaller,
             nativeUmu: nativeUmu,
             umuProvisioner: umuProvisioner);
 
@@ -214,7 +208,6 @@ public static class VmFactory
             KuroBackdrop = kuroBackdrop,
             GryphlineBackdrop = gryphlineBackdrop,
             BackgroundHandler = backgroundHandler,
-            UmuInstaller = umuInstaller,
         };
     }
 }

@@ -26,7 +26,7 @@ commits: c977def..HEAD
 
 ## [S1] Problem
 
-YetAnotherGameLauncher 在 Linux 上把 Windows 客户端（鸣潮 / 终末地）跑起来，目前依赖外部 Python `umu-run`：
+YetAnotherGameLauncher 在 Linux 上把 Windows 客户端（鸣潮 / 终末地）跑起来，本设计立项时依赖外部 Python `umu-run`（现已随本 spec 落地并经 §S3 清理，外部路径不复存在）：
 
 - 安装器只是从 GitHub release 拉 zipapp 解出 `umu-run`，运行时仍要 Python 与 umu 自己的依赖链。
 - 本仓库只生成了薄薄一层环境（`GAMEID` / `UMU_ID` / `WINEPREFIX`）并 shell 到 `umu-run`；prefix 结构、完整 Steam 兼容环境、Proton/Runtime 解析与下载，全部在进程外的 Python 里。
@@ -66,7 +66,7 @@ IProcessRunner（即启即走 + 启动日志，沿用现有 GameLauncherService 
 | Core | `SteamRuntimeInstaller` | 按 runtime 定义从 `repo.steampowered.com` 下载 `SteamLinuxRuntime_*.tar.xz` + `SHA256SUMS` + `BUILD_ID.txt`；Range 续传；解压到 `~/.local/share/umu/<variant>`；写 `.installed.ok` 标记；并发用同一锁文件 |
 | Core | `NativeUmuLauncher` | 编排：解析 Proton → 解析/准备 Runtime → setup_pfx → set_env → 组装命令 → `IProcessRunner` 启动；错误映射到现有 `LaunchException` / `LaunchFailureKind`（新增 kind 如 `UmuRuntimeMissing`/`ProtonDownloadFailed` 若现有枚举不够用） |
 | Core | `UmuLaunchPlan` | 最终 `FileName`/`Arguments`/`WorkingDirectory`/`Environment`，与 `LaunchPlan` 兼容或复用 |
-| App | DI + 设置卡 | 注册服务；启动设置增加「原生 umu（内置）」；默认推荐链改为 **原生 umu → 外部 umu-run（可选）→ Proton 直启 → wine**；一键安装 umu zipapp 降级为可选/高级项 |
+| App | DI + 设置卡 | 注册服务；启动设置增加「原生 umu（内置）」；默认推荐链改为 **原生 umu → Proton 直启 → wine**（外部 umu-run 代码后续已整体移除） |
 | 测试 | Core.Tests / App.Tests | 路径、prefix 结构、环境变量、VDF 解析、命令拼装、下载器假件、启动失败覆盖层 |
 
 **禁止**：任何 `unsafe` 关键字、指针、`stackalloc` 逃逸、手动内存；不 P/Invoke `prctl`/`flock`/`renameat2`。
@@ -141,12 +141,19 @@ Windows 主机上 Native umu 路径不激活（`OperatingSystem.IsLinux()` 门�
 `CompatTools.BuildRecommendedLaunch`（或新的 `BuildRecommendedLaunchV2`）在 Linux 上改为：
 
 1. **原生 umu**（始终可生成计划；执行前由 `NativeUmuLauncher` 确保 Proton+Runtime 就绪或下载）
-2. 外部 `umu-run`（仅当用户显式选择或原生路径被禁用）
-3. Proton 直启
-4. 系统 wine  
-5. 仍无 → 原生 umu 模板（触发组件准备，而不是再装 Python zipapp）
+2. Proton 直启
+3. 系统 wine  
+4. 仍无 → 原生 umu 模板（触发组件准备，而不是再装 Python zipapp）
 
-`LaunchMode` 增加 `NativeUmu`（或扩展 `Umu` 的 `RuntimeName` 区分 `native` / `external`）。UI 选择器文案：「umu（内置）」「umu（外部 umu-run）」。
+> 迁移落地的推荐链只含上述四档；原第 2 档「外部 umu-run」及其构建/发现代码
+> （`BuildUmuLaunch`/`FindUmuRun`）已随 §S3 的清理整体移除，`LaunchMode.Umu` 枚举一并删除。
+
+`LaunchMode` 增加 `NativeUmu`。UI 选择器文案：「umu 启动（推荐）」/「直接运行」。
+
+存量迁移补充（`schemaVersion 5`，`MigrateLinuxLegacyUmuTemplatesAsync`）：v4 只升级裸 `{exe}`，
+历史 `BuildUmuLaunch` 在 umu-run 未发现时落盘的裸 `umu-run {exe}` 模板被跳过。外部 umu-launcher
+代码移除后，v5 把这类应用生成的存量模板**无条件**升级为推荐链（原生 umu）；用户手写的
+其它自定义模板不受影响。
 
 #### 2.3.6 错误与 UI
 
@@ -193,7 +200,9 @@ Windows 主机上 Native umu 路径不激活（`OperatingSystem.IsLinux()` 门�
 - Flatpak `HOST_XDG_DATA_HOME` 特殊布局（可后续增强）
 - umu-database 在线查 GAMEID（继续用 `umu-{gameId}` 约定）
 - 完整 `ldconfig -p` 库路径枚举（v1 用简化集合）
-- 移除已存在的外部 umu-run 安装器代码（保留但 UI 降级；删除留给后续 PR）
+- ~~移除已存在的外部 umu-run 安装器代码~~（已落地：`UmuLauncherInstaller`、`BuildUmuLaunch`、
+  `FindUmuRun`、一键安装 UI 与 `LaunchMode.Umu` 已删除；存量 `umu-run {exe}` 模板经 schemaVersion 5
+  迁移转入原生链，手写自定义模板不受影响）
 - arm64 主机的完整支持矩阵（代码按映射表可扩展，测试与 CI 仅 x86_64）
 
 ## Tasks

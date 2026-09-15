@@ -270,13 +270,11 @@ public sealed class NativeUmuUiActionTests : IDisposable
     {
         await _ctx.Vm.InitializeAsync();
         var error = new LaunchErrorViewModel(
-            _ctx.Vm.Loc,
             "下载失败",
             failureKind: LaunchFailureKind.ProtonDownloadFailed,
             canRetry: true);
 
         Assert.True(error.CanRetry);
-        Assert.False(error.CanInstallUmu);
 
         var retried = false;
         error.RetryRequested += (_, _) => retried = true;
@@ -290,7 +288,6 @@ public sealed class NativeUmuUiActionTests : IDisposable
         await _ctx.Vm.InitializeAsync();
         string? picked = null;
         var error = new LaunchErrorViewModel(
-            _ctx.Vm.Loc,
             "下载失败",
             failureKind: LaunchFailureKind.ProtonDownloadFailed,
             canRetry: true,
@@ -308,7 +305,6 @@ public sealed class NativeUmuUiActionTests : IDisposable
     {
         await _ctx.Vm.InitializeAsync();
         var error = new LaunchErrorViewModel(
-            _ctx.Vm.Loc,
             "下载失败",
             failureKind: LaunchFailureKind.ProtonDownloadFailed,
             localProtonVersions: []);

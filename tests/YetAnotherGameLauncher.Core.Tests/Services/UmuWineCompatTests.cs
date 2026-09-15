@@ -5,9 +5,9 @@ using YetAnotherGameLauncher.TestSupport;
 namespace YetAnotherGameLauncher.Core.Tests.Services;
 
 /// <summary>
-/// Wine 运行时发现与推荐链（umu → Proton → wine）：PATH/固定目录扫描纯逻辑 +
+/// Wine 运行时发现与推荐链（原生 umu → Proton → wine）：PATH 扫描纯逻辑 +
 /// 推荐生成（prefix 统一在数据目录下，绝不写进游戏安装目录）。
-/// umu/wine 路径全部显式注入，测试与 CI 双平台确定性。
+/// wine 路径显式注入，测试与 CI 双平台确定性。
 /// </summary>
 public sealed class UmuWineCompatTests : IDisposable
 {
@@ -21,43 +21,6 @@ public sealed class UmuWineCompatTests : IDisposable
     }
 
     // ---------- 发现 ----------
-
-    [Fact]
-    public void FindUmuRun_FoundInYaglInstallDir()
-    {
-        var umu = WriteExecutable(_home.FilePath(".local", "share", "yagl", "umu", "umu-run"));
-
-        Assert.Equal(umu, CompatTools.FindUmuRun(pathValue: "", home: _home.Path));
-    }
-
-    [Fact]
-    public void FindUmuRun_FoundOnPath()
-    {
-        var umu = WriteExecutable(_home.FilePath("bin", "umu-run"));
-
-        Assert.Equal(
-            umu,
-            CompatTools.FindUmuRun(pathValue: _home.FilePath("bin"), home: _home.Path));
-    }
-
-    [Fact]
-    public void FindUmuRun_Missing_ReturnsNull()
-    {
-        Assert.Null(CompatTools.FindUmuRun(pathValue: "", home: _home.Path));
-    }
-
-    [Fact]
-    public void FindUmuRun_NotExecutable_LinuxReturnsNull()
-    {
-        // Linux 上存在的文件但没有可执行位 → 不可用；Windows 分支视为存在即可用
-        var umu = _home.FilePath(".local", "share", "yagl", "umu", "umu-run");
-        Directory.CreateDirectory(Path.GetDirectoryName(umu)!);
-        File.WriteAllText(umu, "#!/bin/sh");
-
-        var found = CompatTools.FindUmuRun(pathValue: "", home: _home.Path);
-
-        Assert.Equal(OperatingSystem.IsWindows(), found is not null);
-    }
 
     [Fact]
     public void FindSystemWine_FoundOnPath()
@@ -124,24 +87,7 @@ public sealed class UmuWineCompatTests : IDisposable
             launch.Environment["STEAM_COMPAT_CLIENT_INSTALL_PATH"]);
     }
 
-    // ---------- umu / wine 启动配置 ----------
-
-    [Fact]
-    public void BuildUmuLaunch_SetsUmuEnvWithoutSteamCompat()
-    {
-        var launch = CompatTools.BuildUmuLaunch(
-            "wuthering-waves", "/home/u/.local/share/yagl/umu/umu-run", _dataHome.Path);
-
-        Assert.Equal(LaunchMode.Umu, launch.Mode);
-        Assert.Equal("umu", launch.RuntimeName);
-        Assert.EndsWith("{exe}", launch.CommandTemplate, StringComparison.Ordinal);
-        Assert.Equal("umu-wuthering-waves", launch.Environment["GAMEID"]);
-        Assert.Equal("umu-wuthering-waves", launch.Environment["UMU_ID"]);
-        Assert.Equal(
-            _dataHome.FilePath("yagl", "prefixes", "wuthering-waves"),
-            launch.Environment["WINEPREFIX"]);
-        Assert.False(launch.Environment.ContainsKey("STEAM_COMPAT_DATA_PATH"));
-    }
+    // ---------- wine 启动配置 ----------
 
     [Fact]
     public void BuildWineLaunch_SetsWinePrefix()
@@ -160,24 +106,7 @@ public sealed class UmuWineCompatTests : IDisposable
     // ---------- 推荐链 ----------
 
     [Fact]
-    public void BuildRecommendedLaunch_PrefersUmuOverProton()
-    {
-        InstallProton("GE-Proton10-9");
-
-        var launch = CompatTools.BuildRecommendedLaunch(
-            "wuthering-waves", ["GE-Proton10-9"], nvidiaGpuPresent: true,
-            home: _home.Path, dataHome: _dataHome.Path,
-            umuRunPath: "/x/umu-run", winePath: null, preferNativeUmu: false);
-
-        Assert.NotNull(launch);
-        Assert.Equal(LaunchMode.Umu, launch.Mode);
-        Assert.Equal("/x/umu-run {exe}", launch.CommandTemplate);
-        Assert.Equal("1", launch.Environment["SteamOS"]);
-        Assert.Equal("1", launch.Environment["PROTON_ENABLE_NVAPI"]);
-    }
-
-    [Fact]
-    public void BuildRecommendedLaunch_ProtonWhenNoUmu()
+    public void BuildRecommendedLaunch_ProtonFallback_WhenNativeDisabled()
     {
         InstallProton("GE-Proton10-9");
 
@@ -192,7 +121,7 @@ public sealed class UmuWineCompatTests : IDisposable
     }
 
     [Fact]
-    public void BuildRecommendedLaunch_WineWhenNoUmuNoProton()
+    public void BuildRecommendedLaunch_WineFallback_WhenNativeDisabledAndNoProton()
     {
         var launch = CompatTools.BuildRecommendedLaunch(
             "wuthering-waves", [], home: _home.Path, dataHome: _dataHome.Path,

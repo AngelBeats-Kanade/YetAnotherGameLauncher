@@ -1,45 +1,31 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using YetAnotherGameLauncher.Core;
 using YetAnotherGameLauncher.Core.Abstractions;
-using YetAnotherGameLauncher.Services;
 
 namespace YetAnotherGameLauncher.ViewModels;
 
 /// <summary>
 /// 启动失败覆盖层：类目化的友好原因 + 可展开的技术详情 + 日志目录入口。
-/// umu-launcher 未安装导致的失败附一键引导安装；原生 umu 组件下载失败提供重试。
+/// 原生 umu 组件下载失败提供重试或改用本机 Proton。
 /// </summary>
 public partial class LaunchErrorViewModel : ViewModelBase
 {
-    private readonly ILocalizationService _loc;
-    private readonly UmuLauncherInstaller? _umuInstaller;
     private readonly IPlatformInfo? _platform;
-    private readonly string _umuInstallDirectory;
 
     public LaunchErrorViewModel(
-        ILocalizationService loc,
         string message,
         string? detail = null,
         string? logPath = null,
-        bool canInstallUmu = false,
-        UmuLauncherInstaller? umuInstaller = null,
         IPlatformInfo? platform = null,
-        string? umuInstallDirectory = null,
         LaunchFailureKind failureKind = LaunchFailureKind.Unknown,
         bool canRetry = false,
         IReadOnlyList<string>? localProtonVersions = null)
     {
-        _loc = loc;
-        _umuInstaller = umuInstaller;
         _platform = platform;
-        _umuInstallDirectory = umuInstallDirectory
-            ?? Path.Combine(AppPaths.DataDirectory, "umu");
         Message = message;
         Detail = detail;
         LogPath = logPath;
         FailureKind = failureKind;
-        CanInstallUmu = canInstallUmu && umuInstaller is not null;
         CanRetry = canRetry;
         LocalProtonVersions = localProtonVersions ?? [];
         CanPickLocalProton = LocalProtonVersions.Count > 0;
@@ -79,10 +65,6 @@ public partial class LaunchErrorViewModel : ViewModelBase
     [ObservableProperty]
     private bool _detailsExpanded;
 
-    /// <summary>是否显示"一键安装 umu-launcher"按钮（Linux 且 umu 未装且安装器可用）。</summary>
-    [ObservableProperty]
-    private bool _canInstallUmu;
-
     /// <summary>是否可重试（组件下载失败 / Runtime 缺失）。</summary>
     [ObservableProperty]
     private bool _canRetry;
@@ -97,18 +79,6 @@ public partial class LaunchErrorViewModel : ViewModelBase
     /// <summary>当前选中的本机 Proton 版本名。</summary>
     [ObservableProperty]
     private string? _selectedLocalProton;
-
-    /// <summary>umu 安装进行中（按钮转忙碌、禁用关闭外的其它操作提示）。</summary>
-    [ObservableProperty]
-    private bool _isInstallingUmu;
-
-    /// <summary>覆盖层上的补充状态（安装结果等）。</summary>
-    [ObservableProperty]
-    private string? _extraStatus;
-
-    /// <summary>是否已有补充状态。</summary>
-    [ObservableProperty]
-    private bool _hasExtraStatus;
 
     /// <summary>用系统的文件管理器打开日志所在目录。</summary>
     [RelayCommand]
@@ -154,39 +124,5 @@ public partial class LaunchErrorViewModel : ViewModelBase
         }
 
         LocalProtonSelected?.Invoke(this, SelectedLocalProton);
-    }
-
-    /// <summary>一键安装 umu-launcher（下载 zipapp → 解到应用数据目录）。</summary>
-    [RelayCommand]
-    private async Task InstallUmuAsync(CancellationToken cancellationToken)
-    {
-        if (_umuInstaller is null || IsInstallingUmu)
-        {
-            return;
-        }
-
-        IsInstallingUmu = true;
-        HasExtraStatus = false;
-        try
-        {
-            await _umuInstaller.InstallLatestAsync(_umuInstallDirectory, cancellationToken: cancellationToken);
-            CanInstallUmu = false;
-            ExtraStatus = _loc["launch_error_umu_done"];
-            HasExtraStatus = true;
-        }
-        catch (OperationCanceledException)
-        {
-            // 用户取消：安静收场
-        }
-        catch (Exception ex)
-        {
-            // 安装器的 UpdateException 已是可读中文；其它异常给通用兜底
-            ExtraStatus = ex.Message;
-            HasExtraStatus = true;
-        }
-        finally
-        {
-            IsInstallingUmu = false;
-        }
     }
 }

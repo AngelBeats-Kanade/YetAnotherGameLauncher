@@ -6,7 +6,7 @@ public enum LaunchFailureKind
     /// <summary>游戏主程序文件不存在。</summary>
     ExecutableMissing,
 
-    /// <summary>启动命令（wine/umu-run/自定义模板首段）在系统上找不到。</summary>
+    /// <summary>启动命令（wine/自定义模板首段）在系统上找不到。</summary>
     RuntimeMissing,
 
     /// <summary>启动命令存在但没有可执行权限，且自动补授权失败。</summary>
@@ -33,7 +33,7 @@ public enum LaunchFailureKind
 
 /// <summary>
 /// 启动预检/启动过程的类目化失败：message 已中文化、可直接向用户展示；
-/// Kind 供 UI 决定修复指引（如"去引导安装 umu-launcher"）。
+/// Kind 供 UI 决定修复指引（如"重试或改选本机 Proton"）。
 /// </summary>
 public sealed class LaunchException(LaunchFailureKind kind, string message, Exception? inner = null, string? logPath = null)
     : UpdateException(message, inner)

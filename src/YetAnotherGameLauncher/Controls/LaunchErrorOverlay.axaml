@@ -3,7 +3,7 @@
              xmlns:vm="using:YetAnotherGameLauncher.ViewModels"
              x:Class="YetAnotherGameLauncher.Controls.LaunchErrorOverlay"
              x:DataType="vm:GameItemViewModel">
-    <!-- 启动失败覆盖层：类目化原因 + 技术详情 + 日志入口 + umu 引导安装。
+    <!-- 启动失败覆盖层：类目化原因 + 技术详情 + 日志入口 + 重试/本机 Proton 回退。
          从 MainWindow.axaml 内联提取；覆盖整个详情页（宿主为详情页 Panel 的最后一个子元素） -->
     <Grid IsVisible="{Binding HasLaunchError}">
         <Border Background="{DynamicResource AppOverlayScrimBrush}"/>
@@ -20,17 +20,6 @@
                 </StackPanel>
                 <TextBlock Text="{Binding LaunchError.Message}" FontSize="13.5"
                            TextWrapping="Wrap" LineHeight="20"/>
-                <TextBlock Text="{Binding LaunchError.ExtraStatus}" FontSize="13"
-                           TextWrapping="Wrap"
-                           Foreground="{DynamicResource AppTextSecondary}"
-                           IsVisible="{Binding LaunchError.HasExtraStatus}"/>
-                <Button Classes="launch-error-secondary"
-                        Command="{Binding LaunchError.InstallUmuCommand}"
-                        IsVisible="{Binding LaunchError.CanInstallUmu}"
-                        HorizontalAlignment="Left"
-                        IsEnabled="{Binding !LaunchError.IsInstallingUmu}">
-                    <TextBlock Text="{Binding Loc[launch_error_install_umu]}"/>
-                </Button>
                 <Button Classes="launch-error-secondary"
                         Command="{Binding LaunchError.RetryCommand}"
                         IsVisible="{Binding LaunchError.CanRetry}"

@@ -42,13 +42,9 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Linux 首运推荐模板用的 Proton 版本清单（null = 现场扫描；测试注入固定值保证确定性）。</summary>
     private readonly IReadOnlyList<string>? _linuxProtonVersions;
 
-    /// <summary>Linux 首运推荐模板注入的 umu-run / wine 路径与数据目录（null = 现场发现/默认；测试确定性用）。</summary>
-    private readonly string? _linuxUmuPath;
+    /// <summary>Linux 首运推荐模板注入的 wine 路径与数据目录（null = 现场发现/默认；测试确定性用）。</summary>
     private readonly string? _linuxWinePath;
     private readonly string? _linuxDataHome;
-
-    /// <summary>umu-launcher 引导安装器（null = 测试场景）。</summary>
-    private readonly UmuLauncherInstaller? _umuInstaller;
 
     /// <summary>原生 umu 启动器（null = 测试/未注册）。</summary>
     private readonly NativeUmuLauncher? _nativeUmu;
@@ -89,10 +85,8 @@ public partial class MainWindowViewModel : ViewModelBase
         NetworkProxyManager? proxyManager = null,
         IPlatformInfo? platformInfo = null,
         IReadOnlyList<string>? linuxProtonVersions = null,
-        string? linuxUmuPath = null,
         string? linuxWinePath = null,
         string? linuxDataHome = null,
-        UmuLauncherInstaller? umuInstaller = null,
         NativeUmuLauncher? nativeUmu = null,
         IUmuComponentProvisioner? umuProvisioner = null)
     {
@@ -112,10 +106,8 @@ public partial class MainWindowViewModel : ViewModelBase
         _gachaService = gachaService;
         _proxyManager = proxyManager;
         _linuxProtonVersions = linuxProtonVersions;
-        _linuxUmuPath = linuxUmuPath;
         _linuxWinePath = linuxWinePath;
         _linuxDataHome = linuxDataHome;
-        _umuInstaller = umuInstaller;
         _nativeUmu = nativeUmu;
         _umuProvisioner = umuProvisioner;
         _platform = platformInfo
@@ -506,6 +498,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         await MigrateFromSampleAsync(catalog, cancellationToken);
         await MigrateLinuxBareLaunchTemplatesAsync(catalog, cancellationToken);
+        await MigrateLinuxLegacyUmuTemplatesAsync(catalog, cancellationToken);
         _downloader.Limiter.BytesPerSecond = catalog.Settings.DownloadSpeedLimitBytes;
         _proxyManager?.Apply(catalog.Settings);
 
@@ -592,7 +585,6 @@ public partial class MainWindowViewModel : ViewModelBase
                 _videoPlayer,
                 _filePicker,
                 _platform,
-                _umuInstaller,
                 _nativeUmu,
                 _umuProvisioner));
 
@@ -756,7 +748,7 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        if (UpgradeBareTemplatesToRecommended(catalog))
+        if (UpgradeTemplatesToRecommended(catalog))
         {
             await _catalogService.SaveAsync(cancellationToken);
         }
@@ -775,7 +767,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         catalog.Settings.SchemaVersion = 4;
-        if (_platform.IsLinux && UpgradeBareTemplatesToRecommended(catalog))
+        if (_platform.IsLinux && UpgradeTemplatesToRecommended(catalog))
         {
             StatusMessage = _loc["message_launchMigrated"];
         }
@@ -783,24 +775,55 @@ public partial class MainWindowViewModel : ViewModelBase
         await _catalogService.SaveAsync(cancellationToken);
     }
 
-    /// <summary>把目录内所有裸 {exe} 模板升级为推荐链；有改动返回 true（版本清单单一来源：BuildRecommendedLaunch）。</summary>
-    private bool UpgradeBareTemplatesToRecommended(GameCatalog catalog)
+    /// <summary>
+    /// schemaVersion 5 一次性迁移：schemaVersion 4 只升级裸 {exe}，存量外部 umu 模板
+    /// （历史 BuildUmuLaunch 在 umu-run 未发现时落盘的裸命令名 "umu-run {exe}"）被跳过——
+    /// 外部 umu-launcher 已整体移除，这类模板一律升级为推荐链（原生 umu）。
+    /// 版本号 ≥ 5 后永不执行；Windows 仅推进版本号作迁移标记，不动模板。
+    /// </summary>
+    private async Task MigrateLinuxLegacyUmuTemplatesAsync(GameCatalog catalog, CancellationToken cancellationToken)
+    {
+        if (catalog.Settings.SchemaVersion >= 5)
+        {
+            return;
+        }
+
+        catalog.Settings.SchemaVersion = 5;
+        if (_platform.IsLinux && UpgradeTemplatesToRecommended(catalog, includeLegacyUmuTemplates: true))
+        {
+            StatusMessage = _loc["message_launchMigrated"];
+        }
+
+        await _catalogService.SaveAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// 把目录内的存量模板升级为推荐链；有改动返回 true（版本清单单一来源：BuildRecommendedLaunch）。
+    /// 升级范围：裸 {exe} 一律升级；includeLegacyUmuTemplates 时加上 "umu-run {exe}"
+    /// （外部 umu-launcher 已移除，这类历史自动生成的模板一律升级）。其余自定义模板完全不动。
+    /// </summary>
+    private bool UpgradeTemplatesToRecommended(GameCatalog catalog, bool includeLegacyUmuTemplates = false)
     {
         var versions = _linuxProtonVersions ?? CompatTools.FindProtonVersions();
-        var umuPath = _linuxUmuPath ?? CompatTools.FindUmuRun();
         var winePath = _linuxWinePath ?? CompatTools.FindSystemWine();
         var dataHome = _linuxDataHome ?? AppPaths.DataHomeDirectory; // CompatTools 语义要求数据根（不含 yagl 后缀）
         var changed = false;
         foreach (var game in catalog.Games)
         {
-            if (!string.Equals(game.Launch.CommandTemplate.Trim(), "{exe}", StringComparison.Ordinal))
+            var template = game.Launch.CommandTemplate.Trim();
+            var isBare = string.Equals(template, "{exe}", StringComparison.Ordinal);
+            // 存量外部 umu 模板（历史 BuildUmuLaunch 落盘形态）属应用生成而非用户手写，统一升级；
+            // 用户手写的任何其它模板（含自备的 umu-run / wine / Proton）完全不触碰
+            var isLegacyUmu = includeLegacyUmuTemplates
+                && string.Equals(template, "umu-run {exe}", StringComparison.OrdinalIgnoreCase);
+            if (!isBare && !isLegacyUmu)
             {
                 continue; // 用户已有自定义模板：完全不动
             }
 
             var launch = CompatTools.BuildRecommendedLaunch(
                 game.Id, versions, _platform.IsNvidiaGpuPresent,
-                dataHome: dataHome, umuRunPath: umuPath, winePath: winePath);
+                dataHome: dataHome, winePath: winePath);
             game.Launch.CommandTemplate = launch.CommandTemplate;
             foreach (var (key, value) in launch.Environment)
             {
