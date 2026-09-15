@@ -206,8 +206,9 @@ public class DetailPageHeadlessTests : IDisposable
 
         await HeadlessSession.Instance.Dispatch(() =>
         {
-            // 窄窗口：内容区放不下"长状态 chip + 版本 chip"同排，逼出行换行路径
-            var window = new MainWindow { DataContext = _ctx.Vm, Width = 860, Height = 720 };
+            // MinWidth 必须一并解除（XAML 写死 920）：窗口钳回 920 时侧栏自动收起，
+            // 内容区 852px 连最长 chips 行（约 790px）都放得下，换行路径根本不会被逼出来
+            var window = new MainWindow { DataContext = _ctx.Vm, MinWidth = 0, Width = 640, Height = 720 };
             window.Show();
             window.UpdateLayout();
 
@@ -215,11 +216,16 @@ public class DetailPageHeadlessTests : IDisposable
             wuwa.StatusText = new string('长', 40); // 启动预检级别的长文案（约 2 行）
             window.UpdateLayout();
 
-            // 版本号必须完整落在页面板内：StackPanel 行会原样溢出被内容卡裁掉，
-            // WrapPanel 行则把版本 chip 换到下一行（judge 类"横穿被裁"缺陷的回归防线）
+            // 版本 chip 必须换到状态 chip 的下一行（而非同排溢出被内容卡裁掉），且完整落在页面板内。
+            // 回归对照：水平 StackPanel 行会让版本 chip 原样排在长状态同排溢出视口
             var page = window.GetVisualDescendants().OfType<Panel>().First(p => p.Classes.Contains("page"));
+            var statusText = page.GetVisualDescendants().OfType<TextBlock>()
+                .First(t => t.Text == wuwa.StatusText);
             var number = page.GetVisualDescendants().OfType<TextBlock>()
                 .First(t => t.Text == wuwa.VersionChipNumber);
+            var statusTop = statusText.TranslatePoint(new Point(0, 0), page)!.Value.Y;
+            var numberTop = number.TranslatePoint(new Point(0, 0), page)!.Value.Y;
+            Assert.True(numberTop > statusTop, "版本 chip 未换行：与长状态 chip 仍在同一排");
             var right = number.TranslatePoint(new Point(number.Bounds.Width, 0), page)!.Value.X;
             Assert.True(right <= page.Bounds.Width,
                 $"版本号右缘 {right:0} 超出页面板 {page.Bounds.Width:0}，chips 行未换行");
