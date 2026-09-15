@@ -59,8 +59,8 @@ public sealed class UmuComponentProvisionerTests : IDisposable
 
         // 资产名去掉扩展与架构后缀作为安装目录名（与 GE/UMU 的版本目录命名对齐）
         Assert.EndsWith(
-            Path.Combine("compatibilitytools.d", "dwproton-11.0-99"),
-            path.Replace('\\', '/').Replace(Path.DirectorySeparatorChar, '/'));
+            NormalizeSeparators(Path.Combine("compatibilitytools.d", "dwproton-11.0-99")),
+            NormalizeSeparators(path));
         Assert.True(File.Exists(Path.Combine(path, "proton")));
         Assert.True(File.Exists(Path.Combine(path, "toolmanifest.vdf")));
     }
@@ -79,8 +79,8 @@ public sealed class UmuComponentProvisionerTests : IDisposable
         var path = await _provisioner.EnsureProtonAsync("GE-Proton");
 
         Assert.EndsWith(
-            Path.Combine("compatibilitytools.d", "GE-Proton10-99"),
-            path.Replace('\\', '/').Replace(Path.DirectorySeparatorChar, '/'));
+            NormalizeSeparators(Path.Combine("compatibilitytools.d", "GE-Proton10-99")),
+            NormalizeSeparators(path));
         Assert.True(_provisioner.IsProtonReady(path));
     }
 
@@ -97,8 +97,8 @@ public sealed class UmuComponentProvisionerTests : IDisposable
         var path = await _provisioner.EnsureProtonAsync("UMU-Proton");
 
         Assert.EndsWith(
-            Path.Combine("compatibilitytools.d", "UMU-Proton-10.0-9"),
-            path.Replace('\\', '/').Replace(Path.DirectorySeparatorChar, '/'));
+            NormalizeSeparators(Path.Combine("compatibilitytools.d", "UMU-Proton-10.0-9")),
+            NormalizeSeparators(path));
         Assert.True(_provisioner.IsProtonReady(path));
     }
 
@@ -111,8 +111,8 @@ public sealed class UmuComponentProvisionerTests : IDisposable
         var path = await _provisioner.EnsureProtonAsync("GE-Proton");
 
         Assert.EndsWith(
-            Path.Combine("compatibilitytools.d", "GE-Proton10-9"),
-            path.Replace('\\', '/').Replace(Path.DirectorySeparatorChar, '/'));
+            NormalizeSeparators(Path.Combine("compatibilitytools.d", "GE-Proton10-9")),
+            NormalizeSeparators(path));
         Assert.Empty(_downloader.Requests); // 未发起任何下载
     }
 
@@ -124,8 +124,8 @@ public sealed class UmuComponentProvisionerTests : IDisposable
         var path = await _provisioner.EnsureProtonAsync("DW-Proton");
 
         Assert.EndsWith(
-            Path.Combine("compatibilitytools.d", "dwproton-11.0-12"),
-            path.Replace('\\', '/').Replace(Path.DirectorySeparatorChar, '/'));
+            NormalizeSeparators(Path.Combine("compatibilitytools.d", "dwproton-11.0-12")),
+            NormalizeSeparators(path));
     }
 
     [Fact]
@@ -197,8 +197,8 @@ public sealed class UmuComponentProvisionerTests : IDisposable
         var path = await NewProvisioner(Architecture.X64).EnsureProtonAsync("GE-Proton");
 
         Assert.EndsWith(
-            Path.Combine("compatibilitytools.d", "GE-Proton11-6"),
-            path.Replace('\\', '/').Replace(Path.DirectorySeparatorChar, '/'));
+            NormalizeSeparators(Path.Combine("compatibilitytools.d", "GE-Proton11-6")),
+            NormalizeSeparators(path));
         Assert.Equal(["https://github.com/x/GE-Proton11-6-x86_64.tar.gz"], _downloader.Requests);
     }
 
@@ -216,8 +216,8 @@ public sealed class UmuComponentProvisionerTests : IDisposable
         var path = await NewProvisioner(Architecture.Arm64).EnsureProtonAsync("GE-Proton");
 
         Assert.EndsWith(
-            Path.Combine("compatibilitytools.d", "GE-Proton11-6"),
-            path.Replace('\\', '/').Replace(Path.DirectorySeparatorChar, '/'));
+            NormalizeSeparators(Path.Combine("compatibilitytools.d", "GE-Proton11-6")),
+            NormalizeSeparators(path));
         Assert.Equal(["https://github.com/x/GE-Proton11-6-aarch64.tar.gz"], _downloader.Requests);
     }
 
@@ -290,8 +290,8 @@ public sealed class UmuComponentProvisionerTests : IDisposable
         var path = await NewProvisioner(Architecture.X64).EnsureProtonAsync("GE-Proton");
 
         Assert.EndsWith(
-            Path.Combine("compatibilitytools.d", "GE-Proton11-6"),
-            path.Replace('\\', '/').Replace(Path.DirectorySeparatorChar, '/'));
+            NormalizeSeparators(Path.Combine("compatibilitytools.d", "GE-Proton11-6")),
+            NormalizeSeparators(path));
         Assert.Equal(["https://github.com/x/GE-Proton11-6-x86_64.tar.gz"], _downloader.Requests);
         Assert.Equal(ElfX86_64, UmuComponentProvisioner.ReadWineserverElfMachine(path)); // 已替换为本机架构
     }
@@ -333,8 +333,8 @@ public sealed class UmuComponentProvisionerTests : IDisposable
 
         var root = UmuPaths.SteamCompatRoot(_tempDir.Path);
         Assert.EndsWith(
-            Path.Combine("compatibilitytools.d", "GE-Proton11-6"),
-            path.Replace('\\', '/').Replace(Path.DirectorySeparatorChar, '/'));
+            NormalizeSeparators(Path.Combine("compatibilitytools.d", "GE-Proton11-6")),
+            NormalizeSeparators(path));
         Assert.False(Directory.Exists(Path.Combine(root, "GE-Proton10-9"))); // 同发行版旧版已删
         Assert.True(Directory.Exists(Path.Combine(root, "UMU-Proton-10.0-1"))); // 其它发行版保留
     }
@@ -350,8 +350,8 @@ public sealed class UmuComponentProvisionerTests : IDisposable
         var path = await _provisioner.UpdateProtonAsync("GE-Proton");
 
         Assert.EndsWith(
-            Path.Combine("compatibilitytools.d", "GE-Proton11-6"),
-            path.Replace('\\', '/').Replace(Path.DirectorySeparatorChar, '/'));
+            NormalizeSeparators(Path.Combine("compatibilitytools.d", "GE-Proton11-6")),
+            NormalizeSeparators(path));
         Assert.Empty(_downloader.Requests);
     }
 
@@ -371,6 +371,9 @@ public sealed class UmuComponentProvisionerTests : IDisposable
     {
         Assert.Equal(string.Empty, UmuComponentProvisioner.ParseSha256For("deadbeef  a.tar.xz\n", "b.tar.xz"));
     }
+
+    /// <summary>路径断言两侧统一成正斜杠：Windows 上 Path.Combine 产反斜杠，不归一则永不相等。</summary>
+    private static string NormalizeSeparators(string path) => path.Replace('\\', '/');
 
     /// <summary>在 compatibilitytools.d 下放一个"就绪"的 Proton 目录（toolmanifest.vdf + proton），返回目录路径。</summary>
     private string InstallReadyProton(string name)

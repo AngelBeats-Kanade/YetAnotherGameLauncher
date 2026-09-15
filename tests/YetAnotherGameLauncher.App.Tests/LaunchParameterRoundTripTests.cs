@@ -30,7 +30,8 @@ public class LaunchParameterRoundTripTests : IDisposable
         // 安装目录里放一个真实存在的可执行文件（目录名含空格，兼测 {exe} 引号展开）
         var installDir = _ctx.TempDir.FilePath("games-root", "My Game");
         Directory.CreateDirectory(Path.Combine(installDir, "bin"));
-        var exeRelative = "bin/Game.exe";
+        // 原生分隔符：Windows 上 BuildPlan 经 GetFullPath 产出反斜杠路径，断言两侧必须一致
+        var exeRelative = Path.Combine("bin", "Game.exe");
         var exePath = Path.Combine(installDir, exeRelative);
         await File.WriteAllTextAsync(exePath, "#!/bin/sh");
         if (!OperatingSystem.IsWindows())
@@ -70,7 +71,8 @@ public class LaunchParameterRoundTripTests : IDisposable
 
         Assert.Equal(exePath, plan.FileName);
         Assert.Equal("--full-screen -resolution 1920x1080", plan.Arguments);
-        Assert.Equal(Path.Combine(installDir, "saves"), plan.WorkingDirectory);
+        // {installDir} 展开是字面替换，保留配置模板里的正斜杠，不做分隔符归一
+        Assert.Equal(installDir + "/saves", plan.WorkingDirectory);
         Assert.Equal("coast 11", plan.Environment["MAP"]);
         Assert.Equal("DW-Proton", plan.Environment["PROTONPATH"]);
     }
