@@ -30,9 +30,11 @@ public class LaunchParameterRoundTripTests : IDisposable
         // 安装目录里放一个真实存在的可执行文件（目录名含空格，兼测 {exe} 引号展开）
         var installDir = _ctx.TempDir.FilePath("games-root", "My Game");
         Directory.CreateDirectory(Path.Combine(installDir, "bin"));
-        // 原生分隔符：Windows 上 BuildPlan 经 GetFullPath 产出反斜杠路径，断言两侧必须一致
-        var exeRelative = Path.Combine("bin", "Game.exe");
-        var exePath = Path.Combine(installDir, exeRelative);
+        // 配置规范：games.json 的相对路径统一正斜杠（SaveAsync 经 NormalizeDirectoryPath 归一）；
+        // BuildPlan 经 GetFullPath 产出原生分隔符路径，期望值必须用同一归一表达式构造
+        // （Windows 上 Path.Combine 不改写已含 '/' 的段，裸 Combine 会得到混合分隔符）
+        var exeRelative = "bin/Game.exe";
+        var exePath = Path.GetFullPath(Path.Combine(installDir, exeRelative));
         await File.WriteAllTextAsync(exePath, "#!/bin/sh");
         if (!OperatingSystem.IsWindows())
         {

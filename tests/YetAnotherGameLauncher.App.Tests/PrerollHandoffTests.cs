@@ -95,7 +95,9 @@ public class PrerollHandoffTests
     [Fact]
     public async Task CrossThreadHandoff_ProducerCompletes_ConsumerTakes()
     {
-        // 模拟真实交错：消费者等一小段时间后收编，生产者在另一任务里交付
+        // 模拟真实交错：生产者在另一任务里延迟交付，消费者等"交付已完成"信号再收编。
+        // 不能依赖两段 Task.Delay 的相对时长——CI 高负载下线程池调度可能让生产者
+        // 晚于消费者的固定等待结束才执行，TryTake 就会扑空（实锤过一次）
         var (handoff, cleaned) = CreateHandoff();
 
         var producer = Task.Run(async () =>
@@ -104,10 +106,9 @@ public class PrerollHandoffTests
             return handoff.TryComplete("payload");
         });
 
-        await Task.Delay(60);
+        Assert.True(await producer.WaitAsync(TimeSpan.FromSeconds(10)));
         Assert.True(handoff.TryTake(out var payload));
         Assert.Equal("payload", payload);
-        Assert.True(await producer);
         Assert.Empty(cleaned);
     }
 }
