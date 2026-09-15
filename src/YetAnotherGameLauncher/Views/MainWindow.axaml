@@ -707,8 +707,11 @@
                                                 </StackPanel>
                                             </Border>
                                             <!-- chips 行：状态 + 已暂存徽章 + 版本迁移（金色数字段）。
-                                                 行级 MaxWidth + 状态文案换行：失败类长文案不设防会横穿窗口被裁 -->
-                                            <StackPanel Orientation="Horizontal" Spacing="10" MaxWidth="640">
+                                                 WrapPanel 限宽 640：长状态文案挤不下时后续 chip 换行而非裁剪/
+                                                 溢出内容卡（水平 StackPanel 只会原样溢出，窄窗口下被裁）；
+                                                 StatusText 另有 MaxWidth=430 换行，双保险 -->
+                                            <WrapPanel Orientation="Horizontal" ItemSpacing="10" LineSpacing="10"
+                                                       MaxWidth="640">
                                                 <Border Classes="onart-chip" VerticalAlignment="Center">
                                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                                         <Ellipse Classes="dot" Width="11" Height="11" VerticalAlignment="Center"
@@ -746,7 +749,7 @@
                                                                    Foreground="{DynamicResource AppVersionChipAccent}"/>
                                                     </StackPanel>
                                                 </Border>
-                                            </StackPanel>
+                                            </WrapPanel>
                                             <!-- 标题上墙（方案 A）：30px 游戏名 + 渠道·服务器·背景来源元信息行 -->
                                             <StackPanel Spacing="6">
                                                 <TextBlock Text="{Binding DisplayName}" FontSize="30" FontWeight="SemiBold"

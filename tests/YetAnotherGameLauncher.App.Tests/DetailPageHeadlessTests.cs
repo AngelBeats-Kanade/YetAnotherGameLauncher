@@ -169,6 +169,66 @@ public class DetailPageHeadlessTests : IDisposable
         }, CancellationToken.None);
     }
 
+    [Fact]
+    public async Task ActionDock_ValueColumn_KeepsLightForeground_InLightTheme()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            window.RequestedThemeVariant = ThemeVariant.Light; // 黑字叠黑底只在亮色主题暴露
+            window.Show();
+            window.UpdateLayout();
+
+            // 坞底恒为深色玻璃：值列若继承主题前景（亮色 = 近黑）会黑字叠黑底（judge 02 实锤）。
+            // 与 GlassOnArtButton_KeepsLightForeground 同根因，此断言防"清理冗余 Foreground"式回归
+            var valueTexts = window.GetVisualDescendants().OfType<TextBlock>()
+                .Where(t => t.Text == _ctx.Vm.Games[0].ChannelDisplayName
+                            || t.Text == _ctx.Vm.Games[0].ServerCountText
+                            || t.Text == _ctx.Vm.Games[0].InstallDirPath)
+                .ToList();
+            Assert.Equal(3, valueTexts.Count);
+            foreach (var value in valueTexts)
+            {
+                Assert.Equal(ArtworkColor(window, "AppOnArtworkBrush"),
+                    Assert.IsType<SolidColorBrush>(value.Foreground).Color);
+            }
+
+            window.Close();
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task GameDetailPage_ChipsRow_LongStatus_WrapsInsteadOfClipping()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            // 窄窗口：内容区放不下"长状态 chip + 版本 chip"同排，逼出行换行路径
+            var window = new MainWindow { DataContext = _ctx.Vm, Width = 860, Height = 720 };
+            window.Show();
+            window.UpdateLayout();
+
+            var wuwa = _ctx.Vm.Games[0];
+            wuwa.StatusText = new string('长', 40); // 启动预检级别的长文案（约 2 行）
+            window.UpdateLayout();
+
+            // 版本号必须完整落在页面板内：StackPanel 行会原样溢出被内容卡裁掉，
+            // WrapPanel 行则把版本 chip 换到下一行（judge 类"横穿被裁"缺陷的回归防线）
+            var page = window.GetVisualDescendants().OfType<Panel>().First(p => p.Classes.Contains("page"));
+            var number = page.GetVisualDescendants().OfType<TextBlock>()
+                .First(t => t.Text == wuwa.VersionChipNumber);
+            var right = number.TranslatePoint(new Point(number.Bounds.Width, 0), page)!.Value.X;
+            Assert.True(right <= page.Bounds.Width,
+                $"版本号右缘 {right:0} 超出页面板 {page.Bounds.Width:0}，chips 行未换行");
+
+            wuwa.StatusText = "";
+            window.Close();
+        }, CancellationToken.None);
+    }
+
     /// <summary>按命令找到详情页操作行里的玻璃按钮（预下载/应用预下载/启动都可能带 glass-onart）。</summary>
     private static Button FindGlassOnArtButton(MainWindow window, ICommand command) =>
         window.GetVisualDescendants().OfType<Button>()
