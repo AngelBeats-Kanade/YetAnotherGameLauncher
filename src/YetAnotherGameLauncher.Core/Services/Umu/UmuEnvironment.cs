@@ -39,6 +39,10 @@ public static class UmuEnvironment
     /// <summary>
     /// 按请求生成环境字典。调用方应将其合并进进程环境；
     /// 与推荐链游戏项（SteamOS 等）冲突时由调用方决定覆盖顺序。
+    /// 语义是 Unix 专属的（STEAM_COMPAT_TOOL_PATHS 用 ':' 拼接、STEAM_COMPAT_CLIENT_INSTALL_PATH
+    /// 落 ~/.steam、LD_LIBRARY_PATH 处理），只应在 Linux 容器命令里使用——
+    /// 调用方必须留在 <see cref="NativeUmuLauncher.EnsureLinux"/> 之后；
+    /// 不加运行时守卫是因为测试把它当纯函数在任意 OS 上直调。
     /// </summary>
     public static Dictionary<string, string> Build(UmuLaunchRequest request)
     {

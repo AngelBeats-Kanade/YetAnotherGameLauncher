@@ -33,11 +33,9 @@ public sealed class IncrementalUpdateService(
     public static string ResetStaging(string installDir)
     {
         var staging = PredownloadDir(installDir);
-        if (Directory.Exists(staging))
-        {
-            Directory.Delete(staging, recursive: true);
-        }
-
+        // Windows 上残留文件被占用（游戏运行中/杀软扫描）时整树删除会抛异常并卡死本次预下载，
+        // 尽力清理即可：残留文件随后会被同名覆盖或按暂存清单核对
+        FileUtilities.TryDeleteDirectory(staging);
         Directory.CreateDirectory(staging);
         return staging;
     }
@@ -54,6 +52,23 @@ public sealed class IncrementalUpdateService(
 
     private static string PatchWorkDir(string installDir) =>
         Path.Combine(installDir, LocalStateService.StateDirName, PatchWorkDirName);
+
+    /// <summary>
+    /// 清单相对路径 → basePath 下的落点：归一 '\'→'/' 后拒绝根路径与 ".." 段再拼合。
+    /// 安装目录内的落位走 <see cref="ManifestVerifier.ResolveSafe"/>，暂存/工作目录内的拼合
+    /// 用本函数补上同一道防线——清单不可信（HTTPS 只保证传输），"../" 两种平台都是穿越，
+    /// "..\\" 在 Windows 上是穿越、Linux 上是普通文件名，平台不对称，统一按穿越拒绝。
+    /// </summary>
+    internal static string SafeJoin(string basePath, string relative)
+    {
+        var normalized = relative.Replace('\\', '/');
+        if (Path.IsPathRooted(normalized) || normalized.Split('/').Contains("..", StringComparer.Ordinal))
+        {
+            throw new UpdateException($"Manifest path escapes sandbox: {relative}");
+        }
+
+        return Path.Combine(basePath, normalized.Replace('/', Path.DirectorySeparatorChar));
+    }
 
     /// <summary>阶段一：把差分包与新文件下载到暂存目录（MD5/大小校验），并写入暂存清单供 Apply 使用。</summary>
     public async Task PredownloadAsync(
@@ -76,7 +91,7 @@ public sealed class IncrementalUpdateService(
         // （下载为顺序执行，无并发访问，计数无需加锁）
         async Task DownloadStagedAsync(string url, long size, string? md5, string relativeTarget, string displayName)
         {
-            var target = Path.Combine(staging, relativeTarget.Replace('/', Path.DirectorySeparatorChar));
+            var target = SafeJoin(staging, relativeTarget);
             await downloader.DownloadFileAsync(new DownloadRequest(url, target, size, md5), null, cancellationToken).ConfigureAwait(false);
             bytes += size;
             done++;
@@ -131,10 +146,7 @@ public sealed class IncrementalUpdateService(
     {
         var staging = PredownloadDir(installDir);
         var workDir = PatchWorkDir(installDir);
-        if (Directory.Exists(workDir))
-        {
-            Directory.Delete(workDir, recursive: true);
-        }
+        FileUtilities.TryDeleteDirectory(workDir, logger);
 
         var total = incrementalManifest.Groups.Count;
         for (var i = 0; i < total; i++)
@@ -150,7 +162,7 @@ public sealed class IncrementalUpdateService(
                 continue;
             }
 
-            var patchPath = Path.Combine(staging, "patches", group.PatchFile.Replace('/', Path.DirectorySeparatorChar));
+            var patchPath = SafeJoin(Path.Combine(staging, "patches"), group.PatchFile);
             if (!File.Exists(patchPath))
             {
                 throw new UpdateException(
@@ -170,7 +182,7 @@ public sealed class IncrementalUpdateService(
                 continue;
             }
 
-            var stagedFile = Path.Combine(stagedFilesDir, file.Path.Replace('/', Path.DirectorySeparatorChar));
+            var stagedFile = SafeJoin(stagedFilesDir, file.Path);
             if (!File.Exists(stagedFile))
             {
                 continue;
@@ -181,11 +193,8 @@ public sealed class IncrementalUpdateService(
             logger?.LogDebug("Staged file placed: {Path}", file.Path);
         }
 
-        // 暂存目录完成使命后清理
-        if (Directory.Exists(staging))
-        {
-            Directory.Delete(staging, recursive: true);
-        }
+        // 暂存目录完成使命后清理（Windows 上残留被占用时尽力清理即可，残留留给下次重置）
+        FileUtilities.TryDeleteDirectory(staging, logger);
 
         progress?.Report(new UpdateProgress(UpdatePhase.Done, 0, 0, total, total, null));
     }
@@ -212,7 +221,7 @@ public sealed class IncrementalUpdateService(
                     $"Source file {src.Path} required by patch group {group.PatchFile} is missing; use the full update.");
             }
 
-            var copied = Path.Combine(oldDir, src.Path.Replace('/', Path.DirectorySeparatorChar));
+            var copied = SafeJoin(oldDir, src.Path);
             Directory.CreateDirectory(Path.GetDirectoryName(copied)!);
             File.Copy(source, copied, overwrite: true);
         }
@@ -228,7 +237,7 @@ public sealed class IncrementalUpdateService(
 
         foreach (var dst in group.DstFiles)
         {
-            var produced = Path.Combine(newDir, dst.Path.Replace('/', Path.DirectorySeparatorChar));
+            var produced = SafeJoin(newDir, dst.Path);
             if (!File.Exists(produced))
             {
                 throw new UpdateException($"Patcher did not produce {dst.Path}; patch group {group.PatchFile} failed.");
@@ -270,7 +279,7 @@ public sealed class IncrementalUpdateService(
                 }
 
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                File.Move(Path.Combine(newDir, dst.Path.Replace('/', Path.DirectorySeparatorChar)), target);
+                File.Move(SafeJoin(newDir, dst.Path), target);
                 replaced.Add((target, backup, hadOriginal));
             }
         }

@@ -43,10 +43,7 @@ public partial class GameItemViewModel(
     private LaunchSettingsViewModel? _launchSettings;
 
     /// <summary>平台环境（Linux 兼容层能力等；透传给启动设置卡）。</summary>
-    public IPlatformInfo Platform { get; } =
-        platformInfo ?? (OperatingSystem.IsLinux()
-            ? new LinuxPlatformInfo()
-            : new WindowsPlatformInfo());
+    public IPlatformInfo Platform { get; } = platformInfo ?? PlatformInfoFactory.Create();
 
     /// <summary>启动设置编辑卡（保存走 GameCatalogService 整文件原子写）。</summary>
     public LaunchSettingsViewModel LaunchSettings => _launchSettings ??= new(

@@ -248,9 +248,18 @@ public sealed class GameBackdropService(
             await http.CopyToAsync(file, cancellationToken).ConfigureAwait(false);
         }
 
+        // Windows 语义：旧背景仍被上会话播放器占用时 Delete/Move 会失败（Linux rename 总能成功）；
+        // 删不掉就换时间戳备用名落盘，meta 记录新名，版本刷新不因占用而整体失败（旧文件残留少量可接受）。
+        // 注意 File.Exists 对目录返回 false，占位可能是异常残留的目录，两者都要查
         var fileName = $"{baseName}{ext}";
         var finalPath = Path.Combine(cacheDir, fileName);
-        File.Delete(finalPath);
+        FileUtilities.DeleteQuiet(finalPath);
+        if (File.Exists(finalPath) || Directory.Exists(finalPath))
+        {
+            fileName = $"{baseName}-{DateTime.UtcNow:yyyyMMddHHmmss}{ext}";
+            finalPath = Path.Combine(cacheDir, fileName);
+        }
+
         File.Move(tempPath, finalPath);
         return fileName;
     }

@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using YetAnotherGameLauncher.Channels.Kuro;
+using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Services;
 
 namespace YetAnotherGameLauncher.ViewModels;
@@ -92,7 +93,11 @@ public partial class GachaViewModel : ViewModelBase
         StatusText = Loc["gacha_status_loading"];
         try
         {
-            var info = _gachaService.TryExtractGachaUrl(_game.InstallDirPath);
+            // Linux 上游戏经 Proton 运行，日志可能落在 Wine prefix 而非安装目录（Windows 原生形态不传）
+            var winePrefix = OperatingSystem.IsLinux()
+                ? CompatTools.PrefixPathFor(_game.Game.Id)
+                : null;
+            var info = _gachaService.TryExtractGachaUrl(_game.InstallDirPath, winePrefix);
             if (info is null)
             {
                 StatusText = Loc["gacha_status_noUrl"];

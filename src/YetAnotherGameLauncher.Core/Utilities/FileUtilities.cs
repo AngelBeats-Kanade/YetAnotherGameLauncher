@@ -1,5 +1,7 @@
 namespace YetAnotherGameLauncher.Core.Utilities;
 
+using Microsoft.Extensions.Logging;
+
 /// <summary>文件工具：原子写入、静默删除、文件名清洗与可执行位检查。</summary>
 public static class FileUtilities
 {
@@ -14,7 +16,26 @@ public static class FileUtilities
 
         var tempPath = path + ".tmp";
         await File.WriteAllTextAsync(tempPath, content, cancellationToken).ConfigureAwait(false);
-        File.Move(tempPath, path, overwrite: true);
+
+        // Windows 语义坑：目标被占用（编辑器/杀软）或带只读属性时 Move 覆盖会抛
+        // IOException/UnauthorizedAccessException，而 Linux 的 rename() 总能成功。
+        // 只读是常见原因，就地解除后重试一次；仍失败则把真实原因包进可操作的错误里。
+        try
+        {
+            File.Move(tempPath, path, overwrite: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && File.Exists(path))
+        {
+            File.SetAttributes(path, File.GetAttributes(path) & ~FileAttributes.ReadOnly);
+            try
+            {
+                File.Move(tempPath, path, overwrite: true);
+            }
+            catch (Exception retry) when (retry is IOException or UnauthorizedAccessException)
+            {
+                throw new IOException($"无法写入 {path}，文件可能正被其它程序占用：{retry.Message}", retry);
+            }
+        }
     }
 
     /// <summary>尽力删除文件：占用/权限等失败静默忽略，仅用于清理场景。</summary>
@@ -27,6 +48,50 @@ public static class FileUtilities
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
         }
+    }
+
+    /// <summary>
+    /// 尽力删除目录树：逐条目删除后自底向上删子目录，返回目录是否已完全删除。
+    /// Windows 上单个被占用/只读的文件会让 <see cref="Directory.Delete(string,bool)"/> 整体抛异常，
+    /// 进而打断更新/清理链（Linux 上打开中的文件照样可删，问题只在 Windows 暴露）；
+    /// 这里能删多少删多少，删不掉的残留留给下次重试或事后修复。
+    /// </summary>
+    public static bool TryDeleteDirectory(string path, ILogger? logger = null)
+    {
+        if (!Directory.Exists(path))
+        {
+            return true;
+        }
+
+        var clean = true;
+        foreach (var entry in Directory.EnumerateFileSystemEntries(path))
+        {
+            if (Directory.Exists(entry) && !File.Exists(entry))
+            {
+                clean &= TryDeleteDirectory(entry, logger);
+            }
+            else
+            {
+                DeleteQuiet(entry);
+                if (File.Exists(entry))
+                {
+                    logger?.LogDebug("Skipped in-use file during tree delete: {Path}", entry);
+                    clean = false;
+                }
+            }
+        }
+
+        try
+        {
+            Directory.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger?.LogDebug(ex, "Directory still in use, left in place: {Path}", path);
+            return false;
+        }
+
+        return clean;
     }
 
     /// <summary>gameId 只保留文件名安全字符，其余替换为 '-'；清洗后为空返回 "game"（启动日志等文件名用）。</summary>

@@ -45,7 +45,7 @@ public sealed class HttpFileDownloader(
                 await DownloadAttemptAsync(request, tempPath, progress, cancellationToken).ConfigureAwait(false);
                 Verify(request, tempPath);
 
-                File.Move(tempPath, request.DestinationPath, overwrite: true);
+                ReplaceDestination(request, tempPath);
                 return;
             }
             catch (DownloadVerificationException ex)
@@ -70,6 +70,26 @@ public sealed class HttpFileDownloader(
         }
 
         throw lastError!;
+    }
+
+    /// <summary>
+    /// 落盘替换单独分类：目标被占用（游戏运行中/杀软扫描）或只读时，Windows 上 File.Move 覆盖
+    /// 抛 IOException/UnauthorizedAccessException——不能落进上面的网络错误重试（重下多少遍都不会好），
+    /// 直接抛带原因的 DownloadException 终止。Linux 的 rename() 覆盖这类文件总是成功，行为不变。
+    /// </summary>
+    private static void ReplaceDestination(DownloadRequest request, string tempPath)
+    {
+        try
+        {
+            File.Move(tempPath, request.DestinationPath, overwrite: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new DownloadException(
+                $"Downloaded but could not replace {request.DestinationPath}: {ex.Message}. " +
+                "Close apps using the file (or clear its read-only attribute) and retry.",
+                ex);
+        }
     }
 
     private async Task DownloadAttemptAsync(

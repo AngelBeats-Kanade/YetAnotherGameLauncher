@@ -78,6 +78,30 @@ public class IncrementalUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task PredownloadAsync_ManifestPathEscapingSandbox_Rejected()
+    {
+        // 暂存路径与安装目录同样不可信：../ 拒绝（Windows 上 ..\ 亦然，平台不对称统一按穿越处理）
+        var manifest = new GameManifest
+        {
+            Version = "2.0.0",
+            Files = [FileEntry("../evil.txt", "evil"u8.ToArray())],
+        };
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => CreateService().PredownloadAsync(_tempDir.Path, manifest));
+
+        Assert.Contains("escapes", ex.Message);
+        Assert.False(File.Exists(_tempDir.FilePath(".yagl", "evil.txt"))); // 未写出暂存目录
+    }
+
+    [Fact]
+    public void SafeJoin_RootedPath_Rejected()
+    {
+        Assert.Throws<UpdateException>(() => IncrementalUpdateService.SafeJoin("/staging", "/etc/passwd"));
+        Assert.Throws<UpdateException>(() => IncrementalUpdateService.SafeJoin("/staging", "..\\evil.bin"));
+    }
+
+    [Fact]
     public async Task ApplyAsync_AppliesGroupsAndReplacesFiles()
     {
         var oldContent = "old-content"u8.ToArray();

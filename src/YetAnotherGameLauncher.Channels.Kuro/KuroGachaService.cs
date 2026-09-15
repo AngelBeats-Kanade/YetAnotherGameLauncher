@@ -53,18 +53,24 @@ public sealed partial class KuroGachaService(HttpClient httpClient, string? cach
         Path.Combine("Saved", "Logs", "Client.log"),
     ];
 
-    /// <summary>从游戏日志提取唤取记录地址；找不到（未打开过唤取记录/日志被清）返回 null。</summary>
+    /// <summary>
+    /// 从游戏日志提取唤取记录地址；找不到（未打开过唤取记录/日志被清）返回 null。
+    /// </summary>
     /// <param name="installDir">游戏安装目录。</param>
-    public GachaUrlInfo? TryExtractGachaUrl(string? installDir)
+    /// <param name="winePrefixDirectory">
+    /// Wine prefix 目录（Linux + Proton 形态，调用方按平台决定是否传）。
+    /// 游戏经 Proton 运行时 UE 日志可能落在 prefix 的 drive_c/users/&lt;user&gt;/AppData/Local/&lt;项目&gt;
+    /// 下而非安装目录，此时安装目录候选全空、必须到 prefix 里找；null（Windows 原生等）只看安装目录。
+    /// </param>
+    public GachaUrlInfo? TryExtractGachaUrl(string? installDir, string? winePrefixDirectory = null)
     {
         if (string.IsNullOrWhiteSpace(installDir))
         {
             return null;
         }
 
-        foreach (var relative in LogCandidates)
+        foreach (var path in CandidateLogPaths(installDir, winePrefixDirectory))
         {
-            var path = Path.Combine(installDir, relative);
             if (!File.Exists(path))
             {
                 continue;
@@ -88,6 +94,50 @@ public sealed partial class KuroGachaService(HttpClient httpClient, string? cach
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// 日志候选路径：安装目录的两种官方落盘位置，外加 Proton prefix 内
+    /// drive_c/users/&lt;user&gt;/AppData/Local/&lt;项目&gt;/ 下的同名相对位置。
+    /// 不猜用户名（umu 缺省 steamuser 但可变）与 UE 项目目录名，按两层目录枚举兜住；
+    /// prefix 不存在或枚举失败（个别目录无权限）只影响追加候选，安装目录候选始终可用。
+    /// </summary>
+    private static List<string> CandidateLogPaths(string installDir, string? winePrefixDirectory)
+    {
+        var candidates = LogCandidates.Select(relative => Path.Combine(installDir, relative)).ToList();
+        if (winePrefixDirectory is null)
+        {
+            return candidates;
+        }
+
+        try
+        {
+            var usersRoot = Path.Combine(winePrefixDirectory, "pfx", "drive_c", "users");
+            if (!Directory.Exists(usersRoot))
+            {
+                return candidates;
+            }
+
+            foreach (var user in Directory.EnumerateDirectories(usersRoot))
+            {
+                var localRoot = Path.Combine(user, "AppData", "Local");
+                if (!Directory.Exists(localRoot))
+                {
+                    continue;
+                }
+
+                foreach (var project in Directory.EnumerateDirectories(localRoot))
+                {
+                    candidates.AddRange(LogCandidates.Select(relative => Path.Combine(project, relative)));
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 枚举失败不致命：安装目录候选已在列表里
+        }
+
+        return candidates;
     }
 
     /// <summary>读取日志文本：magic 前缀 (\xA5\xEF\xA5) 视为 XOR 加密并解密，否则按 UTF-8 原样读。</summary>

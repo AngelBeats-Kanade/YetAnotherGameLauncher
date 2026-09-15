@@ -32,10 +32,12 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
         foreach (var (manifestFile, archivePath) in staged)
         {
             ExtractArchive(archivePath, installDir, manifestFile.Path);
-            File.Delete(archivePath);
+            // 刚写完的 zip 可能正被杀软扫描锁定（Windows）：删不掉就留给下方目录清理重试，别打断安装
+            FileUtilities.DeleteQuiet(archivePath);
         }
 
-        Directory.Delete(packagesDir, recursive: true);
+        // Windows 上残留包被占用时整树删除会抛异常，尽力清理即可
+        FileUtilities.TryDeleteDirectory(packagesDir, logger);
         logger?.LogInformation("Package install finished: {Version} ({Count} archives)", packageManifest.Version, packageManifest.Files.Count);
         progress?.Report(new UpdateProgress(UpdatePhase.Done, 0, 0, packageManifest.Files.Count, packageManifest.Files.Count, null));
     }
@@ -88,7 +90,7 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
 
         if (Directory.Exists(staging))
         {
-            Directory.Delete(staging, recursive: true);
+            FileUtilities.TryDeleteDirectory(staging, logger);
         }
 
         logger?.LogInformation("Predownload applied: {Version} ({Count} archives)", packageManifest.Version, total);
@@ -137,11 +139,58 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
     {
         try
         {
-            ZipFile.ExtractToDirectory(archivePath, installDir, overwriteFiles: true);
+            // 不用 ZipFile.ExtractToDirectory：它在 Unix 上把含 '\' 的条目名当字面文件名
+            // （dotnet/runtime#98247），Windows 打包器产出的包会在 Linux 解成安装根目录下的
+            // 一堆平铺垃圾文件。手动遍历统一归一 '/'，顺带做沙箱校验与只读属性处理。
+            using var archive = ZipFile.OpenRead(archivePath);
+            foreach (var entry in archive.Entries)
+            {
+                var target = ResolveEntryTarget(installDir, entry.FullName);
+                if (target is null)
+                {
+                    var dirName = entry.FullName.Replace('\\', '/').TrimEnd('/');
+                    if (dirName.Length > 0)
+                    {
+                        Directory.CreateDirectory(Path.Combine(installDir, dirName));
+                    }
+
+                    continue;
+                }
+
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                if (File.Exists(target))
+                {
+                    // 只读属性会让 overwrite 失败（Windows），就地解除
+                    File.SetAttributes(target, File.GetAttributes(target) & ~FileAttributes.ReadOnly);
+                }
+
+                entry.ExtractToFile(target, overwrite: true);
+            }
         }
-        catch (Exception ex) when (ex is InvalidDataException or IOException)
+        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
         {
             throw new UpdateException($"Failed to extract {displayName}: {ex.Message}", ex);
         }
+    }
+
+    /// <summary>
+    /// 解压条目落点：归一 '\'→'/'、去首部 '/'，拒绝 ".." 段与盘符根（清单不可信，防穿越）；
+    /// 目录条目（含空名）返回 null 并由调用方建目录，普通条目返回安装目录内的绝对路径。
+    /// </summary>
+    private static string? ResolveEntryTarget(string installDir, string entryName)
+    {
+        var normalized = entryName.Replace('\\', '/').TrimStart('/');
+        if (normalized.Length == 0 || normalized.EndsWith('/'))
+        {
+            return null;
+        }
+
+        var parts = normalized.Split('/');
+        if (parts.Contains("..", StringComparer.Ordinal) || Path.IsPathRooted(normalized))
+        {
+            throw new IOException($"Archive entry escapes sandbox: {entryName}");
+        }
+
+        return Path.Combine([installDir, .. parts]);
     }
 }

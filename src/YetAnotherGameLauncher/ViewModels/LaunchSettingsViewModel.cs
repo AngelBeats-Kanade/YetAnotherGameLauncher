@@ -46,9 +46,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         _catalogService = catalogService;
         _loc = loc;
         _filePicker = filePicker;
-        _platform = platformInfo ?? (OperatingSystem.IsLinux()
-            ? new LinuxPlatformInfo()
-            : new WindowsPlatformInfo());
+        _platform = platformInfo ?? PlatformInfoFactory.Create();
         _installDirDraft = installDir;
         _executableDraft = game.Executable;
         _protonVersions = protonVersions ?? (_platform.IsLinux ? CompatTools.FindProtonVersions() : []);
@@ -177,7 +175,9 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     /// </summary>
     private void RefreshNativeUmuStatus()
     {
-        if (!IsNativeUmuMode || _umuProvisioner is null)
+        // umu 面板仅在 Linux 可见（GameSettingsPage IsVisible 门控），Windows 上别做
+        // 只读扫描空转——非 Linux 直接落"未检查"态即可
+        if (!IsNativeUmuMode || !IsLinux || _umuProvisioner is null)
         {
             NativeUmuStatusText = "";
             OnPropertyChanged(nameof(CanPrepareUmuComponents));

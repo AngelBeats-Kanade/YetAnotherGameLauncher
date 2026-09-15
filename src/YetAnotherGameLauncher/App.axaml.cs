@@ -71,10 +71,7 @@ public partial class App : Application
             new SystemProcessRunner(
                 sp.GetRequiredService<ILoggerFactory>().CreateLogger<SystemProcessRunner>(),
                 supportsElevationRetry: OperatingSystem.IsWindows()));
-        services.AddSingleton<IPlatformInfo>(sp =>
-            OperatingSystem.IsLinux()
-                ? new LinuxPlatformInfo()
-                : new WindowsPlatformInfo());
+        services.AddSingleton<IPlatformInfo>(_ => PlatformInfoFactory.Create());
         services.AddSingleton<IAutostartService>(sp => OperatingSystem.IsLinux()
             ? new LinuxAutostartService()
             : new WindowsAutostartService(sp.GetRequiredService<IProcessRunner>()));

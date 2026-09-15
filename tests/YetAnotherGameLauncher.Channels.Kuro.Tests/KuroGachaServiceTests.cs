@@ -82,6 +82,46 @@ public class KuroGachaServiceTests : IDisposable
     }
 
     [Fact]
+    public void TryExtractGachaUrl_LogInWinePrefix_FoundViaPrefixCandidates()
+    {
+        // Linux + Proton 形态：安装目录没有任何日志，UE 日志落在 prefix 的
+        // drive_c/users/<user>/AppData/Local/<项目>/Saved/Logs 下（不猜用户名与项目目录名）
+        var installDir = _tempDir.FilePath("WW");
+        Directory.CreateDirectory(installDir);
+        var prefix = _tempDir.FilePath("prefix");
+        var logPath = Path.Combine(
+            prefix, "pfx", "drive_c", "users", "steamuser", "AppData", "Local",
+            "WutheringWaves", "Client", "Saved", "Logs", "Client.log");
+        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+        File.WriteAllBytes(logPath, EncryptLog($"line {SampleUrl}"));
+
+        var info = CreateService().TryExtractGachaUrl(installDir, winePrefixDirectory: prefix);
+
+        Assert.NotNull(info);
+        Assert.Equal("100000002", info!.PlayerId);
+    }
+
+    [Fact]
+    public void TryExtractGachaUrl_InstallDirLogPreferredOverPrefix()
+    {
+        // 两处都有日志时按候选顺序取安装目录的（其内容最新鲜的概率最大）
+        var installDir = _tempDir.FilePath("WW");
+        Directory.CreateDirectory(Path.Combine(installDir, "Saved", "Logs"));
+        File.WriteAllText(
+            Path.Combine(installDir, "Saved", "Logs", "Client.log"),
+            $"url={SampleUrl}");
+        var prefix = _tempDir.FilePath("prefix");
+        var logPath = Path.Combine(
+            prefix, "pfx", "drive_c", "users", "steamuser", "AppData", "Local", "Proj", "Saved", "Logs", "Client.log");
+        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+        File.WriteAllText(logPath, "no url here");
+
+        var info = CreateService().TryExtractGachaUrl(installDir, winePrefixDirectory: prefix);
+
+        Assert.NotNull(info);
+    }
+
+    [Fact]
     public async Task FetchPoolAsync_BuildsRequestBodyAndStopsOnShortPage()
     {
         _handler.Map("https://gmserver-api.aki-game2.com/gacha/record/query", """

@@ -79,8 +79,12 @@ sealed class Program
                 return null;
             }
 
-            var output = process.StandardOutput.ReadToEnd();
-            process.WaitForExit(1500);
+            var output = ReadOutputWithTimeout(process, 1500);
+            if (output is null)
+            {
+                return null;
+            }
+
             return output.Split('\n')
                 .FirstOrDefault(line => line.TrimStart().StartsWith(key, StringComparison.Ordinal))
                 ?.Trim();
@@ -131,18 +135,9 @@ sealed class Program
                 return null;
             }
 
-            var json = process.StandardOutput.ReadToEnd();
-            if (!process.WaitForExit(1500))
+            var json = ReadOutputWithTimeout(process, 1500);
+            if (json is null)
             {
-                try
-                {
-                    process.Kill();
-                }
-                catch (InvalidOperationException)
-                {
-                    // 已退出
-                }
-
                 return null;
             }
 
@@ -162,6 +157,32 @@ sealed class Program
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// 带超时读取子进程 stdout。必须先异步起读再限时等待：同步 ReadToEnd 会一直阻塞到子进程
+    /// 关闭 stdout，排在它后面的 WaitForExit(timeout) 永远执行不到——超时保护形同死代码，
+    /// 子进程挂起会把启动卡死在 Main。超时即 Kill 并返回 null。
+    /// </summary>
+    private static string? ReadOutputWithTimeout(Process process, int timeoutMilliseconds)
+    {
+        var read = process.StandardOutput.ReadToEndAsync();
+        if (!read.Wait(timeoutMilliseconds))
+        {
+            try
+            {
+                process.Kill();
+            }
+            catch (InvalidOperationException)
+            {
+                // 已退出
+            }
+
+            return null;
+        }
+
+        process.WaitForExit(timeoutMilliseconds);
+        return read.Result;
     }
 
     // Avalonia configuration, don't remove; also used by visual designer.

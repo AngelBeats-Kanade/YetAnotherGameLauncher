@@ -34,8 +34,8 @@ src/
                     AutostartService.cs（IAutostartService + WindowsAutostartService（HKCU Run 注册表）/ LinuxAutostartService（XDG autostart）双实现）、
                     CompatTools（Linux 兼容层单一来源：umu/wine/Lutris/Proton 发现、prefix 统一路径、推荐链 BuildRecommendedLaunch、Proton 发行版代号/umuId 解析、含 LaunchMode 枚举与 CompatLaunch）、
                     Umu/（原生 umu：UmuPaths、VdfMiniParser、SteamRuntimeCatalog、ToolManifest、UmuPrefix、UmuEnvironment、NativeUmuLauncher、IUmuComponentProvisioner）、
-                    GameBackdropService（详情页背景远程解析 + 本地缓存编排：区域/游戏版本门控，版本一致零网络）、WindowsPlatformInfo / LinuxPlatformInfo（IPlatformInfo 双实现）
-    Utilities/      Hashing（MD5 hex）、Json（统一序列化选项）、FileUtilities（原子写入/尽力删除）
+                    GameBackdropService（详情页背景远程解析 + 本地缓存编排：区域/游戏版本门控，版本一致零网络）、WindowsPlatformInfo / LinuxPlatformInfo（IPlatformInfo 双实现）+ PlatformInfoFactory（唯一的 OS 选择分支，DI 与各 ViewModel 缺省共用）
+    Utilities/      Hashing（MD5 hex）、Json（统一序列化选项）、FileUtilities（原子写入/只读目标容错/目录树尽力删除）
   YetAnotherGameLauncher.Channels.Kuro/         # 库洛渠道（鸣潮）
     KuroChannelApi（index.json/indexFile 解析、CDN 选择、URL 拼接）
     KuroCdnSelector / KuroUrlBuilder、HpatchzApplier（HDiffPatch 目录模式；HpatchzApplierOptions 配置路径/超时）
@@ -73,11 +73,11 @@ src/
 tests/
   YetAnotherGameLauncher.TestSupport/           # 共享测试设施（可复用的替身与工具）
     FakeDownloader / FakePatchApplier / FakeProcessRunner / FakeChannel / FakePlatformInfo / StubHttpHandler / TempDir / TestZip / ManualTimeProvider（虚拟时钟）
-  YetAnotherGameLauncher.Core.Tests/            # 领域层 232 个测试（2026-09-14 实测）
-  YetAnotherGameLauncher.Channels.Kuro.Tests/   # 45 个测试（2026-09-14 实测）
+  YetAnotherGameLauncher.Core.Tests/            # 领域层 237 个测试（2026-09-15 实测）
+  YetAnotherGameLauncher.Channels.Kuro.Tests/   # 49 个测试（2026-09-15 实测）
   YetAnotherGameLauncher.Channels.Hypergryph.Tests/ # 17 个测试（2026-09-14 实测）
-  YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口 235 个测试（2026-09-14 实测）
-  # 数量为 2026-09-14 实测（共 529）；随开发增长，以实际运行为准
+  YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口 234 个测试（2026-09-15 实测）
+  # 数量为 2026-09-15 实测（共 537）；随开发增长，以实际运行为准
 ```
 
 构建约定（`Directory.Build.props`）：`net10.0`、`Nullable=enable`、`ImplicitUsings`、

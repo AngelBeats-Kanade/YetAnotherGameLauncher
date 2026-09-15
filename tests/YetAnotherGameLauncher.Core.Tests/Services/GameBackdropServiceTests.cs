@@ -56,6 +56,30 @@ public class GameBackdropServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Resolve_OldBackdropUndeletable_FallsBackToTimestampedName()
+    {
+        // Windows 语义：旧背景仍被占用时 Delete/Move 会失败（Linux rename 总能成功）。
+        // 跨平台复现"删不掉"：把固定名落点换成同名目录，File.Delete 必抛 UnauthorizedAccessException；
+        // 此时应换时间戳备用名落盘，刷新整体不失败，meta 记录新名
+        _handler.Map("https://cdn.example.com/old.png", [1]);
+        _handler.Map("https://cdn.example.com/new.png", [2]);
+        var url = "https://cdn.example.com/old.png";
+        var service = CreateService(new StubResolver(
+            _ => new BackdropSource(url, BackdropKind.Image)));
+
+        var first = await service.ResolveAsync(Request());
+        File.Delete(first!.Source!);
+        Directory.CreateDirectory(first.Source!); // 用目录占住固定名落点
+        url = "https://cdn.example.com/new.png";
+        var second = await service.ResolveAsync(Request());
+
+        Assert.NotNull(second);
+        Assert.NotEqual(first.Source, second.Source);
+        Assert.Contains("backdrop-", Path.GetFileName(second.Source));
+        Assert.Equal((byte[])[2], await File.ReadAllBytesAsync(second.Source!));
+    }
+
+    [Fact]
     public async Task Resolve_VideoSource_DownloadsBackdropAndPoster()
     {
         _handler.Map("https://cdn.example.com/bg.mp4", (byte[])[1, 2, 3, 4]);

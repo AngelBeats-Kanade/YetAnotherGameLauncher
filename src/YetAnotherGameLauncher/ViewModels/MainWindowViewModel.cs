@@ -110,10 +110,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _linuxDataHome = linuxDataHome;
         _nativeUmu = nativeUmu;
         _umuProvisioner = umuProvisioner;
-        _platform = platformInfo
-            ?? (OperatingSystem.IsLinux()
-                ? new LinuxPlatformInfo()
-                : new WindowsPlatformInfo());
+        _platform = platformInfo ?? PlatformInfoFactory.Create();
         Loc = localization;
         LocBridge.Instance = localization; // 静态桥：LaunchSettingsViewModel 构造期（属性初始化器）经此取文案
         _loc.PropertyChanged += OnLanguageChanged;
