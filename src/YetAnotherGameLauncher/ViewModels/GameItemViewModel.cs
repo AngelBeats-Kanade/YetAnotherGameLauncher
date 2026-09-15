@@ -124,12 +124,9 @@ public partial class GameItemViewModel(
         OnPropertyChanged(nameof(InstallIsSecondary));
     }
 
-    /// <summary>切换服务器即刷新状态（不同服务器的安装目录/版本上下文相互独立）。</summary>
-    partial void OnSelectedServerChanged(GameServer value)
-    {
-        OnPropertyChanged(nameof(DetailMetaText)); // 服务器段即时随选区切换，不等刷新网络往返
-        _ = RefreshAsync();
-    }
+    /// <summary>切换服务器即刷新状态（不同服务器的安装目录/版本上下文相互独立）。
+    /// 元信息行随选区即时更新：RefreshAsync 开头的变更通知在首个 await 前同步执行，无需额外补发。</summary>
+    partial void OnSelectedServerChanged(GameServer value) => _ = RefreshAsync();
 
     /// <summary>背景视频就绪状态变化：元信息行的背景来源段随之切换。</summary>
     partial void OnHasBackgroundVideoChanged(bool value) => OnPropertyChanged(nameof(DetailMetaText));
@@ -298,7 +295,7 @@ public partial class GameItemViewModel(
         catch (Exception ex) when (ex is UpdateException or HttpRequestException or TaskCanceledException)
         {
             StatusText = Loc["status_noConnection"];
-            SetVersionChip(state?.Version, latestVersion: null);
+            SetVersionChip(state?.Version, latestVersion: null, hasUpdate: false);
             IsInstalled = state is not null;
             HasUpdate = false;
             PredownloadAvailable = false;
@@ -335,7 +332,7 @@ public partial class GameItemViewModel(
         HasUpdate = VersionComparison.IsNewer(info.LatestVersion, state?.Version);
         PredownloadAvailable = info.PredownloadAvailable && !HasStagedPredownload;
 
-        SetVersionChip(state?.Version, info.LatestVersion);
+        SetVersionChip(state?.Version, info.LatestVersion, HasUpdate);
 
         // 状态优先级：未登记但文件在 → 可直接启动（官启等来源的既有安装）；
         // 已登记 → 有更新 / 可预下载 / 已是最新
@@ -356,8 +353,11 @@ public partial class GameItemViewModel(
     /// <summary>
     /// 组装版本 chip 分段文案：未登记→"最新版本 x"（离线且无远端信息→"未安装"）；
     /// 有更新→"本地 x → 最新 y"；其余→"本地 x"。金色数字由 XAML 按段渲染，此处只管分段。
+    /// 更新判定沿用调用方刚算出的 <paramref name="hasUpdate"/>（单一事实源，避免 chip 与
+    /// 状态点/状态文案各算各的）；离线已安装沿用"本地 x"措辞，不再保留旧版的"本地版本 x"，
+    /// 使 chip 在线/离线前后一致（2026-09-16 决策）。
     /// </summary>
-    private void SetVersionChip(string? localVersion, string? latestVersion)
+    private void SetVersionChip(string? localVersion, string? latestVersion, bool hasUpdate)
     {
         if (localVersion is null)
         {
@@ -370,7 +370,6 @@ public partial class GameItemViewModel(
 
         VersionChipLead = Loc["version_label_local"];
         VersionChipNumber = localVersion;
-        var hasUpdate = latestVersion is not null && VersionComparison.IsNewer(latestVersion, localVersion);
         VersionChipMid = hasUpdate ? Loc["version_mid_update"] : "";
         VersionChipTarget = hasUpdate ? latestVersion! : "";
     }
