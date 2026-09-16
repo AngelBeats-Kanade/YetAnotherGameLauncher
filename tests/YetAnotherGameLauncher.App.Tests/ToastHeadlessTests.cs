@@ -44,6 +44,7 @@ public class ToastHeadlessTests : IDisposable
 
             var closeButton = window.GetVisualDescendants()
                 .OfType<Button>().First(b => b.Classes.Contains("toast-close"));
+            Assert.Single(_ctx.Vm.Toasts); // 前置：点击前 toast 仍在（排除 4s 自灭定时器先触发造成的假绿）
             var center = closeButton.TranslatePoint(
                 new Point(closeButton.Bounds.Width / 2, closeButton.Bounds.Height / 2), window)!.Value;
             window.MouseMove(center);
