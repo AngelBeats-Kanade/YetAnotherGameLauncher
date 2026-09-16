@@ -46,7 +46,7 @@ Avalonia 12（本项目 12.1.2）+ .NET 10。跨平台 XAML（.axaml）UI 框架
 
 ## Linux 渲染（实踩）
 
-- **Avalonia 12 没有 Wayland 后端**：Linux 下一律 X11（Wayland 会话即 XWayland），`X11PlatformOptions` 是唯一的 Linux 平台选项。渲染模式显式 `RenderingMode = [Egl, Glx, Software]`——GLX 在 XWayland+NVIDIA 下是糊化/撕裂高发点。
+- **Linux 窗口后端：原生 Wayland 优先（Avalonia 12.1 实验性后端，`Avalonia.Wayland` 包 + `UseWayland()` 显式启用）+ X11/XWayland 回退**：`UsePlatformDetect()` 不会自动选中 Wayland 且无自动回退，由 `Services/WaylandBackendPolicy` 先决（Linux 且 `WAYLAND_DISPLAY` 非空 → 原生 Wayland；`YAGL_FORCE_XWAYLAND=1` 逃生舱回退）。X11 路径渲染模式显式 `RenderingMode = [Egl, Glx, Software]`——GLX 在 XWayland+NVIDIA 下是糊化/撕裂高发点。已知差异：原生 Wayland 窗口 class/app_id 为空（窗口规则匹配不到），且会把平铺误报为 `WindowState.Maximized`（`Services/WindowStateMapper` 视觉判定修复）。
 - **XWayland 拿不到合成器分数缩放**（X 恒报 96dpi）：4K+1.67 桌面上 UI 会按物理像素渲染（小字且糊）。`Program.TrySyncXftDpiWithCompositor` 启动时把 Hyprland 缩放写进 `Xft.dpi`（仅用户未设置时）。Avalonia 12 已无 `AVALONIA_SCREEN_SCALE_FACTORS` 环境变量。
 - **合成器会无视 `WindowDecorations="BorderOnly"` 给 X11 窗口画 SSD 标题条**：Linux 下在 `InitializeComponent()` 之后设 `WindowDecorations.None`（XAML 属性会覆盖构造函数先写的值）。
 - 长文案的状态 chip/提示条必须 `MaxWidth + TextWrapping`，否则会横穿窗口被裁（judge 实锤；详情页 chips 行整体限宽 640）。
@@ -68,6 +68,7 @@ Avalonia 12（本项目 12.1.2）+ .NET 10。跨平台 XAML（.axaml）UI 框架
 4. Avalonia 12 的 `AvaloniaUI.DiagnosticsSupport` 包仅 Debug 有效，csproj 已条件化。
 5. ComboBox 绑定枚举：`ItemsSource` 给 `IReadOnlyList<Enum>` 属性 + `SelectedItem` 双向绑定，配合 `JsonStringEnumConverter`。
 6. 列表项 hover 高亮、按钮 accent 样式都走 `Classes` + 伪类选择器，不要内联触发器。
+7. **`IsHitTestVisible=False` 的视觉会被连整棵子树剪出命中测试**（与 WPF 不同，子级设回 `True` 翻不回来）：想要"宿主面板穿透、仅卡片可点"，靠宿主**无背景（null）不参与命中**的默认语义即达（无背景的控件不挡点击；需要可点时才显式 `Background="Transparent"`），不要在宿主上写显式 False——toast 关闭钮因此点不动过（2026-09-17 实锤，详见 AGENTS.md）。
 
 ## 写完 UI 后必做
 

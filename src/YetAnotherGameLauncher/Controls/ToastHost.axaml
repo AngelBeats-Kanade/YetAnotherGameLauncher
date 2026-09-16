@@ -3,9 +3,11 @@
              xmlns:vm="using:YetAnotherGameLauncher.ViewModels"
              x:Class="YetAnotherGameLauncher.Controls.ToastHost"
              x:DataType="vm:MainWindowViewModel">
-    <!-- 轻提示宿主：挂在窗口右上（标题钮下方），卡片可点、宿主面板穿透；
-         容量与自动消失由 MainWindowViewModel.Toasts 管理（超容量丢最旧，4s 自灭） -->
-    <ItemsControl ItemsSource="{Binding Toasts}" IsHitTestVisible="False">
+    <!-- 轻提示宿主：挂在窗口右上（标题钮下方）。命中测试是 Avalonia 语义：IsHitTestVisible=False
+         的视觉会被连整棵子树剪掉（与 WPF 不同，子级设回 True 也翻不回来，曾致关闭钮点不动）；
+         宿主无背景且尺寸贴合卡片，null 背景本就不参与命中，"仅卡片可点、空隙穿透"是默认行为，
+         不能再显式设 False。容量与自动消失由 MainWindowViewModel.Toasts 管理（超容量丢最旧，4s 自灭） -->
+    <ItemsControl ItemsSource="{Binding Toasts}">
         <ItemsControl.ItemsPanel>
             <ItemsPanelTemplate>
                 <StackPanel Spacing="10"/>
@@ -15,8 +17,7 @@
             <DataTemplate x:DataType="vm:ToastItem">
                 <Border Classes="toast-card"
                         Classes.toast-success="{Binding IsSuccess}"
-                        Classes.toast-warning="{Binding IsWarning}"
-                        IsHitTestVisible="True">
+                        Classes.toast-warning="{Binding IsWarning}">
                     <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
                         <Ellipse Grid.Column="0" Classes="toast-dot"
                                  Width="9" Height="9" VerticalAlignment="Center"/>

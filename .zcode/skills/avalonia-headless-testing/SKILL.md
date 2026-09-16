@@ -90,6 +90,7 @@ public async Task Window_Shows_Items()
   Avalonia locator，线程无关（先例：`BackgroundResilienceTests`）。直接在 Dispatch 外调
   `new Bitmap(...)` 会因 locator 未初始化抛 `IPlatformRenderInterface` 缺失。
 - 被测代码若会碰 UI（如切主题），实现层要自检 `CheckAccess()`/`Dispatcher.Post`（`ThemeService` 即范例）。
+- **视图层命中/交互回归必须走真实指针**：`window.MouseMove(center); window.MouseDown(center, MouseButton.Left); window.MouseUp(center, MouseButton.Left)`（中心点用 `TranslatePoint` 换算到窗口坐标，先例 `SidebarNavHeadlessTests` / `ToastHeadlessTests`）。直接 `command.Execute()` 的 VM 层测试拦不住命中测试断裂——toast 关闭钮被宿主 `IsHitTestVisible=False` 整树剪掉（Avalonia 语义：祖先剪枝连子级一起剪，子级设回 True 翻不回来），VM 测试全绿而按钮实际点不动，即此故。
 - `Progress<T>` 回调异步投递且**不保证顺序**：测试收集必须用 `ConcurrentQueue` + `SpinWait.SpinUntil`
   等待期望值，禁止断言"最后一条"（本项目踩过的 flaky 根因）。
 - 测试间状态隔离：临时目录放 fixture，禁写真实用户目录（`TempDir`）。

@@ -793,7 +793,8 @@
             </Grid>
         </Grid>
 
-        <!-- 轻提示宿主：右上角、标题钮下方（瞬态信息：版本检测结果/检测到游戏）；面板穿透、仅卡片可点 -->
+        <!-- 轻提示宿主：右上角、标题钮下方（瞬态信息：版本检测结果/检测到游戏）；
+             仅卡片可点（宿主无背景不参与命中，空隙穿透；勿设 IsHitTestVisible=False，会剪掉整棵子树） -->
         <controls:ToastHost HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,52,12,0"/>
 
         <!-- 自绘标题栏：右上三钮（覆盖在内容卡片之上；图标随最大化/还原切换） -->

@@ -70,6 +70,7 @@ dotnet format whitespace --verify-no-changes
 - **headless 会话 `Dispatch` 只收 `Action`**（async lambda 即 async void），且不在 Dispatch 期间泵异步续体：服务内部 `await HttpClient` 之类的真异步调用挂进去会永久卡死。非 UI 的异步服务调用在会话启动（`HeadlessSession.Instance` 触发全局 locator 初始化）后**测试线程直调**即可（先例：`BackgroundResilienceTests`）；要碰 UI 对象才进 Dispatch。
 - **headless 平台窗口只在 `Show()` 前接受 `Width/Height`，且设 `WindowState=Maximized` 不会自动铺满**（真合成器会铺满工作区，headless 不会）：测最大化相关视觉（图标/圆角）须构造时按 `Screens.ScreenFromWindow` 的工作区定尺寸再 `Show`（先例：`SidebarNavHeadlessTests.CustomTitleBar_ButtonsPresent_AndMaximizeIconToggles`；`MainWindow.axaml` 写死了 `Width="1464" Height="720"`，不覆盖就会用默认尺寸）。
 - **测窄窗口布局必须连 `MinWidth` 一起解除，并断言目标行为实际发生**：`MainWindow.axaml` 还写死了 `MinWidth="920"`，设 Width 低于它会被钳回 920，且 920 恰好触发侧栏自动收起（内容区反而变 852px）——两股力叠加后，想测的"放不下的窄布局"可能根本不存在，测试对旧代码假绿（2026-09-16 实锤：chips 行换行测试设 860 被钳回 920，最长行 790px 在收起态内容区里放得下，对修复前的 StackPanel 代码照样绿）。先例：`GameDetailPage_ChipsRow_LongStatus_WrapsInsteadOfClipping`（`MinWidth = 0` + `Width = 640` 构造，断言"版本 chip 换到状态 chip 下一行"这个行为本身，而非只断言"不越界"）。
+- **`IsHitTestVisible=False` 在 Avalonia 会把整棵子树剪出命中测试**（与 WPF 不同，子级设回 `True` 也翻不回来）：ToastHost 宿主曾在 ItemsControl 上设 `IsHitTestVisible="False"` 想"面板穿透、卡片设回 True"，结果所有 toast 的关闭钮都点不动——点击直接穿透到下层页面，4s 自灭掩盖了症状（2026-09-17 实锤）。穿透靠"无背景（null）不参与命中"的默认语义即达（宿主 Right/Top 对齐、尺寸贴合卡片；对照先例：`TitleDrag` 需显式 `Background="Transparent"` 才可命中）。回归必须走真实指针：`ToastHeadlessTests.ClickingCloseButton_RemovesToast_ViaRealHitTesting` 用 `MouseMove/MouseDown/MouseUp` 走命中链路——直接 `DismissCommand.Execute` 的 VM 层测试（`ToastTests.DismissCommand_RemovesToast`）拦不住这类视图层断裂。
 
 ## 其他坑
 
