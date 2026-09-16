@@ -132,7 +132,7 @@ public class DetailPageHeadlessTests : IDisposable
     }
 
     [Fact]
-    public async Task GameDetailPage_TitleBlockAndChips_ProposalALayout()
+    public async Task GameDetailPage_ChipsRow_ProposalALayout()
     {
         await _ctx.Vm.InitializeAsync();
 
@@ -144,20 +144,13 @@ public class DetailPageHeadlessTests : IDisposable
 
             var page = window.GetVisualDescendants().OfType<Panel>().First(p => p.Classes.Contains("page"));
 
-            // 标题上墙（方案 A）：30px 游戏名 + 元信息行，位于详情页顶部左侧
-            var title = page.GetVisualDescendants().OfType<TextBlock>()
-                .First(t => t.FontSize == 30 && t.Text == _ctx.Vm.Games[0].DisplayName);
-            var titleOrigin = title.TranslatePoint(new Point(0, 0), page)!.Value;
-            Assert.True(titleOrigin.X < 60 && titleOrigin.Y < 120,
-                $"标题应落在详情页左上角，实际 {titleOrigin}");
-            var meta = page.GetVisualDescendants().OfType<TextBlock>()
-                .First(t => t.Text == _ctx.Vm.Games[0].DetailMetaText);
-            Assert.Equal(13, meta.FontSize);
-
-            // 顶部 chips：状态胶囊与版本号分段胶囊（onart-chip 族），不再有页中上方居中的旧合并胶囊
+            // 顶部 chips：状态胶囊与版本号分段胶囊（onart-chip 族），位于详情页顶部左侧
             var chips = page.GetVisualDescendants().OfType<Border>().Where(b => b.Classes.Contains("onart-chip")).ToList();
             var statusChip = chips.Single(c => c.Child?.GetVisualDescendants().OfType<TextBlock>()
                 .Any(t => t.Text == _ctx.Vm.Games[0].StatusText) == true);
+            var chipOrigin = statusChip.TranslatePoint(new Point(0, 0), page)!.Value;
+            Assert.True(chipOrigin.X < 60 && chipOrigin.Y < 120,
+                $"chips 行应落在详情页左上角，实际 {chipOrigin}");
             var texts = page.GetVisualDescendants().OfType<TextBlock>().ToList();
             Assert.Contains(texts, t => t.Text == _ctx.Vm.Games[0].VersionChipLead);
             Assert.Contains(texts, t => t.Text == _ctx.Vm.Games[0].VersionChipNumber);

@@ -80,4 +80,25 @@ public class ToastTests : IDisposable
         await game.RefreshAsync();
         Assert.Single(_ctx.Vm.Toasts);
     }
+
+    [Fact]
+    public async Task ServerSwitch_RaisesToastWithServerName()
+    {
+        // 服务器下拉只切换刷新、不落盘，但用户明确要求切换有轻提示反馈——注入第二个服务器驱动切换
+        var json = VmFactory.SampleConfigJson.Replace(
+            "\"servers\": [ { \"id\": \"cn\", \"name\": \"国服\" } ]",
+            "\"servers\": [ { \"id\": \"cn\", \"name\": \"国服\" }, { \"id\": \"bilibili\", \"name\": \"B服\" } ]");
+        using var ctx = VmFactory.Build(configJson: json);
+        await ctx.Vm.InitializeAsync();
+        var game = ctx.Vm.Games[0];
+        Assert.Empty(ctx.Vm.Toasts);
+
+        game.SelectedServer = game.Servers[1];
+
+        // 切换后的 RefreshAsync（B 服未安装 → "other" 语义）按 armed 门静默，不与本提示混淆
+        var toast = Assert.Single(ctx.Vm.Toasts);
+        Assert.Equal(game.DisplayName, toast.Title);
+        Assert.Equal("已切换至 B服", toast.Message);
+        Assert.Equal(ToastKind.Info, toast.Kind);
+    }
 }

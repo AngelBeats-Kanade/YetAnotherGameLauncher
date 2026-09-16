@@ -215,7 +215,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private string _statusMessage = "";
 
-    /// <summary>右下角轻提示集合（瞬态信息：版本检测结果/检测到游戏）；容量 3，过载丢弃最旧。</summary>
+    /// <summary>右上角轻提示集合（瞬态信息：版本检测结果/检测到游戏、服务器切换/启动设置实际变更）；容量 3，过载丢弃最旧。</summary>
     public ObservableCollection<ToastItem> Toasts { get; } = [];
 
     /// <summary>弹出轻提示（UI 线程调用；toast 不排队等待，超容量直接丢最旧——状态胶囊承载全量状态）。</summary>
@@ -585,9 +585,11 @@ public partial class MainWindowViewModel : ViewModelBase
                 _nativeUmu,
                 _umuProvisioner));
 
-            // 游戏状态变化中的瞬态信息（检测到游戏/有更新/可预下载）经事件转发为右下角轻提示
+            // 游戏状态变化中的瞬态信息（检测到游戏/有更新/可预下载）经事件转发为右上角轻提示
             var added = Games[^1];
             added.StatusToastRequested += (title, message, kind) => ShowToast(title, message, kind);
+            // 设置类变化（服务器切换/启动设置实际变更落盘）同样转发为轻提示
+            added.SettingsToastRequested += (title, message, kind) => ShowToast(title, message, kind);
         }
 
         return unknownChannels;

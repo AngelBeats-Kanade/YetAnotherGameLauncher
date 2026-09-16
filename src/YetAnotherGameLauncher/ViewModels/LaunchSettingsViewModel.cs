@@ -635,6 +635,11 @@ public partial class LaunchSettingsViewModel : ViewModelBase
 
         var installDirChanged = !string.Equals(installDir, _owner.InstallDirPath, StringComparison.Ordinal);
         var executableChanged = !string.Equals(executable, _game.Executable, StringComparison.Ordinal);
+        var templateChanged = !string.Equals(CommandTemplate.Trim(), _game.Launch.CommandTemplate, StringComparison.Ordinal);
+        // 保存时空白工作目录归一为 {installDir}，对比必须按同一规则，否则"留空"永远算变更
+        var effectiveWorkingDirectory = string.IsNullOrWhiteSpace(WorkingDirectory) ? "{installDir}" : WorkingDirectory.Trim();
+        var workingDirectoryChanged = !string.Equals(effectiveWorkingDirectory, _game.Launch.WorkingDirectory, StringComparison.Ordinal);
+        var environmentDiff = EnvironmentDiffKeys(environment, _game.Launch.Environment);
         if (installDirChanged)
         {
             _game.InstallDir = installDir; // 支持绝对路径，直接写回
@@ -666,11 +671,74 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             }
 
             Save.SetSuccess(_loc["launch_saved"]);
+            RaiseChangedToast(installDirChanged, executableChanged, templateChanged, workingDirectoryChanged, environmentDiff);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             Save.SetFailure(_loc.Format("message_saveFailed", ex.Message));
         }
+    }
+
+    /// <summary>保存成功且确有字段变更时弹轻提示（逐项列出变更字段；无变更/保存失败静默——
+    /// 消息槽已承载结果，重复提示只添噪）。</summary>
+    private void RaiseChangedToast(
+        bool installDirChanged,
+        bool executableChanged,
+        bool templateChanged,
+        bool workingDirectoryChanged,
+        List<string> environmentDiff)
+    {
+        var labels = new List<string>();
+        if (installDirChanged)
+        {
+            labels.Add(_loc["launch_installDir"]);
+        }
+
+        if (executableChanged)
+        {
+            labels.Add(_loc["launch_executable"]);
+        }
+
+        if (templateChanged)
+        {
+            labels.Add(_loc["launch_commandTemplate"]);
+        }
+
+        if (workingDirectoryChanged)
+        {
+            labels.Add(_loc["launch_workingDirectory"]);
+        }
+
+        if (environmentDiff.Count > 0)
+        {
+            // 仅 PROTONPATH 变化即发行版下拉的"选择即保存"，按 UI 词汇提示而非笼统的环境变量
+            labels.Add(environmentDiff.All(key => key == "PROTONPATH")
+                ? _loc["launch_protonFlavor"]
+                : _loc["launch_environment"]);
+        }
+
+        if (labels.Count > 0)
+        {
+            _owner.RaiseSettingsChangedToast(_loc.Format(
+                "toast_settingsUpdated", string.Join(_loc["common_comma"], labels)));
+        }
+    }
+
+    /// <summary>两组环境变量的差异键集合（序数比较；键增删与值变化都算差异）。</summary>
+    private static List<string> EnvironmentDiffKeys(Dictionary<string, string> next, Dictionary<string, string> current)
+    {
+        var diff = new List<string>();
+        foreach (var (key, value) in next)
+        {
+            if (!current.TryGetValue(key, out var existing)
+                || !string.Equals(existing, value, StringComparison.Ordinal))
+            {
+                diff.Add(key);
+            }
+        }
+
+        diff.AddRange(current.Keys.Where(key => !next.ContainsKey(key)));
+        return diff;
     }
 
     /// <summary>环境变量字典 → 多行 KEY=VALUE 文本（编辑框显示用）。</summary>

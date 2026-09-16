@@ -1,4 +1,6 @@
 using Xunit;
+using YetAnotherGameLauncher.TestSupport;
+using YetAnotherGameLauncher.ViewModels;
 
 namespace YetAnotherGameLauncher.AppTests;
 
@@ -45,6 +47,7 @@ public class LaunchSettingsTests : IDisposable
 
         Assert.True(settings.Save.Failed);
         Assert.Contains("NOT-A-PAIR", settings.Save.Message);
+        Assert.Empty(_ctx.Vm.Toasts); // 校验失败只走页内红字，不弹轻提示
 
         var reloader = new YetAnotherGameLauncher.Core.Services.GameCatalogService(_ctx.ConfigPath);
         await reloader.LoadAsync();
@@ -109,5 +112,78 @@ public class LaunchSettingsTests : IDisposable
 
         Assert.False(settings.Save.HasMessage);
         Assert.False(settings.Save.Failed);
+    }
+
+    [Fact]
+    public async Task Save_WithActualChange_RaisesToastListingChangedField()
+    {
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        var settings = game.LaunchSettings;
+
+        settings.CommandTemplate = "wine {exe}";
+        await settings.SaveCommand.ExecuteAsync(null);
+
+        Assert.False(settings.Save.Failed);
+        var toast = Assert.Single(_ctx.Vm.Toasts);
+        Assert.Equal(game.DisplayName, toast.Title);
+        Assert.Equal("已更新：命令模板", toast.Message);
+        Assert.Equal(ToastKind.Success, toast.Kind);
+    }
+
+    [Fact]
+    public async Task Save_WithMultipleChanges_JoinsLabelsInFixedOrder()
+    {
+        await _ctx.Vm.InitializeAsync();
+        var settings = _ctx.Vm.Games[0].LaunchSettings;
+
+        // 多字段变更：标签按固定顺序经 common_comma 连接——锁住分隔符键与排列（防键缺失回退成键名）
+        settings.CommandTemplate = "wine {exe}";
+        settings.EnvironmentText = "LANG=zh_CN.UTF-8";
+        await settings.SaveCommand.ExecuteAsync(null);
+
+        Assert.False(settings.Save.Failed);
+        var toast = Assert.Single(_ctx.Vm.Toasts);
+        Assert.Equal("已更新：命令模板、环境变量", toast.Message);
+    }
+
+    [Fact]
+    public async Task Save_WithoutChanges_DoesNotRaiseToast()
+    {
+        await _ctx.Vm.InitializeAsync();
+        var settings = _ctx.Vm.Games[0].LaunchSettings;
+
+        // 草稿原样保存：页内消息槽照常提示成功，但不弹轻提示（没有实际变更）
+        await settings.SaveCommand.ExecuteAsync(null);
+
+        Assert.False(settings.Save.Failed);
+        Assert.Equal("启动设置已保存", settings.Save.Message);
+        Assert.Empty(_ctx.Vm.Toasts);
+    }
+
+    [Fact]
+    public async Task ProtonFlavorSwitch_ImmediateSave_RaisesFlavorToast()
+    {
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        var settings = new LaunchSettingsViewModel(
+            game.Game, game.InstallDirPath, _ctx.CatalogService, game.Loc, game,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            protonVersions: ["GE-Proton10-9"]);
+
+        // 先把构造期生成的推荐配置落盘（该保存也会弹提示），再切发行版：
+        // 第二次保存的差异只剩 PROTONPATH，提示须按 UI 词汇报"Proton 发行版"而非笼统的"环境变量"
+        await settings.SaveCommand.ExecuteAsync(null);
+        settings.SelectedProtonFlavor = "GE-Proton";
+        // 发行版"选择即保存"由 fire-and-forget 任务完成：轮询等待第二条提示出现
+        for (var i = 0; i < 100 && _ctx.Vm.Toasts.Count < 2; i++)
+        {
+            await Task.Delay(20);
+        }
+
+        Assert.True(_ctx.Vm.Toasts.Count >= 2, "发行版切换后的即时保存应弹出第二条轻提示");
+        var toast = _ctx.Vm.Toasts[^1];
+        Assert.Equal("已更新：Proton 发行版", toast.Message);
+        Assert.Equal(ToastKind.Success, toast.Kind);
     }
 }

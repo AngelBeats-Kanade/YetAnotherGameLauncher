@@ -88,6 +88,13 @@ public class SettingsHeadlessTests : IDisposable
             Assert.True(launch.Save.HasMessage);
             Assert.False(launch.Save.Failed);
             Assert.Contains("E:/Games/Endfield", File.ReadAllText(_ctx.ConfigPath).Replace('\\', '/'));
+            // 实际变更落盘后弹轻提示：消息列出变更字段（安装目录）
+            for (var i = 0; i < 100 && _ctx.Vm.Toasts.Count == 0; i++)
+            {
+                await Task.Delay(20);
+            }
+            var toast = Assert.Single(_ctx.Vm.Toasts);
+            Assert.Equal("已更新：安装目录", toast.Message);
             window.Close();
         }, CancellationToken.None);
     }

@@ -64,8 +64,9 @@ src/
                     AboutPage/GachaPage/SettingsPage/GameSettingsPage（四个整页 UserControl，从 MainWindow 内联
                     DataTemplate 提取；DataContext = 各页 ViewModel，窗口级 Enter 保存类处理器按元素名继续分发）、
                     DetailActionDock/LaunchErrorOverlay（详情页操作坞/启动失败覆盖层）、
-                    ToastHost + ToastItem（右上角轻提示：版本检测结果/检测到游戏，容量 3 丢最旧、4s 自灭；
-                    状态变化经 GameItemViewModel.StatusToastRequested 事件转发，首轮预热不弹）
+                    ToastHost + ToastItem（右上角轻提示：版本检测结果/检测到游戏、服务器切换/
+                    启动设置实际变更，容量 3 丢最旧、4s 自灭；分别经 GameItemViewModel 的
+                    StatusToastRequested/SettingsToastRequested 事件转发，状态首轮预热不弹）
     ViewModels/     MainWindowViewModel、GameItemViewModel、GameSettingsViewModel、LaunchSettingsViewModel、
                     LaunchErrorViewModel（启动失败覆盖层：类目化原因/技术详情/日志入口/umu 一键安装）、
                     GachaViewModel（鸣潮唤取记录页）、SaveMessageSlot（表单保存结果消息槽）、ViewModelBase
@@ -76,8 +77,8 @@ tests/
   YetAnotherGameLauncher.Core.Tests/            # 领域层 237 个测试（2026-09-15 实测）
   YetAnotherGameLauncher.Channels.Kuro.Tests/   # 49 个测试（2026-09-15 实测）
   YetAnotherGameLauncher.Channels.Hypergryph.Tests/ # 17 个测试（2026-09-14 实测）
-  YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口 234 个测试（2026-09-15 实测）
-  # 数量为 2026-09-15 实测（共 537）；随开发增长，以实际运行为准
+  YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口 246 个测试（2026-09-16 实测）
+  # 数量为 2026-09-16 实测（共 549）；随开发增长，以实际运行为准
 ```
 
 构建约定（`Directory.Build.props`）：`net10.0`、`Nullable=enable`、`ImplicitUsings`、

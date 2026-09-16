@@ -124,15 +124,16 @@ public partial class GameItemViewModel(
         OnPropertyChanged(nameof(InstallIsSecondary));
     }
 
-    /// <summary>切换服务器即刷新状态（不同服务器的安装目录/版本上下文相互独立）。
-    /// 元信息行随选区即时更新：RefreshAsync 开头的变更通知在首个 await 前同步执行，无需额外补发。</summary>
-    partial void OnSelectedServerChanged(GameServer value) => _ = RefreshAsync();
+    /// <summary>切换服务器即刷新状态（不同服务器的安装目录/版本上下文相互独立），并弹切换轻提示。</summary>
+    partial void OnSelectedServerChanged(GameServer value)
+    {
+        _ = RefreshAsync();
+        if (value.Name.Length > 0)
+        {
+            RaiseSettingsToast(Loc.Format("toast_serverSwitched", value.Name), ToastKind.Info);
+        }
+    }
 
-    /// <summary>背景视频就绪状态变化：元信息行的背景来源段随之切换。</summary>
-    partial void OnHasBackgroundVideoChanged(bool value) => OnPropertyChanged(nameof(DetailMetaText));
-
-    /// <summary>背景图加载状态变化：元信息行的背景来源段随之切换。</summary>
-    partial void OnHasBackgroundImageChanged(bool value) => OnPropertyChanged(nameof(DetailMetaText));
     /// <summary>本地版本落后于远端最新版。</summary>
     [ObservableProperty] private bool _hasUpdate;
     /// <summary>渠道提供预下载且尚未暂存。</summary>
@@ -237,50 +238,15 @@ public partial class GameItemViewModel(
     public string ServerCountText => Loc.Format("game_info_servers_count", Servers.Count);
 
     /// <summary>
-    /// 详情页标题下的元信息行（方案 A）：渠道 · 服务器 · 背景来源。
-    /// 服务器段取当前服务器名（空名回退数量文案）；无背景素材时来源段整体省略。
-    /// </summary>
-    public string DetailMetaText
-    {
-        get
-        {
-            var segments = new List<string> { ChannelDisplayName, ServerMetaSegment };
-            var source = BackgroundSourceText;
-            if (source.Length > 0)
-            {
-                segments.Add(source);
-            }
-
-            return string.Join(" · ", segments);
-        }
-    }
-
-    /// <summary>元信息行的服务器段：优先服务器名，缺失回退"数量"文案。</summary>
-    private string ServerMetaSegment
-    {
-        get
-        {
-            var name = SelectedServer.Name;
-            return name.Length > 0 ? name : ServerCountText;
-        }
-    }
-
-    /// <summary>背景来源段：视频循环中 &gt; 静态图 &gt; 无（空串 = 省略段）。</summary>
-    private string BackgroundSourceText => HasBackgroundVideo
-        ? Loc["detail_meta_video"]
-        : HasBackgroundImage ? Loc["detail_meta_image"] : "";
-
-    /// <summary>
     /// 刷新安装状态/版本/预下载可用性（语言或渠道数据变化后也会调用）。
     /// 版本/预载检测每服务器每启动至多一次（会话缓存），后续刷新零网络；
     /// 资产（图标/背景）只在区域变化或检测到的游戏版本变化时重新解析，其余情况保持启动预加载结果。
     /// </summary>
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
-        // 语言可能已切换：显示名/图标首字随语言重建（元信息行的本地化段同批刷新）
+        // 语言可能已切换：显示名/图标首字随语言重建
         OnPropertyChanged(nameof(DisplayName));
         OnPropertyChanged(nameof(IconText));
-        OnPropertyChanged(nameof(DetailMetaText));
 
         var state = new LocalStateService(_installDir).Load(Game.Id, SelectedServer.Id);
         var staged = IncrementalUpdateService.TryLoadStagedManifest(_installDir);
@@ -557,7 +523,7 @@ public partial class GameItemViewModel(
     private void OnVideoFrameUpdated(object? sender, EventArgs e) =>
         HasBackgroundVideo = VideoPlayer?.Frame is not null;
 
-    /// <summary>瞬态状态变化通知（主窗口转发为右下角轻提示）：检测到游戏文件/有更新/可预下载。</summary>
+    /// <summary>瞬态状态变化通知（主窗口转发为右上角轻提示）：检测到游戏文件/有更新/可预下载。</summary>
     public event Action<string, string, ToastKind>? StatusToastRequested;
 
     /// <summary>状态文案的语义键（跨语言稳定）：RefreshAsync 早期会把 StatusText 清空，
@@ -588,6 +554,17 @@ public partial class GameItemViewModel(
 
     /// <summary>状态轻提示已武装（首轮刷新完成后置位；见 <see cref="RaiseStatusToast"/>）。</summary>
     private bool _statusToastArmed;
+
+    /// <summary>设置类轻提示（服务器切换/启动设置变更），经主窗口转发为右上角轻提示。</summary>
+    public event Action<string, string, ToastKind>? SettingsToastRequested;
+
+    /// <summary>弹设置类轻提示（标题取游戏显示名；ToastItem 的自动消失在非 UI 线程静默跳过）。</summary>
+    private void RaiseSettingsToast(string message, ToastKind kind) =>
+        SettingsToastRequested?.Invoke(DisplayName, message, kind);
+
+    /// <summary>启动设置实际变更落盘后的轻提示（变更字段清单由 LaunchSettingsViewModel 组装）。</summary>
+    internal void RaiseSettingsChangedToast(string message) =>
+        RaiseSettingsToast(message, ToastKind.Success);
 
     /// <summary>界面语言决定背景区域：中文走国服渠道，其余走国际服渠道。</summary>
     private static string RegionForLanguage(string culture) =>

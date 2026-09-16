@@ -750,21 +750,6 @@
                                                     </StackPanel>
                                                 </Border>
                                             </WrapPanel>
-                                            <!-- 标题上墙（方案 A）：30px 游戏名 + 渠道·服务器·背景来源元信息行 -->
-                                            <StackPanel Spacing="6">
-                                                <TextBlock Text="{Binding DisplayName}" FontSize="30" FontWeight="SemiBold"
-                                                           MaxWidth="640" TextWrapping="Wrap"
-                                                           Foreground="{DynamicResource AppOnArtworkBrush}">
-                                                    <TextBlock.Effect>
-                                                        <!-- 海报/视频上的可读性兜底（对应预览 text-shadow 0 2px 14px）：
-                                                             Avalonia 12 的 DropShadowEffect 用 OffsetX/Y 表达偏移 -->
-                                                        <DropShadowEffect OffsetX="0" OffsetY="2" BlurRadius="14" Opacity="0.5"/>
-                                                    </TextBlock.Effect>
-                                                </TextBlock>
-                                                <TextBlock Text="{Binding DetailMetaText}" FontSize="13"
-                                                           MaxWidth="640" TextWrapping="Wrap"
-                                                           Foreground="{DynamicResource AppOnArtworkSecondary}"/>
-                                            </StackPanel>
                                         </StackPanel>
 
                                         <!-- 底部操作坞（通栏玻璃条）：左列渠道/目录信息（busy 时变进度条），
