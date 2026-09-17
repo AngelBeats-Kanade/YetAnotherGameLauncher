@@ -174,7 +174,8 @@ public sealed class NativeUmuUiActionTests : IDisposable
         Assert.True(settings.ShowProtonUpdateConfirm);
         Assert.Equal(ProtonUpdateCheckState.UpdateAvailable, settings.ProtonUpdateState);
         Assert.Contains("GE-Proton11-7", settings.ProtonCheckButtonText, StringComparison.Ordinal);
-        Assert.Contains("GE-Proton11-6", settings.ProtonUpdateConfirmMessage, StringComparison.Ordinal);
+        // 版本号过连字符插入了 WORD JOINER（U+2060）防拆行，断言按同构规则构造期望值
+        Assert.Contains("GE-Proton11-6".Replace("-", "-\u2060"), settings.ProtonUpdateConfirmMessage, StringComparison.Ordinal);
         Assert.Contains("正在运行", settings.ProtonUpdateConfirmMessage, StringComparison.Ordinal); // 删旧版前的运行中提示
 
         // 取消只关覆盖层：按钮保持"更新"态

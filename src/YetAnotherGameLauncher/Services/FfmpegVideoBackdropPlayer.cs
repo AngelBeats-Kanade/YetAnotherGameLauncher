@@ -188,6 +188,7 @@ public sealed class FfmpegVideoBackdropPlayer(
         AVFrame* softwareFrame = null;
         SwsContext* scaler = null;
         byte* pixelBuffer = null;
+        nint pixelBufferSize = 0;
         PrerollHandoff<PrerollPayload>? preroll = null;
         var pendingFrames = new List<nint>();
         var pendingFramePts = new List<double>();
@@ -271,7 +272,7 @@ public sealed class FfmpegVideoBackdropPlayer(
                     }
                 }
 
-                RenderFrame(softFrame, ref scaler, ref pixelBuffer, notify, failures);
+                RenderFrame(softFrame, ref scaler, ref pixelBuffer, ref pixelBufferSize, notify, failures, generation);
                 (lastRenderedWidth, lastRenderedHeight) = ClampEven(softFrame->width, softFrame->height);
                 lastRenderedPts = double.IsNaN(ptsSeconds) ? lastRenderedPts : ptsSeconds;
                 frameIndex++;
@@ -1044,18 +1045,28 @@ public sealed class FfmpegVideoBackdropPlayer(
         }
     }
 
-    /// <summary>单帧处理：确保缩放器与缓冲匹配源格式 → swscale 到 BGRA → blit 进位图 → 节流通知。</summary>
+    /// <summary>单帧处理：确保缩放器与缓冲匹配源格式 → swscale 到 BGRA → blit 进位图 → 节流通知。
+    /// generation 为本代循环代号：过代际门后的 PTS 等待与 sws/拷贝期间可能发生 Stop/新一代起播，
+    /// 拷入位图后在 _gate 临界区内复查，失配则丢弃刚写入的旧代帧且不再通知。</summary>
     private unsafe void RenderFrame(
         AVFrame* source,
         ref SwsContext* scaler,
         ref byte* pixelBuffer,
+        ref nint pixelBufferSize,
         NotifyThrottle notify,
-        DecodeFailureLog failures)
+        DecodeFailureLog failures,
+        int generation)
     {
         var (width, height) = ClampEven(source->width, source->height);
         if (width <= 0 || height <= 0)
         {
             failures.Log("invalid frame size {Width}x{Height}", source->width, source->height);
+            return;
+        }
+
+        // 代际已换代（PresentFrame 过门到这里的窗口内发生了 Stop）：不再做无谓的缩放与位图写入
+        if (Interlocked.CompareExchange(ref _generation, 0, 0) != generation)
+        {
             return;
         }
 
@@ -1070,9 +1081,15 @@ public sealed class FfmpegVideoBackdropPlayer(
         }
 
         var stride = width * 4;
-        if (pixelBuffer is null)
+        if (pixelBuffer is null || pixelBufferSize < stride * height)
         {
+            if (pixelBuffer is not null)
+            {
+                NativeMemory.AlignedFree(pixelBuffer);
+            }
+
             pixelBuffer = (byte*)NativeMemory.AlignedAlloc((nuint)(stride * height), 64);
+            pixelBufferSize = stride * height;
         }
 
         var destination = new byte_ptrArray4 { [0] = pixelBuffer };
@@ -1095,6 +1112,18 @@ public sealed class FfmpegVideoBackdropPlayer(
         }
 
         AdvanceLoopCrossfade();
+
+        // 代际收尾复查（与 ClearFrame 同一把 _gate 锁）：Stop 的 ClearFrame 若发生在过门后的
+        // sws/位图拷贝期间，刚写入的旧代帧在这里被重新清空，且不再通知——否则迟到的旧画面
+        // 会点亮新游戏的详情页（回归：VideoSource_SwitchingGames_LateStaleNotifyDoesNotLightNewGame）
+        if (Interlocked.CompareExchange(ref _generation, 0, 0) != generation)
+        {
+            _frame = null;
+            _fadeFrame = null;
+            _fadeOpacity = 0;
+            return;
+        }
+
         notify.Post(NotifyFrame);
     }
 

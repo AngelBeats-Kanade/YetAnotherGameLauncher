@@ -339,11 +339,13 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             }
 
             PendingProtonUpdateTag = tag;
-            // 删旧版对运行中的游戏有风险（延迟加载的 .so 失效），确认文案明示先退出
+            // 删旧版对运行中的游戏有风险（延迟加载的 .so 失效），确认文案明示先退出。
+            // 版本号 token 过连字符插入 WORD JOINER，窄卡内换行不断在 token 中间
+            // （截图评审实锤：GE-Proton11-6 曾被拆成"GE-"行尾 + "Proton11-6"次行）
             ProtonUpdateConfirmMessage = _loc.Format(
                 "launch_proton_update_confirm",
-                tag,
-                localName ?? _loc["launch_proton_not_installed"])
+                KeepWholeToken(tag),
+                KeepWholeToken(localName ?? _loc["launch_proton_not_installed"]))
                 + "\n" + _loc["launch_proton_update_running_hint"];
             ProtonUpdateState = ProtonUpdateCheckState.UpdateAvailable;
             ShowProtonUpdateConfirm = true;
@@ -415,6 +417,10 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     /// <summary>上游 tag 是否比本地版本新（数字段自然序，单一事实源 CompatTools.NumericSortKey）。</summary>
     private static bool IsUpstreamNewer(string localName, string tag) =>
         string.CompareOrdinal(CompatTools.NumericSortKey(tag), CompatTools.NumericSortKey(localName)) > 0;
+
+    /// <summary>版本号过每个连字符插入 WORD JOINER（U+2060，零宽不可见）：
+    /// 换行只在空白/标点处发生，版本号 token 保持完整（HarfBuzz 对 default-ignorable 不渲染字形）。</summary>
+    private static string KeepWholeToken(string token) => token.Replace("-", "-\u2060");
 
     /// <summary>umu 启动可选的 Proton 发行版代号（显示名即代号；DW 在前为默认）。</summary>
     public IReadOnlyList<string> ProtonFlavors => CompatTools.ProtonFlavors;
