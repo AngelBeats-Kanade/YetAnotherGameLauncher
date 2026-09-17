@@ -337,9 +337,11 @@ public sealed partial class KuroGachaService(HttpClient httpClient, string? cach
             }
 
             var sorted = merged.Values.OrderByDescending(r => r.Time).ToList();
-            File.WriteAllText(
-                Path.Combine(CacheDirectory, CacheFileName),
-                JsonSerializer.Serialize(new GachaCache(sorted), GachaJsonOptions));
+            // 原子写：先写 .tmp 再改名，写一半崩溃不损坏既有缓存（保持 Sync 语义：调用方为同步管线）
+            var cachePath = Path.Combine(CacheDirectory, CacheFileName);
+            var tempPath = cachePath + ".tmp";
+            File.WriteAllText(tempPath, JsonSerializer.Serialize(new GachaCache(sorted), GachaJsonOptions));
+            File.Move(tempPath, cachePath, overwrite: true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

@@ -10,6 +10,7 @@ namespace YetAnotherGameLauncher.AppTests;
 /// 2) 来回切换选中不再触发版本检测（会话缓存）；
 /// 3) 版本号变化触发背景解析器重调 + http 图标绕过缓存重取；版本不变时零网络零解析器调用。
 /// </summary>
+[Collection("sequential")]
 public sealed class StartupAssetPreloadTests
 {
     private const string IconUrl1 = "https://cdn.example/icon-wu.png";

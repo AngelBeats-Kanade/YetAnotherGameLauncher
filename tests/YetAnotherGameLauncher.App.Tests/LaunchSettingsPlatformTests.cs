@@ -7,6 +7,7 @@ namespace YetAnotherGameLauncher.AppTests;
 
 /// <summary>启动设置卡：启动方式仅 umu/直接运行两项（umu 仅 Linux 面板展示）；
 /// Linux 推荐 umu 启动（+SteamOS/NVAPI+默认 DW-Proton 代号），Proton 发行版切换写入 PROTONPATH。</summary>
+[Collection("sequential")]
 public class LaunchSettingsPlatformTests : IDisposable
 {
     private readonly VmFactory.Context _ctx;

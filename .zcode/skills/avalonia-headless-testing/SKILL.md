@@ -83,9 +83,10 @@ public async Task Window_Shows_Items()
 ## 4. 线程与并发规则
 
 - 所有 UI 对象操作必须在 `Dispatch` 内；`Application.Current` 属于 headless UI 线程。
-- **`Dispatch` 只收 `Action`（async lambda 即 async void），且不在 Dispatch 期间泵异步续体**：
+- **`Dispatch(Action)` 重载不泵异步续体**（async lambda 即 async void）：
   服务内部 `await HttpClient`/`Task.Delay` 之类的真异步调用挂进去会**永久卡死**（await 后的续体
-  排进无人泵的队列）。非 UI 的异步服务调用（背景图加载等）在测试 ctor 触发
+  排进无人泵的队列）。12.1.2 起另有 `Dispatch(Func<Task>, CancellationToken) → Task` 可等待重载
+  且不被此坑（`StartupAssetPreloadTests`/`SettingsHeadlessTests` 在用）。非 UI 的异步服务调用（背景图加载等）在测试 ctor 触发
   `HeadlessSession.Instance` 启动会话后**测试线程直调**即可——Bitmap 解码只依赖全局
   Avalonia locator，线程无关（先例：`BackgroundResilienceTests`）。直接在 Dispatch 外调
   `new Bitmap(...)` 会因 locator 未初始化抛 `IPlatformRenderInterface` 缺失。

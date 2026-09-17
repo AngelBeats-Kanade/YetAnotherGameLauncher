@@ -6,6 +6,7 @@ using YetAnotherGameLauncher.ViewModels;
 namespace YetAnotherGameLauncher.AppTests;
 
 /// <summary>T6/T7：设置卡组件状态与错误覆盖层重试动作。</summary>
+[Collection("sequential")]
 public sealed class NativeUmuUiActionTests : IDisposable
 {
     private readonly VmFactory.Context _ctx;

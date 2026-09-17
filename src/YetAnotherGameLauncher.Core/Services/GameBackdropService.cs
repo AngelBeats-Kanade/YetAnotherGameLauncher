@@ -232,7 +232,10 @@ public sealed class GameBackdropService(
     private async Task<string?> DownloadToFileAsync(
         string url, string cacheDir, string baseName, CancellationToken cancellationToken)
     {
-        var ext = Path.GetExtension(new Uri(url).AbsolutePath) is { Length: > 1 } e ? e : ".img";
+        // 官方配置给出的地址逆向协议不可信：畸形 URL 走默认扩展名，交由下载失败回退兜底
+        var ext = Uri.TryCreate(url, UriKind.Absolute, out var parsed)
+            ? Path.GetExtension(parsed.AbsolutePath) is { Length: > 1 } e ? e : ".img"
+            : ".img";
         var tempPath = Path.Combine(cacheDir, $"download-{Guid.NewGuid():N}{ext}");
 
         // 视频可达数十 MB：流式写盘而非整块读入内存
