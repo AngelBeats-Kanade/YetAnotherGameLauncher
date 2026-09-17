@@ -46,6 +46,12 @@ public sealed class StubHttpHandler : HttpMessageHandler
         var ranged = range is not null && !IgnoreRangeAndReturnFull;
         var start = (int)(ranged ? range!.From ?? 0 : 0);
 
+        if (ranged && start >= content.Length)
+        {
+            // 规范服务器行为：Range 起点不小于内容长度时整个范围不可满足，回 416
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.RequestedRangeNotSatisfiable));
+        }
+
         var slice = start == 0 ? content : content[start..];
         var response = new HttpResponseMessage(ranged && start > 0
             ? HttpStatusCode.PartialContent

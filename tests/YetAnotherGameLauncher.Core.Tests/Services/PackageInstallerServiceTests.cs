@@ -146,6 +146,33 @@ public class PackageInstallerServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task InstallAsync_DirectoryEntryEscapingSandbox_ThrowsAndCreatesNothing()
+    {
+        // 回归：目录条目（以 / 结尾）曾先于 .. 校验早退，恶意包可在安装目录外建目录
+        var zip = TestZip.Create(("../evil_dir/", ""), ("ok.txt", "ok"));
+        _downloader.Responses[ZipUrl] = zip;
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => new PackageInstallerService(_downloader).InstallAsync(_tempDir.Path, ManifestFor(zip)));
+
+        Assert.Contains("escapes", ex.Message);
+        Assert.False(Directory.Exists(Path.Combine(_tempDir.Path, "..", "evil_dir")));
+        Assert.False(File.Exists(_tempDir.FilePath("ok.txt"))); // 恶意条目在前，后续条目不再解压
+    }
+
+    [Fact]
+    public async Task InstallAsync_BenignDirectoryEntries_StillExtractFiles()
+    {
+        // 正常打包器的目录条目不受沙箱校验收紧影响
+        var zip = TestZip.Create(("SubDir/", ""), ("SubDir/file.txt", "inside"));
+        _downloader.Responses[ZipUrl] = zip;
+
+        await new PackageInstallerService(_downloader).InstallAsync(_tempDir.Path, ManifestFor(zip));
+
+        Assert.Equal("inside", await File.ReadAllTextAsync(_tempDir.FilePath("SubDir", "file.txt")));
+    }
+
+    [Fact]
     public async Task InstallAsync_ExistingReadOnlyTarget_Overwritten()
     {
         // Windows 上只读目标会让 overwrite 抛 UnauthorizedAccessException；解压前就地解除属性

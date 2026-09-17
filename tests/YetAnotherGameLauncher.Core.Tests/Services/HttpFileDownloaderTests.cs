@@ -149,6 +149,40 @@ public class HttpFileDownloaderTests : IDisposable
     }
 
     [Fact]
+    public async Task DownloadFileAsync_CompleteTempWithExpectedSize_PlacesWithoutAnyRequest()
+    {
+        // 回归：.temp 已达期望尺寸（下载完、落盘前退出，或目标被占用后重试）时，
+        // 续传请求不可满足会被规范服务器回 416 → 误分类为网络错误 → 重试耗尽成死路。
+        // 现应跳过请求直接校验落盘。
+        await File.WriteAllBytesAsync(_tempDir.FilePath("file.bin.temp"), Content);
+        _handler.Map(Url, Content);
+
+        await CreateDownloader().DownloadFileAsync(
+            Request(expectedSize: Content.Length, expectedMd5: Hashing.Md5Hex(Content)), cancellationToken: Ct);
+
+        Assert.Empty(_handler.Requests); // 零网络请求
+        Assert.Equal(Content, await File.ReadAllBytesAsync(_tempDir.FilePath("file.bin")));
+    }
+
+    [Fact]
+    public async Task DownloadFileAsync_ServerRejectsResumeWith416_DeletesTempAndRestartsFromScratch()
+    {
+        // 远端内容比 .temp 还短（换资源/缩水）：416 后按校验失败丢弃 .temp 从零重下，而非死路
+        var stale = "stale-temp-content-longer-than-remote-content"u8.ToArray();
+        await File.WriteAllBytesAsync(_tempDir.FilePath("file.bin.temp"), stale);
+        var fresh = "fresh"u8.ToArray();
+        _handler.Map(Url, fresh);
+
+        await CreateDownloader().DownloadFileAsync(Request(), cancellationToken: Ct);
+
+        Assert.Equal(2, _handler.Requests.Count); // 首次带 Range 收 416，随后从零重下
+        Assert.NotNull(_handler.Requests[0].Headers.Range);
+        Assert.Null(_handler.Requests[1].Headers.Range);
+        Assert.Equal(fresh, await File.ReadAllBytesAsync(_tempDir.FilePath("file.bin")));
+        Assert.False(File.Exists(_tempDir.FilePath("file.bin.temp")));
+    }
+
+    [Fact]
     public async Task DownloadFileAsync_RetriesTransientFailures()
     {
         _handler.Map(Url, Content);

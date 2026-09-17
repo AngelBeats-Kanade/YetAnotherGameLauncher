@@ -237,6 +237,37 @@ public class IncrementalUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public void ReplaceWithBackup_PlaceMoveFails_InFlightEntryRestored()
+    {
+        // 回归：落位 Move（新文件 → 目标）失败时该条目若未登记，回滚会遗漏它——
+        // 组内留下缺失文件、原内容孤悬 .yagl-bak，重试只能整包重下。
+        // 构造：a.dat 正常落位；b.dat 原文存在但 newdir 里没有产物，其落位 Move 必然失败。
+        var oldA = "old-a"u8.ToArray();
+        var newA = "new-a"u8.ToArray();
+        var oldB = "old-b"u8.ToArray();
+        var newDir = Path.Combine(_tempDir.Path, "newdir");
+        Directory.CreateDirectory(newDir);
+        File.WriteAllBytes(_tempDir.FilePath("a.dat"), oldA);
+        File.WriteAllBytes(_tempDir.FilePath("b.dat"), oldB);
+        File.WriteAllBytes(Path.Combine(newDir, "a.dat"), newA);
+
+        var group = new PatchGroup(
+            "g1.krpdiff", 1, "x",
+            [FileEntry("a.dat", oldA), FileEntry("b.dat", oldB)],
+            [FileEntry("a.dat", newA), FileEntry("b.dat", newA)],
+            Url("g1.krpdiff"));
+
+        var ex = Assert.Throws<UpdateException>(
+            () => IncrementalUpdateService.ReplaceWithBackup(_tempDir.Path, group, newDir));
+
+        Assert.Contains("rolled back", ex.Message);
+        // 两个文件都必须还原为旧内容（修复前 b.dat 缺失、oldB 孤悬 b.dat.yagl-bak）
+        Assert.Equal(oldA, File.ReadAllBytes(_tempDir.FilePath("a.dat")));
+        Assert.Equal(oldB, File.ReadAllBytes(_tempDir.FilePath("b.dat")));
+        Assert.Empty(Directory.EnumerateFiles(_tempDir.Path, "*.yagl-bak", SearchOption.AllDirectories));
+    }
+
+    [Fact]
     public async Task StagedManifest_RoundTrips()
     {
         var group = PrepareGroup(

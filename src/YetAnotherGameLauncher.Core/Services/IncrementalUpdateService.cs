@@ -261,8 +261,14 @@ public sealed class IncrementalUpdateService(
             return ManifestVerifier.CheckFile(target, dst, withMd5: true) == FileStatus.Ok;
         });
 
-    /// <summary>带备份的安全替换：任一文件替换失败时回滚本组全部已替换文件。</summary>
-    private static void ReplaceWithBackup(string installDir, PatchGroup group, string newDir)
+    /// <summary>
+    /// 带备份的安全替换：任一文件替换失败时回滚本组全部已替换文件。
+    /// 条目在落位 Move 之前登记——落位本身失败（如 Windows 杀软锁文件）时在途条目
+    /// 也要还原，否则组内留下缺失文件而原内容孤悬在 backup 里，重试只能整包重下。
+    /// 回滚尽力而为：单个文件回滚失败不吞掉其余文件的还原，失败项拼进错误消息。
+    /// internal 供单测（经 InternalsVisibleTo）。
+    /// </summary>
+    internal static void ReplaceWithBackup(string installDir, PatchGroup group, string newDir)
     {
         var replaced = new List<(string Target, string Backup, bool HadOriginal)>();
         try
@@ -278,27 +284,44 @@ public sealed class IncrementalUpdateService(
                     File.Move(target, backup, overwrite: true);
                 }
 
+                replaced.Add((target, backup, hadOriginal));
+
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                 File.Move(SafeJoin(newDir, dst.Path), target);
-                replaced.Add((target, backup, hadOriginal));
             }
         }
         catch (Exception ex)
         {
+            var rollbackErrors = new List<string>();
             foreach (var (target, backup, hadOriginal) in replaced)
             {
-                if (File.Exists(target))
+                try
                 {
-                    File.Delete(target);
-                }
+                    if (hadOriginal && File.Exists(backup))
+                    {
+                        // 覆盖在途条目（新文件未落位，target 缺失）与已落位条目两种情形
+                        if (File.Exists(target))
+                        {
+                            File.Delete(target);
+                        }
 
-                if (hadOriginal && File.Exists(backup))
+                        File.Move(backup, target, overwrite: true);
+                    }
+                    else if (File.Exists(target))
+                    {
+                        File.Delete(target);
+                    }
+                }
+                catch (Exception rollbackEx)
                 {
-                    File.Move(backup, target, overwrite: true);
+                    rollbackErrors.Add($"{Path.GetFileName(target)}: {rollbackEx.Message}");
                 }
             }
 
-            throw new UpdateException($"Failed to swap files, group rolled back ({group.PatchFile}): {ex.Message}", ex);
+            var note = rollbackErrors.Count > 0
+                ? $" (rollback incomplete: {string.Join("; ", rollbackErrors)})"
+                : string.Empty;
+            throw new UpdateException($"Failed to swap files, group rolled back{note} ({group.PatchFile}): {ex.Message}", ex);
         }
 
         foreach (var (_, backup, _) in replaced)

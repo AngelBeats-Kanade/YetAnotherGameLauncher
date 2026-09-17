@@ -100,6 +100,14 @@ public sealed class HttpFileDownloader(
     {
         var existingTempBytes = File.Exists(tempPath) ? new FileInfo(tempPath).Length : 0;
 
+        // .temp 已达期望尺寸（上次下载完成、校验/落盘前退出，或目标曾被占用后重试）：
+        // 不再发不可满足的 Range 请求——规范服务器回 416，会被下方按网络错误重试，重试耗尽成死路。
+        // 直接返回交由上层 Verify 校验：MD5 相符则落盘，不符则走 DownloadVerificationException 丢弃重下。
+        if (request.ExpectedSize is long expected && existingTempBytes == expected)
+        {
+            return;
+        }
+
         using var requestMessage = new HttpRequestMessage(HttpMethod.Get, request.Url);
         if (existingTempBytes > 0)
         {
@@ -108,6 +116,14 @@ public sealed class HttpFileDownloader(
 
         using var response = await httpClient.SendAsync(
             requestMessage, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        if (response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
+        {
+            // 416：Range 起点不小于远端内容长度。已达期望尺寸的场景已在上面拦截，
+            // 走到这里说明续传前提已坏（远端变短/换了资源），按校验失败丢弃 .temp 重下。
+            throw new DownloadVerificationException(
+                $"Resume of {request.Url} from byte {existingTempBytes} rejected by server (416); remote content may have changed.");
+        }
+
         response.EnsureSuccessStatusCode();
 
         // 仅当服务器确实按 Range 返回 206 时才算续传；返回 200 说明服务器忽略了 Range，需要重写

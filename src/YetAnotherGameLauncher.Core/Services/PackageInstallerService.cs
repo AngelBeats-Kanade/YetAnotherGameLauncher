@@ -174,21 +174,22 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
     }
 
     /// <summary>
-    /// 解压条目落点：归一 '\'→'/'、去首部 '/'，拒绝 ".." 段与盘符根（清单不可信，防穿越）；
+    /// 解压条目落点：归一 '\'→'/'、去首部 '/'，拒绝 ".." 段与盘符根（清单不可信，防穿越——
+    /// 目录条目与文件条目一视同仁，否则仅含恶意目录条目的包可在安装目录外建目录）；
     /// 目录条目（含空名）返回 null 并由调用方建目录，普通条目返回安装目录内的绝对路径。
     /// </summary>
     private static string? ResolveEntryTarget(string installDir, string entryName)
     {
         var normalized = entryName.Replace('\\', '/').TrimStart('/');
-        if (normalized.Length == 0 || normalized.EndsWith('/'))
-        {
-            return null;
-        }
-
         var parts = normalized.Split('/');
         if (parts.Contains("..", StringComparer.Ordinal) || Path.IsPathRooted(normalized))
         {
             throw new IOException($"Archive entry escapes sandbox: {entryName}");
+        }
+
+        if (normalized.Length == 0 || normalized.EndsWith('/'))
+        {
+            return null;
         }
 
         return Path.Combine([installDir, .. parts]);
