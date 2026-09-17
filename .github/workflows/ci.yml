@@ -60,14 +60,30 @@ jobs:
       - name: Build (zero warnings)
         run: dotnet build --no-restore -warnaserror
       # 官方模板用 dotnet test --no-build；本仓库验证过的方式是直接运行 xunit.v3/MTP
-      # 测试执行体（dotnet test 在部分环境发现 0 个测试），失败即非零退出码
+      # 测试执行体（dotnet test 在部分环境发现 0 个测试），失败即非零退出码。
+      # 失败时把 [FAIL] 用例名写进 ::error:: 注解——actions 日志需要管理员权限才能拉取，
+      # 注解走 check-runs API 公开可读，任何环境都能直接定位偶发用例
       - name: Test
         shell: bash
         run: |
-          dotnet tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll
-          dotnet tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll
-          dotnet tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll
-          dotnet tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Hypergryph.Tests.dll
+          set -o pipefail
+          suites=(
+            tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll
+            tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll
+            tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll
+            tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Hypergryph.Tests.dll
+          )
+          overall=0
+          for suite in "${suites[@]}"; do
+            name="$(basename "$suite" .dll)"
+            echo "=== $name ==="
+            dotnet "$suite" 2>&1 | tee "/tmp/${name}.log" || overall=1
+          done
+          if [ "$overall" -ne 0 ]; then
+            failed="$(grep -hE '\[FAIL\]' /tmp/*.log | sed 's/^[[:space:]]*//' | head -20 | tr '\n' ' ')"
+            echo "::error::failing cases: ${failed:-（详见对应 suite 日志）}"
+            exit 1
+          fi
 
   # v* tag 专属：Release 配置双平台自包含发布物并打包。
   # needs 测试门禁——绿 tag 才出包；ubuntu 原生构建的 linux 包比本机（滚动发行版）glibc 门槛更低
