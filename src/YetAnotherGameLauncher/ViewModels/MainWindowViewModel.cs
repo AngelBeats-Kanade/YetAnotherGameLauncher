@@ -491,7 +491,6 @@ public partial class MainWindowViewModel : ViewModelBase
                 ConfigError = false;
                 loaded = true;
                 StatusMessage = _loc.Format("message_configCreated", ConfigFilePath);
-                await ApplyLinuxFirstRunLaunchDefaultsAsync(catalog, cancellationToken);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or GameCatalogValidationException)
             {
@@ -499,23 +498,36 @@ public partial class MainWindowViewModel : ViewModelBase
                 StatusMessage = ex is GameCatalogValidationException
                     ? ex.Message
                     : _loc.Format("message_configReadFailed", ex.Message);
-                _catalogService.Catalog = catalog;
+            }
+
+            if (loaded)
+            {
+                // Linux 首运默认模板升级失败不致命（下次启动重试，与迁移的兜底一致）；
+                // 不置 ConfigError——文件已建成且有效，误报"读取失败"会误导用户。
+                // 不能并入上面的内层 try：那会把升级写盘失败误报成读取失败
+                try
+                {
+                    await ApplyLinuxFirstRunLaunchDefaultsAsync(catalog, cancellationToken);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                }
             }
         }
         catch (GameCatalogValidationException ex)
         {
-            // 手改 games.json 是受支持的工作流：校验失败只提示、绝不写盘——
-            // 下面的迁移会推进 SchemaVersion 并 SaveAsync，把用户文件覆盖成空目录就是数据丢失
+            // 手改 games.json 是受支持的工作流：校验失败只提示、绝不写盘。
+            // Catalog 必须保持 null：PersistWindowState 与一切设置保存路径都以
+            // "Catalog is null 静默跳过"为最后防线——若把空目录装回去，用户看完错误
+            // 提示随手关窗就会把 games.json 覆盖成空配置（数据丢失，实测复现过）
             ConfigError = true;
             StatusMessage = ex.Message;
-            _catalogService.Catalog = catalog;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // 配置不可读/不可写（占用、权限、磁盘故障）：同样只提示、不写盘
+            // 配置不可读/不可写（占用、权限、磁盘故障）：同样只提示、不写盘、Catalog 保持 null
             ConfigError = true;
             StatusMessage = _loc.Format("message_configReadFailed", ex.Message);
-            _catalogService.Catalog = catalog;
         }
 
         // 迁移会无条件 SaveAsync：只有本次确实加载成功才允许改写用户配置，

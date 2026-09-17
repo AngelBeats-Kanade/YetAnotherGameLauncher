@@ -209,8 +209,10 @@ public sealed class GameBackdropService(
                     posterFile is null ? source.PosterUrl : Path.Combine(cacheDir, posterFile)));
         }
         catch (Exception ex) when ((ex is HttpRequestException or IOException or InvalidOperationException
-            or TaskCanceledException) && !cancellationToken.IsCancellationRequested)
+            or FormatException or NotSupportedException or TaskCanceledException) && !cancellationToken.IsCancellationRequested)
         {
+            // FormatException/NotSupportedException：畸形或非 http(s) 的 url 在构造请求时抛出，
+            // 同样走"本次失败回退缓存/主题渐变"，不能穿透服务层
             logger?.LogInformation("Backdrop download failed: {Message}", ex.Message);
             // 枚举本身的失败不能遮盖上面的主异常
             try

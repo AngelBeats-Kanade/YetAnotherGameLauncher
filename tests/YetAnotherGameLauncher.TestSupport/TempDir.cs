@@ -22,9 +22,9 @@ public sealed class TempDir : IDisposable
         {
             Directory.Delete(Path, recursive: true);
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // 删除失败不影响测试结果
+            // 删除失败不影响测试结果（Windows 上杀软/索引器咬住会抛 UnauthorizedAccessException）
         }
     }
 }

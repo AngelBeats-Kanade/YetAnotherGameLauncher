@@ -213,4 +213,4 @@ Steam Runtime 容器与 Proton，发行版三选一），由启动器自动生�
 | `.yagl/packages` | 包式安装的临时压缩包（解压后清理） |
 | `*.yagl-bak` | 差分替换的备份文件（成功即删，仅失败恢复时短暂存在） |
 
-清理游离文件时，`Saved/` 存档目录、`.yagl/`、`launcherDownloadConfig.json` 与 `compatdata/`（旧版推荐配置的 Proton prefix 位置，内有注册表/着色器缓存/用户数据）永远保留。清理枚举不穿过目录符号链接/junction（链接目标在安装树之外也绝不会被删）。
+清理游离文件时，`Saved/` 存档目录、`.yagl/`、`launcherDownloadConfig.json` 与 `compatdata/`（旧版推荐配置的 Proton prefix 位置，内有注册表/着色器缓存/用户数据）永远保留。清理枚举不穿过目录符号链接/junction（链接目标在安装树之外也绝不会被删），无权限读取的子目录会被静默跳过。

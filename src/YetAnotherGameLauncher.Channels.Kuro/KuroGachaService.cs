@@ -337,9 +337,10 @@ public sealed partial class KuroGachaService(HttpClient httpClient, string? cach
             }
 
             var sorted = merged.Values.OrderByDescending(r => r.Time).ToList();
-            // 原子写：先写 .tmp 再改名，写一半崩溃不损坏既有缓存（保持 Sync 语义：调用方为同步管线）
+            // 原子写：先写唯一名 .tmp 再改名，写一半崩溃不损坏既有缓存（保持 Sync 语义：调用方为同步管线）；
+            // tmp 名带 Guid：唤取页每次进入都新建 ViewModel，两个 RefreshAsync 并发写同一固定名会互相撕裂
             var cachePath = Path.Combine(CacheDirectory, CacheFileName);
-            var tempPath = cachePath + ".tmp";
+            var tempPath = $"{cachePath}.{Guid.NewGuid():N}.tmp";
             File.WriteAllText(tempPath, JsonSerializer.Serialize(new GachaCache(sorted), GachaJsonOptions));
             File.Move(tempPath, cachePath, overwrite: true);
         }
