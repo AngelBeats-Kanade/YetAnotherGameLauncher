@@ -98,11 +98,19 @@ public sealed class SystemProcessRunner(
             }
 
             // 提权路径（UseShellExecute=true）拿不到输出管道：日志到此为止，写明原因后释放句柄。
-            // 不释放会泄漏 StreamWriter 且留下只有头部的空壳日志，误导秒退排查
+            // 不释放会泄漏 StreamWriter 且留下只有头部的空壳日志，误导秒退排查；
+            // 写/释放自身的 I/O 失败也不应打断提权重试（置 null 保证后续兜底不重复处理）
             if (logWriter is not null)
             {
-                logWriter.WriteLine("# elevated via shell (requireAdministrator): output capture unavailable.");
-                logWriter.Dispose();
+                try
+                {
+                    logWriter.WriteLine("# elevated via shell (requireAdministrator): output capture unavailable.");
+                    logWriter.Dispose();
+                }
+                catch (Exception ioEx) when (ioEx is IOException or ObjectDisposedException)
+                {
+                }
+
                 logWriter = null;
             }
 

@@ -337,6 +337,17 @@ public sealed class UmuComponentProvisionerTests : IDisposable
     }
 
     [Fact]
+    public async Task EnsureRuntimeAsync_CatalogFetchFails_ClassifiesAsUmuRuntimeDownloadFailed()
+    {
+        // 回归：runtime 版本号/SHA256SUMS/BUILD_ID 拉取失败曾以裸 HttpRequestException 逃逸，
+        // 在 VM 落 Unknown 丢重试修复 UI；应与包本体下载同归类为 UmuRuntimeDownloadFailed
+        var ex = await Assert.ThrowsAsync<LaunchException>(
+            () => _provisioner.EnsureRuntimeAsync("sniper", "SteamLinuxRuntime_sniper"));
+
+        Assert.Equal(LaunchFailureKind.UmuRuntimeDownloadFailed, ex.Kind);
+    }
+
+    [Fact]
     public async Task UpdateProtonAsync_InstallsLatestAndPrunesSameFlavorOldVersions()
     {
         InstallReadyProton("GE-Proton10-9");

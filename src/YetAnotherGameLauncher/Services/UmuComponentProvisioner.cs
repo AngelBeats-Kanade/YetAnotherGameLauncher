@@ -758,29 +758,31 @@ public sealed class UmuComponentProvisioner(
             ?? new SteamRuntimeInfo(runtimeName, variant, "", "x86_64");
 
         var images = SteamRuntimeCatalog.ImagesPathPrefix(info);
-        var version = await FetchTextAsync(
-            $"{RuntimeHost}{images}/latest-public-beta.txt", cancellationToken).ConfigureAwait(false);
-        version = version.Trim();
-        if (version.Length == 0)
-        {
-            throw new LaunchException(
-                LaunchFailureKind.UmuRuntimeDownloadFailed,
-                "无法解析 Steam Runtime 版本号（latest-public-beta.txt 为空）。");
-        }
-
         var archive = SteamRuntimeCatalog.ArchiveFileName(info);
-        var baseUrl = $"{RuntimeHost}{images}/{version}";
-        var sums = await FetchTextAsync($"{baseUrl}/SHA256SUMS", cancellationToken).ConfigureAwait(false);
-        var expectedSha = ParseSha256For(sums, archive);
-        var buildId = (await FetchTextAsync($"{baseUrl}/BUILD_ID.txt", cancellationToken).ConfigureAwait(false)).Trim();
-
-        var cache = UmuPaths.CacheRoot(cacheHome);
-        Directory.CreateDirectory(cache);
-        var archivePath = Path.Combine(cache, $"{archive}.{buildId}");
-        progress?.Report($"正在下载 Steam Runtime {version}…");
-
+        string archivePath;
         try
         {
+            // 版本号/SHA256SUMS/BUILD_ID 的裸 HttpRequestException 与下载器的 DownloadException
+            // 统一转 UmuRuntimeDownloadFailed：漏网的会在 VM 落 Unknown，丢失重试修复 UI
+            var version = (await FetchTextAsync(
+                $"{RuntimeHost}{images}/latest-public-beta.txt", cancellationToken).ConfigureAwait(false)).Trim();
+            if (version.Length == 0)
+            {
+                throw new LaunchException(
+                    LaunchFailureKind.UmuRuntimeDownloadFailed,
+                    "无法解析 Steam Runtime 版本号（latest-public-beta.txt 为空）。");
+            }
+
+            var baseUrl = $"{RuntimeHost}{images}/{version}";
+            var sums = await FetchTextAsync($"{baseUrl}/SHA256SUMS", cancellationToken).ConfigureAwait(false);
+            var expectedSha = ParseSha256For(sums, archive);
+            var buildId = (await FetchTextAsync($"{baseUrl}/BUILD_ID.txt", cancellationToken).ConfigureAwait(false)).Trim();
+
+            var cache = UmuPaths.CacheRoot(cacheHome);
+            Directory.CreateDirectory(cache);
+            archivePath = Path.Combine(cache, $"{archive}.{buildId}");
+            progress?.Report($"正在下载 Steam Runtime {version}…");
+
             await downloader.DownloadFileAsync(
                 new DownloadRequest($"{baseUrl}/{archive}", archivePath, ExpectedSize: null, ExpectedMd5: null),
                 null,
@@ -791,10 +793,10 @@ public sealed class UmuComponentProvisioner(
                 await VerifySha256Async(archivePath, expectedSha, cancellationToken).ConfigureAwait(false);
             }
         }
-        catch (DownloadException ex)
+        catch (Exception ex) when (ex is DownloadException or HttpRequestException)
         {
-            // 下载器网络重试耗尽抛 DownloadException（含校验失败的 DownloadVerificationException）：
-            // 不在此转成 LaunchException 会以 Unknown 逃逸到 VM，丢失重试修复 UI
+            // 下载器网络重试耗尽抛 DownloadException（含校验失败的 DownloadVerificationException）；
+            // 版本号拉取等直连请求抛 HttpRequestException——取消（OperationCanceledException）不匹配过滤器照常传播
             throw new LaunchException(
                 LaunchFailureKind.UmuRuntimeDownloadFailed,
                 $"Steam Runtime 下载失败：{ex.Message}",
