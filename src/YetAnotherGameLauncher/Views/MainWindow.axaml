@@ -375,7 +375,10 @@
 
         <!-- ========== 轻提示气泡（右上角瞬态信息：版本检测结果/检测到游戏） ========== -->
         <Style Selector="Border.toast-card">
-            <!-- 近实心专属底（方案 A toast .94）+ 加重阴影；不用共享 AppCardBackground（太透） -->
+            <!-- 近实心专属底（方案 A toast .94）；不用共享 AppCardBackground（太透）。
+                 层次靠 1px 描边 + 近实心底，不用 BoxShadow：真机渲染管线（原生 Wayland +
+                 NVIDIA + HDR 输出）会把模糊阴影呈成边缘生硬的灰色矩形板（2026-09-17 实锤，
+                 headless 截图反而正常）——细节见 AGENTS.md -->
             <Setter Property="Background" Value="{DynamicResource AppToastBackground}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource AppCardBorder}"/>
             <Setter Property="BorderThickness" Value="1"/>
@@ -383,7 +386,6 @@
             <Setter Property="Padding" Value="14,12"/>
             <Setter Property="MinWidth" Value="260"/>
             <Setter Property="MaxWidth" Value="360"/>
-            <Setter Property="BoxShadow" Value="0 8 24 #59000000"/>
         </Style>
         <Style Selector="Border.toast-card TextBlock.toast-title">
             <Setter Property="FontSize" Value="13"/>
@@ -431,7 +433,7 @@
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="14"/>
             <Setter Property="Padding" Value="20"/>
-            <Setter Property="BoxShadow" Value="0 16 40 #4D000000"/>
+            <!-- 无 BoxShadow：真机 HDR 路径会把模糊阴影呈成硬边矩形板（同 toast-card，见 AGENTS.md） -->
         </Style>
         <!-- 主操作钮走 accent：Fluent 在 presenter 层逐状态设背景，这里同样下沉覆盖（含前景） -->
         <Style Selector="Button.launch-error-primary">
@@ -683,13 +685,13 @@
                                              左缩进 12 = 距内容卡左缘 28px（对齐预览标题位） -->
                                         <StackPanel Grid.Row="0" VerticalAlignment="Top" HorizontalAlignment="Left"
                                                     Margin="12,10,0,0" Spacing="14">
-                                            <!-- 校验修复确认条（包式渠道无逐文件清单：修复=整包重下覆盖安装，需确认） -->
+                                            <!-- 校验修复确认条（包式渠道无逐文件清单：修复=整包重下覆盖安装，需确认）；
+                                                 无 BoxShadow：真机 HDR 路径会把模糊阴影呈成硬边矩形板（同 toast-card） -->
                                             <Border HorizontalAlignment="Left"
                                                     Padding="16,12" CornerRadius="12"
                                                     Background="{DynamicResource AppOnArtworkCard}"
                                                     BorderBrush="{DynamicResource AppOnArtworkCardBorder}"
                                                     BorderThickness="1"
-                                                    BoxShadow="0 8 24 #40000000"
                                                     IsVisible="{Binding ShowRepairConfirm}">
                                                 <StackPanel Orientation="Horizontal" Spacing="14">
                                                     <TextBlock Text="{Binding RepairConfirmText}" MaxWidth="430"
