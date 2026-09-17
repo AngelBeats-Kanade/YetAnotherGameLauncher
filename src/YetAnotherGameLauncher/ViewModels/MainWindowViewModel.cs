@@ -470,32 +470,63 @@ public partial class MainWindowViewModel : ViewModelBase
         StatusMessage = "";
         ConfigError = false;
         var catalog = new GameCatalog();
+        var loaded = false;
         try
         {
             await _catalogService.LoadAsync(cancellationToken);
             catalog = _catalogService.Catalog!;
             ConfigError = false;
+            loaded = true;
         }
         catch (FileNotFoundException)
         {
-            // 首次运行：在默认位置生成默认配置文件（优先使用随应用分发的模板），随后加载
-            await _catalogService.CreateDefaultFileAsync(_defaultConfigTemplateFactory?.Invoke(), cancellationToken);
-            await _catalogService.LoadAsync(cancellationToken);
-            catalog = _catalogService.Catalog!;
-            ConfigError = false;
-            StatusMessage = _loc.Format("message_configCreated", ConfigFilePath);
-            await ApplyLinuxFirstRunLaunchDefaultsAsync(catalog, cancellationToken);
+            // 首次运行：在默认位置生成默认配置文件（优先使用随应用分发的模板），随后加载。
+            // 生成/读取中途的失败（配置路径被占用成目录、权限等）不能逃出本方法——catch 块内
+            // 抛出的异常不会被同级过滤器接住，需内层再兜；同样只提示、不写盘
+            try
+            {
+                await _catalogService.CreateDefaultFileAsync(_defaultConfigTemplateFactory?.Invoke(), cancellationToken);
+                await _catalogService.LoadAsync(cancellationToken);
+                catalog = _catalogService.Catalog!;
+                ConfigError = false;
+                loaded = true;
+                StatusMessage = _loc.Format("message_configCreated", ConfigFilePath);
+                await ApplyLinuxFirstRunLaunchDefaultsAsync(catalog, cancellationToken);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or GameCatalogValidationException)
+            {
+                ConfigError = true;
+                StatusMessage = ex is GameCatalogValidationException
+                    ? ex.Message
+                    : _loc.Format("message_configReadFailed", ex.Message);
+                _catalogService.Catalog = catalog;
+            }
         }
         catch (GameCatalogValidationException ex)
         {
+            // 手改 games.json 是受支持的工作流：校验失败只提示、绝不写盘——
+            // 下面的迁移会推进 SchemaVersion 并 SaveAsync，把用户文件覆盖成空目录就是数据丢失
             ConfigError = true;
             StatusMessage = ex.Message;
             _catalogService.Catalog = catalog;
         }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 配置不可读/不可写（占用、权限、磁盘故障）：同样只提示、不写盘
+            ConfigError = true;
+            StatusMessage = _loc.Format("message_configReadFailed", ex.Message);
+            _catalogService.Catalog = catalog;
+        }
 
-        await MigrateFromSampleAsync(catalog, cancellationToken);
-        await MigrateLinuxBareLaunchTemplatesAsync(catalog, cancellationToken);
-        await MigrateLinuxLegacyUmuTemplatesAsync(catalog, cancellationToken);
+        // 迁移会无条件 SaveAsync：只有本次确实加载成功才允许改写用户配置，
+        // 失败分支保持文件原样等用户修复后重进
+        if (loaded)
+        {
+            await MigrateFromSampleAsync(catalog, cancellationToken);
+            await MigrateLinuxBareLaunchTemplatesAsync(catalog, cancellationToken);
+            await MigrateLinuxLegacyUmuTemplatesAsync(catalog, cancellationToken);
+        }
+
         _downloader.Limiter.BytesPerSecond = catalog.Settings.DownloadSpeedLimitBytes;
         _proxyManager?.Apply(catalog.Settings);
 

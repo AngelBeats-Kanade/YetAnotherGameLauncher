@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using YetAnotherGameLauncher.Channels.Hypergryph;
@@ -28,16 +29,46 @@ public partial class App : Application
         {
             // Avalonia 模板默认的重复 DataContext 校验在此不必要：全部 ViewModel 均为 ObservableObject
             var services = BuildServices();
+            var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("YetAnotherGameLauncher");
+            InstallGlobalExceptionLogging(logger);
             var viewModel = services.GetRequiredService<MainWindowViewModel>();
             desktop.MainWindow = new MainWindow { DataContext = viewModel };
             // 非"关窗"路径的程序性 Shutdown 也停视频（点 X 关闭已由窗口 Closing 覆盖）：
             // 退出期平台拆除会弄坏 GPU 解码栈，解码循环必须先行停止
             var videoPlayer = services.GetRequiredService<IVideoBackdropPlayer>();
             desktop.ShutdownRequested += (_, _) => videoPlayer.Stop();
-            _ = viewModel.InitializeAsync();
+            // fire-and-forget 初始化：除方法内部的分类处理外，仍可能逃逸的异常至少留日志尾巴
+            _ = viewModel.InitializeAsync().ContinueWith(
+                t => logger.LogError(t.Exception, "初始化任务异常逃逸"),
+                TaskContinuationOptions.OnlyOnFaulted);
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    /// <summary>防重复安装全局 handler 的标记（OnFrameworkInitializationCompleted 实际只走一次，防御性保留）。</summary>
+    private static int _globalExceptionLoggingInstalled;
+
+    /// <summary>
+    /// 全局异常兜底：只记日志、不改变崩溃语义。命令层由 CommunityToolkit 吞掉不抛、
+    /// fire-and-forget 任务的逃逸异常在生产环境原本完全不可见，这里保证至少有日志可查。
+    /// </summary>
+    private static void InstallGlobalExceptionLogging(ILogger logger)
+    {
+        if (Interlocked.Exchange(ref _globalExceptionLoggingInstalled, 1) == 1)
+        {
+            return;
+        }
+
+        Dispatcher.UIThread.UnhandledException += (_, e) =>
+            logger.LogError(e.Exception, "UI 线程未处理异常");
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            logger.LogError(e.Exception, "未观察任务异常");
+            e.SetObserved();
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            logger.LogCritical(e.ExceptionObject as Exception, "进程级未处理异常（IsTerminating={IsTerminating}）", e.IsTerminating);
     }
 
     /// <summary>组合根：全部服务的 DI 注册（UI 只依赖 Core 抽象与渠道实现）。</summary>

@@ -78,6 +78,7 @@
   "launch_workingDirectory": "工作目录",
   "launch_workingDirectoryHint": "留空则使用游戏安装目录。",
   "message_configCreated": "已生成默认配置文件：{0}，可参照 docs/GAME_CONFIG.md 编辑添加更多游戏。",
+  "message_configReadFailed": "配置文件读取失败，文件保持原样：{0}",
   "message_launchMigrated": "已把 Linux 启动模板升级为社区推荐配置（内置 umu 启动链）。",
   "message_saveFailed": "保存配置失败：{0}",
   "message_serversAdded": "已从内置模板补充新内容：{0}",
