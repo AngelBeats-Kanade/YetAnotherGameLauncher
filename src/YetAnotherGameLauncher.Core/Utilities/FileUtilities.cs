@@ -50,6 +50,43 @@ public static class FileUtilities
         }
     }
 
+    /// <summary>路径是否为符号链接/junction 等重解析点；探测失败按否处理（后续删除自会再兜）。</summary>
+    private static bool IsReparsePoint(string path)
+    {
+        try
+        {
+            return File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>只删除链接本身而不进目标子树：先按目录链接删，失败再按文件链接删。</summary>
+    private static bool TryDeleteLinkQuiet(string path, ILogger? logger)
+    {
+        try
+        {
+            Directory.Delete(path, recursive: false);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+
+        try
+        {
+            File.Delete(path);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger?.LogDebug(ex, "Skipped reparse point during tree delete: {Path}", path);
+            return false;
+        }
+    }
+
     /// <summary>
     /// 尽力删除目录树：逐条目删除后自底向上删子目录，返回目录是否已完全删除。
     /// Windows 上单个被占用/只读的文件会让 <see cref="Directory.Delete(string,bool)"/> 整体抛异常，
@@ -66,6 +103,18 @@ public static class FileUtilities
         var clean = true;
         foreach (var entry in Directory.EnumerateFileSystemEntries(path))
         {
+            // 符号链接/junction 只删链接本身：递归会穿过链接把目标处（可能远在自管目录之外）
+            // 的真实文件删掉。先按目录链接删，失败（实为文件链接）再按文件删。
+            if (IsReparsePoint(entry))
+            {
+                if (!TryDeleteLinkQuiet(entry, logger))
+                {
+                    clean = false;
+                }
+
+                continue;
+            }
+
             if (Directory.Exists(entry) && !File.Exists(entry))
             {
                 clean &= TryDeleteDirectory(entry, logger);

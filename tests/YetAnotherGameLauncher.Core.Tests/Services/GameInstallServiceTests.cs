@@ -71,6 +71,55 @@ public class GameInstallServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task SyncAsync_Cleanup_DoesNotFollowDirectoryLinks()
+    {
+        // 用户把安装目录内的子目录搬到安装树之外再用目录链接接回（Windows 玩家常见搬盘手法）：
+        // 清理游离文件绝不穿过链接——链接目标处（安装目录之外）的真实文件必须完好，链接本身也不拆。
+        // 词法相对路径会把"链接内可见的清单外文件"判成游离并删穿链接，即此回归。
+        var outside = _tempDir.FilePath("outside");
+        Directory.CreateDirectory(outside);
+        var userFile = Path.Combine(outside, "userfile.txt");
+        await File.WriteAllTextAsync(userFile, "keep");
+
+        var installDir = _tempDir.FilePath("install");
+        Directory.CreateDirectory(installDir);
+        var link = Path.Combine(installDir, "linked");
+        CreateDirectoryLink(link, outside);
+        await File.WriteAllTextAsync(Path.Combine(link, "stale.txt"), "seen-through-link");
+
+        var a = "content-a"u8.ToArray();
+        _downloader.Responses[Url("a.txt")] = a;
+        var service = new GameInstallService(_downloader);
+
+        await service.SyncAsync(installDir, Manifest(FileEntry("a.txt", a)));
+
+        Assert.Equal("keep", await File.ReadAllTextAsync(userFile));
+        Assert.True(File.Exists(Path.Combine(link, "stale.txt")));
+        Assert.True(File.Exists(_tempDir.FilePath("install", "a.txt")));
+    }
+
+    /// <summary>创建目录链接：Linux 用符号链接（无需特权）；Windows CI 无开发者模式，用无需特权的 junction。</summary>
+    private static void CreateDirectoryLink(string link, string target)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            using var proc = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                "cmd.exe", $"/c mklink /J \"{link}\" \"{target}\"")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+            });
+            proc!.WaitForExit();
+            Assert.Equal(0, proc.ExitCode);
+        }
+        else
+        {
+            Directory.CreateSymbolicLink(link, target);
+        }
+    }
+
+    [Fact]
     public async Task SyncAsync_SameSizeCorruption_RepairedOnSecondPass()
     {
         // 快速校验只比存在性与大小：同尺寸但内容损坏的文件由 MD5 事后校验兜底补下载修复

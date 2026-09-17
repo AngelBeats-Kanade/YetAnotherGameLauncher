@@ -168,7 +168,18 @@ public sealed class GameInstallService(
             .Select(p => p.Replace('\\', '/') + "/")
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var path in Directory.EnumerateFiles(installDir, "*", SearchOption.AllDirectories))
+        // ReparsePoint：绝不穿过目录符号链接/junction 递归——用户把安装目录内的子目录搬到
+        // 别的盘再链接回来（Windows 玩家常见的搬盘手法）时，词法相对路径会把链接目标处的
+        // 真实文件判成"清单外"并删到安装目录之外；跳过链接子树即守住"清理绝不越出 installDir"。
+        // IgnoreInaccessible：单个无权限子目录不该让下载成功后的整轮同步抛异常失败。
+        var enumerationOptions = new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            IgnoreInaccessible = true,
+            AttributesToSkip = FileAttributes.ReparsePoint,
+        };
+
+        foreach (var path in Directory.EnumerateFiles(installDir, "*", enumerationOptions))
         {
             var relative = Path.GetRelativePath(installDir, path).Replace('\\', '/');
             var top = relative.Contains('/')
