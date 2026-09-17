@@ -1,16 +1,20 @@
 # 基于 GitHub 官方 .NET 模板（actions/starter-workflows ci/dotnet.yml）改造：
 # 双平台 matrix、零警告构建、MTP 测试执行体直跑、格式校验、NuGet 缓存。
+# v* tag 额外触发发布管道：测试全绿 → Release 配置双平台自包含包 → 草稿 GitHub Release。
 name: CI
 
 on:
   push:
     branches: [main]
-    # 版本标签（v*）也要过 CI：发布前至少确认目标提交双平台全绿
-    # （当前无 tag 触发的发布产物管道，发布物仍按 docs/DEVELOPMENT.md 手工 publish）
+    # 版本标签（v*）既过测试门禁，也触发发布管道（package/draft-release 两个 job）
     tags: ['v*']
   pull_request:
     branches: [main]
   workflow_dispatch:
+
+# 默认最小权限；draft-release job 单独提权 contents: write
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -64,3 +68,115 @@ jobs:
           dotnet tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll
           dotnet tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll
           dotnet tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Hypergryph.Tests.dll
+
+  # v* tag 专属：Release 配置双平台自包含发布物并打包。
+  # needs 测试门禁——绿 tag 才出包；ubuntu 原生构建的 linux 包比本机（滚动发行版）glibc 门槛更低
+  package:
+    name: package (${{ matrix.rid }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [format, build-and-test]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: windows-latest
+            rid: win-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+      # tag 名必须与单一事实源 Directory.Build.props 的版本一致，防错包
+      - name: Verify tag matches package version
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PROPS_VERSION="$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props)"
+          if [ "$VERSION" != "$PROPS_VERSION" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} 与 Directory.Build.props 版本 ${PROPS_VERSION} 不一致"
+            exit 1
+          fi
+      - name: Publish (self-contained)
+        run: dotnet publish src/YetAnotherGameLauncher -c Release -r ${{ matrix.rid }} --self-contained -o publish/${{ matrix.rid }}
+      # 包内顶层目录带版本名（与 README 的手工 publish 命名一致），解压即用
+      - name: Package (tar.gz)
+        if: runner.os == 'Linux'
+        run: |
+          VERSION="$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props)"
+          tar -czf "YetAnotherGameLauncher-${VERSION}-linux-x64.tar.gz" \
+            --transform "s,^linux-x64,YetAnotherGameLauncher-${VERSION}-linux-x64," \
+            -C publish linux-x64
+      - name: Package (zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Directory.Build.props -Pattern '<Version>([^<]+)</Version>').Matches[0].Groups[1].Value
+          # PATH 上的 tar 是 Git 的 GNU tar（不能产 zip），显式用系统自带的 bsdtar
+          & "C:\Windows\System32\tar.exe" -a -cf "YetAnotherGameLauncher-$version-win-x64.zip" `
+            -s ",^win-x64,YetAnotherGameLauncher-$version-win-x64," -C publish win-x64
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.rid }}
+          path: YetAnotherGameLauncher-*
+          if-no-files-found: error
+          retention-days: 7
+
+  # v* tag 专属：汇总双平台包，建草稿 Release（人工检查后手动 Publish）。
+  # 唯一提权点：contents: write，仅用于创建草稿 Release
+  draft-release:
+    name: draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: packages-*
+          merge-multiple: true
+          path: packages
+      - name: Extract release notes from CHANGELOG
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ESCAPED="${VERSION//./\\.}"
+          awk -v pat="^## \\[${ESCAPED}\\]" '
+            $0 ~ pat { flag = 1; next }
+            flag && (/^## / || /^\[/) { exit }
+            flag { print }
+          ' CHANGELOG.md > release_notes.md
+          [ -s release_notes.md ] || echo "See CHANGELOG.md for the full release notes." > release_notes.md
+      # tag 移动重跑时清掉旧草稿（仅草稿；已发布的 Release 报错中止，绝不误删）
+      - name: Remove stale draft with the same tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            if [ "$(gh release view "${GITHUB_REF_NAME}" --json isDraft --jq .isDraft)" = "True" ]; then
+              gh release delete "${GITHUB_REF_NAME}" --yes
+            else
+              echo "::error::release ${GITHUB_REF_NAME} 已存在且已发布，请改用新版本号"
+              exit 1
+            fi
+          fi
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "${GITHUB_REF_NAME}"
+          --draft --title "YetAnotherGameLauncher ${GITHUB_REF_NAME#v}"
+          --notes-file release_notes.md packages/YetAnotherGameLauncher-*

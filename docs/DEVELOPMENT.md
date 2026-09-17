@@ -177,12 +177,21 @@ tests/
 
 ## 7. 发布
 
+**标准流程（CI 自动出包）**：推送 `v*` tag（tag 名必须与 `Directory.Build.props` 的 `<Version>` 一致，
+CI 会校验）→ `.github/workflows/ci.yml` 先跑完测试门禁，再由 `package` job 双平台原生构建
+Release 自包含包（ubuntu 出 linux-x64 tar.gz、windows 出 win-x64 zip，包内顶层目录带版本名），
+最后 `draft-release` job 汇总两个包并创建**草稿** GitHub Release（正文取自 CHANGELOG.md 对应版本节）。
+人工检查草稿内容与产物后手动点击 Publish。
+
+**手工构建（本地排查/复现用）**：
+
 ```bash
 dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contained -o publish/linux-x64
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64   --self-contained -o publish/win-x64
 ```
 
-两个 RID 均已验证（产物约 108MB / 212MB，2026-09 `du -sh` 实测）。如需体积优化可追加
+两个 RID 均已验证（产物约 110MB / 213MB，2026-09-18 实测）。注意 Linux 包在 ubuntu（CI）上构建
+的 glibc 门槛低于滚动发行版本机，对老发行版用户更友好；本机构建仅作调试用途。如需体积优化可追加
 `-p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true`（Avalonia 兼容）。
 
 ## 8. 已知限制 / 风险
