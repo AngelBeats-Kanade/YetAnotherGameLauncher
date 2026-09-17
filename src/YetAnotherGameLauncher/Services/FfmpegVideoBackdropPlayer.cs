@@ -1047,7 +1047,7 @@ public sealed class FfmpegVideoBackdropPlayer(
 
     /// <summary>单帧处理：确保缩放器与缓冲匹配源格式 → swscale 到 BGRA → blit 进位图 → 节流通知。
     /// generation 为本代循环代号：过代际门后的 PTS 等待与 sws/拷贝期间可能发生 Stop/新一代起播，
-    /// 拷入位图后在 _gate 临界区内复查，失配则丢弃刚写入的旧代帧且不再通知。</summary>
+    /// 拷入位图后复查代际，失配则整帧丢弃且不投递通知（清帧由 Stop 在锁内完成）。</summary>
     private unsafe void RenderFrame(
         AVFrame* source,
         ref SwsContext* scaler,
@@ -1081,15 +1081,19 @@ public sealed class FfmpegVideoBackdropPlayer(
         }
 
         var stride = width * 4;
-        if (pixelBuffer is null || pixelBufferSize < stride * height)
+        var required = (nint)stride * height;
+        if (pixelBuffer is null || pixelBufferSize < required)
         {
+            // 先分配新缓冲、成功后再释放旧的：分配失败（OOM）时 ref 仍指向有效旧缓冲，
+            // RunLoop 收尾只会释放一次，不会双重释放
+            var replacement = (byte*)NativeMemory.AlignedAlloc((nuint)required, 64);
             if (pixelBuffer is not null)
             {
                 NativeMemory.AlignedFree(pixelBuffer);
             }
 
-            pixelBuffer = (byte*)NativeMemory.AlignedAlloc((nuint)(stride * height), 64);
-            pixelBufferSize = stride * height;
+            pixelBuffer = replacement;
+            pixelBufferSize = required;
         }
 
         var destination = new byte_ptrArray4 { [0] = pixelBuffer };
@@ -1113,14 +1117,11 @@ public sealed class FfmpegVideoBackdropPlayer(
 
         AdvanceLoopCrossfade();
 
-        // 代际收尾复查（与 ClearFrame 同一把 _gate 锁）：Stop 的 ClearFrame 若发生在过门后的
-        // sws/位图拷贝期间，刚写入的旧代帧在这里被重新清空，且不再通知——否则迟到的旧画面
-        // 会点亮新游戏的详情页（回归：VideoSource_SwitchingGames_LateStaleNotifyDoesNotLightNewGame）
+        // 代际收尾复查（锁外，仅丢弃不缓存）：过门后的 PTS 等待/sws/拷贝窗口内若发生 Stop/换代，
+        // 此帧不投递通知即被丢弃——旧画面无从"复活"。清帧由 Stop 的 ClearFrame 在 _gate 锁内完成，
+        // 此处不再代劳：既避免锁外清帧与新一代首帧的竞争，也让通知与帧状态保持一致
         if (Interlocked.CompareExchange(ref _generation, 0, 0) != generation)
         {
-            _frame = null;
-            _fadeFrame = null;
-            _fadeOpacity = 0;
             return;
         }
 
