@@ -161,6 +161,22 @@ public class PackageInstallerServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task InstallAsync_RootedDirectoryEntry_IsContainedInInstallDir()
+    {
+        // 回归：首部 / 的目录条目曾把未清洗名喂给 Path.Combine（第二参 rooted 时原样返回），
+        // 在安装目录之外（盘根/文件系统根）建目录；现与文件条目同规则剥离后收容
+        var zip = TestZip.Create(("/evil_dir/", ""), ("ok.txt", "ok"));
+        _downloader.Responses[ZipUrl] = zip;
+
+        await new PackageInstallerService(_downloader).InstallAsync(_tempDir.Path, ManifestFor(zip));
+
+        Assert.Equal("ok", await File.ReadAllTextAsync(_tempDir.FilePath("ok.txt")));
+        Assert.True(Directory.Exists(_tempDir.FilePath("evil_dir"))); // 收容到安装目录内
+        Assert.False(Directory.Exists(Path.Combine(
+            Path.GetPathRoot(Path.GetFullPath(_tempDir.Path))!, "evil_dir")));
+    }
+
+    [Fact]
     public async Task InstallAsync_BenignDirectoryEntries_StillExtractFiles()
     {
         // 正常打包器的目录条目不受沙箱校验收紧影响

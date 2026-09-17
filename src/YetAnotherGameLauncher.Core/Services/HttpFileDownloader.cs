@@ -103,7 +103,8 @@ public sealed class HttpFileDownloader(
         // .temp 已达期望尺寸（上次下载完成、校验/落盘前退出，或目标曾被占用后重试）：
         // 不再发不可满足的 Range 请求——规范服务器回 416，会被下方按网络错误重试，重试耗尽成死路。
         // 直接返回交由上层 Verify 校验：MD5 相符则落盘，不符则走 DownloadVerificationException 丢弃重下。
-        if (request.ExpectedSize is long expected && existingTempBytes == expected)
+        // expected > 0：期望 0 字节时"temp 不存在"与"完整"同为 0 无法区分，走正常路径即可。
+        if (request.ExpectedSize is long expected && expected > 0 && existingTempBytes == expected)
         {
             return;
         }

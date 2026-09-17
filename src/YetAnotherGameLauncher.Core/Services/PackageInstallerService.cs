@@ -145,15 +145,11 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
             using var archive = ZipFile.OpenRead(archivePath);
             foreach (var entry in archive.Entries)
             {
+                // 目录条目（null）由 ResolveEntryTarget 校验后就地建目录；
+                // 调用方不得再用未清洗的原始条目名拼接，否则 rooted 名经 Path.Combine 逃出沙箱
                 var target = ResolveEntryTarget(installDir, entry.FullName);
                 if (target is null)
                 {
-                    var dirName = entry.FullName.Replace('\\', '/').TrimEnd('/');
-                    if (dirName.Length > 0)
-                    {
-                        Directory.CreateDirectory(Path.Combine(installDir, dirName));
-                    }
-
                     continue;
                 }
 
@@ -175,23 +171,24 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
 
     /// <summary>
     /// 解压条目落点：归一 '\'→'/'、去首部 '/'，拒绝 ".." 段与盘符根（清单不可信，防穿越——
-    /// 目录条目与文件条目一视同仁，否则仅含恶意目录条目的包可在安装目录外建目录）；
-    /// 目录条目（含空名）返回 null 并由调用方建目录，普通条目返回安装目录内的绝对路径。
+    /// 目录条目与文件条目一视同仁）；目录条目（含空名）在校验通过后就地建目录并返回 null，
+    /// 普通条目返回安装目录内的绝对路径。所有路径拼接只使用校验后的分段。
     /// </summary>
     private static string? ResolveEntryTarget(string installDir, string entryName)
     {
         var normalized = entryName.Replace('\\', '/').TrimStart('/');
-        var parts = normalized.Split('/');
-        if (parts.Contains("..", StringComparer.Ordinal) || Path.IsPathRooted(normalized))
+        var segments = normalized.Split('/').Where(p => p.Length > 0).ToArray();
+        if (Path.IsPathRooted(normalized) || segments.Contains("..", StringComparer.Ordinal))
         {
             throw new IOException($"Archive entry escapes sandbox: {entryName}");
         }
 
-        if (normalized.Length == 0 || normalized.EndsWith('/'))
+        if (segments.Length == 0 || normalized.EndsWith('/'))
         {
+            Directory.CreateDirectory(Path.Combine([installDir, .. segments]));
             return null;
         }
 
-        return Path.Combine([installDir, .. parts]);
+        return Path.Combine([installDir, .. segments]);
     }
 }

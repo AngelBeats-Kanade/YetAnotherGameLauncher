@@ -149,6 +149,19 @@ public class HttpFileDownloaderTests : IDisposable
     }
 
     [Fact]
+    public async Task DownloadFileAsync_ZeroSizeExpected_DownloadsEmptyFile()
+    {
+        // 回归：ExpectedSize=0 且 .temp 不存在时不得走"temp 已完整"捷径——
+        // 那会跳过下载直接对不存在的 temp 做校验抛 FileNotFoundException
+        _handler.Map(Url, []);
+
+        await CreateDownloader().DownloadFileAsync(Request(expectedSize: 0), cancellationToken: Ct);
+
+        Assert.True(File.Exists(_tempDir.FilePath("file.bin")));
+        Assert.Empty(await File.ReadAllBytesAsync(_tempDir.FilePath("file.bin")));
+    }
+
+    [Fact]
     public async Task DownloadFileAsync_CompleteTempWithExpectedSize_PlacesWithoutAnyRequest()
     {
         // 回归：.temp 已达期望尺寸（下载完、落盘前退出，或目标被占用后重试）时，
