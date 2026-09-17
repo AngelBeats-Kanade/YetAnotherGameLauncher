@@ -5,6 +5,9 @@ name: CI
 on:
   push:
     branches: [main]
+    # 版本标签（v*）也要过 CI：发布前至少确认目标提交双平台全绿
+    # （当前无 tag 触发的发布产物管道，发布物仍按 docs/DEVELOPMENT.md 手工 publish）
+    tags: ['v*']
   pull_request:
     branches: [main]
   workflow_dispatch:
