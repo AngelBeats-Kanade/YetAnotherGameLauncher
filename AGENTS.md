@@ -11,9 +11,10 @@
 ```bash
 dotnet build -warnaserror            # 全解决方案构建；零警告是硬约束（TreatWarningsAsErrors=true）
 dotnet format whitespace --verify-no-changes
-# 测试（xunit.v3 + MTP；本环境 dotnet test 可能发现 0 个测试——直接跑测试可执行文件更可靠）：
-./tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.exe
-# 单个测试：dotnet test --project <csproj> --filter-fqn "<完整类型名>.<方法名>"
+# 测试（xunit.v3 + MTP；本环境 dotnet test 可能发现 0 个测试——直接跑测试产物更可靠；dotnet <dll> 为跨平台形态，.exe 仅 Windows）：
+dotnet tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll
+# 单个测试（--filter-fqn 经 dotnet test 在本机实测零匹配，用 xunit 自带 runner 的 -method）：
+dotnet tests/<测试工程>/bin/Debug/net10.0/<测试程序集>.dll -method "<完整类型名>.<方法名>"
 ```
 
 ## 文档同步（改代码时必须执行）
@@ -27,7 +28,7 @@ dotnet format whitespace --verify-no-changes
 | 配置模板（samples/games.json） | docs/GAME_CONFIG.md + README 快速开始 |
 | UI 结构/色值/控件常数（App.axaml、MainWindow.axaml） | 本文件"主窗口结构速查" + skills avalonia-ui、desktop-ui-design |
 | 新增/删除源文件 | docs/DEVELOPMENT.md §2 目录职责 |
-| 新功能/测试数/常用命令 | README 功能表与测试节、docs/DEVELOPMENT.md §2 |
+| 新功能/测试数/常用命令 | README.md 与 README.en.md 的功能节与测试节（中英两份必须同一变更内同步改，README.en.md 是 README.md 的翻译、以中文版为准）、docs/DEVELOPMENT.md §2 |
 | 测试基建与坑 | skills avalonia-headless-testing |
 
 三条纪律：

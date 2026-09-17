@@ -32,6 +32,9 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `downloadSpeedLimitBytes` | long | `0` | 下载限速（字节/秒）；`0` = 不限速 |
 | `language` | string | `"system"` | 界面语言：`"system"` 跟随系统 / `"zh-CN"` / `"en-US"`（也可在设置页切换，即时生效）。字段缺省时应用内默认 `zh-CN`，但首次运行模板写入 `"system"`（跟随系统） |
 | `sidebarExpanded` | bool | `true` | 侧栏是否展开（`false` 为图标窄条模式，由界面折叠按钮切换） |
+| `windowWidth` | int? | | 主窗口宽度持久化（DIP），关闭窗口时写回；缺省用内置默认。内部字段，设置页不展示 |
+| `windowHeight` | int? | | 主窗口高度持久化（DIP），关闭窗口时写回；缺省用内置默认。内部字段，设置页不展示 |
+| `windowMaximized` | bool | `false` | 关闭时是否处于最大化（按视觉最大化判定，详见 ARCHITECTURE.md）。内部字段，设置页不展示 |
 | `appBackgroundImage` | string | | 应用自有背景图（设置/关于页与侧栏底色）：本地文件路径或 http(s) URL；留空使用内置的主题感知渐变。可在设置页"应用背景"卡选择图片或恢复默认。游戏详情页背景不受此项影响 |
 | `proxyMode` | `"System" \| "None" \| "Manual"` | `"System"` | 出站网络代理：System 跟随系统代理 / None 直连 / Manual 使用 `proxyAddress` |
 | `proxyAddress` | string | | 手动代理地址（如 `http://127.0.0.1:7890`）；`proxyMode` 为 `"Manual"` 时必填且须为可解析的 http(s) URL，其余模式可有可无 |

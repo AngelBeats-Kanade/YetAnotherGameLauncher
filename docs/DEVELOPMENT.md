@@ -26,14 +26,15 @@ src/
                     UpdateProgress、LocalGameState、ChannelVersionInfo、DownloadRequest（单文件下载请求）、
                     LaunchOptions（启动命令模板）、ThemeMode
     Abstractions/   IGameChannelApi、IDownloader、IPatchApplier、IProcessRunner、异常类型（UpdateException/LaunchException + LaunchFailureKind）、
-                    IPlatformInfo（平台环境：Linux/GPU 厂商探测、文件管理器打开目录，含 GpuVendor 枚举）、IBackdropResolver（详情页背景解析，含 BackdropKind/BackdropSource）
+                    IPlatformInfo（平台环境：Linux/GPU 厂商探测、文件管理器打开目录，含 GpuVendor 枚举）、IBackdropResolver（详情页背景解析，含 BackdropKind/BackdropSource）、
+                    IUmuComponentProvisioner（原生 umu 组件准备契约）
     Services/       GameCatalogService（含首次运行 CreateDefaultFileAsync）、HttpFileDownloader（+HttpFileDownloaderOptions）、
                     ManifestVerifier、UpdatePlanner、GameInstallService、IncrementalUpdateService、PackageInstallerService、
                     GameUpdateService、GameLauncherService（启动预检/类目化错误/启动日志）、LocalStateService、SystemProcessRunner（输出泵落盘启动日志）、
                     NetworkProxyManager（全局共享 SocketsHttpHandler，代理切换即时生效）、SpeedLimiter（泄漏桶全局限速）、
                     AutostartService.cs（IAutostartService + WindowsAutostartService（HKCU Run 注册表）/ LinuxAutostartService（XDG autostart）双实现）、
                     CompatTools（Linux 兼容层单一来源：umu/wine/Lutris/Proton 发现、prefix 统一路径、推荐链 BuildRecommendedLaunch、Proton 发行版代号/umuId 解析、含 LaunchMode 枚举与 CompatLaunch）、
-                    Umu/（原生 umu：UmuPaths、VdfMiniParser、SteamRuntimeCatalog、ToolManifest、UmuPrefix、UmuEnvironment、NativeUmuLauncher、IUmuComponentProvisioner）、
+                    Umu/（原生 umu：UmuPaths、VdfMiniParser、SteamRuntimeCatalog、ToolManifest、UmuPrefix、UmuEnvironment、NativeUmuLauncher），
                     GameBackdropService（详情页背景远程解析 + 本地缓存编排：区域/游戏版本门控，版本一致零网络）、WindowsPlatformInfo / LinuxPlatformInfo（IPlatformInfo 双实现）+ PlatformInfoFactory（唯一的 OS 选择分支，DI 与各 ViewModel 缺省共用）
     Utilities/      Hashing（MD5 hex）、Json（统一序列化选项）、FileUtilities（原子写入/只读目标容错/目录树尽力删除）
   YetAnotherGameLauncher.Channels.Kuro/         # 库洛渠道（鸣潮）
@@ -64,12 +65,14 @@ src/
                     AboutPage/GachaPage/SettingsPage/GameSettingsPage（四个整页 UserControl，从 MainWindow 内联
                     DataTemplate 提取；DataContext = 各页 ViewModel，窗口级 Enter 保存类处理器按元素名继续分发）、
                     DetailActionDock/LaunchErrorOverlay（详情页操作坞/启动失败覆盖层）、
-                    ToastHost + ToastItem（右上角轻提示：版本检测结果/检测到游戏、服务器切换/
+                    ToastHost（右上角轻提示宿主：版本检测结果/检测到游戏、服务器切换/
                     启动设置实际变更，容量 3 丢最旧、4s 自灭；分别经 GameItemViewModel 的
                     StatusToastRequested/SettingsToastRequested 事件转发，状态首轮预热不弹）
     ViewModels/     MainWindowViewModel、GameItemViewModel、GameSettingsViewModel、LaunchSettingsViewModel、
                     LaunchErrorViewModel（启动失败覆盖层：类目化原因/技术详情/日志入口/umu 一键安装）、
-                    GachaViewModel（鸣潮唤取记录页）、SaveMessageSlot（表单保存结果消息槽）、ViewModelBase
+                    GachaViewModel（鸣潮唤取记录页）、SaveMessageSlot（表单保存结果消息槽）、ToastItem（轻提示条目模型）、ViewModelBase
+    Assets/         game-icons/（两游戏的官方图标 jpg，samples/games.json 以 avares:// 引用）
+    Resources/      strings_zh-CN.json / strings_en-US.json（本地化文案，键集两份必须成对，见 §5.3）
     Views/MainWindow
 tests/
   YetAnotherGameLauncher.TestSupport/           # 共享测试设施（可复用的替身与工具）
@@ -78,7 +81,7 @@ tests/
   YetAnotherGameLauncher.Channels.Kuro.Tests/   # 鸣潮渠道测试
   YetAnotherGameLauncher.Channels.Hypergryph.Tests/ # 包式协议渠道测试
   YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口测试
-  # 测试数量单一事实源在 README「运行测试」节（带实测日期），此处不再复制快照
+  # 测试数量单一事实源在 README.md「运行测试」节（带实测日期；README.en.md 为同步翻译），此处不再复制快照
 ```
 
 构建约定（`Directory.Build.props`）：`net10.0`、`Nullable=enable`、`ImplicitUsings`、
