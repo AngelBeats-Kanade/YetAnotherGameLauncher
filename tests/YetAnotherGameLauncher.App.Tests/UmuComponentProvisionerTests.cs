@@ -168,6 +168,25 @@ public sealed class UmuComponentProvisionerTests : IDisposable
     }
 
     [Fact]
+    public void SelectTarAsset_AssetNameWithPathCharacters_Rejected()
+    {
+        // 回归：release JSON 的 name 会直接拼进缓存/安装路径——含路径分隔符、
+        // ".." 段或首点的名字必须在选择阶段拒绝（上游 release 被篡改时的纵深防御）
+        var release = JsonDocument.Parse("""
+            {
+              "assets": [
+                { "name": "../evil.tar.gz", "browser_download_url": "https://x/evil" },
+                { "name": "..hidden.tar.gz", "browser_download_url": "https://x/hide" },
+                { "name": "GE-Proton11-6.tar.gz", "browser_download_url": "https://x/ok" }
+              ]
+            }
+            """).RootElement;
+
+        Assert.Equal("GE-Proton11-6.tar.gz",
+            UmuComponentProvisioner.SelectTarAsset(release, "GE-Proton", "-x86_64").Name);
+    }
+
+    [Fact]
     public void SelectTarAsset_OnlyOppositeArch_ReturnsEmpty()
     {
         // 只有相反架构资产时不得下载（调用方据此报"无适配架构资产"）

@@ -575,7 +575,8 @@ public sealed class UmuComponentProvisioner(
                             || a.Name.StartsWith(requiredPrefix, StringComparison.OrdinalIgnoreCase))
                         && !a.Name.Contains("sha512", StringComparison.OrdinalIgnoreCase)
                         && !a.Name.Contains("sha256sum", StringComparison.OrdinalIgnoreCase)
-                        && !a.Name.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase))
+                        && !a.Name.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase)
+                        && IsValidAssetName(a.Name))
             // 带架构后缀但与主机不符的资产排除；主机架构未知（null）时无从判别，保留全部
             .Where(a => AssetArchSuffix(AssetStem(a.Name)) is not { } assetSuffix
                         || hostArchSuffix is null
@@ -627,6 +628,13 @@ public sealed class UmuComponentProvisioner(
     /// <summary>计算 Proton 压缩包的解压目标目录（compatibilitytools.d 下）与缓存归档路径，并建好所需目录。</summary>
     private (string TargetDir, string TarPath) ResolveProtonInstallPaths(string assetName)
     {
+        if (!IsValidAssetName(assetName))
+        {
+            throw new LaunchException(
+                LaunchFailureKind.ProtonDownloadFailed,
+                $"发布资产名不可信（含路径分隔符或非法字符）：{assetName}");
+        }
+
         var compatRoot = UmuPaths.SteamCompatRoot(dataHome);
         Directory.CreateDirectory(compatRoot);
         var targetDir = Path.Combine(compatRoot, ProtonExtractDirectoryName(assetName));
@@ -634,6 +642,16 @@ public sealed class UmuComponentProvisioner(
         Directory.CreateDirectory(Path.GetDirectoryName(tarPath)!);
         return (targetDir, tarPath);
     }
+
+    /// <summary>
+    /// 发布资产名白名单（ASCII 字母/数字/点/下划线/连字符，禁首点）：release JSON 的 name
+    /// 会直接拼进缓存与安装路径，含分隔符或 ".." 段的名字可逃出目标目录——上游 release 被攻破时的纵深防御。
+    /// </summary>
+    private static bool IsValidAssetName(string name) =>
+        name.Length > 0
+        && !name.StartsWith('.')
+        && !name.Contains("..", StringComparison.Ordinal)
+        && name.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '_');
 
     /// <summary>压缩包资产名 → 解压目录名：去 .tar.gz/.tar.xz 扩展，再去资产名携带的架构后缀
     /// （dwproton-11.0-12-x86_64.tar.xz → dwproton-11.0-12，与 GE/UMU 的版本目录命名对齐）。</summary>
@@ -711,8 +729,10 @@ public sealed class UmuComponentProvisioner(
             }
             catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException
                 or ArchiveException or InvalidDataException or FormatException
-                or InvalidOperationException)
+                or InvalidOperationException or DownloadException)
             {
+                // DownloadException 必须在此分类：网络瞬断重试耗尽时下载器抛它，
+                // 漏掉会让 VM 收到 Unknown，丢失重试按钮与本机 Proton 下拉的修复 UI
                 throw new LaunchException(
                     LaunchFailureKind.ProtonDownloadFailed,
                     $"Proton 下载或解压失败：{ex.Message}",
@@ -759,14 +779,26 @@ public sealed class UmuComponentProvisioner(
         var archivePath = Path.Combine(cache, $"{archive}.{buildId}");
         progress?.Report($"正在下载 Steam Runtime {version}…");
 
-        await downloader.DownloadFileAsync(
-            new DownloadRequest($"{baseUrl}/{archive}", archivePath, ExpectedSize: null, ExpectedMd5: null),
-            null,
-            cancellationToken).ConfigureAwait(false);
-
-        if (!string.IsNullOrEmpty(expectedSha))
+        try
         {
-            await VerifySha256Async(archivePath, expectedSha, cancellationToken).ConfigureAwait(false);
+            await downloader.DownloadFileAsync(
+                new DownloadRequest($"{baseUrl}/{archive}", archivePath, ExpectedSize: null, ExpectedMd5: null),
+                null,
+                cancellationToken).ConfigureAwait(false);
+
+            if (!string.IsNullOrEmpty(expectedSha))
+            {
+                await VerifySha256Async(archivePath, expectedSha, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (DownloadException ex)
+        {
+            // 下载器网络重试耗尽抛 DownloadException（含校验失败的 DownloadVerificationException）：
+            // 不在此转成 LaunchException 会以 Unknown 逃逸到 VM，丢失重试修复 UI
+            throw new LaunchException(
+                LaunchFailureKind.UmuRuntimeDownloadFailed,
+                $"Steam Runtime 下载失败：{ex.Message}",
+                ex);
         }
 
         var installRoot = UmuPaths.RuntimeDirectory(variant, dataHome);
@@ -872,6 +904,14 @@ public sealed class UmuComponentProvisioner(
                     break;
                 case TarEntryType.SymbolicLink:
                 case TarEntryType.HardLink:
+                    var link = entry.LinkName.Replace('\\', '/');
+                    // 链接目标与条目名同等校验：绝对路径或 ".." 目标的链接可把后续普通文件
+                    // 条目经链接写穿到目标目录外（同上游包被篡改时的纵深防御）
+                    if (link.StartsWith('/') || link.Split('/').Contains(".."))
+                    {
+                        continue;
+                    }
+
                     TryCreateLink(Path.Combine(destinationDir, key), entry.LinkName, entry.EntryType);
                     break;
             }

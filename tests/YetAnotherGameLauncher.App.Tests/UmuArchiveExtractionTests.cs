@@ -113,6 +113,35 @@ public sealed class UmuArchiveExtractionTests : IDisposable
         Assert.False(Directory.Exists(target + ".extract"));
     }
 
+    [Fact]
+    public void ExtractTarArchive_LinkTargetEscapingDestination_IsSkipped()
+    {
+        // 回归：链接条目的 LinkName 曾不校验——".." 或绝对路径目标的链接可把后续普通文件
+        // 条目经链接写穿到目标目录外（与 zip 条目沙箱同性质的纵深防御）
+        var archive = WriteTarGz(writer =>
+        {
+            var evil = new UstarTarEntry(TarEntryType.SymbolicLink, "top/evil");
+            evil.LinkName = "../../outside_link";
+            writer.WriteEntry(evil);
+
+            var through = new UstarTarEntry(TarEntryType.RegularFile, "top/evil/pwned.txt");
+            through.DataStream = new MemoryStream("pwned"u8.ToArray());
+            writer.WriteEntry(through);
+
+            var absolute = new UstarTarEntry(TarEntryType.SymbolicLink, "top/abs");
+            absolute.LinkName = "/etc/passwd";
+            writer.WriteEntry(absolute);
+        });
+
+        var dest = _temp.FilePath("out");
+        UmuComponentProvisioner.ExtractTarArchive(archive, dest);
+
+        // 逃逸链接被静默拒绝：目标目录外无任何写入
+        Assert.False(File.Exists(Path.Combine(_temp.Path, "outside_link")));
+        // 链接被拒后文件条目就地落盘（真实目录，而非经链接写穿）
+        Assert.Equal("pwned", File.ReadAllText(Path.Combine(dest, "top", "evil", "pwned.txt")));
+    }
+
     /// <summary>用 System.Formats.Tar 造 tar.gz 包（与线上 .tar.gz 同为 ustar 条目）。</summary>
     private string WriteTarGz(Action<TarWriter> build)
     {

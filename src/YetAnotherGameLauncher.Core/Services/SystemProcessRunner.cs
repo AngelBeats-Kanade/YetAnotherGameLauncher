@@ -97,9 +97,28 @@ public sealed class SystemProcessRunner(
                     spec.FileName, spec.Environment.Count);
             }
 
+            // 提权路径（UseShellExecute=true）拿不到输出管道：日志到此为止，写明原因后释放句柄。
+            // 不释放会泄漏 StreamWriter 且留下只有头部的空壳日志，误导秒退排查
+            if (logWriter is not null)
+            {
+                logWriter.WriteLine("# elevated via shell (requireAdministrator): output capture unavailable.");
+                logWriter.Dispose();
+                logWriter = null;
+            }
+
             process.StartInfo = CreateElevatedStartInfo(startInfo);
             elevated = true;
-            process.Start();
+            try
+            {
+                process.Start();
+            }
+            catch
+            {
+                // 兄弟 catch 接不住 catch 块内抛出的异常，这里必须自带释放兜底
+                logWriter?.Dispose();
+                throw;
+            }
+
             logger?.LogInformation("Process {File} started via shell execute (elevation prompt)", spec.FileName);
         }
         catch
