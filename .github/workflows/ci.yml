@@ -121,9 +121,13 @@ jobs:
         shell: pwsh
         run: |
           $version = (Select-String -Path Directory.Build.props -Pattern '<Version>([^<]+)</Version>').Matches[0].Groups[1].Value
-          # PATH 上的 tar 是 Git 的 GNU tar（不能产 zip），显式用系统自带的 bsdtar
-          & "C:\Windows\System32\tar.exe" -a -cf "YetAnotherGameLauncher-$version-win-x64.zip" `
-            -s ",^win-x64,YetAnotherGameLauncher-$version-win-x64," -C publish win-x64
+          # 不用系统自带 tar.exe（libarchive 旧版写 zip 行为不稳）也不用 Compress-Archive
+          # （Windows 上产 '\' 条目名，dotnet/runtime#98247 同类坑）：
+          # 用 runner 预装的 7-Zip 产 '/' 条目名的 zip；先重命名顶层目录带上版本号
+          Rename-Item -Path "publish/win-x64" -NewName "YetAnotherGameLauncher-$version-win-x64"
+          & "7z" a -tzip "YetAnotherGameLauncher-$version-win-x64.zip" ".\publish\YetAnotherGameLauncher-$version-win-x64"
+          if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
+          Get-Item "YetAnotherGameLauncher-$version-win-x64.zip" | Select-Object Name, Length
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
