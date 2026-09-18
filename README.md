@@ -75,18 +75,86 @@
 
 <img src="docs/images/screenshot-arknights-endfield.png" alt="YetAnotherGameLauncher 界面预览（明日方舟：终末地详情页）" width="100%">
 
-## 🚀 快速开始
+## 📥 下载与运行
+
+不需要任何开发环境，四步即可用上（发布包**自带运行时**，**无需安装 .NET**）：
+
+1. **下载**：打开 [Releases 页面](https://github.com/AngelBeats-Kanade/YetAnotherGameLauncher/releases)，
+   在最新版本的 Assets 里按自己的系统下载：
+   - Windows 64 位：`YetAnotherGameLauncher-<版本号>-win-x64.zip`
+   - Linux x86_64：`YetAnotherGameLauncher-<版本号>-linux-x64.tar.gz`
+2. **解压**：解压到任意目录，例如 Windows 的 `D:\YetAnotherGameLauncher`、Linux 的 `~/YetAnotherGameLauncher`
+3. **运行**：
+   - Windows：双击解压目录里的 **`YetAnotherGameLauncher.exe`**
+   - Linux：终端进入解压目录执行 **`./YetAnotherGameLauncher`**
+     （提示无执行权限时先执行 `chmod +x YetAnotherGameLauncher`）
+4. **开始使用**：首次启动会自动生成默认配置，侧栏里已经有鸣潮与终末地——
+   点选游戏 → 点 **「安装游戏」** 等下载完成 → 点 **「启动游戏」**
+
+> [!TIP]
+> - **Linux 上不需要提前装 wine / Proton**：默认的 umu 启动链会在启动游戏时自动下载
+>   DW-Proton（默认发行版，可改选 GE-Proton / UMU-Proton）与 Steam Runtime
+> - 鸣潮的**增量更新**需要 [hpatchz（HDiffPatch）](https://github.com/sisong/HDiffPatch/releases)可执行文件：
+>   装好并确保在 PATH 里即可，也可在配置中指定路径（见 [GAME_CONFIG.md](docs/GAME_CONFIG.md)）
+> - 想把游戏装到别处？先到「设置 → 下载」改**安装根目录**，再去安装
+> - 配置文件在 Linux 的 `~/.config/yagl/games.json`、Windows 的 `%APPDATA%\yagl\games.json`
+
+## 🖱️ 界面操作指南
+
+日常使用**不需要手动编辑任何配置文件**——启动器界面本身就是一个完整的配置工具。
+
+### 游戏详情页：安装 / 更新 / 启动
+
+点左侧栏的游戏名进入详情页，右下角操作坞的按钮会随游戏状态自动变化：
+
+- **安装游戏** → 装好后变为 **启动游戏**；官方出更新后变为 **立即更新**
+- **校验修复**：已安装时随时可点，自动修复缺失/损坏的文件（保留存档）
+- **登记版本**：终末地检测到本机已装的游戏时出现，零下载直接纳入管理
+- **预下载下一版本 / 应用预下载**：官方开放预下载窗口时出现，先暂存、开放后一键应用
+- **唤取记录**（仅鸣潮）：抽卡记录与保底统计
+- 启动失败会弹出错误卡：可**重试**、**打开日志目录**；Linux 上 Proton 缺失时还能就地改选本机已装的 Proton
+
+### 游戏设置页：每个游戏各自的设置
+
+详情页右下角 **齿轮** 按钮进入，改完点「返回游戏」回到详情页：
+
+![游戏设置页](docs/images/screenshot-game-settings.png)
+
+- **服务器**：下拉切换 国服 / B服 / 国际服（各服务器安装目录相互独立；重启启动器后回到默认服务器）
+- **位置**：**安装目录**与**游戏可执行文件**，右侧「浏览…」按钮调用系统文件选择器；
+  已经手动下载好游戏时，指到主程序即可直接启动，无需重新下载
+- **启动**：
+  - **启动方式**二选一（仅 Linux 显示）：**umu 启动（推荐）** / **直接运行**；Windows 用官方默认方式直接启动，无需兼容层
+  - **Proton 发行版**（Linux 的 umu 模式显示）：DW-Proton（默认）/ GE-Proton / UMU-Proton，选择即保存
+  - **检查/下载兼容组件**、**检查更新**（Linux 的 umu 模式）：手动预下载或升级 Proton
+  - **命令模板 / 工作目录 / 环境变量**（全平台）：高级自定义，支持 `{exe}`、`{installDir}` 占位符
+
+![Linux 启动设置](docs/images/screenshot-launch-settings-linux.png)
+
+位置与 Proton 发行版改动即时保存；其余改动点启动卡底部的 **「保存启动设置」** 落盘，
+有实际变更时会弹右上角轻提示，列出本次变更的字段。
+
+### 全局设置页：整个应用的设置
+
+左侧栏底部 **「设置」** 按钮进入：
+
+![全局设置页](docs/images/screenshot-settings.png)
+
+- **外观**：主题（跟随系统 / 浅色 / 深色）、界面语言（简体中文 / English），切换即时生效
+- **应用背景**：自定义侧栏与设置页的背景图（本地图片或 URL）
+- **下载**：安装根目录（所有游戏默认装到这里）、下载限速（MB/s，0 为不限速）、开机自动启动
+- **网络代理**：跟随系统 / 直连 / 自定义代理
+- **配置文件**：一键打开 `games.json` 所在目录
+
+> [!NOTE]
+> 界面操作已覆盖绝大多数常用配置。只有**添加新游戏**、微调渠道参数等高级用法
+> 才需要手动编辑 `games.json`，见下文「⚙️ 配置」一节与 [GAME_CONFIG.md](docs/GAME_CONFIG.md)。
+
+## 🧑‍💻 快速开始（开发者）
 
 ### 环境要求
 
-- .NET 10 SDK（开发/构建）；运行 self-contained 发布产物则**无需安装运行时**
-- Linux 上运行游戏：默认无需任何外部运行时——原生 umu 启动链会按需自动下载
-  **DW-Proton（默认发行版，可选 GE/UMU-Proton）与 Steam Runtime**
-  （资产按本机架构匹配下载；启动设置卡可一键预下载/检查，并有"检查更新"按钮做版本更新与旧版清理；
-  组件下载失败可从错误卡重试或改选本机 Proton）；
-  也可手写 wine / Proton 模板自备运行时
-- 鸣潮增量更新：需要 `hpatchz`（HDiffPatch）可执行文件，默认从 PATH 解析，
-  也可在配置中指定路径（见下文）
+- .NET 10 SDK
 
 ### 构建与运行（开发）
 
@@ -98,6 +166,9 @@ dotnet run --project src/YetAnotherGameLauncher
 
 ### 发布产物
 
+普通用户请直接从 [Releases](https://github.com/AngelBeats-Kanade/YetAnotherGameLauncher/releases) 下载
+（见上文「下载与运行」）；自行构建时：
+
 ```bash
 # Linux（self-contained，可执行文件在 publish/linux-x64/）
 dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contained -o publish/linux-x64
@@ -106,7 +177,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（565 个，2026-09-18 实测）
+### 运行测试（566 个，2026-09-18 实测）
 
 ```bash
 # 4 个测试工程分别运行编译产物（Windows 亦可直接跑 .exe；本机 dotnet test 可能发现 0 个测试）：
@@ -129,6 +200,9 @@ Linux 窗口后端决策与视觉最大化判定（Wayland 平铺误报防护）
 另附视觉自检截图工具（`artifacts/ui-review/`，见 docs/DEVELOPMENT.md）。
 
 ## ⚙️ 配置
+
+绝大多数配置在界面上即可修改（见上文「界面操作指南」，改动自动写回此文件），
+直接编辑 JSON 属于高级用法。
 
 配置文件位置：
 
@@ -170,6 +244,7 @@ Linux 上生成时会顺带把默认 `{exe}` 模板升级为社区推荐链
 
 | 现象 | 处理 |
 |---|---|
+| Linux 双击解压出的程序没反应 | 终端进入解压目录执行 `./YetAnotherGameLauncher`；提示无执行权限时先 `chmod +x YetAnotherGameLauncher` |
 | 首次启动想重新生成默认配置 | 删除 `~/.config/yagl/games.json`（或 `YAGL_CONFIG` 指向的文件）后重启启动器即可 |
 | 提示"无法连接服务器" | 检查网络/代理；鸣潮 CDN 在国内网络环境更稳定 |
 | 鸣潮增量更新失败，提示 hpatchz | 安装 [HDiffPatch](https://github.com/sisong/HDiffPatch/releases) 并确保 `hpatchz` 在 PATH 中 |

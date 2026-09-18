@@ -78,19 +78,97 @@ Currently supported games:
 
 <img src="docs/images/screenshot-arknights-endfield.png" alt="YetAnotherGameLauncher preview (Arknights: Endfield detail page)" width="100%">
 
-## 🚀 Quick Start
+## 📥 Download & run
+
+No development environment needed — four steps (the release packages are **self-contained**,
+**no .NET runtime required**):
+
+1. **Download**: open the [Releases page](https://github.com/AngelBeats-Kanade/YetAnotherGameLauncher/releases)
+   and grab the package for your system from the latest release's Assets:
+   - Windows 64-bit: `YetAnotherGameLauncher-<version>-win-x64.zip`
+   - Linux x86_64: `YetAnotherGameLauncher-<version>-linux-x64.tar.gz`
+2. **Extract** to any directory, e.g. `D:\YetAnotherGameLauncher` on Windows or `~/YetAnotherGameLauncher` on Linux
+3. **Run**:
+   - Windows: double-click **`YetAnotherGameLauncher.exe`** in the extracted folder
+   - Linux: in a terminal, `cd` into the extracted folder and run **`./YetAnotherGameLauncher`**
+     (if it complains about the execute bit, run `chmod +x YetAnotherGameLauncher` first)
+4. **Start playing**: the first launch generates a default config automatically, with Wuthering Waves and
+   Endfield already in the sidebar — pick a game → click **Install Game** → wait for the download → click
+   **Launch Game**
+
+> [!TIP]
+> - **No wine / Proton needed on Linux beforehand**: the default umu launch chain automatically downloads
+>   DW-Proton (the default flavor; switch to GE-Proton / UMU-Proton in game settings) and Steam Runtime
+> - Wuthering Waves **incremental updates** need the [hpatchz (HDiffPatch)](https://github.com/sisong/HDiffPatch/releases)
+>   executable: install it and make sure it is on PATH, or configure its path (see [GAME_CONFIG.md](docs/GAME_CONFIG.md))
+> - Want the games somewhere else? Change the **install root** under "Settings → Downloads" before installing
+> - The config file lives at `~/.config/yagl/games.json` on Linux and `%APPDATA%\yagl\games.json` on Windows
+
+## 🖱️ Using the UI
+
+Day-to-day use **never requires editing a config file by hand** — the launcher UI is a complete
+configuration tool on its own.
+
+### Game detail page: install / update / launch
+
+Click a game in the sidebar to open its detail page. The buttons in the bottom action dock change with
+the game's state:
+
+- **Install Game** → becomes **Launch Game** once installed; becomes **Update Now** when the official side has an update
+- **Verify & Repair**: available any time after install; automatically repairs missing/corrupted files (saves are kept)
+- **Register version**: appears when Endfield detects an already-installed game — zero downloads
+- **Preload Next Version / Apply Preload**: appear during the official pre-download window; stage first, apply in one click
+- **Convene History** (Wuthering Waves only): gacha records and pity statistics
+- Launch failures show an error card: **retry**, **open the log folder**; on Linux with Proton missing you can
+  switch to a locally installed Proton right there
+
+### Game settings page: per-game settings
+
+Enter via the **gear** button at the bottom of the detail page; "Back to game" returns to the detail page:
+
+![Game settings page](docs/images/screenshot-game-settings.png)
+
+- **Server**: switch between CN / Bilibili / Global (each server keeps its own install directory;
+  the default server is restored after restarting the launcher)
+- **Location**: **install directory** and **game executable**, both with a "Browse…" button backed by the
+  system file picker; if you already downloaded the game yourself, just point at its main executable —
+  no re-download needed
+- **Launch**:
+  - **Launch mode**, either **umu launch (recommended)** or **direct run** (Linux only); on Windows the game
+    starts the official default way, no compatibility layer needed
+  - **Proton flavor** (Linux umu mode): DW-Proton (default) / GE-Proton / UMU-Proton — selection is saved instantly
+  - **Check/download compat components** and **check for updates** (Linux umu mode): pre-download or upgrade Proton manually
+  - **Command template / working directory / environment variables** (all platforms): advanced customization with
+    `{exe}` and `{installDir}` placeholders
+
+![Linux launch settings](docs/images/screenshot-launch-settings-linux.png)
+
+Location and Proton flavor changes are saved instantly; for everything else click **Save Launch Options**
+at the bottom of the launch card. A toast in the top-right corner lists the changed fields when something
+actually changed.
+
+### Global settings page: the whole app
+
+Enter via **Settings** at the bottom of the sidebar:
+
+![Global settings page](docs/images/screenshot-settings.png)
+
+- **Appearance**: theme (follow system / light / dark) and UI language (Simplified Chinese / English), effective immediately
+- **App background**: custom background image for the sidebar and settings pages (local file or URL)
+- **Downloads**: install root (where all games install by default), download speed limit (MB/s, 0 = unlimited), auto-start on boot
+- **Network proxy**: follow system / direct / custom proxy
+- **Config file**: one-click open of the `games.json` folder
+
+> [!NOTE]
+> The UI covers the vast majority of everyday configuration. Only **adding new games** and tweaking
+> channel parameters need a manual `games.json` edit — see the ⚙️ Configuration section below and
+> [GAME_CONFIG.md](docs/GAME_CONFIG.md).
+
+## 🧑‍💻 Quick Start (developers)
 
 ### Requirements
 
-- .NET 10 SDK (development/build); running a self-contained build requires **no runtime installed**
-- Running games on Linux: nothing external needed by default — the native umu launch chain automatically downloads
-  **DW-Proton (default flavor; GE/UMU-Proton optional) and Steam Runtime** on demand
-  (assets matched to the host architecture; the launch settings card can pre-download/check components, plus a
-  "check for updates" button for version upgrades and old-version cleanup; if component download fails you can
-  retry from the error card or pick a locally installed Proton);
-  hand-written wine / Proton templates with your own runtime also work
-- Wuthering Waves incremental updates: needs the `hpatchz` (HDiffPatch) executable, resolved from PATH by default
-  or configurable (see below)
+- .NET 10 SDK
 
 ### Build & run (development)
 
@@ -102,6 +180,10 @@ dotnet run --project src/YetAnotherGameLauncher
 
 ### Release build
 
+Regular users should just download from the
+[Releases page](https://github.com/AngelBeats-Kanade/YetAnotherGameLauncher/releases)
+(see "Download & run" above); to build yourself:
+
 ```bash
 # Linux (self-contained; executable in publish/linux-x64/)
 dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contained -o publish/linux-x64
@@ -110,7 +192,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### Running tests (565 tests, measured 2026-09-18)
+### Running tests (566 tests, measured 2026-09-18)
 
 ```bash
 # Run the 4 test projects' compiled binaries directly (on Windows you can run the .exe;
@@ -135,6 +217,9 @@ integration tests via Avalonia.Headless. A visual review screenshot tool is also
 (`artifacts/ui-review/`, see docs/DEVELOPMENT.md).
 
 ## ⚙️ Configuration
+
+Almost all settings can be changed in the UI (see "Using the UI" above; changes are written back to this
+file automatically). Editing the JSON by hand is the advanced path.
 
 Config file location:
 
@@ -177,6 +262,7 @@ reports the result. For the full field reference and an "add a new game" tutoria
 
 | Symptom | Fix |
 |---|---|
+| The extracted binary does nothing when double-clicked on Linux | Run `./YetAnotherGameLauncher` from a terminal in the extracted folder; if the execute bit is missing run `chmod +x YetAnotherGameLauncher` first |
 | Want to regenerate the default config | Delete `~/.config/yagl/games.json` (or the file `YAGL_CONFIG` points to) and restart the launcher |
 | "Cannot connect to server" | Check network/proxy; the Wuthering Waves CDN is more stable inside mainland China |
 | Wuthering Waves incremental update fails mentioning hpatchz | Install [HDiffPatch](https://github.com/sisong/HDiffPatch/releases) and make sure `hpatchz` is on PATH |
