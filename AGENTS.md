@@ -4,7 +4,7 @@
 
 ## 必读文档
 
-改动前先读 `docs/`：**ARCHITECTURE.md**（分层/核心流程）、**DEVELOPMENT.md**（目录职责/TDD 工作流）、**GAME_CONFIG.md**（games.json 配置参考）。UI/测试工作前加载 `.zcode/skills/` 下对应技能（avalonia-ui、avalonia-headless-testing、avalonia-ui-review、desktop-ui-design）。
+改动前先读 `docs/`：**ARCHITECTURE.md**（分层/核心流程）、**DEVELOPMENT.md**（目录职责/TDD 工作流）、**GAME_CONFIG.md**（games.json 配置参考）。UI/测试工作前加载 `.zcode/skills/` 下对应技能（avalonia-ui、avalonia-headless-testing、avalonia-ui-review、desktop-ui-design）。测试与代码的判定证据链在 `docs/audit/`（2026-09 双向审计总报告 REPORT.md；测试判定标准 tests/CRITERIA.md；变异击杀表 business/MUTATION.md）。CI 有两道审计守卫：行覆盖 ≥83% 门禁（scripts/coverage-gate.mjs）与 `Dispatch(async` 禁用形态 grep。
 
 ## 常用命令
 

@@ -91,6 +91,30 @@ jobs:
             exit 1
           fi
 
+      # 覆盖率门禁（ubuntu 单腿）：行覆盖不得低于既定基线——防止"新增代码不配测试"静默退化。
+      # 口径与 docs/audit 一致（仅本仓库 src/ 的 .cs）；基线提升流程：本地复测 →
+      # 改 THRESHOLD → 同一 commit 内补齐缺口测试。
+      - name: Coverage gate (line >= 83%)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -o pipefail
+          dotnet tool install --global dotnet-coverage >/dev/null 2>&1
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          mkdir -p /tmp/cov
+          suites=(
+            tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll
+            tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll
+            tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Hypergryph.Tests.dll
+            tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll
+          )
+          i=0
+          for suite in "${suites[@]}"; do
+            i=$((i+1))
+            dotnet-coverage collect -f cobertura -o "/tmp/cov/$i.xml" dotnet "$suite" > /dev/null
+          done
+          node scripts/coverage-gate.mjs 0.83 /tmp/cov/1.xml /tmp/cov/2.xml /tmp/cov/3.xml /tmp/cov/4.xml
+
   # v* tag 专属：Release 配置双平台自包含发布物并打包。
   # needs 测试门禁——绿 tag 才出包；ubuntu 原生构建的 linux 包比本机（滚动发行版）glibc 门槛更低
   package:

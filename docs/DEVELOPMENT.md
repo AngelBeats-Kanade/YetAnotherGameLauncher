@@ -203,12 +203,18 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64   --self-contain
 
 ## 9. 测试覆盖率政策
 
-- 四个测试工程均接入 `coverlet.collector` + `Microsoft.Testing.Extensions.CodeCoverage`；
-  采集：`dotnet-coverage collect -f cobertura -o out.xml <测试exe>`（或 dotnet test --collect）。
-- **政策内 100% 目标**：Core / Channels / ViewModels / Services 的全部业务逻辑。
-- **政策排除**（不计入目标，均有结构性理由）：`Program.cs` 与 `App.axaml.cs`（组合根）、
-  `FilePickerService`（系统对话框封装）、`FfmpegVideoBackdropPlayer` 与 `FfmpegLibraryResolver`
-  （原生库 unsafe 互操作，已由 `[ExcludeFromCodeCoverage]` 标注）、平台条件分支
-  （如 WindowsAutostartService（HKCU Run 注册表）与 LinuxAutostartService（XDG autostart）
-  的平台专属路径仅在对应系统运行时可达）。
-- 现状与缺口清单见 `artifacts/coverage/`（本地生成，不入库）；每轮功能改动应顺带补齐所触达文件的缺口。
+- 采集：`dotnet-coverage collect -f cobertura -o out.xml dotnet <测试dll>`（直跑 DLL 是
+  xunit.v3 自带 runner，无 MTP `--coverage` 开关；`dotnet test --collect` 受 0 发现问题限制）。
+  CI 在 ubuntu 腿执行同一采集并做**行覆盖 ≥ 83% 门禁**（ci.yml Coverage gate 步骤）。
+- **实测基线（2026-09-19，全仓双向审计）**：4800/5749 可计行 = 83.49%（排除 `obj/`、.axaml 伪行；
+  `[ExcludeFromCodeCoverage]` 类天然不计）。历次快照：80.29%（审计基点）→ 82.80%（Phase 4a）→ 83.49%。
+- **判定口径**：行覆盖只是必要条件——合格证据 = 行覆盖命中 + 变异击杀（docs/audit/business/MUTATION.md）
+  + 逐行正确性论证（docs/audit/business/）。测试双向可证伪标准见 docs/audit/tests/CRITERIA.md。
+- **政策排除**（均有结构性理由，逐段论证见 docs/audit/business/App/Services-Views-Excluded.md）：
+  `Program.cs` 与 `App.axaml.cs`（组合根）、`FilePickerService`（系统对话框封装）、
+  `FfmpegVideoBackdropPlayer` 与 `FfmpegLibraryResolver`（原生库 unsafe 互操作；
+  其纯逻辑已提取为 PlaybackClock/DecodeGuard/SeamAnalyzer/PrerollHandoff 并全测）、
+  `WindowsPlatformInfo`（真机语义）。
+- **剩余缺口归因**（949 行）：Windows 专属 ~80、竞态容错等价类 ~120、进度回调散点 ~120、
+  未竟功能分支 ~250、基建依赖 ~60——逐行处置见 `docs/audit/REPORT.md` 第四节；
+  本地生成物在 `artifacts/coverage/`（不入库）。
