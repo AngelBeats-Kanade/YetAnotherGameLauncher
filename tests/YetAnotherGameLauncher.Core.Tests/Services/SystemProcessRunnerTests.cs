@@ -30,18 +30,19 @@ public class SystemProcessRunnerTests
     [Fact]
     public async Task RunAsync_FireAndForget_WritesOutputToLogFile()
     {
-        // 启动日志：即启即走的进程输出（stdout/stderr）要落盘，秒退/报错可据此排查
-        if (OperatingSystem.IsWindows())
-        {
-            return; // 用 /bin/sh 构造双路输出，仅在 Linux 验证
-        }
-
+        // 启动日志：即启即走的进程输出（stdout/stderr）要落盘，秒退/报错可据此排查。
+        // 审计修复（2026-09-19）：原实现 Windows 直接 return（零断言静默绿）；现双腿各自真实断言。
         using var tempDir = new TestSupport.TempDir();
         var logPath = tempDir.FilePath("logs", "launch-test.log");
         var runner = new SystemProcessRunner();
+
+        var (fileName, arguments) = OperatingSystem.IsWindows()
+            ? ("cmd.exe", "/c echo out-line& echo err-line 1>&2& exit /b 7")
+            : ("/bin/sh", "-c \"echo out-line; echo err-line >&2; exit 7\"");
+
         var result = await runner.RunAsync(new ProcessStartSpec(
-            "/bin/sh",
-            "-c \"echo out-line; echo err-line >&2; exit 7\"",
+            fileName,
+            arguments,
             WaitForExit: false,
             OutputLogPath: logPath));
 
@@ -62,7 +63,9 @@ public class SystemProcessRunnerTests
             await Task.Delay(100);
         }
 
-        Assert.Contains("# command: /bin/sh", content, StringComparison.Ordinal);
+        Assert.Contains(
+            OperatingSystem.IsWindows() ? "# command: cmd.exe" : "# command: /bin/sh",
+            content, StringComparison.Ordinal);
         Assert.Contains("out-line", content, StringComparison.Ordinal);
         Assert.Contains("[stderr] err-line", content, StringComparison.Ordinal);
         Assert.Contains("exited with code 7", content, StringComparison.Ordinal);

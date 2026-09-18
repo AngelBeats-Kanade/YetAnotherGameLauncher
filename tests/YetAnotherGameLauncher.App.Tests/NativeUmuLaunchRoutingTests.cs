@@ -27,7 +27,20 @@ public class NativeUmuLaunchRoutingTests : IDisposable
     {
         if (!OperatingSystem.IsLinux())
         {
-            return; // 原生 umu 仅 Linux；Windows CI 走 NativeUmuCoreTests 的纯逻辑分支
+            // 审计修复（2026-09-19）：原实现直接 return（Windows CI 零断言静默绿）。
+            // Windows 腿反向断言平台门控本身：原生 umu 链在非 Linux 上不可用，
+            // 启动必须给出明确失败态，且绝不产出 umu 容器命令。
+            using var winCtx = VmFactory.Build(nativeUmu: new NativeUmuLauncher(_runner, provisioner: null, dataHome: _temp.Path));
+            await winCtx.Vm.InitializeAsync();
+            var winGame = winCtx.Vm.Games[0];
+
+            await winGame.LaunchAsync();
+
+            Assert.True(winGame.HasLaunchError, "Windows 上原生 umu 链不可用：启动应给出失败态");
+            Assert.All(_runner.Specs, s =>
+                Assert.False(s.FileName.Replace('\\', '/').Contains("_v2-entry-point", StringComparison.Ordinal),
+                    "Windows 上不得产出 umu 容器命令"));
+            return;
         }
 
         var protonDir = CreateFakeProton();

@@ -4,7 +4,6 @@ using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Utilities;
 using YetAnotherGameLauncher.TestSupport;
 using YetAnotherGameLauncher.ViewModels;
-
 namespace YetAnotherGameLauncher.AppTests;
 
 /// <summary>GameItemViewModel 操作语义测试：抽卡入口门控、预下载提示态、校验修复（文件式/包式）。</summary>
@@ -167,8 +166,10 @@ public class GameItemActionsTests : IDisposable
         Assert.True(wuwa.CanLaunch);
         Assert.True(wuwa.HasGachaEntry);
         Assert.Equal(exePath.Replace('\\', '/'), Path.GetFullPath(Path.Combine(wuwa.InstallDirPath, wuwa.Game.Executable.Replace('\\', '/'))).Replace('\\', '/'));
-        var json = await File.ReadAllTextAsync(ctx.ConfigPath);
-        Assert.Contains("bin/MyGame.exe", json);
+        // 落盘断言走反序列化断模型值（审计修复：原为原文 Contains，转义可骗过）
+        var saved = JsonSerializer.Deserialize<GameCatalog>(
+            await File.ReadAllTextAsync(ctx.ConfigPath), Json.Default);
+        Assert.Equal("bin/MyGame.exe", saved?.Games.FirstOrDefault(g => g.Id == wuwa.Game.Id)?.Executable);
     }
 
     [Fact]

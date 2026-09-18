@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Xunit;
 using YetAnotherGameLauncher.AppTests;
@@ -19,10 +20,30 @@ namespace YetAnotherGameLauncher.UiTests;
 /// 视觉自检工具（见 .zcode/skills/avalonia-ui-review）：把真实窗口渲染成 PNG
 /// 供人工/代理检查。产物在仓库根 artifacts/ui-review/（已 gitignore）。
 /// 注意：换页后的模板构建发生在下一轮布局，切页后需 window.UpdateLayout()。
+/// 审计修复（2026-09-19）：原实现把 await/断言写进 Dispatch(async ...) lambda——
+/// 断言失败被吞（假绿），且真实外网 CDN 拉取（离线必挂）。现形态：
+/// await Dispatch(同步 lambda)（lambda 在会话线程跑完才返回、异常传播）；
+/// 异步步骤用 RunJobs 泵到完成（RunToCompletion）；"远程"字节全部本地生成后注册进桩；
+/// 帧在 lambda 内编码为 PNG 字节，落盘与非空断言一律在 Dispatch 之外。
 /// </summary>
 [Collection("sequential")]
 public class UiScreenshotTests
 {
+    /// <summary>在会话线程上启动任务并同步等待完成（RunJobs 泵；30s 上限防挂死）。</summary>
+    private static void RunToCompletion(Func<Task> call)
+    {
+        var task = call();
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (!task.IsCompleted && DateTime.UtcNow < deadline)
+        {
+            Dispatcher.UIThread.RunJobs();
+            Thread.Sleep(1);
+        }
+
+        Assert.True(task.IsCompleted, "异步步骤 30s 内未完成（RunJobs 泵停摆）");
+        task.GetAwaiter().GetResult();
+    }
+
     [Fact]
     public async Task Export_UiScreenshots_ForReview()
     {
@@ -39,40 +60,41 @@ public class UiScreenshotTests
         };
         ctx.Gryphline.VersionInfo = new ChannelVersionInfo { LatestVersion = "1.2.0" };
 
-        // headless 内 HttpClient 走 Stub：把官方背景图字节注册进去，验证远程加载链路
+        // "远程"背景/图标字节本地生成（审计修复：不再真实拉取外网 CDN；URL 仍走桩验证加载链路）。
+        // 注意：渲染字节必须在会话线程生成（RenderTargetBitmap 依赖渲染接口），故移入 Dispatch 内。
         var endfieldBgUrl = "https://web.hycdn.cn/upload/image/20260411/dde7c30f64cb985113539ec6c7a03c38.jpg";
-        var endfieldBg = await new HttpClient().GetByteArrayAsync(endfieldBgUrl);
-        ctx.BackgroundHandler.Map(endfieldBgUrl, endfieldBg);
-        var endfieldIconUrl = "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/dd/af/42/ddaf42c8-5bea-adf0-e6e7-b67f291868aa/AppIcon-0-0-1x_U007emarketing-0-8-0-85-220.png/512x512bb.jpg";
-        ctx.BackgroundHandler.Map(endfieldIconUrl, await new HttpClient().GetByteArrayAsync(endfieldIconUrl));
+        var endfieldIconUrl = "https://is1-ssl.mzstatic.com/endfield-icon.jpg";
         // 终末地背景走背景解析器（模拟 get_main_bg_image 返回的当期直链）
         ctx.GryphlineBackdrop.Resolver = _ => new BackdropSource(endfieldBgUrl, BackdropKind.Image);
 
-        await HeadlessSession.Instance.Dispatch(async () =>
+        var captured = new List<(string Name, byte[]? Png)>();
+
+        await HeadlessSession.Instance.Dispatch(() =>
         {
-            await ctx.Vm.InitializeAsync();
+            ctx.BackgroundHandler.Map(endfieldBgUrl, CreateTestBackgroundBytes());
+            ctx.BackgroundHandler.Map(endfieldIconUrl, CreateTestIconBytes());
+
+            RunToCompletion(() => ctx.Vm.InitializeAsync());
             var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
             // headless 中迁移动画冻结在首帧会遮盖基值：截图需要指示点的终态位置
             window.NavIndicatorAnimationEnabled = false;
             window.Show();
             window.UpdateLayout();
 
-            void WaitForBackdrop()
-            {
-                // 背景为装饰性异步加载：轮询等待其就绪（上限 5s），避免截到纯渐变帧
-                for (var i = 0; i < 100 && !ctx.Vm.Games[0].HasBackgroundImage; i++)
-                {
-                    Thread.Sleep(50);
-                }
-            }
-
             void Capture(string name)
             {
                 Thread.Sleep(150); // headless 动画时钟靠手动 tick 推进：先等真实时钟，再显式推进
                 Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
                 var frame = window.CaptureRenderedFrame();
-                Assert.NotNull(frame);
-                frame.Save(Path.Combine(outDir, name), new PngBitmapEncoderOptions());
+                if (frame is null)
+                {
+                    captured.Add((name, null));
+                    return;
+                }
+
+                using var ms = new MemoryStream();
+                frame.Save(ms, new PngBitmapEncoderOptions());
+                captured.Add((name, ms.ToArray()));
             }
 
             void BringCardIntoView(Window host, string borderName)
@@ -85,16 +107,27 @@ public class UiScreenshotTests
                 host.UpdateLayout();
             }
 
+            void WaitForBackdrop()
+            {
+                // 背景为装饰性异步加载：轮询等待其就绪（上限 5s），避免截到纯渐变帧
+                var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+                while (!ctx.Vm.Games[0].HasBackgroundImage && DateTime.UtcNow < deadline)
+                {
+                    Dispatcher.UIThread.RunJobs();
+                    Thread.Sleep(20);
+                }
+            }
+
             // 模拟鸣潮背景图（resolver 已 stub，直接给本地测试图文件）
             var bgPath = ctx.TempDir.FilePath("kr_game_cache", "animate_bg", "h1", "home_1.jpg");
             Directory.CreateDirectory(Path.GetDirectoryName(bgPath)!);
             CreateTestBackground(bgPath);
             ctx.KuroBackdrop.Resolver = _ => new BackdropSource(bgPath, BackdropKind.Image);
-            // headless 测试进程解析不了 app 的 avares:// 资源：图标走 stub http
+            // headless 测试进程解析不了 app 的 avares:// 资源：图标走 stub http（本地字节）
             const string wuwaIconUrl = "https://is1-ssl.mzstatic.com/wuwa-icon.jpg";
-            ctx.BackgroundHandler.Map(wuwaIconUrl, await new HttpClient().GetByteArrayAsync(endfieldIconUrl));
+            ctx.BackgroundHandler.Map(wuwaIconUrl, CreateTestIconBytes());
             ctx.Vm.Games[0].Game.Icon = wuwaIconUrl;
-            await ctx.Vm.Games[0].RefreshAsync();
+            RunToCompletion(() => ctx.Vm.Games[0].RefreshAsync());
 
             // 暗色 · 游戏详情（鸣潮：未安装 + 预下载可用 + 背景图）
             var dark = ctx.Vm.ThemeModes.First(t => t.Mode == ThemeMode.Dark);
@@ -122,9 +155,9 @@ public class UiScreenshotTests
             ctx.Vm.Games[1].Game.Icon = endfieldIconUrl;
             var endfieldExe = Path.Combine(ctx.Vm.Games[1].InstallDirPath, "Endfield.exe");
             Directory.CreateDirectory(Path.GetDirectoryName(endfieldExe)!);
-            await File.WriteAllBytesAsync(endfieldExe, "MZ"u8.ToArray());
+            File.WriteAllBytes(endfieldExe, "MZ"u8.ToArray());
             ctx.Vm.SelectedGame = ctx.Vm.Games[1];
-            await ctx.Vm.Games[1].RefreshAsync();
+            RunToCompletion(() => ctx.Vm.Games[1].RefreshAsync());
             window.UpdateLayout();
             Capture("03-game2-dark.png");
 
@@ -169,7 +202,7 @@ public class UiScreenshotTests
                 ],
             };
             ctx.Downloader.Responses["https://cdn/wuwa-full.zip"] = wuwaZip;
-            await ctx.Vm.Games[0].InstallOrUpdateCommand.ExecuteAsync(null);
+            RunToCompletion(() => ctx.Vm.Games[0].InstallOrUpdateCommand.ExecuteAsync(null));
             window.UpdateLayout();
             Capture("08-game-detail-installed-dark.png");
 
@@ -192,21 +225,28 @@ public class UiScreenshotTests
             };
             ctx.Downloader.Responses["https://cdn/ef-full.zip"] = efZip;
             ctx.Vm.SelectedGame = ctx.Vm.Games[1];
-            await ctx.Vm.Games[1].RefreshAsync();
-            await ctx.Vm.Games[1].InstallOrUpdateCommand.ExecuteAsync(null); // 安装
-            await ctx.Vm.Games[1].InstallOrUpdateCommand.ExecuteAsync(null); // 校验 → 确认条
+            RunToCompletion(() => ctx.Vm.Games[1].RefreshAsync());
+            RunToCompletion(() => ctx.Vm.Games[1].InstallOrUpdateCommand.ExecuteAsync(null)); // 安装
+            RunToCompletion(() => ctx.Vm.Games[1].InstallOrUpdateCommand.ExecuteAsync(null)); // 校验 → 确认条
             window.UpdateLayout();
             Capture("09-repair-confirm-dark.png");
 
             window.Close();
-            return 0;
         }, CancellationToken.None);
+
+        // 断言与落盘在 Dispatch 外（审计修复：帧非空断言曾被吞——覆盖层坏掉时静默导出空图仍绿）
+        Assert.NotEmpty(captured);
+        Assert.All(captured, c => Assert.True(c.Png is not null && c.Png.Length > 0, $"截图 {c.Name} 抓帧失败"));
+        foreach (var (name, png) in captured)
+        {
+            File.WriteAllBytes(Path.Combine(outDir, name), png!);
+        }
     }
 
     /// <summary>
     /// 启动失败覆盖层 + 启动设置卡（Linux：umu 启动二选一 + Proton 发行版下拉 + 组件状态卡）的视觉自检
     /// （Linux 平台语义；VmFactory 未注入原生 umu 启动器/组件准备器 → 走通用预检失败出覆盖层、
-    /// 准备按钮禁用）。
+    /// 准备按钮禁用）。审计修复同上：断言外移 + 异步步骤 RunJobs 泵。
     /// </summary>
     [Fact]
     public async Task Export_LaunchErrorOverlay_ForReview()
@@ -222,9 +262,12 @@ public class UiScreenshotTests
             linuxProtonVersions: []);
         ctx.Gryphline.VersionInfo = new ChannelVersionInfo { LatestVersion = "1.2.0" };
 
-        await HeadlessSession.Instance.Dispatch(async () =>
+        var captured = new List<(string Name, byte[]? Png)>();
+        var launchErrorShown = false;
+
+        await HeadlessSession.Instance.Dispatch(() =>
         {
-            await ctx.Vm.InitializeAsync();
+            RunToCompletion(() => ctx.Vm.InitializeAsync());
             var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
             window.NavIndicatorAnimationEnabled = false;
             window.Show();
@@ -235,8 +278,15 @@ public class UiScreenshotTests
                 Thread.Sleep(150);
                 Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
                 var frame = window.CaptureRenderedFrame();
-                Assert.NotNull(frame);
-                frame.Save(Path.Combine(outDir, name), new PngBitmapEncoderOptions());
+                if (frame is null)
+                {
+                    captured.Add((name, null));
+                    return;
+                }
+
+                using var ms = new MemoryStream();
+                frame.Save(ms, new PngBitmapEncoderOptions());
+                captured.Add((name, ms.ToArray()));
             }
 
             var wuwa = ctx.Vm.Games[0];
@@ -245,20 +295,20 @@ public class UiScreenshotTests
             var iconFile = ctx.TempDir.FilePath("game-icon.png");
             CreateTestBackground(iconFile);
             const string wuwaIconUrl = "https://is1-ssl.mzstatic.com/wuwa-icon.jpg";
-            ctx.BackgroundHandler.Map(wuwaIconUrl, await File.ReadAllBytesAsync(iconFile));
+            ctx.BackgroundHandler.Map(wuwaIconUrl, File.ReadAllBytes(iconFile));
             wuwa.Game.Icon = wuwaIconUrl;
-            await wuwa.RefreshAsync();
+            RunToCompletion(() => wuwa.RefreshAsync());
             Capture("12-detail-empty-state-dark.png");
 
             var exePath = Path.Combine(
                 wuwa.InstallDirPath, "Client", "Binaries", "Win64", "Client-Win64-Shipping.exe");
             Directory.CreateDirectory(Path.GetDirectoryName(exePath)!);
-            await File.WriteAllBytesAsync(exePath, "MZ"u8.ToArray());
-            await wuwa.RefreshAsync();
+            File.WriteAllBytes(exePath, "MZ"u8.ToArray());
+            RunToCompletion(() => wuwa.RefreshAsync());
 
             // 主程序就位 + umu 模板 + umu 未装 → 启动预检失败 → 错误覆盖层（含一键安装按钮）
-            await wuwa.LaunchCommand.ExecuteAsync(null);
-            Assert.True(wuwa.HasLaunchError, $"launchError=null, status={wuwa.StatusText}");
+            RunToCompletion(() => wuwa.LaunchCommand.ExecuteAsync(null));
+            launchErrorShown = wuwa.HasLaunchError;
             window.UpdateLayout();
             Capture("10-launch-error-overlay-dark.png");
 
@@ -279,8 +329,15 @@ public class UiScreenshotTests
             Capture("14-toast-dark.png");
 
             window.Close();
-            return 0;
         }, CancellationToken.None);
+
+        Assert.True(launchErrorShown, "启动预检失败未点亮覆盖层状态（截图会静默变成'无覆盖层'画面）");
+        Assert.NotEmpty(captured);
+        Assert.All(captured, c => Assert.True(c.Png is not null && c.Png.Length > 0, $"截图 {c.Name} 抓帧失败"));
+        foreach (var (name, png) in captured)
+        {
+            File.WriteAllBytes(Path.Combine(outDir, name), png!);
+        }
     }
 
     /// <summary>
@@ -304,9 +361,12 @@ public class UiScreenshotTests
                 LatestTag = "GE-Proton11-7",
             });
 
-        await HeadlessSession.Instance.Dispatch(async () =>
+        int before = -1, after = -1;
+        byte[]? png = null;
+
+        await HeadlessSession.Instance.Dispatch(() =>
         {
-            await ctx.Vm.InitializeAsync();
+            RunToCompletion(() => ctx.Vm.InitializeAsync());
             var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
             window.NavIndicatorAnimationEnabled = false;
             window.Show();
@@ -335,11 +395,9 @@ public class UiScreenshotTests
                     + System.Runtime.InteropServices.Marshal.ReadByte(addr + 2);
             }
 
-            var before = LuminanceAt(430, 130);
-            await settings.CheckProtonUpdateCommand.ExecuteAsync(null);
-            Assert.True(settings.ShowProtonUpdateConfirm);
-            var after = LuminanceAt(430, 130);
-            Assert.True(after < before, $"纱罩未压暗底页：before={before} after={after}");
+            before = LuminanceAt(430, 130);
+            RunToCompletion(() => settings.CheckProtonUpdateCommand.ExecuteAsync(null));
+            after = LuminanceAt(430, 130);
 
             window.UpdateLayout();
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();
@@ -347,12 +405,21 @@ public class UiScreenshotTests
             Thread.Sleep(150);
             Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
             var frame = window.CaptureRenderedFrame();
-            Assert.NotNull(frame);
-            frame.Save(Path.Combine(outDir, "15-proton-update-confirm-dark.png"), new PngBitmapEncoderOptions());
+            if (frame is not null)
+            {
+                using var ms = new MemoryStream();
+                frame.Save(ms, new PngBitmapEncoderOptions());
+                png = ms.ToArray();
+            }
 
             window.Close();
-            return 0;
         }, CancellationToken.None);
+
+        // 断言在 Dispatch 外（审计修复：纱罩压暗的像素级守卫曾被吞——覆盖层失效时测试照绿）
+        Assert.True(before > 0, "纱罩前基线帧抓取失败");
+        Assert.True(after < before, $"纱罩未压暗底页：before={before} after={after}");
+        Assert.NotNull(png);
+        File.WriteAllBytes(Path.Combine(outDir, "15-proton-update-confirm-dark.png"), png!);
     }
 
     /// <summary>更新确认截图的组件准备器替身：本地 11-6、上游 11-7 → 必然弹更新确认。</summary>
@@ -405,5 +472,42 @@ public class UiScreenshotTests
         }
 
         rtb.Save(path, new PngBitmapEncoderOptions());
+    }
+
+    /// <summary>在内存中渲染同一渐变图（"远程"字节的本地替代）。</summary>
+    private static byte[] CreateTestBackgroundBytes()
+    {
+        using var rtb = new RenderTargetBitmap(new PixelSize(960, 640));
+        using (var dc = rtb.CreateDrawingContext())
+        {
+            dc.FillRectangle(new LinearGradientBrush
+            {
+                StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+                EndPoint = new RelativePoint(1, 1, RelativeUnit.Relative),
+                GradientStops =
+                {
+                    new GradientStop(Color.FromRgb(0x2E, 0x7C, 0xF6), 0),
+                    new GradientStop(Color.FromRgb(0x0E, 0x1B, 0x33), 1),
+                },
+            }, new Rect(0, 0, 960, 640));
+        }
+
+        using var ms = new MemoryStream();
+        rtb.Save(ms, new PngBitmapEncoderOptions());
+        return ms.ToArray();
+    }
+
+    /// <summary>在内存中渲染纯色小方块图标（"远程"字节的本地替代）。</summary>
+    private static byte[] CreateTestIconBytes()
+    {
+        using var rtb = new RenderTargetBitmap(new PixelSize(256, 256));
+        using (var dc = rtb.CreateDrawingContext())
+        {
+            dc.FillRectangle(new SolidColorBrush(Color.FromRgb(0x44, 0x8F, 0xF4)), new Rect(0, 0, 256, 256));
+        }
+
+        using var ms = new MemoryStream();
+        rtb.Save(ms, new PngBitmapEncoderOptions());
+        return ms.ToArray();
     }
 }

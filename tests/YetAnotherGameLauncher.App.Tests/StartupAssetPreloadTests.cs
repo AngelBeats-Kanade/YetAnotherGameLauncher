@@ -1,3 +1,4 @@
+using Avalonia.Threading;
 using Xunit;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
@@ -9,6 +10,9 @@ namespace YetAnotherGameLauncher.AppTests;
 /// 1) InitializeAsync 后全部游戏图标已加载（不等到选中），版本检测每游戏恰一次；
 /// 2) 来回切换选中不再触发版本检测（会话缓存）；
 /// 3) 版本号变化触发背景解析器重调 + http 图标绕过缓存重取；版本不变时零网络零解析器调用。
+/// 审计修复（2026-09-19）：原实现把 await/断言写进 Dispatch(async ...) lambda（吞断言假绿），
+/// 且 `using var ctx` 在 lambda 内与被放弃的续体竞态。改为：ctx 生命周期在测试方法体；
+/// await Dispatch(同步 lambda) 内用 RunJobs 泵 InitializeAsync 到完成；断言全部在 Dispatch 外。
 /// </summary>
 [Collection("sequential")]
 public sealed class StartupAssetPreloadTests
@@ -20,6 +24,24 @@ public sealed class StartupAssetPreloadTests
     /// <summary>1×1 PNG。</summary>
     private static readonly byte[] Png = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==");
+
+    /// <summary>
+    /// 在会话 UI 线程上启动任务并同步等待完成（RunJobs 泵；30s 上限——InitializeAsync
+    /// 覆盖双游戏预热+版本检测）。必须在 Dispatch 的同步 lambda 内调用。
+    /// </summary>
+    private static void RunToCompletion(Func<Task> call)
+    {
+        var task = call();
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (!task.IsCompleted && DateTime.UtcNow < deadline)
+        {
+            Dispatcher.UIThread.RunJobs();
+            Thread.Sleep(1);
+        }
+
+        Assert.True(task.IsCompleted, "InitializeAsync 30s 内未完成（RunJobs 泵停摆）");
+        task.GetAwaiter().GetResult();
+    }
 
     /// <summary>双游戏配置（各带 http 图标），其余结构与 VmFactory 样例一致。</summary>
     private static string ConfigJson(string icon1, string icon2) => $$"""
@@ -53,61 +75,64 @@ public sealed class StartupAssetPreloadTests
     [Fact]
     public async Task InitializeAsync_PreloadsAllIcons_AndChecksVersionOncePerGame()
     {
-        // Bitmap 解码依赖 Avalonia 引擎，需在 headless 会话内执行
-        await HeadlessSession.Instance.Dispatch(async () =>
-        {
-            using var ctx = VmFactory.Build(ConfigJson(IconUrl1, IconUrl2));
-            ctx.BackgroundHandler.Map(IconUrl1, Png);
-            ctx.BackgroundHandler.Map(IconUrl2, Png);
+        using var ctx = VmFactory.Build(ConfigJson(IconUrl1, IconUrl2));
+        ctx.BackgroundHandler.Map(IconUrl1, Png);
+        ctx.BackgroundHandler.Map(IconUrl2, Png);
 
-            await ctx.Vm.InitializeAsync();
+        await HeadlessSession.Instance.Dispatch(() => RunToCompletion(() => ctx.Vm.InitializeAsync()), CancellationToken.None);
 
-            // 启动即全部游戏图标可见（Games[1] 从未被选中）
-            Assert.True(ctx.Vm.Games[0].HasGameIcon);
-            Assert.True(ctx.Vm.Games[1].HasGameIcon);
+        // 启动即全部游戏图标可见（Games[1] 从未被选中）
+        Assert.True(ctx.Vm.Games[0].HasGameIcon);
+        Assert.True(ctx.Vm.Games[1].HasGameIcon);
 
-            // 每游戏恰一次版本检测（选中游戏 1 次 + 预热补齐其余）
-            Assert.Equal(new[] { "cn" }, ctx.Kuro.VersionInfoRequests);
-            Assert.Equal(new[] { "global" }, ctx.Gryphline.VersionInfoRequests);
+        // 每游戏恰一次版本检测（选中游戏 1 次 + 预热补齐其余）
+        Assert.Equal(new[] { "cn" }, ctx.Kuro.VersionInfoRequests);
+        Assert.Equal(new[] { "global" }, ctx.Gryphline.VersionInfoRequests);
 
-            // 来回切换选中：版本检测走会话缓存，不再打网络
-            ctx.Vm.GameNavSelection = ctx.Vm.Games[1];
-            ctx.Vm.GameNavSelection = ctx.Vm.Games[0];
+        // 来回切换选中：版本检测走会话缓存，不再打网络
+        ctx.Vm.GameNavSelection = ctx.Vm.Games[1];
+        ctx.Vm.GameNavSelection = ctx.Vm.Games[0];
 
-            Assert.Equal(new[] { "cn" }, ctx.Kuro.VersionInfoRequests);
-            Assert.Equal(new[] { "global" }, ctx.Gryphline.VersionInfoRequests);
-        }, CancellationToken.None);
+        Assert.Equal(new[] { "cn" }, ctx.Kuro.VersionInfoRequests);
+        Assert.Equal(new[] { "global" }, ctx.Gryphline.VersionInfoRequests);
     }
 
     [Fact]
     public async Task VersionChange_RefetchesIconAndResolvesBackdrop_Unchanged_SkipsAll()
     {
-        await HeadlessSession.Instance.Dispatch(async () =>
+        using var ctx = VmFactory.Build(ConfigJson(IconUrl1, IconUrl2));
+        ctx.BackgroundHandler.Map(IconUrl1, Png);
+        ctx.BackgroundHandler.Map(IconUrl2, Png);
+        ctx.BackgroundHandler.Map(BackdropUrl, Png);
+        ctx.KuroBackdrop.Resolver = _ => new BackdropSource(BackdropUrl, BackdropKind.Image);
+
+        await HeadlessSession.Instance.Dispatch(() => RunToCompletion(() => ctx.Vm.InitializeAsync()), CancellationToken.None);
+
+        // 首轮：图标下载一次、背景解析一次（版本 2.0.0 记入磁盘缓存元数据）
+        Assert.Equal(1, ctx.BackgroundHandler.Requests.Count(r => r.RequestUri == new Uri(IconUrl1)));
+        Assert.Equal(1, ctx.KuroBackdrop.ResolveCount);
+
+        // 版本不变：重复刷新零网络、零解析器调用（版本门控命中磁盘缓存）
+        await HeadlessSession.Instance.Dispatch(() => RunToCompletion(() => ctx.Vm.Games[0].RefreshAsync()), CancellationToken.None);
+        Assert.Equal(1, ctx.KuroBackdrop.ResolveCount);
+        Assert.Equal(1, ctx.BackgroundHandler.Requests.Count(r => r.RequestUri == new Uri(IconUrl1)));
+
+        // 版本变化：重新解析背景（地址未变不重下）+ http 图标绕过缓存强制重取
+        // （版本检测每启动每服务器一次：改版本后须重置会话缓存，模拟"重启后看到新版本"）
+        ctx.Kuro.VersionInfo = new ChannelVersionInfo { LatestVersion = "3.0.0" };
+        ctx.Vm.Games[0].ResetVersionCheckCache();
+        await HeadlessSession.Instance.Dispatch(() => RunToCompletion(() => ctx.Vm.Games[0].RefreshAsync()), CancellationToken.None);
+
+        // RefreshAsync 内部的 LoadAssetsCoreAsync 是 fire-and-forget（_ =）：有界等待其落地再断言，
+        // 否则断言与孤儿任务竞态（单类跑侥幸绿、全量跑必输——2026-09-19 全量×3 实锤）
+        var settleDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (ctx.KuroBackdrop.ResolveCount < 2 && DateTime.UtcNow < settleDeadline)
         {
-            using var ctx = VmFactory.Build(ConfigJson(IconUrl1, IconUrl2));
-            ctx.BackgroundHandler.Map(IconUrl1, Png);
-            ctx.BackgroundHandler.Map(IconUrl2, Png);
-            ctx.BackgroundHandler.Map(BackdropUrl, Png);
-            ctx.KuroBackdrop.Resolver = _ => new BackdropSource(BackdropUrl, BackdropKind.Image);
+            await Task.Delay(20);
+        }
 
-            await ctx.Vm.InitializeAsync();
-
-            // 首轮：图标下载一次、背景解析一次（版本 2.0.0 记入磁盘缓存元数据）
-            Assert.Equal(1, ctx.BackgroundHandler.Requests.Count(r => r.RequestUri == new Uri(IconUrl1)));
-            Assert.Equal(1, ctx.KuroBackdrop.ResolveCount);
-
-            // 版本不变：重复刷新零网络、零解析器调用（版本门控命中磁盘缓存）
-            await ctx.Vm.Games[0].RefreshAsync();
-            Assert.Equal(1, ctx.KuroBackdrop.ResolveCount);
-            Assert.Equal(1, ctx.BackgroundHandler.Requests.Count(r => r.RequestUri == new Uri(IconUrl1)));
-
-            // 版本变化：重新解析背景（地址未变不重下）+ http 图标绕过缓存强制重取
-            ctx.Kuro.VersionInfo = new ChannelVersionInfo { LatestVersion = "3.0.0" };
-            await ctx.Vm.Games[0].RefreshAsync();
-
-            Assert.Equal(2, ctx.KuroBackdrop.ResolveCount);
-            Assert.Equal(2, ctx.BackgroundHandler.Requests.Count(r => r.RequestUri == new Uri(IconUrl1)));
-            Assert.Equal(1, ctx.BackgroundHandler.Requests.Count(r => r.RequestUri == new Uri(BackdropUrl)));
-        }, CancellationToken.None);
+        Assert.Equal(2, ctx.KuroBackdrop.ResolveCount);
+        Assert.Equal(2, ctx.BackgroundHandler.Requests.Count(r => r.RequestUri == new Uri(IconUrl1)));
+        Assert.Equal(1, ctx.BackgroundHandler.Requests.Count(r => r.RequestUri == new Uri(BackdropUrl)));
     }
 }

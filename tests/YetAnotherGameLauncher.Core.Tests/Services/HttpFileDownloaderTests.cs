@@ -229,7 +229,14 @@ public class HttpFileDownloaderTests : IDisposable
 
         await CreateDownloader().DownloadFileAsync(Request(), progress, Ct);
 
+        // 等待最终报告送达（Progress<T> 异步投递）
+        Assert.True(SpinWait.SpinUntil(
+            () => reports.Contains(Content.Length), TimeSpan.FromSeconds(5)));
         Assert.Equal(Content.Length, reports.Last());
+        // 审计修复（2026-09-19）：原断言只看末值，与"单调"的测试名不符——
+        // 进度回退（后一次报告小于前一次）本测试拦不住。现补相邻报告两两单调断言。
+        var ordered = reports.ToArray();
+        Assert.Equal(ordered.OrderBy(b => b), ordered); // 进度序列不得回退
     }
 
     [Fact]

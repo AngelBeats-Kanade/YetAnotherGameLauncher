@@ -61,7 +61,19 @@ public class ConfigFailureTests : IDisposable
         Assert.True(ctx.Vm.ConfigError);
 
         ctx.Vm.IsSidebarExpanded = false;
-        await Task.Delay(400);
+
+        // fire-and-forget 写盘（若有缺陷）会立即发生：有界条件轮询——文件一变立即失败，
+        // 轮询窗口（500ms）耗尽仍未变才通过（审计修复：原为固定 Delay(400) 后单次断言）
+        var deadline = DateTime.UtcNow + TimeSpan.FromMilliseconds(500);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (!string.Equals(before, await File.ReadAllTextAsync(ctx.ConfigPath), StringComparison.Ordinal))
+            {
+                Assert.Fail("失败态会话的设置保存把空目录写进了用户配置文件");
+            }
+
+            await Task.Delay(50);
+        }
 
         Assert.Equal(before, await File.ReadAllTextAsync(ctx.ConfigPath));
     }

@@ -146,23 +146,27 @@ public class GameLauncherServiceTests : IDisposable
     [Fact]
     public async Task BuildPlan_AbsoluteRuntimeWithoutExecBit_IsFixedAutomatically()
     {
-        // 从压缩包解出的 proton 脚本常缺执行位：预检自动补 +x 而不是直接报错
+        // 从压缩包解出的 proton 脚本常缺执行位：预检自动补 +x 而不是直接报错。
+        // 审计修复（2026-09-19）：Windows 腿从静默 return 改为可见 Skip（计入 Skipped 摘要，
+        // "本平台没跑"显式化，不再伪装成通过）。
         if (OperatingSystem.IsWindows())
         {
-            return; // Windows 无执行位概念
+            Assert.Skip("执行位自动补全是 POSIX 专属行为，Windows 无对应语义");
         }
+        else
+        {
+            await CreateExecutable();
+            var script = _tempDir.FilePath("compat", "proton");
+            Directory.CreateDirectory(Path.GetDirectoryName(script)!);
+            await File.WriteAllTextAsync(script, "#!/bin/sh");
+            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite);
 
-        await CreateExecutable();
-        var script = _tempDir.FilePath("compat", "proton");
-        Directory.CreateDirectory(Path.GetDirectoryName(script)!);
-        await File.WriteAllTextAsync(script, "#!/bin/sh");
-        File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            Service().BuildPlan(Game($"\"{script}\" run {{exe}}"), _tempDir.Path, "bin/game.exe");
 
-        Service().BuildPlan(Game($"\"{script}\" run {{exe}}"), _tempDir.Path, "bin/game.exe");
-
-        Assert.True(
-            File.GetUnixFileMode(script).HasFlag(UnixFileMode.UserExecute),
-            "预检应自动补上可执行位");
+            Assert.True(
+                File.GetUnixFileMode(script).HasFlag(UnixFileMode.UserExecute),
+                "预检应自动补上可执行位");
+        }
     }
 
     [Fact]

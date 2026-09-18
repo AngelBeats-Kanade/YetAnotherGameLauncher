@@ -192,13 +192,12 @@ public class VideoBackdropHeadlessTests : IDisposable
         new(new Avalonia.PixelSize(4, 4), new Avalonia.Vector(96, 96),
             Avalonia.Platform.PixelFormats.Bgra8888, Avalonia.Platform.AlphaFormat.Opaque);
 
-    /// <summary>详情页模板里的 FrameSurface 可见性与播放器接线断言；页面已切走（模板卸载）视为隐藏。</summary>
+    /// <summary>详情页模板里的 FrameSurface 可见性与播放器接线断言；页面已切走（模板卸载）视为隐藏。
+    /// 审计修复（2026-09-19）：原静默 return 使播放器注入链断裂时可见性断言整组蒸发（测试照绿）。</summary>
     private static void AssertSurfaceVisible(MainWindow window, GameItemViewModel game, bool expected)
     {
-        if (game.VideoPlayer is null)
-        {
-            return; // 无播放器注入的构建：XAML 层恒隐藏，跳过
-        }
+        // 注入链断裂必须立刻显式失败，而非静默跳过整组断言
+        Assert.NotNull(game.VideoPlayer);
 
         var surface = window.GetVisualDescendants()
             .OfType<YetAnotherGameLauncher.Controls.FrameSurface>()

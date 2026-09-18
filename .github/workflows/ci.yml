@@ -84,6 +84,12 @@ jobs:
             echo "::error::failing cases: ${failed:-（详见对应 suite 日志）}"
             exit 1
           fi
+          # 禁用形态守卫（2026-09-19 审计）：Dispatch(async ...) 是吞断言的假绿形态
+          # （docs/audit/phase0/DISPATCH-PROBE.md 实锤），任何新引入即红。
+          if git grep -n 'Dispatch(async' -- tests/ | grep -v '禁用\|吞断言\|实锤\|原实现' ; then
+            echo "::error::Dispatch(async ...) 禁用形态回归（吞断言假绿），见 docs/audit/tests/CRITERIA.md D1"
+            exit 1
+          fi
 
   # v* tag 专属：Release 配置双平台自包含发布物并打包。
   # needs 测试门禁——绿 tag 才出包；ubuntu 原生构建的 linux 包比本机（滚动发行版）glibc 门槛更低

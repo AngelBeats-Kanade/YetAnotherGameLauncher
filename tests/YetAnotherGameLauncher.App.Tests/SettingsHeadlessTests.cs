@@ -46,7 +46,7 @@ public class SettingsHeadlessTests : IDisposable
     {
         await _ctx.Vm.InitializeAsync();
 
-        await HeadlessSession.Instance.Dispatch(async () =>
+        await HeadlessSession.Instance.Dispatch(() =>
         {
             var window = new MainWindow { DataContext = _ctx.Vm };
             window.Show();
@@ -82,7 +82,7 @@ public class SettingsHeadlessTests : IDisposable
     {
         await _ctx.Vm.InitializeAsync();
 
-        await HeadlessSession.Instance.Dispatch(async () =>
+        await HeadlessSession.Instance.Dispatch(() =>
         {
             var window = new MainWindow { DataContext = _ctx.Vm };
             window.Show();
@@ -129,7 +129,7 @@ public class SettingsHeadlessTests : IDisposable
     {
         await _ctx.Vm.InitializeAsync();
 
-        await HeadlessSession.Instance.Dispatch(async () =>
+        await HeadlessSession.Instance.Dispatch(() =>
         {
             var window = new MainWindow { DataContext = _ctx.Vm };
             window.Show();
@@ -139,9 +139,9 @@ public class SettingsHeadlessTests : IDisposable
             Dispatcher.UIThread.RunJobs();
             window.UpdateLayout();
 
-            var launch = Assert.IsType<GameSettingsViewModel>(_ctx.Vm.CurrentPage!).LaunchSettings;
+            var launch = (_ctx.Vm.CurrentPage as GameSettingsViewModel)?.LaunchSettings;
             var envBox = window.GetVisualDescendants().OfType<TextBox>().First(t => t.Name == "EnvironmentBox");
-            envBox.Text = launch.EnvironmentText + Environment.NewLine + "YAGL_UI_TEST_MARKER=1";
+            envBox.Text = launch!.EnvironmentText + Environment.NewLine + "YAGL_UI_TEST_MARKER=1";
             var saveButton = window.GetVisualDescendants().OfType<Button>()
                 .First(b => ReferenceEquals(b.Command, launch.SaveCommand));
             // 启动卡底部可能滚动到窗口可视区外：先 BringIntoView 再走真实指针
@@ -190,7 +190,7 @@ public class SettingsHeadlessTests : IDisposable
         ScrollBarVisibility horizontalScrollBar = default;
         double extentWidth = 0, viewportWidth = 0;
 
-        await HeadlessSession.Instance.Dispatch(async () =>
+        await HeadlessSession.Instance.Dispatch(() =>
         {
             var window = new MainWindow { DataContext = _ctx.Vm };
             window.Show();

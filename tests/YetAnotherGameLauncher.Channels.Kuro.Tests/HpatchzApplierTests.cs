@@ -106,7 +106,9 @@ public class HpatchzApplierTests : IDisposable
     {
         if (OperatingSystem.IsWindows())
         {
-            return; // Windows 无执行位概念，用例仅在 Linux 上有意义
+            // 审计修复（2026-09-19）：静默 return 改为可见 Skip（计入 Skipped 摘要）。
+            // Windows 无执行位概念，用例仅在 Linux 上有意义。
+            Assert.Skip("执行位校验是 POSIX 专属行为，Windows 无对应语义");
         }
 
         var path = _tempDir.FilePath("hpatchz-noexec");
