@@ -51,8 +51,10 @@ public partial class MainWindow : Window
                 settings.SaveInstallRootCommand.Execute(null);
                 e.Handled = true;
                 break;
-            case "InstallDirBox" when box.DataContext is LaunchSettingsViewModel launch:
-                launch.SaveCommand.Execute(null);
+            // 游戏设置页的 DataContext 是其壳 GameSettingsViewModel（页面绑定以 LaunchSettings 开头），
+            // 所以这里必须从壳上取 LaunchSettings——直接 is LaunchSettingsViewModel 永远不匹配
+            case "InstallDirBox" when box.DataContext is GameSettingsViewModel gameSettings:
+                gameSettings.LaunchSettings.SaveCommand.Execute(null);
                 e.Handled = true;
                 break;
         }

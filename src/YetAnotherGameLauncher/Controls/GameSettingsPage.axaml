@@ -132,6 +132,12 @@
                                          FontFamily="Consolas, Cascadia Mono, monospace"/>
                                 <TextBlock Text="{Binding Loc[launch_environmentHint]}" Classes="card-caption"/>
                             </StackPanel>
+                            <!-- 启动方式/命令模板/工作目录/环境变量是草稿字段，没有即时落盘入口
+                                （浏览与回车只覆盖位置卡、Proton 下拉只覆盖发行版），此按钮是这些改动的保存路径 -->
+                            <Button Classes="btn-sm"
+                                    Content="{Binding Loc[launch_save]}"
+                                    Command="{Binding LaunchSettings.SaveCommand}"
+                                    HorizontalAlignment="Left"/>
                         </StackPanel>
                     </Border>
 
