@@ -59,13 +59,16 @@ public static class VmFactory
         /// <summary>按区域返回背景来源；null = 解析失败。</summary>
         public Func<string, BackdropSource?>? Resolver { get; set; }
 
+        /// <summary>按完整请求返回背景来源（需要断言 ServerOptions 等字段时用）；优先于 Resolver。</summary>
+        public Func<BackdropRequest, BackdropSource?>? RequestResolver { get; set; }
+
         /// <summary>解析器被调用次数（验证"版本一致时跳过远程解析"用）。</summary>
         public int ResolveCount { get; private set; }
 
         public Task<BackdropSource?> GetBackdropUrlAsync(BackdropRequest request, CancellationToken cancellationToken = default)
         {
             ResolveCount++;
-            return Task.FromResult(Resolver?.Invoke(request.Region));
+            return Task.FromResult(RequestResolver?.Invoke(request) ?? Resolver?.Invoke(request.Region));
         }
     }
 
