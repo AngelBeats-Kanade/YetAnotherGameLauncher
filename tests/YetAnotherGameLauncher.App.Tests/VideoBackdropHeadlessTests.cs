@@ -128,6 +128,42 @@ public class VideoBackdropHeadlessTests : IDisposable
     }
 
     [Fact]
+    public async Task VideoSource_PlayAsyncThrows_FallsBackToPosterWithoutCrash()
+    {
+        // async review 回归（2026-09-19）：生产播放器是原生 FFmpeg 解码，PlayAsync 可能抛
+        //（驱动重置/库缺失）。StartVideoAsync 被 _ = 弃元调用，异常必须被方法内 catch 兜住——
+        // 视频层不点亮、海报兜底、测试进程不崩（本用例正常跑完即断言了"未崩"）。
+        var localVideo = _ctx.TempDir.FilePath("cached", "backdrop.mp4");
+        Directory.CreateDirectory(Path.GetDirectoryName(localVideo)!);
+        await File.WriteAllTextAsync(localVideo, "fake");
+        _ctx.KuroBackdrop.Resolver = _ => new BackdropSource(localVideo, BackdropKind.Video);
+        _player.PlayHandler = _ => throw new InvalidOperationException("decoder init failed");
+
+        await _ctx.Vm.InitializeAsync();
+
+        var playedPaths = new List<string>();
+        var videoLit = true;
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            window.Show();
+            window.UpdateLayout();
+
+            _ctx.Vm.GameNavSelection = _ctx.Vm.Games[0];
+            window.UpdateLayout();
+
+            playedPaths.AddRange(_player.PlayedPaths);
+            videoLit = _ctx.Vm.Games[0].HasBackgroundVideo;
+            window.Close();
+        }, CancellationToken.None);
+
+        // 断言在 Dispatch 外
+        Assert.Equal([localVideo], playedPaths); // 起播确实尝试过
+        Assert.False(videoLit); // 抛异常后视频层不点亮（海报兜底）
+        Assert.Null(_player.Frame); // 共享帧缓冲无残留帧
+    }
+
+    [Fact]
     public async Task VideoSource_SwitchingGames_LateStaleNotifyDoesNotLightNewGame()
     {
         // 两个游戏共享一个播放器（与生产 DI 单例一致）。切游戏后，上一游戏解码循环"最后一帧"

@@ -14,7 +14,10 @@ public sealed class LocalStateService(string installDir)
 
     private string StateFilePath => Path.Combine(installDir, StateDirName, "state.json");
 
-    /// <summary>读取状态；gameId/serverId 不匹配时同样视为未安装。</summary>
+    /// <summary>
+    /// 读取状态；gameId/serverId 不匹配、文件损坏或不可读（被占用/权限）时同样视为未安装。
+    /// 本方法处于 RefreshAsync 的 fire-and-forget 调用链上，任何异常都不允许穿出。
+    /// </summary>
     public LocalGameState? Load(string gameId, string serverId)
     {
         if (!File.Exists(StateFilePath))
@@ -30,8 +33,9 @@ public sealed class LocalStateService(string installDir)
                 ? state
                 : null;
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
+            // 损坏视为未安装（全量清单校验兜底）；被占用视为状态未知（下次刷新重读）
             return null;
         }
     }

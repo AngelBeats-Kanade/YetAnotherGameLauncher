@@ -508,5 +508,9 @@ public partial class MainWindow : Window
         {
             // 快速连点时被新一段动画接管，属预期
         }
+        catch (Exception)
+        {
+            // async void 内未捕获异常会崩掉整个进程：动画失败是纯装饰性问题，兜住
+        }
     }
 }

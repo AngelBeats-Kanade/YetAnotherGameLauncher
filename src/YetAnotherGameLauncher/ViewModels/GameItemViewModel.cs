@@ -258,8 +258,11 @@ public partial class GameItemViewModel(
             info = await GetVersionInfoCachedAsync(SelectedServer, cancellationToken);
             StatusText = "";
         }
-        catch (Exception ex) when (ex is UpdateException or HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (ex is UpdateException or HttpRequestException
+            or TaskCanceledException or OperationCanceledException)
         {
+            // 本方法有多个 _ = 弃元调用点（切服/导航/预热）：任何异常都不允许穿出。
+            // OperationCanceledException 含用户取消与超时的非 Task 形态，一并按离线兜底。
             StatusText = Loc["status_noConnection"];
             SetVersionChip(state?.Version, latestVersion: null, hasUpdate: false);
             IsInstalled = state is not null;
@@ -497,8 +500,17 @@ public partial class GameItemViewModel(
         VideoPlayer.FrameUpdated += OnVideoFrameUpdated;
         _videoSubscribed = true;
 
-        if (!await VideoPlayer.PlayAsync(videoPath))
+        try
         {
+            if (!await VideoPlayer.PlayAsync(videoPath))
+            {
+                StopVideo();
+            }
+        }
+        catch (Exception)
+        {
+            // 解码器启动失败（原生 FFmpeg 栈，如驱动重置/库缺失）：本方法经 _ = 弃元调用，
+            // 异常不得逃逸；回退海报显示（StopVideo 隐藏视频层并退订通知）
             StopVideo();
         }
     }
