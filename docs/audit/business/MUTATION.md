@@ -23,6 +23,15 @@
 
 **击杀率 7/8**。
 
+## Phase 4b-2 增补抽查（2026-09-19，离线兜底/进度消费新用例）
+
+| # | 变异点 | 变异内容 | 击杀测试 | 结果 |
+|---|---|---|---|---|
+| M9 | GameItemViewModel.RefreshAsync 离线 catch | `SetVersionChip(state?.Version, …)` → `SetVersionChip(null, …)` | GameItemOfflineTests.RefreshAsync_Offline_InstalledGame_ShowsLocalChipAndKeepsState | ✅ 击杀 |
+| M10 | GameItemViewModel.OnProgress | 阶段文案 switch 整体抹除（ProgressText 恒空） | GameItemProgressTests.Install_ProgressConsumed_AndCardClearedOnCompletion | ✅ 击杀 |
+
+M10 的轮询超时形态同时证明 Progress&lt;T&gt; 回调在线程池异步到达、有界轮询等待是必要的（非冗余防御）。
+
 ## M7 存活论证（等价防御，记录在案）
 
 StartVideoAsync 的新增 catch 与外层 LoadAssetsCoreAsync 的 `catch (Exception)`（装饰性资源静默回退）

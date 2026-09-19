@@ -135,4 +135,33 @@ public sealed class StartupAssetPreloadTests
         Assert.Equal(2, ctx.BackgroundHandler.Requests.Count(r => r.RequestUri == new Uri(IconUrl1)));
         Assert.Equal(1, ctx.BackgroundHandler.Requests.Count(r => r.RequestUri == new Uri(BackdropUrl)));
     }
+
+    [Fact]
+    public async Task InitializeAsync_Offline_FallsBackToHttpIconAndReportsNoConnection()
+    {
+        // 审计缺口 RefreshAsync catch 内离线资产兜底（2026-09-19）：版本检测失败时，
+        // 资产链路仍以纯磁盘/直链形态跑一轮（LoadAssetsCoreAsync(remote:false)），图标可用、状态报断网
+        using var ctx = VmFactory.Build(ConfigJson(IconUrl1, IconUrl2));
+        ctx.BackgroundHandler.Map(IconUrl1, Png);
+        ctx.BackgroundHandler.Map(IconUrl2, Png);
+        ctx.Kuro.VersionInfoError = new HttpRequestException("离线（测试注入）");
+        ctx.Gryphline.VersionInfoError = new HttpRequestException("离线（测试注入）");
+
+        await HeadlessSession.Instance.Dispatch(() => RunToCompletion(() => ctx.Vm.InitializeAsync()), CancellationToken.None);
+        // 离线兜底的资产装载是 fire-and-forget（_ =）：显式再刷一次并泵到完成
+        await HeadlessSession.Instance.Dispatch(
+            () => RunToCompletion(() => ctx.Vm.Games[0].RefreshAsync()), CancellationToken.None);
+
+        // 图标解码可能仍滞留在会话队列：有界等待其落地再断言（同版本门控用例的竞态教训）
+        var wuwa = ctx.Vm.Games[0];
+        var settleDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (!wuwa.HasGameIcon && DateTime.UtcNow < settleDeadline)
+        {
+            await Task.Delay(20);
+        }
+
+        Assert.True(wuwa.HasGameIcon, "离线兜底也应对齐图标（磁盘缓存/直链）");
+        Assert.Equal("无法连接服务器，版本信息不可用", wuwa.StatusText);
+        Assert.Equal("未安装", wuwa.VersionChipLead);
+    }
 }

@@ -1,7 +1,10 @@
+using System.ComponentModel;
 using System.Diagnostics;
+using Microsoft.Extensions.Logging;
 using Xunit;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Services;
+using YetAnotherGameLauncher.TestSupport;
 
 namespace YetAnotherGameLauncher.Core.Tests.Services;
 
@@ -123,5 +126,163 @@ public class SystemProcessRunnerTests
 
         stopwatch.Stop();
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(10), $"超时应及时触发，实际 {stopwatch.Elapsed}");
+    }
+
+    [Fact]
+    public async Task RunAsync_WaitForExit_ChildReceivesCustomEnvironment()
+    {
+        // 审计缺口（2026-09-19）：等待模式 + 自定义环境变量——注入循环须真正生效到子进程
+        var (fileName, arguments) = OperatingSystem.IsWindows()
+            ? ("cmd.exe", "/c echo %YAGL_TEST_VAR%")
+            : ("/bin/sh", "-c \"printf '%s' \"$YAGL_TEST_VAR\"\"");
+
+        var result = await new SystemProcessRunner().RunAsync(new ProcessStartSpec(
+            fileName,
+            arguments,
+            Environment: new Dictionary<string, string> { ["YAGL_TEST_VAR"] = "injected-value" }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("injected-value", result.StandardOutput.Trim());
+    }
+
+    [Fact]
+    public async Task RunAsync_FireAndForget_WithEnvironment_LogsEnvBlock()
+    {
+        // 审计缺口（2026-09-19）：即启即走 + 输出日志 + 自定义环境——日志头要带 env 块（秒退排查线索）
+        using var tempDir = new TempDir();
+        var logPath = tempDir.FilePath("logs", "launch-env.log");
+        var runner = new SystemProcessRunner();
+
+        var (fileName, arguments) = OperatingSystem.IsWindows()
+            ? ("cmd.exe", "/c echo done& exit /b 7")
+            : ("/bin/sh", "-c \"echo done; exit 7\"");
+
+        await runner.RunAsync(new ProcessStartSpec(
+            fileName,
+            arguments,
+            WaitForExit: false,
+            Environment: new Dictionary<string, string>
+            {
+                ["YAGL_TEST_VAR"] = "injected-value",
+                ["WINEDEBUG"] = "-all",
+            },
+            OutputLogPath: logPath));
+
+        var content = await WaitForLogFootnoteAsync(logPath, "exited with code 7");
+
+        Assert.Contains("# environment:", content, StringComparison.Ordinal);
+        Assert.Contains("#   YAGL_TEST_VAR=injected-value", content, StringComparison.Ordinal);
+        Assert.Contains("#   WINEDEBUG=-all", content, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RunAsync_StartFailure_WithLogPath_WritesHeaderThenReleasesWriter()
+    {
+        // 审计缺口（2026-09-19）：启动失败时已打开的日志句柄要释放——文件落盘即证明 Dispose
+        // （AutoFlush 已写头部，若句柄泄漏文件会被独占到进程退出）
+        using var tempDir = new TempDir();
+        var logPath = tempDir.FilePath("logs", "launch-fail.log");
+        var runner = new SystemProcessRunner();
+
+        await Assert.ThrowsAnyAsync<Win32Exception>(() => runner.RunAsync(new ProcessStartSpec(
+            "/nonexistent/yagl-missing-binary",
+            "-dx11",
+            WaitForExit: false,
+            OutputLogPath: logPath)));
+
+        var content = await File.ReadAllTextAsync(logPath); // 能读到 = 写入方已释放
+        Assert.Contains("# YAGL launch log", content, StringComparison.Ordinal);
+        Assert.Contains("# command: /nonexistent/yagl-missing-binary -dx11", content, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RunAsync_FireAndForget_LongLivedProcess_ExitObservedViaExitedEvent()
+    {
+        // 审计缺口（2026-09-19）：布防后进程仍在运行 → Exited 事件分支（与 HasExited 补查对称）。
+        // 睡 0.5s 保证 EnableRaisingEvents 时进程必然存活，退出脚注经事件链落盘
+        using var tempDir = new TempDir();
+        var logPath = tempDir.FilePath("logs", "launch-exited.log");
+        var runner = new SystemProcessRunner();
+
+        var (fileName, arguments) = OperatingSystem.IsWindows()
+            ? ("cmd.exe", "/c ping -n 2 127.0.0.1 >nul & exit /b 5")
+            : ("/bin/sh", "-c \"sleep 0.5; exit 5\"");
+
+        var result = await runner.RunAsync(new ProcessStartSpec(
+            fileName, arguments, WaitForExit: false, OutputLogPath: logPath));
+
+        Assert.Equal(0, result.ExitCode); // 即启即走恒 0
+        var content = await WaitForLogFootnoteAsync(logPath, "exited with code 5");
+        Assert.Contains(
+            OperatingSystem.IsWindows() ? "# command: cmd.exe" : "# command: /bin/sh",
+            content, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RunAsync_FireAndForget_InstantExit_NoLog_ReportsExitToAppLog()
+    {
+        // 审计缺口（2026-09-19）：无日志即启即走的秒退线索——退出码与存活时长写应用日志（HasExited
+        // 补查与 Exited 事件两分支任一命中均写；瞬秒命令最大化命中补查分支的概率）
+        var logger = new CollectingLogger();
+        var runner = new SystemProcessRunner(logger);
+
+        var (fileName, arguments) = OperatingSystem.IsWindows()
+            ? ("cmd.exe", "/c exit 0")
+            : ("true", "");
+
+        var result = await runner.RunAsync(new ProcessStartSpec(fileName, arguments, WaitForExit: false));
+
+        Assert.Equal(0, result.ExitCode);
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < deadline && !logger.Messages.Any(m => m.Contains("exited after", StringComparison.Ordinal)))
+        {
+            await Task.Delay(50);
+        }
+
+        var exitLog = Assert.Single(logger.Messages, m => m.Contains("exited after", StringComparison.Ordinal));
+        Assert.Contains("code 0", exitLog, StringComparison.Ordinal);
+        Assert.Contains(fileName, exitLog, StringComparison.Ordinal);
+    }
+
+    /// <summary>轮询等待日志退出脚注落盘（输出泵收尾是异步的），返回完整日志文本。</summary>
+    private static async Task<string> WaitForLogFootnoteAsync(string logPath, string footnote)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        string content = "";
+        while (DateTime.UtcNow < deadline)
+        {
+            if (File.Exists(logPath))
+            {
+                content = await File.ReadAllTextAsync(logPath);
+                if (content.Contains(footnote, StringComparison.Ordinal))
+                {
+                    return content;
+                }
+            }
+
+            await Task.Delay(100);
+        }
+
+        Assert.Fail($"日志 10s 内未出现脚注「{footnote}」，实际内容：{content}");
+        return content;
+    }
+
+    /// <summary>收集日志消息的最小 ILogger（应用日志断言用）。</summary>
+    private sealed class CollectingLogger : ILogger<SystemProcessRunner>
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            lock (Messages)
+            {
+                Messages.Add(formatter(state, exception));
+            }
+        }
     }
 }

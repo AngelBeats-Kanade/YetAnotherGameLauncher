@@ -82,6 +82,103 @@ public class KuroGachaServiceTests : IDisposable
     }
 
     [Fact]
+    public void TryExtractGachaUrl_FirstCandidateLocked_FallsBackToNextCandidate()
+    {
+        // 审计缺口（2026-09-19）：游戏运行中日志被占用（IOException）→ 跳过该候选继续找下一个落盘位置
+        var installDir = _tempDir.FilePath("WW");
+        var lockedPath = Path.Combine(installDir, "Client", "Saved", "Logs", "Client.log");
+        Directory.CreateDirectory(Path.GetDirectoryName(lockedPath)!);
+        File.WriteAllBytes(lockedPath, EncryptLog("no url"));
+        var fallbackPath = Path.Combine(installDir, "Saved", "Logs", "Client.log");
+        Directory.CreateDirectory(Path.GetDirectoryName(fallbackPath)!);
+        File.WriteAllText(fallbackPath, $"url={SampleUrl}");
+
+        // FileShare.None 独占占位：模拟游戏进程正握着日志
+        using var keeper = File.Open(lockedPath, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        var info = CreateService().TryExtractGachaUrl(installDir);
+
+        Assert.NotNull(info);
+        Assert.Equal("100000002", info!.PlayerId);
+    }
+
+    [Fact]
+    public void TryExtractGachaUrl_AllCandidatesLocked_ReturnsNullWithoutThrow()
+    {
+        var installDir = _tempDir.FilePath("WW");
+        var paths = new[]
+        {
+            Path.Combine(installDir, "Client", "Saved", "Logs", "Client.log"),
+            Path.Combine(installDir, "Saved", "Logs", "Client.log"),
+        };
+        var keepers = paths.Select(path =>
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, EncryptLog("no url"));
+            return File.Open(path, FileMode.Open, FileAccess.Read, FileShare.None);
+        }).ToList();
+
+        try
+        {
+            Assert.Null(CreateService().TryExtractGachaUrl(installDir));
+        }
+        finally
+        {
+            foreach (var keeper in keepers)
+            {
+                keeper.Dispose();
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("not a url")]
+    [InlineData("https://example.com/path")] // 绝对 URL 但无参数
+    [InlineData("https://aki-gm-resources.aki-game.com/aki/gacha/index.html#/record?player_id=1&svr_id=2")] // 缺 record_id
+    public void ParseGachaUrl_MalformedOrIncomplete_ReturnsNull(string url)
+    {
+        Assert.Null(KuroGachaService.ParseGachaUrl(url));
+    }
+
+    [Fact]
+    public void ParseGachaUrl_HashParamsOverQuery_WhenQueryLacksRecordId()
+    {
+        // query 无 record_id 时回落 hash 段参数（两种官方落点都要认）
+        var url = "https://aki-gm-resources.example.com/aki/gacha/index.html" +
+                  "?x=1#/record?record_id=rec42&player_id=p1&svr_id=s1";
+
+        var info = KuroGachaService.ParseGachaUrl(url);
+
+        Assert.NotNull(info);
+        Assert.Equal("rec42", info!.RecordId);
+        Assert.False(info.IsChina); // 非 aki-game.com 域名
+    }
+
+    [Fact]
+    public void LoadCached_CorruptFile_ReturnsEmpty()
+    {
+        // 审计缺口（2026-09-19）：缓存损坏（JsonException）按空列表兜底，不得让唤取页崩溃
+        Directory.CreateDirectory(_tempDir.FilePath("gacha"));
+        File.WriteAllText(_tempDir.FilePath("gacha", "wuthering-waves.json"), "{not-json");
+
+        Assert.Empty(CreateService().LoadCached());
+    }
+
+    [Fact]
+    public void MergeAndSave_UnwritableCacheDirectory_DoesNotThrow()
+    {
+        // 缓存目录是文件路径 → CreateDirectory 抛 IOException → 静默放弃（下次拉取重试）
+        var filePath = _tempDir.FilePath("not-a-dir");
+        File.WriteAllText(filePath, "occupied");
+
+        var service = new KuroGachaService(new HttpClient(_handler), filePath);
+
+        service.MergeAndSave([new GachaRecord("2026-09-01 10:00:00", "A", 5, 1)]);
+
+        Assert.Empty(service.LoadCached());
+    }
+
+    [Fact]
     public void TryExtractGachaUrl_LogInWinePrefix_FoundViaPrefixCandidates()
     {
         // Linux + Proton 形态：安装目录没有任何日志，UE 日志落在 prefix 的

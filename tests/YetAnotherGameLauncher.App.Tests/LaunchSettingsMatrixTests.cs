@@ -117,6 +117,64 @@ public class LaunchSettingsMatrixTests : IDisposable
         Assert.NotEqual(ProtonUpdateCheckState.Checking, settings.ProtonUpdateState); // 不卡在 Checking
     }
 
+    [Fact]
+    public async Task CheckProtonUpdate_WhileChecking_SecondCallIgnoredUntilSettled()
+    {
+        // 审计缺口重入守卫（2026-09-19）：Checking 期间再点检查按钮必须立即返回（不并发第二次查询）；
+        // 查询落地后才进入 UpdateAvailable 并弹确认覆盖层
+        await _ctx.Vm.InitializeAsync();
+        var provisioner = new GatedProvisioner();
+        var settings = NewSettings(provisioner: provisioner);
+        settings.SelectedProtonFlavor = "GE-Proton";
+
+        var first = settings.CheckProtonUpdateCommand.ExecuteAsync(null);
+        Assert.Equal(ProtonUpdateCheckState.Checking, settings.ProtonUpdateState); // 第一次调用同步进入 Checking
+        await settings.CheckProtonUpdateCommand.ExecuteAsync(null); // 重入：守卫直接返回
+
+        Assert.Equal(1, provisioner.FetchCalls);
+
+        provisioner.Gate.SetResult("GE-Proton11-7");
+        await first;
+
+        Assert.Equal(ProtonUpdateCheckState.UpdateAvailable, settings.ProtonUpdateState);
+        Assert.True(settings.ShowProtonUpdateConfirm);
+        Assert.Equal("GE-Proton11-7", settings.PendingProtonUpdateTag);
+    }
+
+    /// <summary>查询门栓准备器：FetchLatestProtonTagAsync 挂起直到测试放行（重入窗口可控）。</summary>
+    private sealed class GatedProvisioner : IUmuComponentProvisioner
+    {
+        public TaskCompletionSource<string> Gate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int FetchCalls { get; private set; }
+
+        public bool IsProtonReady(string protonPath) => false;
+
+        public bool IsRuntimeReady(string runtimeVariant) => false;
+
+        public (string Variant, string Name)? ResolveRequiredRuntime(string protonRequest) => null;
+
+        public string? FindInstalledProton(string protonRequest) => null;
+
+        public Task<string> FetchLatestProtonTagAsync(string protonRequest, CancellationToken cancellationToken = default)
+        {
+            FetchCalls++;
+            return Gate.Task;
+        }
+
+        public Task<string> UpdateProtonAsync(
+            string protonRequest, IProgress<string>? progress = null, CancellationToken cancellationToken = default) =>
+            Task.FromResult("/tmp/GE-Proton");
+
+        public Task<string> EnsureProtonAsync(
+            string protonRequest, IProgress<string>? progress = null, CancellationToken cancellationToken = default) =>
+            Task.FromResult("/tmp/GE-Proton");
+
+        public Task EnsureRuntimeAsync(
+            string runtimeVariant, string runtimeName, IProgress<string>? progress = null, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+    }
+
     /// <summary>可编程组件准备器：正/异常路径均可注入（状态文本与失败分支矩阵）。</summary>
     private sealed class ScriptedProvisioner : IUmuComponentProvisioner
     {

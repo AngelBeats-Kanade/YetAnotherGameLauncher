@@ -513,8 +513,9 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         EnvironmentText = SerializeEnvironment(merged);
     }
 
-    /// <summary>宽松解析环境文本为字典（跳过无 "=" 的行，不报错）；行级解析复用严格版，保证切分规则单一。</summary>
-    private static Dictionary<string, string> ParseEnvironmentOrEmpty(string text)
+    /// <summary>宽松解析环境文本为字典（跳过无 "=" 的行，不报错）；行级解析复用严格版，保证切分规则单一。
+    /// internal 供单测（经 InternalsVisibleTo）。</summary>
+    internal static Dictionary<string, string> ParseEnvironmentOrEmpty(string text)
     {
         var result = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var raw in text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
@@ -751,8 +752,9 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     private static string SerializeEnvironment(Dictionary<string, string> environment)
         => string.Join(Environment.NewLine, environment.Select(kv => $"{kv.Key}={kv.Value}"));
 
-    /// <summary>多行 KEY=VALUE 文本 → 字典；出错的行写入 badLine 返回 false（解析容错与保存校验共用）。</summary>
-    private static bool TryParseEnvironment(
+    /// <summary>多行 KEY=VALUE 文本 → 字典；出错的行写入 badLine 返回 false（解析容错与保存校验共用）。
+    /// internal 供单测（经 InternalsVisibleTo）。</summary>
+    internal static bool TryParseEnvironment(
         string text, out Dictionary<string, string> environment, out string badLine)
     {
         environment = [];
