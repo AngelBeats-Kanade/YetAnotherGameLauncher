@@ -170,16 +170,21 @@ public sealed class HttpFileDownloader(
         await target.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// 校验语义：期望尺寸 ≤ 0 或期望 MD5 为空表示"上游未提供校验信息"，跳过对应项而非按目标值比较。
+    /// 渠道清单字段缺失/解析失败曾把空串与 0 当成校验目标，任何真实内容都恒不匹配，
+    /// 大包会按校验失败反复重下到重试耗尽（2026-09-20 复审修复）。
+    /// </summary>
     private static void Verify(DownloadRequest request, string tempPath)
     {
         var actualLength = new FileInfo(tempPath).Length;
-        if (request.ExpectedSize is long expectedSize && actualLength != expectedSize)
+        if (request.ExpectedSize is long expectedSize && expectedSize > 0 && actualLength != expectedSize)
         {
             throw new DownloadVerificationException(
                 $"Size mismatch for {request.DestinationPath}: expected {expectedSize} bytes, got {actualLength}.");
         }
 
-        if (request.ExpectedMd5 is string expectedMd5)
+        if (request.ExpectedMd5 is string expectedMd5 && expectedMd5.Length > 0)
         {
             var actualMd5 = Hashing.Md5Hex(tempPath);
             if (!string.Equals(actualMd5, expectedMd5, StringComparison.OrdinalIgnoreCase))

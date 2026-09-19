@@ -239,7 +239,8 @@ public class GameLauncherServiceTests : IDisposable
         var name = Path.GetFileName(result.LogPath!);
         Assert.DoesNotContain("/", name);
         Assert.DoesNotContain(":", name);
-        Assert.Matches(@"^launch-wuthering-waves-global-cn-\d{8}-\d{6}\.log$", name);
+        // 尾部 4 位短随机：同秒内对同一游戏二次启动不再互相覆盖日志（2026-09-20）
+        Assert.Matches(@"^launch-wuthering-waves-global-cn-\d{8}-\d{6}-[0-9a-f]{4}\.log$", name);
     }
 
     [Theory]

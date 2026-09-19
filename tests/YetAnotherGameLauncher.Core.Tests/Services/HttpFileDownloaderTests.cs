@@ -116,6 +116,29 @@ public class HttpFileDownloaderTests : IDisposable
     }
 
     [Fact]
+    public async Task DownloadFileAsync_EmptyExpectedMd5_IsNoInfo_SkipsMd5Check()
+    {
+        // 回归（2026-09-20）：渠道清单缺失 md5 字段时上游传空串——空串是"无校验信息"，
+        // 不是校验目标；旧语义任何真实内容都恒不匹配，大包按校验失败重下到重试耗尽
+        _handler.Map(Url, Content);
+
+        await CreateDownloader().DownloadFileAsync(Request(expectedMd5: ""), cancellationToken: Ct);
+
+        Assert.Equal(Content, await File.ReadAllBytesAsync(_tempDir.FilePath("file.bin")));
+    }
+
+    [Fact]
+    public async Task DownloadFileAsync_ZeroExpectedSize_IsNoInfo_SkipsSizeCheck()
+    {
+        // 同上：Gryphline 包尺寸解析失败回退 0——0 是"无尺寸信息"，非零真实内容不得被判尺寸不符
+        _handler.Map(Url, Content);
+
+        await CreateDownloader().DownloadFileAsync(Request(expectedSize: 0), cancellationToken: Ct);
+
+        Assert.Equal(Content, await File.ReadAllBytesAsync(_tempDir.FilePath("file.bin")));
+    }
+
+    [Fact]
     public async Task DownloadFileAsync_ResumesFromTempFile()
     {
         var half = Content[..(Content.Length / 2)];

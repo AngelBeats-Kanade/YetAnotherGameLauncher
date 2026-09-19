@@ -304,4 +304,64 @@ public class IncrementalUpdateServiceTests : IDisposable
 
         Assert.Null(IncrementalUpdateService.TryLoadStagedManifest(_tempDir.Path));
     }
+
+    [Fact]
+    public void TryDeleteBackup_UndeletableFile_ReturnsFalseWithoutThrowing()
+    {
+        // 回归（2026-09-20）：更新成功后的 .yagl-bak 清理曾被裸 IOException/UnauthorizedAccess 打穿——
+        // Windows 杀软锁住备份文件时，已完成且校验通过的更新被整体推翻且 state.json 不更新。
+        // 删除失败必须尽力而为：返回 false、不抛。
+        // 不可删除构造：Windows 置只读属性；POSIX 去掉所在目录写位
+        var dir = Path.Combine(_tempDir.Path, "bak-dir");
+        Directory.CreateDirectory(dir);
+        var backup = Path.Combine(dir, "game.dll.yagl-bak");
+        File.WriteAllText(backup, "old");
+
+        if (OperatingSystem.IsWindows())
+        {
+            File.SetAttributes(backup, FileAttributes.ReadOnly);
+        }
+        else
+        {
+            Directory.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        }
+
+        try
+        {
+            Assert.False(IncrementalUpdateService.TryDeleteBackup(backup));
+            Assert.True(File.Exists(backup));
+        }
+        finally
+        {
+            // 恢复可写，避免 TempDir 清理失败
+            if (OperatingSystem.IsWindows())
+            {
+                File.SetAttributes(backup, FileAttributes.Normal);
+            }
+            else
+            {
+                Directory.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ApplyAsync_CancellationBeforeStagedFilePlacement_ThrowsOperationCanceled()
+    {
+        // 落位循环此前无取消检查点：大库逐文件 MD5 阶段取消无响应（2026-09-20 复审补齐）
+        var manifest = new GameManifest
+        {
+            Version = "2.0.0",
+            Files = [FileEntry("a.pak", "aaa"u8.ToArray()), FileEntry("b.pak", "bbb"u8.ToArray())],
+        };
+        var staging = IncrementalUpdateService.PredownloadDir(_tempDir.Path);
+        Directory.CreateDirectory(Path.Combine(staging, "files"));
+        await File.WriteAllTextAsync(Path.Combine(staging, "files", "a.pak"), "aaa");
+        var service = CreateService();
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => service.ApplyAsync(_tempDir.Path, manifest, cancellationToken: cts.Token));
+    }
 }

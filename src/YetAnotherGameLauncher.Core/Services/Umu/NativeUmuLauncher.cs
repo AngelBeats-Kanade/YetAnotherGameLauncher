@@ -165,9 +165,7 @@ public sealed class NativeUmuLauncher(
 
         var logDirectory = Path.Combine(AppPaths.DataDirectory, "logs");
         Directory.CreateDirectory(logDirectory);
-        var logPath = Path.Combine(
-            logDirectory,
-            $"launch-{FileUtilities.SanitizeGameId(gameId)}-{DateTime.Now:yyyyMMdd-HHmmss}.log");
+        var logPath = FileUtilities.LaunchLogFilePath(logDirectory, gameId);
 
         var spec = new ProcessStartSpec(
             plan.FileName,

@@ -111,9 +111,11 @@ public class SystemProcessRunnerTests
     }
 
     [Fact]
-    public async Task RunAsync_Timeout_KillsProcessAndReportsCancellation()
+    public async Task RunAsync_Timeout_KillsProcessAndThrowsUpdateException()
     {
-        // 等待模式超时：杀进程树并抛取消（长 sleep + 极短超时）
+        // 回归（2026-09-20）：超时曾重抛裸 OCE，消费端把一切 OCE 当"用户取消"静默吞，
+        // 大包补丁超时被杀后 UI 无任何提示。超时必须抛 UpdateException（可区分的失败）。
+        // 长 sleep + 极短超时
         var (fileName, arguments) = OperatingSystem.IsWindows()
             ? ("ping", "127.0.0.1 -n 30")
             : ("sleep", "30");
@@ -121,11 +123,28 @@ public class SystemProcessRunnerTests
         var runner = new SystemProcessRunner();
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runner.RunAsync(
+        var ex = await Assert.ThrowsAsync<UpdateException>(() => runner.RunAsync(
             new ProcessStartSpec(fileName, arguments, TimeoutMilliseconds: 500)));
 
         stopwatch.Stop();
+        Assert.Contains("timed out", ex.Message);
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(10), $"超时应及时触发，实际 {stopwatch.Elapsed}");
+    }
+
+    [Fact]
+    public async Task RunAsync_UserCancellation_StillThrowsOperationCanceled()
+    {
+        // 守卫：超时改抛 UpdateException 不得误伤用户取消路径——取消 token 仍传播 OCE
+        var (fileName, arguments) = OperatingSystem.IsWindows()
+            ? ("ping", "127.0.0.1 -n 30")
+            : ("sleep", "30");
+
+        var runner = new SystemProcessRunner();
+        using var cts = new CancellationTokenSource(500);
+        cts.CancelAfter(500);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runner.RunAsync(
+            new ProcessStartSpec(fileName, arguments, TimeoutMilliseconds: 60_000), cts.Token));
     }
 
     [Fact]

@@ -80,4 +80,13 @@ public class VersionComparisonTests
         Assert.False(VersionComparison.IsNewer("3.6.0", null));
         Assert.False(VersionComparison.IsNewer("3.6.0", ""));
     }
+
+    [Fact]
+    public void IsNewer_MissingRemoteVersion_ReturnsFalse()
+    {
+        // 回归（2026-09-20）：远端版本缺失（渠道响应异常）曾按"字符串不等"误报有更新，
+        // 且更新目标为空——空白远端一律视为无更新
+        Assert.False(VersionComparison.IsNewer("", "1.0.0"));
+        Assert.False(VersionComparison.IsNewer("  ", "1.0.0"));
+    }
 }

@@ -151,6 +151,15 @@ public static class FileUtilities
         return sanitized.Length == 0 ? "game" : sanitized;
     }
 
+    /// <summary>
+    /// 启动日志文件路径：{logDir}/launch-{gameId}-{yyyyMMdd-HHmmss}-{4位随机}.log。
+    /// 时间戳精确到秒，同秒内对同一游戏的两次启动会互相覆盖日志，追加短随机后缀保证唯一。
+    /// GameLauncherService 与 NativeUmuLauncher 共用，保持日志命名单一来源。
+    /// </summary>
+    public static string LaunchLogFilePath(string logDirectory, string gameId) => Path.Combine(
+        logDirectory,
+        $"launch-{SanitizeGameId(gameId)}-{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..4]}.log");
+
     /// <summary>文件是否存在且可执行：Linux 校验 UserExecute 位；Windows 无执行位概念，存在即可。</summary>
     public static bool IsExecutableFile(string path)
     {

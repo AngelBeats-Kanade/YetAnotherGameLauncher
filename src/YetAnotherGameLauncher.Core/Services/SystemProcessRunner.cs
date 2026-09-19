@@ -18,7 +18,9 @@ public sealed class SystemProcessRunner(
     private readonly bool _supportsElevationRetry = supportsElevationRetry;
 
     /// <summary>
-    /// 启动进程并等待退出，捕获 stdout/stderr；超时或取消时杀死整个进程树并抛出取消。
+    /// 启动进程并等待退出，捕获 stdout/stderr；超时或取消都杀死整个进程树，
+    /// 但可区分上报：调用方 token 未取消的超时抛 <see cref="UpdateException"/>（失败），
+    /// 用户取消传播 OperationCanceledException（静默路径）。
     /// WaitForExit=false 时即启即走（游戏启动用）：不重定向输出、不等待、不受超时影响，
     /// 并挂进程退出观察把"退出码 + 存活时长"写入日志（游戏秒退可据此排查）。
     /// </summary>
@@ -195,14 +197,15 @@ public sealed class SystemProcessRunner(
             }
             catch (OperationCanceledException)
             {
-                try
+                await KillProcessTreeAsync(process).ConfigureAwait(false);
+
+                // 区分超时与用户取消：调用方 token 未取消 = 超时。超时必须按失败抛 UpdateException，
+                // 不能重抛裸 OCE——消费端把一切 OCE 当"用户取消"静默吞，大包补丁超时被杀后
+                // UI 曾无任何提示，用户误以为更新完成（2026-09-20 复审修复）
+                if (!cancellationToken.IsCancellationRequested)
                 {
-                    process.Kill(entireProcessTree: true);
-                    await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
-                }
-                catch (InvalidOperationException)
-                {
-                    // 进程已退出
+                    throw new UpdateException(
+                        $"Process timed out after {spec.TimeoutMilliseconds} ms and was killed: {spec.FileName}");
                 }
 
                 throw;
@@ -215,6 +218,20 @@ public sealed class SystemProcessRunner(
         finally
         {
             process.Dispose();
+        }
+    }
+
+    /// <summary>杀整棵进程树并等其退出；句柄/进程已消失（竞态）按已退出处理。</summary>
+    private static async Task KillProcessTreeAsync(Process process)
+    {
+        try
+        {
+            process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException)
+        {
+            // 进程已退出
         }
     }
 

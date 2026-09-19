@@ -171,10 +171,8 @@ public sealed class GameLauncherService(
         }
     }
 
-    /// <summary>启动日志路径：{logDir}/launch-{gameId}-{yyyyMMdd-HHmmss}.log。</summary>
-    private string ComposeLogPath(string gameId) => Path.Combine(
-        _logDirectory,
-        $"launch-{FileUtilities.SanitizeGameId(gameId)}-{DateTime.Now:yyyyMMdd-HHmmss}.log");
+    /// <summary>启动日志路径：{logDir}/launch-{gameId}-{yyyyMMdd-HHmmss}-{短随机}.log（FileUtilities 单一来源）。</summary>
+    private string ComposeLogPath(string gameId) => FileUtilities.LaunchLogFilePath(_logDirectory, gameId);
 
     /// <summary>替换模板占位符。{exe} 展开为带引号的路径——命令按空格切分，
     /// 路径含空格（如 D:\Wuthering Waves）不加引号会被截断成不存在的文件；兼容已手写引号的 "{exe}"。</summary>

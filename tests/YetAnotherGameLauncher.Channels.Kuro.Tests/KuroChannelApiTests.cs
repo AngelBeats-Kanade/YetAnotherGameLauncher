@@ -25,8 +25,10 @@ public class KuroChannelApiTests
         },
     };
 
-    /// <summary>构造 index.json 与全量清单 fixture 并注册到假下载器。</summary>
-    private (string IndexJson, string IndexFileJson) RegisterFullFixture(bool includePredownload = true)
+    /// <summary>构造 index.json 与全量清单 fixture 并注册到假下载器。predownloadSwitch 传 JSON 字面量（"1"/"0"/"null"）。</summary>
+    private (string IndexJson, string IndexFileJson) RegisterFullFixture(
+        bool includePredownload = true,
+        string predownloadSwitch = "1")
     {
         var indexFileJson = """
             {
@@ -51,7 +53,7 @@ public class KuroChannelApiTests
                   "patchConfig": [ { "version": "3.6.0", "indexFile": "resource/370/indexFile.json", "indexFileMd5": "ee00ee00ee00ee00ee00ee00ee00ee00" } ]
                 }
               },
-              "predownloadSwitch": 1
+              "predownloadSwitch": {{predownloadSwitch}}
               """
             : "";
 
@@ -110,6 +112,29 @@ public class KuroChannelApiTests
 
         Assert.False(info.PredownloadAvailable);
         Assert.Null(info.PredownloadVersion);
+    }
+
+    [Fact]
+    public async Task GetVersionInfo_PredownloadClosed_WhenSwitchOff()
+    {
+        // 回归（2026-09-20）：官方契约是 predownloadSwitch 且存在 predownload.config 双条件；
+        // 官方关开关但块残留时不得误报可预下载（ChannelVersionInfo 注释一直如此承诺）
+        RegisterFullFixture(predownloadSwitch: "0");
+
+        var info = await CreateApi().GetVersionInfoAsync(Server());
+
+        Assert.False(info.PredownloadAvailable);
+        Assert.Equal("3.7.0", info.PredownloadVersion);
+    }
+
+    [Fact]
+    public async Task GetVersionInfo_PredownloadClosed_WhenSwitchMissing()
+    {
+        RegisterFullFixture(predownloadSwitch: "null");
+
+        var info = await CreateApi().GetVersionInfoAsync(Server());
+
+        Assert.False(info.PredownloadAvailable);
     }
 
     [Fact]

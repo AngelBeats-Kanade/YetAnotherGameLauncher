@@ -26,7 +26,9 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         {
             LatestVersion = block.Config?.Version ?? block.Version ?? "",
             PatchSourceVersions = GetPatchSourceVersions(block.Config),
-            PredownloadAvailable = predownloadConfig is not null,
+            // 预下载可用性按官方契约 = predownloadSwitch 开启且 predownload 块带 config；
+            // 官方关闭开关但残留 predownload 块时不得误报可预下载（随后增量清单查找必失败）
+            PredownloadAvailable = predownloadConfig is not null && index.PredownloadSwitch == 1,
             PredownloadVersion = predownloadConfig?.Version,
             PredownloadPatchSourceVersions = GetPatchSourceVersions(predownloadConfig),
         };

@@ -53,4 +53,16 @@ public class WindowsAutostartServiceTests
         var spec = Assert.Single(_runner.Specs);
         Assert.Contains("delete HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", spec.Arguments, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task SetEnabledAsync_RegFails_ThrowsUpdateException()
+    {
+        // 回归（2026-09-20）：reg 退出码曾被丢弃——杀软拦截 HKCU 写入时静默"成功"，
+        // UI 显示已开启而状态查询又翻回，开关来回跳且无错误提示
+        _runner.Handler = _ => new ProcessResult(1, "", "Access is denied.");
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(() => CreateService().SetEnabledAsync(true));
+
+        Assert.Contains("Access is denied.", ex.Message);
+    }
 }

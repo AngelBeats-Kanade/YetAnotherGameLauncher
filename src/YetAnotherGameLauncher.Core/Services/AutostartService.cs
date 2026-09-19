@@ -47,7 +47,15 @@ public sealed class WindowsAutostartService(IProcessRunner runner) : IAutostartS
             : new ProcessStartSpec(
                 "reg",
                 $"delete HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run /v {AppName} /f");
-        await runner.RunAsync(spec, cancellationToken).ConfigureAwait(false);
+        var result = await runner.RunAsync(spec, cancellationToken).ConfigureAwait(false);
+        if (!result.Succeeded)
+        {
+            // reg 写入失败（杀软拦截 HKCU、注册表重定向等）必须上抛：静默返回会让 UI 显示已开启、
+            // 随后状态查询又翻回未开启，开关来回跳且无错误提示（与 IsEnabledAsync 的退出码检查对齐）
+            throw new UpdateException(
+                $"Failed to {(enabled ? "register" : "unregister")} autostart: reg exited with " +
+                $"{result.ExitCode}. {result.StandardError}".TrimEnd());
+        }
     }
 }
 

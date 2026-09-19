@@ -176,6 +176,8 @@ public sealed class IncrementalUpdateService(
         var stagedFilesDir = Path.Combine(staging, "files");
         foreach (var file in incrementalManifest.Files)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var target = ManifestVerifier.ResolveSafe(installDir, file.Path);
             if (ManifestVerifier.CheckFile(target, file, withMd5: true) == FileStatus.Ok)
             {
@@ -189,7 +191,20 @@ public sealed class IncrementalUpdateService(
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            File.Move(stagedFile, target, overwrite: true);
+            try
+            {
+                File.Move(stagedFile, target, overwrite: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // 与 HttpFileDownloader.ReplaceDestination 同一防线：目标被占用/只读时重试不会自愈，
+                // 给可操作错误而不是裸 IOException（2026-09-20 复审修复）
+                throw new UpdateException(
+                    $"Could not place staged file {file.Path}: {ex.Message}. " +
+                    "Close apps using the file (or clear its read-only attribute) and retry the update.",
+                    ex);
+            }
+
             logger?.LogDebug("Staged file placed: {Path}", file.Path);
         }
 
@@ -251,7 +266,7 @@ public sealed class IncrementalUpdateService(
             }
         }
 
-        ReplaceWithBackup(installDir, group, newDir);
+        ReplaceWithBackup(installDir, group, newDir, logger);
     }
 
     private static bool GroupAlreadyApplied(string installDir, PatchGroup group) =>
@@ -268,7 +283,7 @@ public sealed class IncrementalUpdateService(
     /// 回滚尽力而为：单个文件回滚失败不吞掉其余文件的还原，失败项拼进错误消息。
     /// internal 供单测（经 InternalsVisibleTo）。
     /// </summary>
-    internal static void ReplaceWithBackup(string installDir, PatchGroup group, string newDir)
+    internal static void ReplaceWithBackup(string installDir, PatchGroup group, string newDir, ILogger? logger = null)
     {
         var replaced = new List<(string Target, string Backup, bool HadOriginal)>();
         try
@@ -324,12 +339,33 @@ public sealed class IncrementalUpdateService(
             throw new UpdateException($"Failed to swap files, group rolled back{note} ({group.PatchFile}): {ex.Message}", ex);
         }
 
+        // 备份清理尽力而为：走到这里文件替换已全部成功，删除失败（Windows 杀软恰好锁住
+        // .yagl-bak）不得推翻已完成且校验通过的结果——残留留给下次重置清理（2026-09-20 复审修复）
         foreach (var (_, backup, _) in replaced)
+        {
+            TryDeleteBackup(backup, logger);
+        }
+    }
+
+    /// <summary>
+    /// 尽力删除单个更新备份文件：失败不抛（调用点的更新已成功），返回是否删除成功。
+    /// internal 供单测（经 InternalsVisibleTo）。
+    /// </summary>
+    internal static bool TryDeleteBackup(string backup, ILogger? logger = null)
+    {
+        try
         {
             if (File.Exists(backup))
             {
                 File.Delete(backup);
             }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger?.LogWarning(ex, "Could not delete update backup {Backup}; left in place", backup);
+            return false;
         }
     }
 }

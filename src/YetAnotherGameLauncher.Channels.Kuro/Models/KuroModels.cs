@@ -12,6 +12,12 @@ internal sealed class KuroLauncherIndex
     [JsonPropertyName("predownload")]
     public KuroResourceBlock? Predownload { get; set; }
 
+    /// <summary>
+    /// 官方预下载开关（predownloadSwitch）：与 predownload 块独立下发，仅窗口期开启为 1。
+    /// 预下载可用性 = 该开关为 1 且 predownload 块带 config（兑现 ChannelVersionInfo 的注释契约）。
+    /// </summary>
+    [JsonPropertyName("predownloadSwitch")]
+    public int? PredownloadSwitch { get; set; }
 }
 
 /// <summary>index.json 中 default / predownload 共用的资源块。</summary>

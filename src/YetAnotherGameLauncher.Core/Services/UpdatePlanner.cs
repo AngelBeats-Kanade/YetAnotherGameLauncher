@@ -30,10 +30,14 @@ public static class UpdatePlanner
 /// <summary>版本号比较。数字版本（可被 System.Version 解析）按段比较，否则退化为字符串比较。</summary>
 public static class VersionComparison
 {
-    /// <summary>remoteVersion 是否比 localVersion 新。本地未安装（null/空）时返回 false（谈不上"更新"）。</summary>
+    /// <summary>
+    /// remoteVersion 是否比 localVersion 新。本地未安装（null/空）返回 false（谈不上"更新"）；
+    /// 远端版本缺失（null/空白）同样返回 false——空远端通常来自渠道响应异常，
+    /// 按"字符串不等"退化会误报有更新且更新目标为空（2026-09-20 复审修复）。
+    /// </summary>
     public static bool IsNewer(string remoteVersion, string? localVersion)
     {
-        if (string.IsNullOrEmpty(localVersion))
+        if (string.IsNullOrWhiteSpace(remoteVersion) || string.IsNullOrEmpty(localVersion))
         {
             return false;
         }

@@ -97,4 +97,16 @@ public class FileUtilitiesTests : IDisposable
         Assert.True(FileUtilities.IsExecutableFile(path));
         Assert.False(FileUtilities.IsExecutableFile(_tempDir.FilePath("missing.exe")));
     }
+
+    [Fact]
+    public void LaunchLogFilePath_SameSecondLaunches_AreUnique()
+    {
+        // 回归（2026-09-20）：时间戳精确到秒，同秒内对同一游戏二次启动会互相覆盖日志
+        var first = FileUtilities.LaunchLogFilePath(_tempDir.Path, "wuthering-waves");
+        var second = FileUtilities.LaunchLogFilePath(_tempDir.Path, "wuthering-waves");
+
+        Assert.NotEqual(first, second);
+        Assert.Matches(@"^launch-wuthering-waves-\d{8}-\d{6}-[0-9a-f]{4}\.log$",
+            Path.GetFileName(first));
+    }
 }
