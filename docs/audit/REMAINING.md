@@ -8,7 +8,7 @@
 
 ## 状态快照
 
-- 行覆盖：4899/5756 = **85.11%**（2026-09-19 实测，Phase 4c 后；口径：仅本仓库 src/ 的 .cs；工具 `artifacts/audit/tools/`）
+- 行覆盖：4906/5758 = **85.20%**（2026-09-19 实测，review 修复后；口径：仅本仓库 src/ 的 .cs；工具 `artifacts/audit/tools/`）
 - 测试：**668** 个（Core 274 / Kuro 58 / Hypergryph 17 / App 319），本地两轮全绿
   （其中 4 个 Windows 腿用例在 Linux 上显式 Skip，命中靠 windows-latest runner）；零警告构建；format 干净
 - CI 守卫：行覆盖 ≥83% 门禁 + `Dispatch(async` 禁用形态 grep + **每日变异冒烟批**（mutation-smoke.yml）
@@ -55,3 +55,6 @@
    （先例：GameItemProgressTests；M10 证明轮询必要）。多文件批量下载的进度是**累计字节**，
    KB/MB 窗口会被跳过——测 FormatBytes 文案臂用单文件清单逐轮驱动（先例：Install_ProgressFormats）。
 8. **VM 测试里 `Games` 集合在 InitializeAsync 之后才有值**（先例踩坑：访问 `Games[0]` 前必须先初始化）。
+9. **变异实验只对已提交状态做**（2026-09-19 review 实锤）：冒烟批/手工变异的 `git checkout --`
+   还原会把目标文件上的未提交改动一并丢弃（实际吃掉过 StartVideoAsync 的 finally 修复并造成
+   文档与代码短暂失配）；冒烟脚本已加脏树守卫，手工变异同理先提交。

@@ -79,6 +79,15 @@ if (unknown.length > 0) {
   process.exit(2);
 }
 
+// 脏树守卫（2026-09-19 review 实锤）：还原用 git checkout -- <file>，会把目标文件上的
+// 未提交改动一并丢弃（本次实际吃掉一个未提交的修复）。目标文件必须先提交再跑冒烟。
+const dirty = run('git', ['status', '--porcelain', '--', ...batch.map((m) => m.file)]);
+if (dirty.out.trim().length > 0) {
+  console.error('以下变异目标文件带有未提交改动，git checkout 还原会销毁它们；请先提交：');
+  console.error(dirty.out.trimEnd());
+  process.exit(2);
+}
+
 let failures = 0;
 const touchedProjects = new Set();
 

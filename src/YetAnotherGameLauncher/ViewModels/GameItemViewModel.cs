@@ -487,7 +487,12 @@ public partial class GameItemViewModel(
         }
     }
 
-    /// <summary>起播背景视频：订阅帧通知后交给播放器（后台起播，失败保持静态海报）。</summary>
+    /// <summary>
+    /// 起播背景视频：订阅帧通知后交给播放器（后台起播，失败保持静态海报）。
+    /// 订阅/退订收拢到 finally（M7 残余的结构性消除）：本方法经 <c>_ =</c> 弃元调用、
+    /// 无外层兜底，任何失败路径（PlayAsync 抛异常或返回 false）都必须退订，
+    /// 不给后续改动留出"订阅后异常逃逸导致 FrameUpdated 悬挂"的缝隙。
+    /// </summary>
     private async Task StartVideoAsync(string videoPath)
     {
         if (VideoPlayer is null)
@@ -500,18 +505,22 @@ public partial class GameItemViewModel(
         VideoPlayer.FrameUpdated += OnVideoFrameUpdated;
         _videoSubscribed = true;
 
+        var playing = false;
         try
         {
-            if (!await VideoPlayer.PlayAsync(videoPath))
-            {
-                StopVideo();
-            }
+            playing = await VideoPlayer.PlayAsync(videoPath);
         }
         catch (Exception)
         {
-            // 解码器启动失败（原生 FFmpeg 栈，如驱动重置/库缺失）：本方法经 _ = 弃元调用，
-            // 异常不得逃逸；回退海报显示（StopVideo 隐藏视频层并退订通知）
-            StopVideo();
+            // 解码器启动失败（原生 FFmpeg 栈，如驱动重置/库缺失）：异常不得逃逸到弃元，
+            // 回退海报显示——统一由 finally 退订并隐藏视频层
+        }
+        finally
+        {
+            if (!playing)
+            {
+                StopVideo();
+            }
         }
     }
 
