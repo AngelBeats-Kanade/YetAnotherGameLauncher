@@ -183,6 +183,13 @@ public partial class GameItemViewModel(
     /// <summary>版本检测结果按服务器的会话缓存（进行中或已成功的任务；每启动每服务器至多一次网络检测）。</summary>
     private readonly Dictionary<GameServer, Task<ChannelVersionInfo>> _versionInfoTasks = [];
 
+    /// <summary>
+    /// 刷新代际：每次 RefreshAsync 递增，await 恢复后代际不一致即本轮已过期。
+    /// 切服会触发新刷新，慢网的旧服务器检测结果若照常写回，会用旧服务器的安装态/更新态/版本
+    /// chip 覆盖新服务器状态（调用点全是 UI 线程，普通自增即可）。
+    /// </summary>
+    private int _refreshGeneration;
+
     /// <summary>当前展示资产对应的区域（null = 尚未加载过；语言切换换区时触发重新解析）。</summary>
     private string? _loadedRegion;
 
@@ -244,6 +251,8 @@ public partial class GameItemViewModel(
     /// </summary>
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
+        var generation = ++_refreshGeneration;
+
         // 语言可能已切换：显示名/图标首字随语言重建
         OnPropertyChanged(nameof(DisplayName));
         OnPropertyChanged(nameof(IconText));
@@ -256,11 +265,21 @@ public partial class GameItemViewModel(
         try
         {
             info = await GetVersionInfoCachedAsync(SelectedServer, cancellationToken);
+            if (generation != _refreshGeneration)
+            {
+                // 已有更新的刷新（典型：await 期间切了服务器）接管状态写入，本轮结果整体丢弃
+                return;
+            }
             StatusText = "";
         }
         catch (Exception ex) when (ex is UpdateException or HttpRequestException
             or TaskCanceledException or OperationCanceledException)
         {
+            if (generation != _refreshGeneration)
+            {
+                return;
+            }
+
             // 本方法有多个 _ = 弃元调用点（切服/导航/预热）：任何异常都不允许穿出。
             // OperationCanceledException 含用户取消与超时的非 Task 形态，一并按离线兜底。
             StatusText = Loc["status_noConnection"];

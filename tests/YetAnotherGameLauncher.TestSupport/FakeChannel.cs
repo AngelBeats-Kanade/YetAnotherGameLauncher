@@ -17,6 +17,12 @@ public sealed class FakeChannel : IGameChannelApi
     /// <summary>版本检测注入的异常（非 null 时 GetVersionInfoAsync 抛出；模拟断网/服务端错误）。</summary>
     public Exception? VersionInfoError { get; set; }
 
+    /// <summary>
+    /// 版本检测处理器（设置后优先于 VersionInfo）：可注入延迟或按服务器差异化返回，
+    /// 用于构造"切服时旧检测仍在途"的竞态场景。
+    /// </summary>
+    public Func<GameServer, CancellationToken, Task<ChannelVersionInfo>>? VersionInfoHandler { get; set; }
+
     /// <summary>清单拉取注入的异常（非 null 时 GetManifestAsync 抛出）。</summary>
     public Exception? ManifestError { get; set; }
 
@@ -34,8 +40,13 @@ public sealed class FakeChannel : IGameChannelApi
     public Task<ChannelVersionInfo> GetVersionInfoAsync(GameServer server, CancellationToken cancellationToken = default)
     {
         VersionInfoRequests.Add(server.Id);
-        return VersionInfoError is { } versionError
-            ? Task.FromException<ChannelVersionInfo>(versionError)
+        if (VersionInfoError is { } versionError)
+        {
+            return Task.FromException<ChannelVersionInfo>(versionError);
+        }
+
+        return VersionInfoHandler is { } handler
+            ? handler(server, cancellationToken)
             : Task.FromResult(VersionInfo);
     }
 
