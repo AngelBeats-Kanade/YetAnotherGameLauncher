@@ -132,9 +132,9 @@ for (const m of batch) {
 }
 
 // 收尾：还原后的源码重建（测试 bin 恢复未变异状态），并确认工作树干净
-const dirty = run('git', ['status', '--porcelain', '--', ...batch.map((m) => m.file)]);
-if (dirty.out.trim().length > 0) {
-  console.error(`[dirty] 变异源码未完全还原：\n${dirty.out}`);
+const leftover = run('git', ['status', '--porcelain', '--', ...batch.map((m) => m.file)]);
+if (leftover.out.trim().length > 0) {
+  console.error(`[dirty] 变异源码未完全还原：\n${leftover.out}`);
   failures++;
 }
 
