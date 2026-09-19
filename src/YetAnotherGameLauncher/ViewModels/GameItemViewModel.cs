@@ -737,7 +737,6 @@ public partial class GameItemViewModel(
         var error = new LaunchErrorViewModel(
             message, detail, logPath,
             platform: Platform,
-            failureKind: kind,
             canRetry: canRetry,
             localProtonVersions: localProtons);
         error.RetryRequested += OnLaunchErrorRetryRequested;

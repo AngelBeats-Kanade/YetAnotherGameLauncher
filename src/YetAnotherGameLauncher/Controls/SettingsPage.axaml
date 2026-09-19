@@ -5,7 +5,8 @@
              x:DataType="vm:SettingsViewModel">
     <!-- 设置页：外观 / 应用背景 / 下载 / 网络（代理）/ 配置文件。原 MainWindow.axaml 内联
          DataTemplate 提取，绑定契约不变（DataContext = SettingsViewModel，.page 类命中切换动画）；
-         具名元素 InstallRootBox/ProxyCard/ProxyManualRadio 供窗口级 Enter 保存类处理器按名分发 -->
+         具名元素 InstallRootBox/ProxyAddressBox 供窗口级 Enter 保存类处理器按名分发
+         （ProxyCard 供截图测试滚动定位） -->
     <Border Classes="page">
         <ScrollViewer HorizontalScrollBarVisibility="Disabled">
             <StackPanel MaxWidth="720" HorizontalAlignment="Stretch" Spacing="18">
@@ -124,7 +125,7 @@
                             <RadioButton GroupName="proxy" x:Name="ProxyManualRadio"
                                          Content="{Binding Loc[settings_proxy_method_manual]}"
                                          IsChecked="{Binding ProxyManual}"/>
-                            <TextBox Margin="22,2,0,0"
+                            <TextBox x:Name="ProxyAddressBox" Margin="22,2,0,0"
                                      PlaceholderText="{Binding Loc[settings_proxyAddress]}"
                                      Text="{Binding ProxyAddressDraft}"
                                      IsEnabled="{Binding IsProxyAddressEnabled}"/>

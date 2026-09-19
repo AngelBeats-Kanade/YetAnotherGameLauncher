@@ -37,7 +37,8 @@ public partial class MainWindow : Window
             handledEventsToo: true);
     }
 
-    /// <summary>设置类输入框按 Enter 保存：安装根目录（设置页）与游戏安装目录（启动设置页）。</summary>
+    /// <summary>设置类输入框按 Enter 保存：安装根目录（设置页）、代理地址（设置页）
+    /// 与游戏安装目录（启动设置页）。</summary>
     private static void HandleSettingsEnterSave(TextBox box, KeyEventArgs e)
     {
         if (e.Key != Key.Enter)
@@ -49,6 +50,11 @@ public partial class MainWindow : Window
         {
             case "InstallRootBox" when box.DataContext is SettingsViewModel settings:
                 settings.SaveInstallRootCommand.Execute(null);
+                e.Handled = true;
+                break;
+            // 代理地址框与其他设置输入框的 Enter 保存行为一致（失败走 ProxySave 消息槽）
+            case "ProxyAddressBox" when box.DataContext is SettingsViewModel proxy:
+                proxy.SaveProxyCommand.Execute(null);
                 e.Handled = true;
                 break;
             // 游戏设置页的 DataContext 是其壳 GameSettingsViewModel（页面绑定以 LaunchSettings 开头），

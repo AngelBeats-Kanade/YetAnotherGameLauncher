@@ -273,7 +273,6 @@ public sealed class NativeUmuUiActionTests : IDisposable
         await _ctx.Vm.InitializeAsync();
         var error = new LaunchErrorViewModel(
             "下载失败",
-            failureKind: LaunchFailureKind.ProtonDownloadFailed,
             canRetry: true);
 
         Assert.True(error.CanRetry);
@@ -291,7 +290,6 @@ public sealed class NativeUmuUiActionTests : IDisposable
         string? picked = null;
         var error = new LaunchErrorViewModel(
             "下载失败",
-            failureKind: LaunchFailureKind.ProtonDownloadFailed,
             canRetry: true,
             localProtonVersions: ["GE-Proton10-9", "dw-proton"]);
         error.LocalProtonSelected += (_, v) => picked = v;
@@ -308,7 +306,6 @@ public sealed class NativeUmuUiActionTests : IDisposable
         await _ctx.Vm.InitializeAsync();
         var error = new LaunchErrorViewModel(
             "下载失败",
-            failureKind: LaunchFailureKind.ProtonDownloadFailed,
             localProtonVersions: []);
         Assert.False(error.CanPickLocalProton);
     }

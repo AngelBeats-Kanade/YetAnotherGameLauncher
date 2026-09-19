@@ -17,7 +17,6 @@ public partial class LaunchErrorViewModel : ViewModelBase
         string? detail = null,
         string? logPath = null,
         IPlatformInfo? platform = null,
-        LaunchFailureKind failureKind = LaunchFailureKind.Unknown,
         bool canRetry = false,
         IReadOnlyList<string>? localProtonVersions = null)
     {
@@ -25,7 +24,6 @@ public partial class LaunchErrorViewModel : ViewModelBase
         Message = message;
         Detail = detail;
         LogPath = logPath;
-        FailureKind = failureKind;
         CanRetry = canRetry;
         LocalProtonVersions = localProtonVersions ?? [];
         CanPickLocalProton = LocalProtonVersions.Count > 0;
@@ -37,9 +35,6 @@ public partial class LaunchErrorViewModel : ViewModelBase
         HasDetail = !string.IsNullOrEmpty(detail);
         HasLogPath = !string.IsNullOrEmpty(logPath);
     }
-
-    /// <summary>失败类目（决定重试等动作）。</summary>
-    public LaunchFailureKind FailureKind { get; }
 
     /// <summary>友好失败原因（已本地化、可直接阅读）。</summary>
     [ObservableProperty]
