@@ -207,15 +207,16 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64   --self-contain
 - 采集：`dotnet-coverage collect -f cobertura -o out.xml dotnet <测试dll>`（直跑 DLL 是
   xunit.v3 自带 runner，无 MTP `--coverage` 开关；`dotnet test --collect` 受 0 发现问题限制）。
   CI 在 ubuntu 腿执行同一采集并做**行覆盖 ≥ 83% 门禁**（ci.yml Coverage gate 步骤）。
-- **实测基线（2026-09-19，全仓双向审计）**：4800/5749 可计行 = 83.49%（排除 `obj/`、.axaml 伪行；
-  `[ExcludeFromCodeCoverage]` 类天然不计）。历次快照：80.29%（审计基点）→ 82.80%（Phase 4a）→ 83.49%。
-- **判定口径**：行覆盖只是必要条件——合格证据 = 行覆盖命中 + 变异击杀（docs/audit/business/MUTATION.md）
-  + 逐行正确性论证（docs/audit/business/）。测试双向可证伪标准见 docs/audit/tests/CRITERIA.md。
-- **政策排除**（均有结构性理由，逐段论证见 docs/audit/business/App/Services-Views-Excluded.md）：
-  `Program.cs` 与 `App.axaml.cs`（组合根）、`FilePickerService`（系统对话框封装）、
-  `FfmpegVideoBackdropPlayer` 与 `FfmpegLibraryResolver`（原生库 unsafe 互操作；
-  其纯逻辑已提取为 PlaybackClock/DecodeGuard/SeamAnalyzer/PrerollHandoff 并全测）、
-  `WindowsPlatformInfo`（真机语义）。
-- **剩余缺口归因**（949 行）：Windows 专属 ~80、竞态容错等价类 ~120、进度回调散点 ~120、
-  未竟功能分支 ~250、基建依赖 ~60——逐行处置见 `docs/audit/REPORT.md` 第四节；
+- **实测基线（2026-09-20）**：口径=仅本仓库 src/ 的 .cs（排除 `obj/` 与 .axaml 伪行；
+  `[ExcludeFromCodeCoverage]` 类天然不计）。历次快照：80.29%（2026-09-19 起点）→ 83.49% → 84.94%（2026-09-20 实测）。
+- **判定口径**：行覆盖只是必要条件——合格证据 = 行覆盖命中 + 变异击杀（每日冒烟批
+  scripts/mutation-smoke.mjs 即该纪律的脚本化；手工变异纪律见 AGENTS.md「变异实验纪律」）。
+  测试须双向可证伪：断言真实执行、失败会传播、断被测行为而非镜像自身。
+- **政策排除**（结构性理由摘要）：`Program.cs` 与 `App.axaml.cs`（组合根——类型正确性由消费方
+  测试背书，**装配正确性另由组合根装配断言钉住**，2026-09-20 实锤：可选参数漏传编译期不可见）、
+  `FilePickerService`（系统对话框封装）、`FfmpegVideoBackdropPlayer` 与 `FfmpegLibraryResolver`
+  （原生库 unsafe 互操作；其纯逻辑已提取为 PlaybackClock/DecodeGuard/SeamAnalyzer/PrerollHandoff
+  并全测）、`WindowsPlatformInfo`（真机语义）。
+- **剩余缺口定性**：Windows 专属分支（`Assert.Skip` 显式化，命中靠 windows-latest 腿）、
+  竞态容错等价类（防御行删除仅在竞态窗口可见）、进度回调散点（可观测性等价豁免）；
   本地生成物在 `artifacts/coverage/`（不入库）。

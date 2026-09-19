@@ -11,7 +11,7 @@ namespace YetAnotherGameLauncher.AppTests;
 /// <summary>
 /// 背景图加载：本地路径 / URL / 失败回退 / 缓存。
 /// 审计修复（2026-09-19，两次实测校准）：
-/// 1) Dispatch(async ...) 吞断言（Func&lt;Task&gt; 重载不等待不传播，docs/audit/phase0 探针实锤）；
+/// 1) Dispatch(async ...) 吞断言（Func&lt;Task&gt; 重载不等待不传播，探针实锤，规则见 AGENTS.md）；
 /// 2) Bitmap 解码只能在会话 UI 线程（渲染接口不在测试线程的 locator 里，直调 InvalidOperationException
 ///    被服务的静默回退吞掉——后者本身就是被测语义的一部分）；
 /// 3) 不 await Dispatch(Action) 时 lambda 排队未跑，读到的局部变量恒为初值。

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// CI 覆盖率门禁：与 docs/audit 同口径（仅本仓库 src/ 的 .cs，排除 obj/ 与 .axaml 伪行），
+// CI 覆盖率门禁：口径=仅本仓库 src/ 的 .cs（排除 obj/ 与 .axaml 伪行），
 // 合并语义 = 同一行取各套件最大命中。用法：
 //   node coverage-gate.mjs <threshold 如 0.83> <xml...>
 // 输出仓库行覆盖率；低于阈值 exit 1。
@@ -49,6 +49,6 @@ if (valid === 0) {
 const rate = covered / valid;
 console.log(`行覆盖率: ${covered}/${valid} = ${(rate * 100).toFixed(2)}%（阈值 ${(threshold * 100).toFixed(0)}%）`);
 if (rate + 1e-9 < threshold) {
-  console.error(`::error::行覆盖率低于基线——新增代码缺测试。补测方法见 docs/audit/REPORT.md 第五节`);
+  console.error(`::error::行覆盖率低于基线——新增代码缺测试。补测后本地复测再合入（命令见 docs/DEVELOPMENT.md §9）`);
   process.exit(1);
 }

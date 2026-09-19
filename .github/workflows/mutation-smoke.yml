@@ -1,4 +1,4 @@
-# 每日变异冒烟批（docs/audit/REMAINING.md P3）：MUTATION.md 手工抽查流程的定时脚本化。
+# 每日变异冒烟批：手工变异抽查流程的定时脚本化。
 # 每个变异单点破坏一处守卫逻辑，断言对应测试必须变红（击杀）——守卫空心化即红。
 # 变异批定义在 scripts/mutation-smoke.mjs 内（含 stale 检测：源码漂移时规格报错而非静默失效）。
 name: mutation-smoke

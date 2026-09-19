@@ -4,7 +4,7 @@
 
 ## 必读文档
 
-改动前先读 `docs/`：**ARCHITECTURE.md**（分层/核心流程）、**DEVELOPMENT.md**（目录职责/TDD 工作流）、**GAME_CONFIG.md**（games.json 配置参考）。UI/测试工作前加载 `.zcode/skills/` 下对应技能（avalonia-ui、avalonia-headless-testing、avalonia-ui-review、desktop-ui-design）。测试与代码的判定证据链在 `docs/audit/`（2026-09 双向审计总报告 REPORT.md；测试判定标准 tests/CRITERIA.md；变异击杀表 business/MUTATION.md）。CI 有两道审计守卫：行覆盖 ≥83% 门禁（scripts/coverage-gate.mjs）与 `Dispatch(async` 禁用形态 grep；另有每日定时变异冒烟批（.github/workflows/mutation-smoke.yml，变异批定义在 scripts/mutation-smoke.mjs，守卫测试空心化即红）。
+改动前先读 `docs/`：**ARCHITECTURE.md**（分层/核心流程）、**DEVELOPMENT.md**（目录职责/TDD 工作流/覆盖率政策）、**GAME_CONFIG.md**（games.json 配置参考）。UI/测试工作前加载 `.zcode/skills/` 下对应技能（avalonia-ui、avalonia-headless-testing、avalonia-ui-review、desktop-ui-design）。CI 有两道质量守卫：行覆盖 ≥83% 门禁（scripts/coverage-gate.mjs）与 `Dispatch(async` 禁用形态 grep；另有每日定时变异冒烟批（.github/workflows/mutation-smoke.yml，变异批定义在 scripts/mutation-smoke.mjs，守卫测试空心化即红）。
 
 ## 常用命令
 
@@ -76,6 +76,8 @@ dotnet tests/<测试工程>/bin/Debug/net10.0/<测试程序集>.dll -method "<�
 - **测窄窗口布局必须连 `MinWidth` 一起解除，并断言目标行为实际发生**：`MainWindow.axaml` 还写死了 `MinWidth="920"`，设 Width 低于它会被钳回 920，且 920 恰好触发侧栏自动收起（内容区反而变 852px）——两股力叠加后，想测的"放不下的窄布局"可能根本不存在，测试对旧代码假绿（2026-09-16 实锤：chips 行换行测试设 860 被钳回 920，最长行 790px 在收起态内容区里放得下，对修复前的 StackPanel 代码照样绿）。先例：`GameDetailPage_ChipsRow_LongStatus_WrapsInsteadOfClipping`（`MinWidth = 0` + `Width = 640` 构造，断言"版本 chip 换到状态 chip 下一行"这个行为本身，而非只断言"不越界"）。
 - **`IsHitTestVisible=False` 在 Avalonia 会把整棵子树剪出命中测试**（与 WPF 不同，子级设回 `True` 也翻不回来）：ToastHost 宿主曾在 ItemsControl 上设 `IsHitTestVisible="False"` 想"面板穿透、卡片设回 True"，结果所有 toast 的关闭钮都点不动——点击直接穿透到下层页面，4s 自灭掩盖了症状（2026-09-17 实锤）。穿透靠"无背景（null）不参与命中"的默认语义即达（宿主 Right/Top 对齐、尺寸贴合卡片；对照先例：`TitleDrag` 需显式 `Background="Transparent"` 才可命中）。回归必须走真实指针：`ToastHeadlessTests.ClickingCloseButton_RemovesToast_ViaRealHitTesting` 用 `MouseMove/MouseDown/MouseUp` 走命中链路——直接 `DismissCommand.Execute` 的 VM 层测试（`ToastTests.DismissCommand_RemovesToast`）拦不住这类视图层断裂。
 - **BoxShadow 无头渲染正常、真机渲染管线（原生 Wayland + NVIDIA + HDR 输出）会呈成边缘生硬的灰色矩形板**（2026-09-17 实锤：toast 卡阴影在用户屏幕上是"卡片同尺寸的硬边灰板"，观感即用户报告的"四角不是圆角、有矩形背景层"；同刻 grim 抓帧里阴影却几乎不存在——合成器截图缓冲与 HDR 扫描输出两条路径都不对，headless 截图则完全正常，三路互证）。弹层类 UI（toast/错误卡/修复确认条）的层次改用「描边 + 近实心底」表达，不要用 BoxShadow（NavIndicator 的 blur 8 小辉光保留为已知例外）。
+- **VM 测试两条时序坑**（2026-09-20 实锤复踩一次）：`MainWindowViewModel.Games` 集合在 `InitializeAsync` 之后才有值，先初始化再取 `Games[0]`，否则 `IndexOutOfRangeException`；`Progress<T>` 回调在线程池异步到达且多文件批量下载的进度是累计字节，断言进度字段须有界轮询或订阅 PropertyChanged 历史（先例 `GameItemProgressTests`），KB/MB 窗口类文案断言用单文件清单逐轮驱动。
+- **变异实验纪律**（scripts/mutation-smoke.mjs 头注释同款）：只对**已提交**状态做变异——`git checkout --` 还原会把目标文件上的未提交改动一并吃掉（实锤吃过一次修复）；变异后必须构建**测试工程**（测试 bin 持有独立依赖副本，只构建 src 项目不生效，Failed: 0 是假象）；测试数据必须能区分变异前后，否则"存活"无法判定。
 
 ## 其他坑
 

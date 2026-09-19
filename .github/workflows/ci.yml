@@ -84,15 +84,15 @@ jobs:
             echo "::error::failing cases: ${failed:-（详见对应 suite 日志）}"
             exit 1
           fi
-          # 禁用形态守卫（2026-09-19 审计）：Dispatch(async ...) 是吞断言的假绿形态
-          # （docs/audit/phase0/DISPATCH-PROBE.md 实锤），任何新引入即红。
+          # 禁用形态守卫（2026-09-19 审计落地）：Dispatch(async ...) 是吞断言的假绿形态
+          # （探针实锤，规则见 AGENTS.md「Dispatch 三规则」），任何新引入即红。
           if git grep -n 'Dispatch(async' -- tests/ | grep -v '禁用\|吞断言\|实锤\|原实现' ; then
-            echo "::error::Dispatch(async ...) 禁用形态回归（吞断言假绿），见 docs/audit/tests/CRITERIA.md D1"
+            echo "::error::Dispatch(async ...) 禁用形态回归（吞断言假绿），规则见 AGENTS.md「Dispatch 三规则」"
             exit 1
           fi
 
       # 覆盖率门禁（ubuntu 单腿）：行覆盖不得低于既定基线——防止"新增代码不配测试"静默退化。
-      # 口径与 docs/audit 一致（仅本仓库 src/ 的 .cs）；基线提升流程：本地复测 →
+      # 口径：仅本仓库 src/ 的 .cs（排除 obj/ 与 .axaml 伪行）；基线提升流程：本地复测 →
       # 改 THRESHOLD → 同一 commit 内补齐缺口测试。
       - name: Coverage gate (line >= 83%)
         if: matrix.os == 'ubuntu-latest'

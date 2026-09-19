@@ -8,7 +8,7 @@ namespace YetAnotherGameLauncher.Core.Tests.Services.Umu;
 /// <summary>
 /// UmuPrefix 幂等矩阵（Phase 4 补测，2026-09-19）：Setup 对五种既存形态的幂等/修复行为、
 /// 锁竞争超时、用户目录互链四分支、EnsureUserExecute 平台语义。
-/// 审计定位：docs/audit/business/Core/Umu.md——Setup 正路径之外的 75 行全部在此覆盖。
+/// 审计定位（2026-09 双向审计）：Setup 正路径之外的 75 行全部在此覆盖。
 /// </summary>
 public sealed class UmuPrefixIdempotencyTests : IDisposable
 {
