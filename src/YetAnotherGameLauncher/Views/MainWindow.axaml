@@ -352,6 +352,13 @@
         </Style>
 
         <!-- 自绘标题栏按钮：最小化/最大化/关闭（关闭悬停红色，Win11 习惯） -->
+        <!-- 最大化钮 tooltip 随窗口态切换（window_restore 键此前是孤儿资源，2026-09-20 接线） -->
+        <Style Selector="Button#CaptionMaximize">
+            <Setter Property="ToolTip.Tip" Value="{Binding Loc[window_maximize]}"/>
+        </Style>
+        <Style Selector="Button#CaptionMaximize.maximized">
+            <Setter Property="ToolTip.Tip" Value="{Binding Loc[window_restore]}"/>
+        </Style>
         <Style Selector="Button.caption-btn">
             <Setter Property="Width" Value="46"/>
             <Setter Property="Height" Value="34"/>
@@ -807,7 +814,7 @@
                       Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1" StrokeLineCap="Round"/>
             </Button>
             <Button x:Name="CaptionMaximize" Classes="caption-btn" Click="OnMaximizeClick"
-                    ToolTip.Tip="{Binding Loc[window_maximize]}">
+                    Classes.maximized="{Binding IsWindowMaximized}">
                 <Panel>
                     <!-- 图标可见性由 VM 的 IsWindowMaximized 驱动（真机经 WindowState 变化回写 VM） -->
                     <Path x:Name="MaximizeIcon" Data="M 1.5 1.5 L 11.5 1.5 L 11.5 11.5 L 1.5 11.5 Z"

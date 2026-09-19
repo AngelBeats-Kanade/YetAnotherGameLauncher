@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using YetAnotherGameLauncher.Core;
@@ -27,6 +28,39 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     private readonly IReadOnlyList<string> _protonVersions;
     private readonly string _dataHome;
     private readonly IUmuComponentProvisioner? _umuProvisioner;
+
+    /// <summary>语言切换处理器（存字段以支持退订，见 DetachEventSubscriptions）。</summary>
+    private readonly PropertyChangedEventHandler _locPropertyChanged;
+
+    /// <summary>
+    /// 语言切换：刷新构造期取词的快照——组件状态文案与 LaunchModes 下拉选项。
+    /// LaunchModes 元素在构造期取词，语言切换后必须重建；ComboBox SelectedItem 按引用匹配，
+    /// 同步把选中项重指到新集合内的实例，游离引用会显示为空白。
+    /// </summary>
+    private void OnLocPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is not ("Item[]" or "Item" or null))
+        {
+            return;
+        }
+
+        OnPropertyChanged(nameof(ProtonCheckButtonText));
+        var selectedMode = SelectedLaunchMode?.Mode;
+        _launchModes = BuildLaunchModes();
+        OnPropertyChanged(nameof(LaunchModes));
+        if (selectedMode is { } mode)
+        {
+            SelectedLaunchMode = _launchModes.First(m => m.Mode == mode);
+        }
+
+        RefreshNativeUmuStatus();
+    }
+
+    /// <summary>
+    /// 退订应用级单例 ILocalizationService 的事件。internal 供 GameItemViewModel 在
+    /// RebuildGames 废弃旧列表时级联调用（同程序集 internal）。
+    /// </summary>
+    internal void DetachEventSubscriptions() => _loc.PropertyChanged -= _locPropertyChanged;
 
     public LaunchSettingsViewModel(
         GameDefinition game,
@@ -62,14 +96,11 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         var detectedFlavor = DetectProtonFlavor(game.Launch.Environment.GetValueOrDefault("PROTONPATH"));
         _selectedProtonFlavor = CompatTools.ProtonFlavors.FirstOrDefault(
             f => string.Equals(f, detectedFlavor, StringComparison.Ordinal)) ?? CompatTools.DefaultProtonFlavor;
-        // 计算属性里的文案不经 Loc[key] 绑定索引器，语言切换需手动刷新
-        _loc.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName is "Item[]" or "Item" or null)
-            {
-                OnPropertyChanged(nameof(ProtonCheckButtonText));
-            }
-        };
+        // 计算属性里的文案不经 Loc[key] 绑定索引器，语言切换需手动刷新；
+        // 处理器存字段以便 DetachEventSubscriptions 退订——本 VM 懒创建且随 RebuildGames 整批废弃，
+        // 匿名订阅会被应用级单例 ILocalizationService 的委托整批钉住无法回收（2026-09-20 复审结构性消除）
+        _locPropertyChanged = OnLocPropertyChanged;
+        _loc.PropertyChanged += _locPropertyChanged;
 
         // Linux 默认最佳配置：裸 {exe} 无法运行 Windows 客户端 → 应用社区推荐链（进草稿，保存后才落盘；
         // 用户已有任何自定义模板则完全不动）
@@ -139,12 +170,17 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     /// <summary>当前系统是否为 Linux（决定是否显示兼容层选择；平台信息注入，测试可控）。</summary>
     public bool IsLinux => _platform.IsLinux;
 
-    /// <summary>启动方式选项（umu 在前作为推荐默认；仅 Linux 面板内展示）。</summary>
-    public IReadOnlyList<LaunchModeOption> LaunchModes { get; } =
+    /// <summary>启动方式选项取词（构造期与语言切换共用，语言切换时重建）。</summary>
+    private static IReadOnlyList<LaunchModeOption> BuildLaunchModes() =>
     [
         new(LaunchMode.NativeUmu, LocBridge.Instance["launch_mode_native_umu"]),
         new(LaunchMode.Direct, LocBridge.Instance["launch_mode_direct"]),
     ];
+
+    private IReadOnlyList<LaunchModeOption> _launchModes = BuildLaunchModes();
+
+    /// <summary>启动方式选项（umu 在前作为推荐默认；仅 Linux 面板内展示）。语言切换时整体重建。</summary>
+    public IReadOnlyList<LaunchModeOption> LaunchModes => _launchModes;
 
     [ObservableProperty]
     private LaunchModeOption? _selectedLaunchMode;
@@ -434,12 +470,39 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     {
         if (IsNativeUmuMode && !string.IsNullOrWhiteSpace(value))
         {
-            var merged = ParseEnvironmentOrEmpty(EnvironmentText);
-            merged["PROTONPATH"] = value;
-            EnvironmentText = SerializeEnvironment(merged);
+            MergeEnvironmentVariable("PROTONPATH", value);
             RefreshNativeUmuStatus();
             _ = SaveSelectedFlavorAsync();
         }
+    }
+
+    /// <summary>
+    /// 把单个环境变量合并进编辑框草稿：可解析行按键合并（已存在原位覆盖、新键按输入顺序追加），
+    /// 无法解析的行（用户输入到一半、还没有 "=" 的半行）原样保留——即时落盘不得吞掉正在输入的内容
+    /// （2026-09-20 复审修复；此前 Serialize(Parse(text)) 会无声丢弃半行）。
+    /// </summary>
+    private void MergeEnvironmentVariable(string key, string value)
+    {
+        var merged = new Dictionary<string, string>(StringComparer.Ordinal);
+        var preserved = new List<string>();
+        foreach (var raw in EnvironmentText.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (TryParseEnvironment(raw, out var single, out _))
+            {
+                foreach (var (k, v) in single)
+                {
+                    merged[k] = v;
+                }
+            }
+            else
+            {
+                preserved.Add(raw);
+            }
+        }
+
+        merged[key] = value;
+        EnvironmentText = string.Join(
+            Environment.NewLine, merged.Select(kv => $"{kv.Key}={kv.Value}").Concat(preserved));
     }
 
     /// <summary>把发行版选择立即保存回 games.json（选择即生效）。可预期失败已由 SaveAsync 写入消息槽；
@@ -647,23 +710,30 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         var effectiveWorkingDirectory = string.IsNullOrWhiteSpace(WorkingDirectory) ? "{installDir}" : WorkingDirectory.Trim();
         var workingDirectoryChanged = !string.Equals(effectiveWorkingDirectory, _game.Launch.WorkingDirectory, StringComparison.Ordinal);
         var environmentDiff = EnvironmentDiffKeys(environment, _game.Launch.Environment);
+
+        // games.json 的 launch.umuId 不经设置卡编辑，重建 Launch 时必须保留（否则 UMU_ID 退化为 umu-{gameId}）
+        var newLaunch = new LaunchOptions
+        {
+            CommandTemplate = CommandTemplate.Trim(),
+            WorkingDirectory = effectiveWorkingDirectory,
+            Environment = environment,
+            UmuId = _game.Launch.UmuId,
+        };
+
+        // 快照旧值：保存失败时回滚内存中的 GameDefinition，让内存与磁盘保持一致——
+        // 目录序列化的就是 _game 本体，失败后若保留新值，此后任何无关落盘
+        //（如关窗 PersistWindowState）会把这次"失败"静默持久化（2026-09-20 复审修复）
+        var originalInstallDir = _game.InstallDir;
+        var originalExecutable = _game.Executable;
+        var originalLaunch = _game.Launch;
+
         if (installDirChanged)
         {
             _game.InstallDir = installDir; // 支持绝对路径，直接写回
         }
 
         _game.Executable = executable;
-
-        _game.Launch = new LaunchOptions
-        {
-            CommandTemplate = CommandTemplate.Trim(),
-            WorkingDirectory = string.IsNullOrWhiteSpace(WorkingDirectory)
-                ? "{installDir}"
-                : WorkingDirectory.Trim(),
-            Environment = environment,
-            // games.json 的 launch.umuId 不经设置卡编辑，重建 Launch 时必须保留（否则 UMU_ID 退化为 umu-{gameId}）
-            UmuId = _game.Launch.UmuId,
-        };
+        _game.Launch = newLaunch;
 
         try
         {
@@ -682,6 +752,9 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            _game.InstallDir = originalInstallDir;
+            _game.Executable = originalExecutable;
+            _game.Launch = originalLaunch;
             Save.SetFailure(_loc.Format("message_saveFailed", ex.Message));
         }
     }

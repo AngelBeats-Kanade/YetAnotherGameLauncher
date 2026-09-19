@@ -162,6 +162,28 @@ public class LaunchSettingsTests : IDisposable
     }
 
     [Fact]
+    public async Task ProtonFlavorSwitch_PreservesHalfTypedEnvironmentLine()
+    {
+        // 回归（2026-09-20）：切发行版即时保存曾把编辑框按"解析→序列化"重写，
+        // 用户输入到一半、还没有 "=" 的半行被无声吞掉
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        var settings = new LaunchSettingsViewModel(
+            game.Game, game.InstallDirPath, _ctx.CatalogService, game.Loc, game,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            protonVersions: ["GE-Proton10-9"]);
+        await settings.SaveCommand.ExecuteAsync(null); // 先落盘构造期推荐配置，切发行版才算"即时保存"
+
+        settings.EnvironmentText = "SAVED_KEY=1\nWINEDLLOVERRIDES";
+        settings.SelectedProtonFlavor = "GE-Proton";
+
+        // 半行原样保留、PROTONPATH 写入且已有键不动
+        Assert.Contains("WINEDLLOVERRIDES", settings.EnvironmentText, StringComparison.Ordinal);
+        Assert.Contains("PROTONPATH=GE-Proton", settings.EnvironmentText, StringComparison.Ordinal);
+        Assert.Contains("SAVED_KEY=1", settings.EnvironmentText, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ProtonFlavorSwitch_ImmediateSave_RaisesFlavorToast()
     {
         await _ctx.Vm.InitializeAsync();

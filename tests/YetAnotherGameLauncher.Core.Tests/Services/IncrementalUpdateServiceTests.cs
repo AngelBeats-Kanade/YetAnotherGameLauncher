@@ -323,7 +323,8 @@ public class IncrementalUpdateServiceTests : IDisposable
         }
         else
         {
-            Directory.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            // 删除依赖所在目录写位：去掉写位使 File.Delete 抛 UnauthorizedAccessException
+            new DirectoryInfo(dir) { UnixFileMode = UnixFileMode.UserRead | UnixFileMode.UserExecute };
         }
 
         try
@@ -340,7 +341,7 @@ public class IncrementalUpdateServiceTests : IDisposable
             }
             else
             {
-                Directory.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                new DirectoryInfo(dir) { UnixFileMode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute };
             }
         }
     }

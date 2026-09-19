@@ -153,6 +153,8 @@
   "theme_dark": "Dark",
   "theme_light": "Light",
   "theme_system": "Follow System",
+  "toast_actionFailed": "Action failed: {0}",
+  "toast_protonNotFound": "Local Proton version \"{0}\" was not found",
   "toast_serverSwitched": "Switched to {0}",
   "toast_settingsUpdated": "Updated: {0}",
   "version_label_local": "Local",

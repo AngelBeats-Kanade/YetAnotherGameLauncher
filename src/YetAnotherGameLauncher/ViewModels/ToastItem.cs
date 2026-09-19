@@ -83,4 +83,11 @@ public partial class ToastItem : ViewModelBase
         _autoDismissTimer?.Stop();
         _dismiss(this);
     }
+
+    /// <summary>
+    /// 因容量被宿主淘汰时停止自灭计时器：被淘汰项的计时器若继续白跑，
+    /// 到点会对已不在集合的项做一次空 Remove（2026-09-20 复审修复）。
+    /// internal 供宿主淘汰路径调用（同程序集）。
+    /// </summary>
+    internal void StopAutoDismiss() => _autoDismissTimer?.Stop();
 }

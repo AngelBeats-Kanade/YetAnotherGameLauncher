@@ -153,6 +153,8 @@
   "theme_dark": "暗色",
   "theme_light": "亮色",
   "theme_system": "跟随系统",
+  "toast_actionFailed": "操作失败：{0}",
+  "toast_protonNotFound": "未找到本机 Proton 版本「{0}」",
   "toast_serverSwitched": "已切换至 {0}",
   "toast_settingsUpdated": "已更新：{0}",
   "version_label_local": "本地",

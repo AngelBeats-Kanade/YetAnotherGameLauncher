@@ -370,8 +370,11 @@ public partial class MainWindow : Window
             RunTransferAnimation(IndicatorTop + DotHeight / 2, point.Y, height);
         }
 
+        // "此前隐藏→本次显示"也算变化：先读值再置可见（2026-09-20 复审修复——
+        // 原实现先置 true 再读，!IsVisible 恒为 false 的死条件让该分支永远不触发）
+        var wasHidden = !indicator.IsVisible;
         indicator.IsVisible = true;
-        var changed = !indicator.IsVisible
+        var changed = wasHidden
             || !NearEqual(indicator.Height, height)
             || !NearEqual(IndicatorTranslate.X, newX)
             || !NearEqual(IndicatorTranslate.Y, newTop)

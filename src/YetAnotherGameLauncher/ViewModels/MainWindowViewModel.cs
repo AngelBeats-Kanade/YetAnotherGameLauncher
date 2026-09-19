@@ -227,6 +227,8 @@ public partial class MainWindowViewModel : ViewModelBase
         const int MaxToasts = 3;
         while (Toasts.Count >= MaxToasts)
         {
+            // 先停被淘汰项的自灭计时器再移除：否则计时器白跑到点对已不在集合的项做空 Remove
+            Toasts[0].StopAutoDismiss();
             Toasts.RemoveAt(0);
         }
 
@@ -300,8 +302,9 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    /// <summary>语言切换回调：重建主题/计数文案并刷新各游戏；强制重建当前页刷新构造期生成的内容
-    /// （如启动设置卡的 LaunchModes 列表——属性初始化器只在构造时取一次文案）。</summary>
+    /// <summary>语言切换回调：重建主题/计数文案并刷新各游戏；重建当前页刷新构造期生成的内容。
+    /// 视觉树重建只对绑定文本有效——唤取页的卡池名/游戏名是 VM 构造期快照，需换新 VM
+    /// （记录列表从本地缓存自动重载）；启动设置卡的 LaunchModes 由其自身语言订阅重建。</summary>
     private void OnLanguageChanged(object? sender, PropertyChangedEventArgs e)
     {
         RebuildThemeModes(SelectedTheme?.Mode);
@@ -311,7 +314,15 @@ public partial class MainWindowViewModel : ViewModelBase
             _ = game.RefreshAsync();
         }
 
-        // 兜底：强制重建当前页面，刷新构造期生成、不随索引器通知更新的内容
+        if (CurrentPage is GachaViewModel gacha && _gachaService is { } gachaService)
+        {
+            // 卡池名/游戏名等构造期快照随语言重建（此前注释宣称 CurrentPage=null 重建视觉树即可，
+            // 实际 VM 原封不动、下拉选项维持旧语言——2026-09-20 复审修正机制）
+            NavigateTo(new GachaViewModel(this, gacha.OwnerGame, gachaService));
+            return;
+        }
+
+        // 兜底：强制重建当前页面的视觉树，刷新编译绑定重新求值的文本
         var page = CurrentPage;
         CurrentPage = null;
         CurrentPage = page;
@@ -609,6 +620,13 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>按当前配置重建游戏列表（installRoot 变更后调用），返回未知渠道提示列表。</summary>
     private List<string> RebuildGames(GameCatalog catalog)
     {
+        // 旧列表整体废弃：先退订懒创建子 VM（LaunchSettings）对单例服务的事件订阅，
+        // 否则旧 VM 链被单例委托钉住无法回收（2026-09-20 复审结构性消除）
+        foreach (var game in Games)
+        {
+            game.DetachEventSubscriptions();
+        }
+
         Games.Clear();
         var unknownChannels = new List<string>();
         foreach (var game in catalog.Games)

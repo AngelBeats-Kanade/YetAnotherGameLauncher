@@ -50,6 +50,13 @@ public partial class GameItemViewModel(
         Game, _installDir, catalogService, Loc, this, _filePicker, Platform,
         umuProvisioner: _umuProvisioner);
 
+    /// <summary>
+    /// 退订懒创建子 VM 对应用级单例服务的事件订阅。RebuildGames 整批废弃旧 GameItemViewModel
+    /// 时调用，防止旧 VM（含其 LaunchSettings）被单例的事件委托钉住无法回收
+    /// （LaunchSettingsViewModel 订阅泄漏，2026-09-20 复审结构性消除；SetDetailActive 同族先例）。
+    /// </summary>
+    internal void DetachEventSubscriptions() => _launchSettings?.DetachEventSubscriptions();
+
     /// <summary>底层游戏配置（只读引用；名称/图标/服务器等以此为准）。</summary>
     public GameDefinition Game { get; } = game;
 
@@ -704,7 +711,9 @@ public partial class GameItemViewModel(
         }
     }
 
-    /// <summary>按失败类目构建错误覆盖层：原生组件失败→重试/选本机 Proton。</summary>
+    /// <summary>按失败类目构建错误覆盖层：原生组件失败→重试/选本机 Proton。
+    /// 本方法在 LaunchAsync 的 catch 块内执行，自身再抛会穿出 async void 处理器直接崩进程，
+    /// 因此易失败的盘上扫描全量兜底：失败按"无本机 Proton 可选"降级（2026-09-20 复审加固）。</summary>
     private LaunchErrorViewModel CreateLaunchError(
         string message, string detail, string? logPath, LaunchFailureKind kind)
     {
@@ -712,9 +721,19 @@ public partial class GameItemViewModel(
             LaunchFailureKind.ProtonDownloadFailed
             or LaunchFailureKind.UmuRuntimeDownloadFailed
             or LaunchFailureKind.UmuRuntimeMissing;
-        var localProtons = Platform.IsLinux && kind == LaunchFailureKind.ProtonDownloadFailed
-            ? CompatTools.FindProtonVersions()
-            : [];
+        List<string> localProtons = [];
+        if (Platform.IsLinux && kind == LaunchFailureKind.ProtonDownloadFailed)
+        {
+            try
+            {
+                localProtons = [.. CompatTools.FindProtonVersions()];
+            }
+            catch (Exception)
+            {
+                // 盘上扫描失败（权限/占用等）：降级为无本机 Proton 可选，不再向 catch 块抛异常
+            }
+        }
+
         var error = new LaunchErrorViewModel(
             message, detail, logPath,
             platform: Platform,
@@ -726,34 +745,51 @@ public partial class GameItemViewModel(
         return error;
     }
 
-    /// <summary>错误覆盖层「重试」：清掉覆盖层后重新启动一次。</summary>
+    /// <summary>错误覆盖层「重试」：清掉覆盖层后重新启动一次。
+    /// async void：逃逸异常即进程崩溃，全量兜底弹 toast（与 MainWindow.PlayAsync 同纪律）。</summary>
     private async void OnLaunchErrorRetryRequested(object? sender, EventArgs e)
     {
-        LaunchError = null;
-        await LaunchAsync();
-    }
-
-    /// <summary>改用本机 Proton：写入 PROTONPATH 环境并落盘，然后重新启动。</summary>
-    private async void OnLaunchErrorLocalProtonSelected(object? sender, string protonVersion)
-    {
-        var path = CompatTools.LocateProton(protonVersion);
-        if (path is null)
-        {
-            return;
-        }
-
-        Game.Launch.Environment["PROTONPATH"] = path;
         try
         {
-            await catalogService.SaveAsync();
+            LaunchError = null;
+            await LaunchAsync();
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or UpdateException)
+        catch (Exception ex)
         {
-            // 保存失败不阻断本次启动：内存中已生效
+            RaiseSettingsToast(Loc.Format("toast_actionFailed", ex.Message), ToastKind.Warning);
         }
+    }
 
-        LaunchError = null;
-        await LaunchAsync();
+    /// <summary>改用本机 Proton：写入 PROTONPATH 环境并落盘，然后重新启动。
+    /// async void 兜底同上；版本已不存在时给 toast 反馈而非无声返回（2026-09-20 复审）。</summary>
+    private async void OnLaunchErrorLocalProtonSelected(object? sender, string protonVersion)
+    {
+        try
+        {
+            var path = CompatTools.LocateProton(protonVersion);
+            if (path is null)
+            {
+                RaiseSettingsToast(Loc.Format("toast_protonNotFound", protonVersion), ToastKind.Warning);
+                return;
+            }
+
+            Game.Launch.Environment["PROTONPATH"] = path;
+            try
+            {
+                await catalogService.SaveAsync();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or UpdateException)
+            {
+                // 保存失败不阻断本次启动：内存中已生效
+            }
+
+            LaunchError = null;
+            await LaunchAsync();
+        }
+        catch (Exception ex)
+        {
+            RaiseSettingsToast(Loc.Format("toast_actionFailed", ex.Message), ToastKind.Warning);
+        }
     }
 
     /// <summary>当前启动模板是否为原生 umu（内置 C# 启动链）。</summary>
@@ -831,7 +867,13 @@ public partial class GameItemViewModel(
         finally
         {
             IsBusy = false;
-            await RefreshAsync(cancellationToken);
+
+            // 已取消时跳过收尾刷新：token 已取消且版本缓存未命中会让 RefreshAsync 从 finally 抛 OCE，
+            // 吞掉结果提示（2026-09-20 复审修复）；下次导航/切服自会重新刷新
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                await RefreshAsync(cancellationToken);
+            }
             // 成功后刷新出的"已是最新版本"即最终状态；仅失败时覆盖
             if (failureMessage.Length > 0)
             {
@@ -879,7 +921,13 @@ public partial class GameItemViewModel(
         finally
         {
             IsBusy = false;
-            await RefreshAsync(cancellationToken);
+
+            // 已取消时跳过收尾刷新：token 已取消且版本缓存未命中会让 RefreshAsync 从 finally 抛 OCE，
+            // 吞掉结果提示（2026-09-20 复审修复）；下次导航/切服自会重新刷新
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                await RefreshAsync(cancellationToken);
+            }
             StatusText = message;
         }
     }
@@ -933,7 +981,13 @@ public partial class GameItemViewModel(
         finally
         {
             IsBusy = false;
-            await RefreshAsync(cancellationToken);
+
+            // 已取消时跳过收尾刷新：token 已取消且版本缓存未命中会让 RefreshAsync 从 finally 抛 OCE，
+            // 吞掉结果提示（2026-09-20 复审修复）；下次导航/切服自会重新刷新
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                await RefreshAsync(cancellationToken);
+            }
             if (!string.IsNullOrEmpty(message))
             {
                 StatusText = message;

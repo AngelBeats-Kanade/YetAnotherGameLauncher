@@ -35,6 +35,9 @@ public partial class GachaViewModel : ViewModelBase
     [ObservableProperty]
     private string _displayName;
 
+    /// <summary>所属游戏（internal：语言切换时主窗口按此重建唤取页 VM）。</summary>
+    internal GameItemViewModel OwnerGame => _game;
+
     /// <summary>返回游戏详情（转发主窗口导航，保持游戏侧栏高亮）。</summary>
     [RelayCommand]
     private void ShowGame() => _owner.ShowGamesCommand.Execute(null);
@@ -115,8 +118,10 @@ public partial class GachaViewModel : ViewModelBase
             LoadFromCache();
             StatusText = Loc.Format("gacha_status_fetched", fetched.Count);
         }
-        catch (Exception ex) when ((ex is HttpRequestException or InvalidOperationException or TaskCanceledException)
-            && !cancellationToken.IsCancellationRequested)
+        // 兜底捕获全类型：MergeAndSave 写本地缓存、日志读取在 Windows 上可抛
+        // IOException/UnauthorizedAccess（磁盘满/文件被占用）——窄过滤会漏成未观察任务异常，
+        // 状态行永远停在"正在拉取"（2026-09-20 复审修复）；用户取消仍不误报为失败
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
             IsStatusHint = false;
             StatusText = Loc["gacha_status_failed"];

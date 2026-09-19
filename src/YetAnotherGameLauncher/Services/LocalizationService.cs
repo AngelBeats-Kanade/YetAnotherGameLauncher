@@ -33,8 +33,10 @@ public sealed class LocalizationService : ILocalizationService
     public string this[string key] =>
         _strings.GetValueOrDefault(key) ?? DefaultStrings.GetValueOrDefault(key) ?? key;
 
+    /// <summary>按应用所选语言的文化格式化（非线程 CurrentUICulture）：选了 English 的中文系统
+    /// 上数字/日期曾按 zh-CN 之外的系统文化渲染，与界面语言不一致（2026-09-20 复审修正）。</summary>
     public string Format(string key, params object?[] args)
-        => args.Length == 0 ? this[key] : string.Format(CultureInfo.CurrentUICulture, this[key], args);
+        => args.Length == 0 ? this[key] : string.Format(CultureInfo.GetCultureInfo(EffectiveCulture), this[key], args);
 
     public void SetLanguage(string language)
     {
