@@ -26,6 +26,9 @@ public partial class GachaViewModel : ViewModelBase
             .. GachaPools.All.Select(p => new GachaPoolOption(p, Loc[$"gacha_pool_{p}"])),
         ];
         _selectedPool = Pools[0];
+        // 打开页面即呈现本地缓存记录（语言切换重建 VM 的场景同样依赖此调用，
+        // 否则新 VM 记录列表空白、状态行无提示，需手动点拉取才有内容）
+        LoadFromCache();
     }
 
     /// <summary>文案服务（转发主窗口实例）。</summary>

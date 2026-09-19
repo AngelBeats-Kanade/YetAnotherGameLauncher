@@ -32,6 +32,9 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     /// <summary>语言切换处理器（存字段以支持退订，见 DetachEventSubscriptions）。</summary>
     private readonly PropertyChangedEventHandler _locPropertyChanged;
 
+    /// <summary>程序化重指选中启动方式期间抑制 changed 生成逻辑（否则未保存草稿被重写）。</summary>
+    private bool _suppressLaunchModeChanged;
+
     /// <summary>
     /// 语言切换：刷新构造期取词的快照——组件状态文案与 LaunchModes 下拉选项。
     /// LaunchModes 元素在构造期取词，语言切换后必须重建；ComboBox SelectedItem 按引用匹配，
@@ -45,12 +48,29 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         }
 
         OnPropertyChanged(nameof(ProtonCheckButtonText));
+
+        // SetLanguage 连发 "Item[]"/"Item" 两条通知：重建只随第一条做一次。若两条各重建一次，
+        // 第二次重指会因 ObservableProperty 对 record 值相等的短路被跳过，留下
+        // "集合已换、选中项仍指旧集合实例"的悬空（下拉空白）（2026-09-20 复审修复）
+        if (e.PropertyName is "Item")
+        {
+            return;
+        }
+
         var selectedMode = SelectedLaunchMode?.Mode;
         _launchModes = BuildLaunchModes();
         OnPropertyChanged(nameof(LaunchModes));
         if (selectedMode is { } mode)
         {
-            SelectedLaunchMode = _launchModes.First(m => m.Mode == mode);
+            _suppressLaunchModeChanged = true;
+            try
+            {
+                SelectedLaunchMode = _launchModes.First(m => m.Mode == mode);
+            }
+            finally
+            {
+                _suppressLaunchModeChanged = false;
+            }
         }
 
         RefreshNativeUmuStatus();
@@ -522,6 +542,13 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     /// <summary>启动方式变化时触发：刷新可见性，按方式生成命令模板并增删兼容环境变量。</summary>
     partial void OnSelectedLaunchModeChanged(LaunchModeOption? value)
     {
+        // 语言切换的程序化重指不重跑生成逻辑（否则未保存草稿被无声重写）；
+        // 重指不改变 Mode，IsNativeUmuMode 等可见性无需刷新
+        if (_suppressLaunchModeChanged)
+        {
+            return;
+        }
+
         OnPropertyChanged(nameof(IsNativeUmuMode));
         RefreshNativeUmuStatus();
         if (value is null)
@@ -735,6 +762,13 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         _game.Executable = executable;
         _game.Launch = newLaunch;
 
+        void RestoreOriginalGame()
+        {
+            _game.InstallDir = originalInstallDir;
+            _game.Executable = originalExecutable;
+            _game.Launch = originalLaunch;
+        }
+
         try
         {
             await _catalogService.SaveAsync(cancellationToken);
@@ -750,11 +784,15 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             Save.SetSuccess(_loc["launch_saved"]);
             RaiseChangedToast(installDirChanged, executableChanged, templateChanged, workingDirectoryChanged, environmentDiff);
         }
+        catch (OperationCanceledException)
+        {
+            // 取消同样回滚保持内存与磁盘一致；取消语义照常向上传播（不弹失败提示）
+            RestoreOriginalGame();
+            throw;
+        }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _game.InstallDir = originalInstallDir;
-            _game.Executable = originalExecutable;
-            _game.Launch = originalLaunch;
+            RestoreOriginalGame();
             Save.SetFailure(_loc.Format("message_saveFailed", ex.Message));
         }
     }

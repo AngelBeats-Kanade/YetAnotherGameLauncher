@@ -22,8 +22,7 @@
     <PackageVersion Include="FFmpeg.AutoGen" Version="9.0.1.1" />
     <PackageVersion Include="SharpCompress" Version="1.0.0" />
 
-    <!-- Microsoft.Extensions (DI / Hosting / Http / Logging) -->
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
+    <!-- Microsoft.Extensions (DI / Http / Logging) -->
     <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.11" />

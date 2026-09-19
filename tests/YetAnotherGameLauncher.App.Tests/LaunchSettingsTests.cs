@@ -162,6 +162,38 @@ public class LaunchSettingsTests : IDisposable
     }
 
     [Fact]
+    public async Task LanguageSwitch_RepointsLaunchModes_WithoutRewritingDrafts()
+    {
+        // 回归（2026-09-20 复审）：语言切换重建 LaunchModes 后重指选中项，LaunchModeOption 是
+        // 按值相等的 record、重指必然"值不等"，会误触启动方式切换的生成逻辑——
+        // 未保存的模板/环境草稿被无声重写。程序化重指必须抑制 changed 副作用
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        var settings = new LaunchSettingsViewModel(
+            game.Game, game.InstallDirPath, _ctx.CatalogService, game.Loc, game,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            protonVersions: ["GE-Proton10-9"]);
+        const string draft = "wine {exe}";
+        settings.CommandTemplate = draft;
+        settings.EnvironmentText = "MY_UNSAVED_KEY=1";
+        var expectedMode = settings.SelectedLaunchMode!.Mode;
+        var modesBefore = settings.LaunchModes;
+
+        game.Loc.SetLanguage("en-US");
+
+        var modesAfter = settings.LaunchModes;
+        var selAfter = settings.SelectedLaunchMode;
+
+        // 选中项重指到新集合内的实例（引用匹配，否则下拉显示空白），草稿保持原样
+        Assert.NotSame(modesBefore, modesAfter);
+        Assert.Same(modesAfter.First(m => m.Mode == expectedMode), selAfter);
+        Assert.Equal(draft, settings.CommandTemplate);
+        Assert.Contains("MY_UNSAVED_KEY=1", settings.EnvironmentText, StringComparison.Ordinal);
+        Assert.Equal(draft, settings.CommandTemplate);
+        Assert.Contains("MY_UNSAVED_KEY=1", settings.EnvironmentText, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ProtonFlavorSwitch_PreservesHalfTypedEnvironmentLine()
     {
         // 回归（2026-09-20）：切发行版即时保存曾把编辑框按"解析→序列化"重写，
