@@ -25,7 +25,8 @@
 │  Models（配置/清单/进度/状态）                        │
 │  Abstractions（IGameChannelApi/IDownloader/…）        │
 │  Services（目录/下载/校验/同步/增量/包式/编排/启动）   │
-│  Utilities（Hashing/Json/InstallPath）                │
+│  Utilities（Hashing/Json/FileUtilities）              │
+│  根目录单文件：InstallPath / AppPaths                 │
 │  零 UI 依赖、零厂商依赖                               │
 └─────────────────────────────────────────────────────┘
 ```
@@ -78,6 +79,9 @@ flowchart TD
 两类渠道分发模型，由 `GameManifest.EntriesAreArchives` 区分：
 
 - **文件式（鸣潮）**：清单 = 最终游戏文件（path/size/md5），差分入口 `patchConfig` 按旧版本号精确匹配。
+  index.json 是双块结构：live→live 的差分入口在 `default` 块、预下载（live→predownload）的差分入口在
+  `predownload` 块——`GetIncrementalManifestAsync` 按目标版本选块（2026-09-20 修复：此前只查 default 块，
+  预下载窗口期必失败）。预下载可用性 = `predownloadSwitch` 开启且 predownload 块带 `config`。
 - **包式（终末地）**：清单 = 压缩包（packs），下载解压即安装；无按版本差分，更新=请求新版本整包，预下载=响应 `patch` 节点。
 
 ## 3. 核心流程

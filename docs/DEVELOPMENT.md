@@ -36,10 +36,10 @@ src/
                     CompatTools（Linux 兼容层单一来源：umu/wine/Lutris/Proton 发现、prefix 统一路径、推荐链 BuildRecommendedLaunch、Proton 发行版代号/umuId 解析、含 LaunchMode 枚举与 CompatLaunch）、
                     Umu/（原生 umu：UmuPaths、VdfMiniParser、SteamRuntimeCatalog、ToolManifest、UmuPrefix、UmuEnvironment、NativeUmuLauncher），
                     GameBackdropService（详情页背景远程解析 + 本地缓存编排：区域/游戏版本门控，版本一致零网络）、WindowsPlatformInfo / LinuxPlatformInfo（IPlatformInfo 双实现）+ PlatformInfoFactory（唯一的 OS 选择分支，DI 与各 ViewModel 缺省共用）
-    Utilities/      Hashing（MD5 hex）、Json（统一序列化选项）、FileUtilities（原子写入/只读目标容错/目录树尽力删除）
+    Utilities/      Hashing（MD5 hex）、Json（统一序列化选项）、FileUtilities（原子写入/只读目标容错/目录树尽力删除/启动日志唯一路径）
   YetAnotherGameLauncher.Channels.Kuro/         # 库洛渠道（鸣潮）
     KuroChannelApi（index.json/indexFile 解析、CDN 选择、URL 拼接）
-    KuroCdnSelector / KuroUrlBuilder、HpatchzApplier（HDiffPatch 目录模式；HpatchzApplierOptions 配置路径/超时）
+    KuroUrlBuilder（含同文件的 KuroCdnSelector：CDN 节点优先级选择）、HpatchzApplier（HDiffPatch 目录模式；HpatchzApplierOptions 配置路径/超时）
     KuroSwitchConfigClient（官方运营配置直连：launcher-config → 背景内容两跳）、KuroSwitchConfig（背景投放 DTO）、KuroBackdropResolver（背景解析：运营配置直连，视频 + 首帧图单级回退）
     KuroGachaService（唤取记录：日志地址提取 → 官方接口 → 本地合并缓存）、KuroServiceCollectionExtensions（AddKuroChannel）、Models/（协议 DTO）
   YetAnotherGameLauncher.Channels.Hypergryph/   # GRYPHLINE 渠道（终末地，包式）
