@@ -57,7 +57,13 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         GameServer server, string fromVersion, string toVersion, CancellationToken cancellationToken = default)
     {
         var index = await FetchIndexAsync(server, cancellationToken).ConfigureAwait(false);
-        var block = RequireDefault(index);
+
+        // 差分入口与目标版本同块：预下载（live → predownload）的差分入口在 predownload 块的
+        // patchConfig 里，常规更新（旧 live → live）在 default 块；目标版本不属于任一块时
+        // 回退 default 块，由下方查不到条目返回 null。
+        var block = index.Predownload?.Config is { } preConfig && preConfig.Version == toVersion
+            ? index.Predownload!
+            : RequireDefault(index);
         var cdn = RequireCdn(block);
         var config = RequireConfig(block);
 

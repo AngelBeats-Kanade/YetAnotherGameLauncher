@@ -266,6 +266,79 @@ public class GameUpdateServiceTests : IDisposable
         Assert.Equal("2.0.0", new LocalStateService(_tempDir.Path).Load(_game.Id, _server.Id)?.Version);
     }
 
+    [Fact]
+    public async Task ApplyPredownloadAsync_ServerLagsStagedVersion_SkipsRepair()
+    {
+        // 回归（2026-09-20）：窗口期内提前应用时服务器 latest 仍是旧版，清单接口只能取到 latest
+        // 内容——按它修复会把刚打到新版的文件改回旧内容且无自愈。latest != staged 时必须跳过修复。
+        var v1 = "v1"u8.ToArray();
+        var v2 = "v2"u8.ToArray();
+        await File.WriteAllBytesAsync(_tempDir.FilePath("a.dat"), v1);
+        await WriteLocalState("1.0.0");
+
+        _channel.VersionInfo = new ChannelVersionInfo
+        {
+            LatestVersion = "1.0.0",
+            PredownloadAvailable = true,
+            PredownloadVersion = "2.0.0",
+            PredownloadPatchSourceVersions = ["1.0.0"],
+        };
+        var group = BuildGroup("g1.krpdiff", [("a.dat", v1)], [("a.dat", v2)]);
+        _applier.Outputs["g1.krpdiff"] = new Dictionary<string, byte[]> { ["a.dat"] = v2 };
+        _channel.IncrementalManifests[("1.0.0", "2.0.0")] = new GameManifest { Version = "2.0.0", Groups = [group] };
+        // 即使 latest 清单可得（守卫若失效、修复照跑也能"成功"），也不允许发出修复请求
+        _channel.Manifests["2.0.0"] = new GameManifest { Version = "2.0.0", Files = [FileEntry("a.dat", v2)] };
+        _downloader.Responses[Url("g1.krpdiff")] = "patch::g1.krpdiff"u8.ToArray();
+        var service = CreateService();
+
+        await service.PredownloadAsync(_tempDir.Path, _game, _server, _channel);
+        var outcome = await service.ApplyPredownloadAsync(_tempDir.Path, _game, _server, _channel);
+
+        Assert.Equal("2.0.0", outcome.ToVersion);
+        Assert.Equal(v2, await File.ReadAllBytesAsync(_tempDir.FilePath("a.dat")));
+        Assert.Equal("2.0.0", new LocalStateService(_tempDir.Path).Load(_game.Id, _server.Id)?.Version);
+        // 守卫生效的直接证据：apply 阶段没有发生任何清单拉取（修复被整体跳过）
+        Assert.Empty(_channel.ManifestRequests);
+    }
+
+    [Fact]
+    public async Task ApplyPredownloadAsync_ServerMatchesStagedVersion_StillRepairs()
+    {
+        // 守卫不得误伤常规场景：应用前服务器已切到 staged.Version（正常落地窗口），修复照常执行
+        var v1 = "v1"u8.ToArray();
+        var v2 = "v2"u8.ToArray();
+        var b = "b-content"u8.ToArray();
+        await File.WriteAllBytesAsync(_tempDir.FilePath("a.dat"), v1);
+        await WriteLocalState("1.0.0");
+
+        _channel.VersionInfo = new ChannelVersionInfo
+        {
+            LatestVersion = "2.0.0", // 服务器已切到 2.0.0
+            PredownloadAvailable = true,
+            PredownloadVersion = "2.0.0",
+            PredownloadPatchSourceVersions = ["1.0.0"],
+        };
+        var group = BuildGroup("g1.krpdiff", [("a.dat", v1)], [("a.dat", v2)]);
+        _applier.Outputs["g1.krpdiff"] = new Dictionary<string, byte[]> { ["a.dat"] = v2 };
+        // 增量不含 b.pak：latest == staged，事后修复必须按 2.0.0 清单补下
+        _channel.IncrementalManifests[("1.0.0", "2.0.0")] = new GameManifest { Version = "2.0.0", Groups = [group] };
+        _channel.Manifests["2.0.0"] = new GameManifest
+        {
+            Version = "2.0.0",
+            Files = [FileEntry("a.dat", v2), FileEntry("b.pak", b)],
+        };
+        RegisterFile("b.pak", b);
+        _downloader.Responses[Url("g1.krpdiff")] = "patch::g1.krpdiff"u8.ToArray();
+        var service = CreateService();
+
+        await service.PredownloadAsync(_tempDir.Path, _game, _server, _channel);
+        var outcome = await service.ApplyPredownloadAsync(_tempDir.Path, _game, _server, _channel);
+
+        Assert.Equal(1, outcome.RepairedFiles);
+        Assert.Contains("2.0.0", _channel.ManifestRequests);
+        Assert.Equal(b, await File.ReadAllBytesAsync(_tempDir.FilePath("b.pak")));
+    }
+
     // ---------- 包式渠道（整包分发，如终末地） ----------
 
     [Fact]

@@ -40,9 +40,12 @@ public class KuroChannelApiTests
             """;
 
         var predownload = includePredownload
-            ? """
+            ? $$"""
               ,
               "predownload": {
+                "version": "3.7.0",
+                "cdnList": [ { "P": 10, "K1": 1, "K2": 1, "url": "{{Cdn}}" } ],
+                "resourcesBasePath": "launcher/game/G152/10003/3.7.0/token/zip/",
                 "config": {
                   "version": "3.7.0",
                   "patchConfig": [ { "version": "3.6.0", "indexFile": "resource/370/indexFile.json", "indexFileMd5": "ee00ee00ee00ee00ee00ee00ee00ee00" } ]
@@ -196,6 +199,33 @@ public class KuroChannelApiTests
             group.Url);
         Assert.Equal("Client/Content/Paks/old.pak", Assert.Single(group.SrcFiles).Path);
         Assert.Null(Assert.Single(group.SrcFiles).Url);
+    }
+
+    [Fact]
+    public async Task GetIncrementalManifest_PredownloadSourceVersion_UsesPredownloadBlock()
+    {
+        // 回归（2026-09-20）：预下载差分入口（live → predownload）在 predownload 块的 patchConfig 里，
+        // 旧实现只查 default 块——预下载窗口期本地版本命中 PredownloadPatchSourceVersions 时必然失败。
+        // 本 fixture 的 predownload 块携带 3.6.0 → 3.7.0 的差分入口，default 块没有该条目。
+        RegisterFullFixture();
+        const string patchIndexFile = """
+            {
+              "resource": [
+                { "dest": "Client/Content/Paks/predownload.pak", "md5": "12341234123412341234123412341234", "size": 40 }
+              ]
+            }
+            """;
+        _downloader.Serve(Cdn + "resource/370/indexFile.json", patchIndexFile);
+
+        var manifest = await CreateApi().GetIncrementalManifestAsync(Server(), "3.6.0", "3.7.0");
+
+        Assert.NotNull(manifest);
+        Assert.Equal("3.7.0", manifest.Version);
+
+        // 资源目录按 predownload 块自己的 baseUrl/resourcesBasePath 解析
+        Assert.Equal(
+            Cdn + "launcher/game/G152/10003/3.7.0/token/zip/Client/Content/Paks/predownload.pak",
+            manifest.Files[0].Url);
     }
 
     [Fact]

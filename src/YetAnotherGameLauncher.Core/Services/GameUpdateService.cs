@@ -116,8 +116,8 @@ public sealed class GameUpdateService(
         {
             var incremental = new IncrementalUpdateService(downloader, patchApplier, logger);
             await incremental.ApplyAsync(installDir, staged, progress, cancellationToken).ConfigureAwait(false);
-            repaired = await RepairAgainstManifestAsync(
-                installDir, server, channel, staged.Version, progress, cancellationToken).ConfigureAwait(false);
+            repaired = await RepairPredownloadAsync(
+                installDir, server, channel, staged, progress, cancellationToken).ConfigureAwait(false);
         }
 
         await new LocalStateService(installDir).SaveAsync(
@@ -168,6 +168,33 @@ public sealed class GameUpdateService(
 
         return await RepairAgainstManifestAsync(
             installDir, server, channel, plan.ToVersion, progress, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 预下载应用后的事后校验修复，带服务器版本守卫：清单接口只能取到"服务器当前最新"的内容，
+    /// 暂存却是 <c>staged.Version</c>。窗口期内提前应用（服务器 latest 尚未切到 staged.Version）时，
+    /// 按 latest 清单修复会把刚打到新版的文件改回旧内容，且落盘版本号新、内容旧，之后无自愈路径——
+    /// 此时跳过修复只记日志；版本一致的常规场景照常修复（缺口由下次 UpdateAsync 收敛）。
+    /// </summary>
+    private async Task<int> RepairPredownloadAsync(
+        string installDir,
+        GameServer server,
+        IGameChannelApi channel,
+        GameManifest staged,
+        IProgress<UpdateProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        var info = await channel.GetVersionInfoAsync(server, cancellationToken).ConfigureAwait(false);
+        if (!string.Equals(info.LatestVersion, staged.Version, StringComparison.Ordinal))
+        {
+            logger?.LogInformation(
+                "Skip post-apply repair: server latest {Latest} does not match staged {Staged}.",
+                info.LatestVersion, staged.Version);
+            return 0;
+        }
+
+        return await RepairAgainstManifestAsync(
+            installDir, server, channel, staged.Version, progress, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>按目标版本全量清单做事后校验，修复缺失/损坏文件（通常为 0 个）。</summary>
