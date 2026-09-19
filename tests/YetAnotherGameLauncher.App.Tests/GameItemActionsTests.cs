@@ -1,6 +1,9 @@
+using System.Net;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using YetAnotherGameLauncher.Core.Models;
+using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Utilities;
 using YetAnotherGameLauncher.TestSupport;
 using YetAnotherGameLauncher.ViewModels;
@@ -209,6 +212,62 @@ public class GameItemActionsTests : IDisposable
         await settings.SaveProxyCommand.ExecuteAsync(null);
         Assert.True(settings.ProxySave.Failed);
         Assert.Equal("None", ReadProxyMode(_ctx.ConfigPath), ignoreCase: true);
+    }
+
+    [Fact]
+    public void CompositionRoot_WiresProxyManagerIntoViewModel()
+    {
+        // 组合根装配缺口回归（2026-09-20）：App.axaml.cs 工厂曾漏传 proxyManager，
+        // 可选参数默认 null 编译期不可见——直接解析生产组合根断言同一实例被注入
+        using var sp = YetAnotherGameLauncher.App.BuildServices();
+        var vm = sp.GetRequiredService<MainWindowViewModel>();
+
+        Assert.Same(sp.GetRequiredService<NetworkProxyManager>(), vm.ProxyManager);
+    }
+
+    [Fact]
+    public async Task ProxySave_UpdatesSharedHandlerState_NotJustPersistence()
+    {
+        // 回归（2026-09-20）：组合根曾漏传 proxyManager——持久化照写、共享 handler 永不切换，
+        // "直连/自定义代理"静默失效。断言必须打到 handler 实际状态，持久化断言拦不住装配断裂。
+        await _ctx.Vm.InitializeAsync();
+        _ctx.Vm.ShowSettingsCommand.Execute(null);
+        var settings = (SettingsViewModel)_ctx.Vm.CurrentPage!;
+        var handler = _ctx.ProxyManager.Handler;
+
+        // 自定义代理：handler 挂上 WebProxy
+        settings.ProxyManual = true;
+        settings.ProxyAddressDraft = "http://127.0.0.1:7890";
+        await settings.SaveProxyCommand.ExecuteAsync(null);
+        Assert.True(handler.UseProxy);
+        var webProxy = Assert.IsType<WebProxy>(handler.Proxy);
+        Assert.Equal("127.0.0.1", webProxy.Address?.Host);
+        Assert.Equal(7890, webProxy.Address?.Port);
+
+        // 直连：handler 彻底禁用代理
+        settings.ProxyDirect = true;
+        await settings.SaveProxyCommand.ExecuteAsync(null);
+        Assert.False(handler.UseProxy);
+        Assert.Null(handler.Proxy);
+
+        // 跟随系统：启用但不指定（系统默认解析）
+        settings.ProxyFollowSystem = true;
+        await settings.SaveProxyCommand.ExecuteAsync(null);
+        Assert.True(handler.UseProxy);
+        Assert.Null(handler.Proxy);
+    }
+
+    [Fact]
+    public async Task InitializeAsync_AppliesPersistedProxyToSharedHandler()
+    {
+        // 启动路径（InitializeAsync 的 _proxyManager.Apply）：持久化的"直连"必须落到共享 handler
+        var configJson = VmFactory.SampleConfigJson.Replace(
+            "\"installRoot\": \"~/yagl-test-games\"",
+            "\"installRoot\": \"~/yagl-test-games\", \"proxyMode\": \"None\"");
+        using var ctx = VmFactory.Build(configJson: configJson);
+        await ctx.Vm.InitializeAsync();
+
+        Assert.False(ctx.ProxyManager.Handler.UseProxy);
     }
 
     private static string? ReadProxyMode(string configPath) =>

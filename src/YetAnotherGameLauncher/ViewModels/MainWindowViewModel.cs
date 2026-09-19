@@ -37,6 +37,9 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>平台环境（供子 ViewModel 复用，测试可注入假实现）。</summary>
     internal IPlatformInfo Platform => _platform;
     private readonly NetworkProxyManager? _proxyManager;
+
+    /// <summary>VM 实际持有的代理管理器；internal 供单测断言组合根装配（经 InternalsVisibleTo）。</summary>
+    internal NetworkProxyManager? ProxyManager => _proxyManager;
     private readonly Func<string?>? _defaultConfigTemplateFactory;
 
     /// <summary>Linux 首运推荐模板用的 Proton 版本清单（null = 现场扫描；测试注入固定值保证确定性）。</summary>

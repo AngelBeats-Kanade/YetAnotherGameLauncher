@@ -50,6 +50,9 @@ public static class VmFactory
         public required FakeBackdropResolver GryphlineBackdrop { get; init; }
         public StubHttpHandler BackgroundHandler { get; init; } = new();
 
+        /// <summary>VM 实际持有的代理管理器（断言共享 handler 随保存切换用——组合根装配缺口回归）。</summary>
+        public required NetworkProxyManager ProxyManager { get; init; }
+
         public void Dispose() => TempDir.Dispose();
     }
 
@@ -131,7 +134,8 @@ public static class VmFactory
         string? linuxWinePath = "",
         string? linuxDataHome = null,
         YetAnotherGameLauncher.Core.Services.Umu.NativeUmuLauncher? nativeUmu = null,
-        YetAnotherGameLauncher.Core.Abstractions.IUmuComponentProvisioner? umuProvisioner = null)
+        YetAnotherGameLauncher.Core.Abstractions.IUmuComponentProvisioner? umuProvisioner = null,
+        NetworkProxyManager? proxyManager = null)
     {
         var tempDir = new TempDir();
         var configPath = tempDir.FilePath("games.json");
@@ -155,6 +159,8 @@ public static class VmFactory
         var downloader = new FakeDownloader();
         var backgroundHandler = new StubHttpHandler();
         var httpDownloader = new HttpFileDownloader(new HttpClient(backgroundHandler));
+        // 生产组合根恒传 NetworkProxyManager（App.axaml.cs）；测试镜像生产装配，缺省新建
+        var resolvedProxyManager = proxyManager ?? new NetworkProxyManager();
         var kuroBackdrop = new FakeBackdropResolver();
         var gryphlineBackdrop = new FakeBackdropResolver();
         var backdropService = new GameBackdropService(
@@ -192,6 +198,7 @@ public static class VmFactory
             templateFactory,
             filePicker,
             videoPlayer,
+            proxyManager: resolvedProxyManager,
             platformInfo: platformInfo ?? new FakePlatformInfo(isLinux: false),
             linuxProtonVersions: linuxProtonVersions,
             linuxWinePath: linuxWinePath,
@@ -211,6 +218,7 @@ public static class VmFactory
             KuroBackdrop = kuroBackdrop,
             GryphlineBackdrop = gryphlineBackdrop,
             BackgroundHandler = backgroundHandler,
+            ProxyManager = resolvedProxyManager,
         };
     }
 }

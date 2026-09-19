@@ -168,6 +168,7 @@ public partial class App : Application
                 sp.GetRequiredService<IFilePickerService>(),
                 sp.GetRequiredService<IVideoBackdropPlayer>(),
                 sp.GetRequiredService<KuroGachaService>(),
+                proxyManager: sp.GetRequiredService<NetworkProxyManager>(),
                 nativeUmu: sp.GetRequiredService<NativeUmuLauncher>(),
                 umuProvisioner: sp.GetRequiredService<IUmuComponentProvisioner>());
         });
