@@ -80,4 +80,21 @@ public class FileUtilitiesTests : IDisposable
         Assert.Equal("new", await File.ReadAllTextAsync(path));
         Assert.False(File.GetAttributes(path).HasFlag(FileAttributes.ReadOnly));
     }
+
+    [Fact]
+    public void IsExecutableFile_Windows_ExistingFileIsExecutable()
+    {
+        // Windows CI 腿（2026-09-19）：Windows 语义 = 文件存在即可执行（是否真可运行由
+        // CreateProcess 按扩展名/清单裁决，预检不做）——POSIX 腿另有执行位用例
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Skip("Windows 专属分支：POSIX 上走执行位判定（另有 Linux 用例覆盖）");
+        }
+
+        var path = _tempDir.FilePath("game.exe");
+        File.WriteAllBytes(path, "MZ"u8.ToArray());
+
+        Assert.True(FileUtilities.IsExecutableFile(path));
+        Assert.False(FileUtilities.IsExecutableFile(_tempDir.FilePath("missing.exe")));
+    }
 }

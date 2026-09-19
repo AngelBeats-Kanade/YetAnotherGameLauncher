@@ -168,6 +168,30 @@ public class SeamAnalyzerTests
         Assert.False(SeamAnalyzer.ShouldHardCut(50));
     }
 
+    [Fact]
+    public void MeanAbsoluteDifference_EmptySpans_ReturnsZero()
+    {
+        // 零长防御：空缩略（退化帧）不产生除零，按 0 差异处理
+        Assert.Equal(0, SeamAnalyzer.MeanAbsoluteDifference([], []));
+    }
+
+    [Fact]
+    public unsafe void Downsample_PointerOverload_MatchesSpanOverload()
+    {
+        // 指针重载是 span 版的薄包装（FfmpegVideoBackdropPlayer 的不安全回读路径调用）：
+        // 两者结果必须逐字节一致
+        var frame = SolidBgra(16, 8, 10, 200, 30);
+        var expected = SeamAnalyzer.DownsampleBgraToGray(frame, 16, 8, 16 * 4, 4, 4);
+
+        byte[] actual;
+        fixed (byte* pointer = frame)
+        {
+            actual = SeamAnalyzer.DownsampleBgraToGray(pointer, 16, 8, 16 * 4, 4, 4);
+        }
+
+        Assert.Equal(expected, actual);
+    }
+
     /// <summary>构造一幅恒定灰度的缩略。</summary>
     private static byte[] Solid(byte value)
     {

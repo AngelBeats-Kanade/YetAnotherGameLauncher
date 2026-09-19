@@ -25,6 +25,40 @@ public class HpatchzApplierTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyAsync_BareName_Windows_TriesExeFallbackOnPath()
+    {
+        // Windows CI 腿（2026-09-19）：裸命令名的 PATH 预检必须补试 ".exe"——CreateProcess
+        // 会自动补全而 File.Exists 不会，不补这一刀会在 Windows 上误报"补丁工具缺失"
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Skip(".exe 补试是 Windows CreateProcess 语义，POSIX 无对应行为");
+        }
+
+        var toolsDir = _tempDir.FilePath("tools");
+        Directory.CreateDirectory(toolsDir);
+        File.WriteAllBytes(Path.Combine(toolsDir, "hpatchz.exe"), [0x01]); // Windows：存在即可执行
+
+        // 前置追加（不替换）进程 PATH 并在 finally 还原：其余并行测试的 PATH 视图只多出本目录
+        var previousPath = Environment.GetEnvironmentVariable("PATH");
+        Environment.SetEnvironmentVariable("PATH", toolsDir + Path.PathSeparator + previousPath);
+        try
+        {
+            var applier = new HpatchzApplier(_runner, new HpatchzApplierOptions { HpatchzPath = "hpatchz" });
+            var patch = _tempDir.FilePath("patch.krpdiff");
+            await File.WriteAllTextAsync(patch, "stub");
+
+            await applier.ApplyAsync(patch, _tempDir.FilePath("old"), _tempDir.FilePath("new"));
+
+            var spec = Assert.Single(_runner.Specs);
+            Assert.Equal(Path.Combine(toolsDir, "hpatchz.exe"), spec.FileName); // 补试 .exe 命中
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PATH", previousPath);
+        }
+    }
+
+    [Fact]
     public async Task ApplyAsync_BuildsDirectoryModeCommandWithQuotedPaths()
     {
         var tool = StubTool();

@@ -32,6 +32,18 @@
 
 M10 的轮询超时形态同时证明 Progress&lt;T&gt; 回调在线程池异步到达、有界轮询等待是必要的（非冗余防御）。
 
+## Phase 4c 变异冒烟批脚本化（2026-09-19）
+
+M11 击杀记录 + 定时批落地：变异抽查流程已固化为 `scripts/mutation-smoke.mjs`（每日定时
+workflow `.github/workflows/mutation-smoke.yml`）。脚本内置 find 串 stale 检测（源码漂移即报错，
+不静默跳过）、构建测试工程教训、git 还原与收尾重建。
+
+| # | 变异点 | 变异内容 | 击杀测试 | 结果 |
+|---|---|---|---|---|
+| M11 | GameItemViewModel.StartVideoAsync finally | 退订条件 `if (!playing)` 恒假化（悬挂订阅） | VideoBackdropHeadlessTests.VideoSource_FailedStart_DetachesFrameNotification | ✅ 击杀 |
+
+批内常驻 5 个变异（M1/M3/M4/M5/M9 的现行源码形态）每日冒烟，防止守卫测试空心化退化。
+
 ## M7 存活论证（等价防御，记录在案）
 
 StartVideoAsync 的新增 catch 与外层 LoadAssetsCoreAsync 的 `catch (Exception)`（装饰性资源静默回退）

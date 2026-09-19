@@ -141,6 +141,45 @@ public class LaunchSettingsMatrixTests : IDisposable
         Assert.Equal("GE-Proton11-7", settings.PendingProtonUpdateTag);
     }
 
+    [Fact]
+    public async Task ConfirmProtonUpdate_DownloadFails_ShowsFailureAndStaysRetryable()
+    {
+        // 审计缺口（2026-09-19）：确认更新下载失败 → 消息槽报错，状态回 UpdateAvailable
+        // （新版 tag 仍在，按钮保持"更新到 {tag}"可重试），不卡 Updating
+        await _ctx.Vm.InitializeAsync();
+        var provisioner = new ScriptedProvisioner { UpdateProtonError = "下载被代理拦截（测试桩）" };
+        var settings = NewSettings(provisioner: provisioner);
+        settings.SelectedProtonFlavor = "GE-Proton";
+
+        await settings.CheckProtonUpdateCommand.ExecuteAsync(null);
+        Assert.Equal(ProtonUpdateCheckState.UpdateAvailable, settings.ProtonUpdateState); // 前置：已检测到新版
+
+        await settings.ConfirmProtonUpdateCommand.ExecuteAsync(null);
+
+        Assert.True(settings.Save.Failed);
+        Assert.Contains("代理拦截", settings.Save.Message, StringComparison.Ordinal);
+        Assert.Equal(ProtonUpdateCheckState.UpdateAvailable, settings.ProtonUpdateState);
+        Assert.False(settings.ShowProtonUpdateConfirm); // 确认覆盖层已收起
+    }
+
+    [Fact]
+    public async Task ConfirmProtonUpdate_Cancelled_KeepsUpdateAvailableWithoutFailureMessage()
+    {
+        // 取消分支：OperationCanceledException 静默（不进消息槽），且因新版信息仍在，
+        // 状态保持 UpdateAvailable（按钮"更新到 {tag}"随时可再点）
+        await _ctx.Vm.InitializeAsync();
+        var provisioner = new ScriptedProvisioner { UpdateProtonCancelled = true };
+        var settings = NewSettings(provisioner: provisioner);
+        settings.SelectedProtonFlavor = "GE-Proton";
+
+        await settings.CheckProtonUpdateCommand.ExecuteAsync(null);
+        await settings.ConfirmProtonUpdateCommand.ExecuteAsync(null);
+
+        Assert.False(settings.Save.HasMessage);
+        Assert.Equal(ProtonUpdateCheckState.UpdateAvailable, settings.ProtonUpdateState);
+        Assert.Equal("GE-Proton11-7", settings.PendingProtonUpdateTag); // 新版信息保留
+    }
+
     /// <summary>查询门栓准备器：FetchLatestProtonTagAsync 挂起直到测试放行（重入窗口可控）。</summary>
     private sealed class GatedProvisioner : IUmuComponentProvisioner
     {
@@ -182,6 +221,8 @@ public class LaunchSettingsMatrixTests : IDisposable
         public bool RuntimeReady { get; set; }
         public string? EnsureProtonError { get; set; }
         public string? FetchTagError { get; set; }
+        public string? UpdateProtonError { get; set; }
+        public bool UpdateProtonCancelled { get; set; }
 
         public bool IsProtonReady(string protonPath) => ProtonReady;
 
@@ -202,8 +243,21 @@ public class LaunchSettingsMatrixTests : IDisposable
         }
 
         public Task<string> UpdateProtonAsync(
-            string protonRequest, IProgress<string>? progress = null, CancellationToken cancellationToken = default) =>
-            Task.FromResult("/tmp/GE-Proton");
+            string protonRequest, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+        {
+            if (UpdateProtonCancelled)
+            {
+                throw new OperationCanceledException(cancellationToken);
+            }
+
+            if (UpdateProtonError is not null)
+            {
+                throw new LaunchException(LaunchFailureKind.ProtonDownloadFailed, UpdateProtonError);
+            }
+
+            ProtonReady = true;
+            return Task.FromResult("/tmp/GE-Proton");
+        }
 
         public Task<string> EnsureProtonAsync(
             string protonRequest, IProgress<string>? progress = null, CancellationToken cancellationToken = default)

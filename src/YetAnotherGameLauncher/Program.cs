@@ -141,17 +141,8 @@ sealed class Program
                 return null;
             }
 
-            using var document = JsonDocument.Parse(json);
-            return document.RootElement.EnumerateArray()
-                .Select(m => m.TryGetProperty("scale", out var scale)
-                            && scale.ValueKind == JsonValueKind.Number
-                    ? scale.GetDouble()
-                    : double.NaN)
-                .Where(s => s is >= 0.5 and <= 5)
-                .OrderByDescending(s => s) // 多显示器取最大缩放：UI 宁可大不可小
-                .FirstOrDefault() is { } scaleValue && !double.IsNaN(scaleValue)
-                ? scaleValue
-                : null;
+            // 解析逻辑在纯函数 CompositorScaleParser（可离线直测）；坏 JSON 由本 catch 兜底
+            return CompositorScaleParser.ParseMaxMonitorScale(json);
         }
         catch (Exception ex) when (ex is JsonException or SystemException)
         {

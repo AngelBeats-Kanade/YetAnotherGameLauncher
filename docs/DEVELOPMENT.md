@@ -50,6 +50,7 @@ src/
     Program.cs / App.axaml(.cs)（DI 组合根；Program 按后端决策组装 AppBuilder）、Themes/ThemeService
     Services/       WaylandBackendPolicy（Linux 窗口后端决策：WAYLAND_DISPLAY 存在即原生 Wayland，
                     YAGL_FORCE_XWAYLAND=1 逃生舱回退 X11；纯函数，决策表测试见 App.Tests）；
+                    CompositorScaleParser（hyprctl monitors -j 的缩放解析纯函数，Xft.dpi 同步用，直测见 App.Tests）；
                     WindowStateMapper（视觉最大化判定：Wayland 实验后端把平铺误报 Maximized，
                     需校验客户区铺满工作区才去圆角；纯函数，决策表测试见 App.Tests）；
                     LocalizationService/ILocalizationService + LocBridge（JSON 资源本地化；LocBridge 为构造期取文案的静态桥）；

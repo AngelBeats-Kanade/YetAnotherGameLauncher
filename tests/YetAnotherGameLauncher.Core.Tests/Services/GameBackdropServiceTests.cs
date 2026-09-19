@@ -280,6 +280,21 @@ public class GameBackdropServiceTests : IDisposable
         Assert.Null(service.GetCachedGameVersion("some-game"));
     }
 
+    [Fact]
+    public async Task CorruptCacheMeta_TreatedAsNoCache()
+    {
+        // 审计缺口（2026-09-19）：缓存元数据损坏（写一半崩溃等）→ 按无缓存兜底：
+        // 版本查询 null、离线缓存解析 null（回退主题渐变），解析链不崩
+        var cacheDir = _tempDir.FilePath("backdrops", "somegame"); // Sanitize 去掉连字符
+        Directory.CreateDirectory(cacheDir);
+        File.WriteAllText(Path.Combine(cacheDir, "meta.json"), "{not-json");
+
+        var service = CreateService(new StubResolver(_ => null));
+
+        Assert.Null(service.GetCachedGameVersion("some-game"));
+        Assert.Null(await service.ResolveCachedAsync(Request()));
+    }
+
     private sealed class StubResolver(Func<string, BackdropSource?> resolve) : IBackdropResolver
     {
         public Func<string, BackdropSource?> Resolver { get; set; } = resolve;

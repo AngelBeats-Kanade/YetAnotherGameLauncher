@@ -98,6 +98,19 @@ public class LocalizationServiceTests
     }
 
     [Fact]
+    public void SetLanguage_UnprovidedEnVariant_FallsBackToDefaultStrings()
+    {
+        // 资源缺失分支：Normalize 放行一切 en 前缀语言，但程序集只嵌 zh-CN/en-US 两份资源——
+        // Load 返回空集，索引器逐键回退默认语言文案，界面不得因缺资源挂掉
+        var loc = new LocalizationService();
+
+        loc.SetLanguage("en-GB");
+
+        Assert.Equal("en-GB", loc.Language);
+        Assert.Equal("设置", loc["common_settings"]); // 回退默认（zh-CN）文案
+    }
+
+    [Fact]
     public void LanguageResources_HaveParity()
     {
         // 防漏译：默认语言与各翻译资源的键集必须完全一致

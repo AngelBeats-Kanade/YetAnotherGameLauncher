@@ -244,6 +244,100 @@ public class SystemProcessRunnerTests
         Assert.Contains(fileName, exitLog, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task RunAsync_FireAndForget_RequireAdministrator_ElevatesViaShellThenFails()
+    {
+        // Windows CI 腿（2026-09-19，审计遗留 ~45 行提权回退段）：requireAdministrator 清单的 exe
+        // 在非提权会话经 CreateProcess 启动报 740 → 回退 ShellExecute（会话无 UAC 同意 UI）→ 再次失败。
+        // 断言两件事：调用方收到 Win32Exception；日志留下"提权回退"说明行（防误导秒退排查）+ env 警告。
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Skip("740 是 Windows CreateProcess 清单语义，POSIX 不可构造");
+            return;
+        }
+
+        using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+        if (new System.Security.Principal.WindowsPrincipal(identity)
+            .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator))
+        {
+            Assert.Skip("运行时已提权：requireAdministrator 桩直接启动成功，不触发 740 回退");
+            return;
+        }
+
+        // 现场编译带 requireAdministrator 清单的桩 exe（不依赖系统自带可执行文件）
+        var stubDir = Path.Combine(Path.GetTempPath(), "yagl-elev-stub-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(stubDir);
+        var logPath = Path.Combine(stubDir, "launch.log");
+        try
+        {
+            File.WriteAllText(Path.Combine(stubDir, "stub.csproj"), """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <Nullable>disable</Nullable>
+                    <ApplicationManifest>app.manifest</ApplicationManifest>
+                  </PropertyGroup>
+                </Project>
+                """);
+            File.WriteAllText(Path.Combine(stubDir, "app.manifest"), """
+                <?xml version="1.0" encoding="utf-8"?>
+                <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+                  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
+                    <security>
+                      <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
+                        <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
+                      </requestedPrivileges>
+                    </security>
+                  </trustInfo>
+                </assembly>
+                """);
+            // 桩体即退：万一判定失误（会话其实已提权）进程也不会悬挂，测试以"未抛 740"清晰红掉
+            File.WriteAllText(Path.Combine(stubDir, "Program.cs"), "System.Console.WriteLine(\"stub\");");
+
+            var build = Process.Start(new ProcessStartInfo("dotnet", "build -c Release --nologo -v q")
+            {
+                WorkingDirectory = stubDir,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            });
+            Assert.NotNull(build);
+            _ = build.StandardOutput.ReadToEndAsync();
+            _ = build.StandardError.ReadToEndAsync();
+            Assert.True(build.WaitForExit(180_000), "requireAdministrator 桩编译超时");
+            Assert.True(build.ExitCode == 0, "requireAdministrator 桩编译失败");
+
+            var logger = new CollectingLogger();
+            var runner = new SystemProcessRunner(logger);
+            var stubExe = Path.Combine(stubDir, "bin", "Release", "net10.0", "stub.exe");
+
+            // 即启即走 + 日志 + 自定义 env：740 回退路径放弃 env 注入并写警告（ENV 循环不进 ShellExecute）
+            await Assert.ThrowsAnyAsync<Win32Exception>(() => runner.RunAsync(new ProcessStartSpec(
+                stubExe,
+                "-run",
+                WaitForExit: false,
+                Environment: new Dictionary<string, string> { ["YAGL_TEST_VAR"] = "x" },
+                OutputLogPath: logPath)));
+
+            var content = await File.ReadAllTextAsync(logPath); // 能读到 = 日志句柄已释放（防泄漏防线）
+            Assert.Contains("# elevated via shell (requireAdministrator)", content, StringComparison.Ordinal);
+            Assert.Contains(logger.Messages, m => m.Contains("elevated via shell", StringComparison.Ordinal));
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(stubDir, recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // 桩进程偶发残留占用：临时目录由系统回收，不影响判定
+            }
+        }
+    }
+
     /// <summary>轮询等待日志退出脚注落盘（输出泵收尾是异步的），返回完整日志文本。</summary>
     private static async Task<string> WaitForLogFootnoteAsync(string logPath, string footnote)
     {

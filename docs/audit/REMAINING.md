@@ -1,57 +1,57 @@
 # 遗留工作清单（REMAINING）——审计后待办
 
 - 建立时间：2026-09-19（双向审计 Phase 0-5 收尾时）；状态快照：commit 3593150
-- **2026-09-19 Phase 4b-2 更新**：P1 全部完成、P2 基本完成（见下表"状态"列）；快照同步刷新。
-- 用途：新会话/后续迭代的接手清单。**只列已归因、有方案的事项**——每项标注记录位置，
-  接手前先读"新会话必读"一节（含 harness 教训，避免重踩）。
+- **2026-09-19 Phase 4b-2**：P1 全部完成、P2 基本完成。
+- **2026-09-19 Phase 4c**：P3/P4 全部完成（见"状态"列）。原审计清单实质清空，本文件转为
+  "残余等价类论证 + 新增遗留"的收尾记录。
+- 用途：新会话接手清单。接手前先读"新会话必读"一节（含 harness 教训，避免重踩）。
 
 ## 状态快照
 
-- 行覆盖：4870/5749 = **84.71%**（2026-09-19 实测，Phase 4b-2 后 +70 行；口径：仅本仓库 src/ 的 .cs；工具 `artifacts/audit/tools/`）
-- 测试：641 执行全绿（Core 269 / Kuro 57 / Hypergryph 17 / App 298）；零警告构建；format 干净
-- CI 守卫：行覆盖 ≥83% 门禁（scripts/coverage-gate.mjs）+ `Dispatch(async` 禁用形态 grep
-- 证据链：docs/audit/（REPORT.md 总报告 / tests/ 527 判定 / business/ 91 文件逐行审计 / MUTATION.md 击杀表，含 M9/M10 增补抽查）
+- 行覆盖：4899/5756 = **85.11%**（2026-09-19 实测，Phase 4c 后；口径：仅本仓库 src/ 的 .cs；工具 `artifacts/audit/tools/`）
+- 测试：**668** 个（Core 274 / Kuro 58 / Hypergryph 17 / App 319），本地两轮全绿
+  （其中 4 个 Windows 腿用例在 Linux 上显式 Skip，命中靠 windows-latest runner）；零警告构建；format 干净
+- CI 守卫：行覆盖 ≥83% 门禁 + `Dispatch(async` 禁用形态 grep + **每日变异冒烟批**（mutation-smoke.yml）
+- 证据链：docs/audit/（REPORT.md / tests/ 527 判定 / business/ 91 文件 / MUTATION.md 含 M1-M11）
 
-## 遗留清单（按优先级）
+## 审计遗留清单（全部完成，留档）
 
-| 优先级 | 事项 | 位置/行数 | 方案 | 详细记录 | 状态 |
-|---|---|---|---|---|---|
-| P1 | GameItemViewModel 残余分支：进度卡生命周期（RunUpdateAsync 进度消费/完成清卡）、离线资产兜底分支（RefreshAsync catch 内 :266-284） | GameItemViewModel 未覆盖 ~90 行 → **48 行** | 进度矩阵用例 + FakeChannel 失败注入 | business/App/ViewModels.md | ✅ **2026-09-19 完成**（GameItemOfflineTests ×4 + GameItemProgressTests ×2 + StartupAssetPreloadTests 离线兜底 ×1；变异抽检 M9/M10 击杀） |
-| P1 | TestSupport 增强：FakeChannel 失败注入（FetchVersionException 之类） | tests/YetAnotherGameLauncher.TestSupport/FakeChannel.cs | 加可注入异常属性 | 本文件新增 | ✅ **2026-09-19 完成**（`VersionInfoError`/`ManifestError`/`IncrementalManifestError`/`PredownloadManifestError` 四属性，后续容错用例直接复用） |
-| P2 | LaunchSettingsViewModel 残余：保存 env 解析边界（空值/重复键/无=行）、检查更新重入守卫 | LaunchSettingsVM 未覆盖 ~70 行 → **55 行** | 边界用例组 + 重入守卫 | business/App/ViewModels.md | ✅ **2026-09-19 完成**（解析函数转 internal 直测 ×10；GatedProvisioner 重入用例 ×1。残余：确认更新失败/取消分支 :392-404，见 P3 杂散行） |
-| P2 | SystemProcessRunner：env+日志组合（:44-50/:68-73）、启动失败释放（:136）、瞬秒进程 HasExited 分支（:156-159/:172-174） | ~10 行 → 竞态容错行外全覆盖 | 三个小用例；竞态容错行按等价类论证 | business/Core/SystemProcessRunner.md | ✅ **2026-09-19 完成**（×5 用例；156-159 Exited 分支由长存活进程用例确定性命中；172-174 与 203-209/259-271/292-295/312-314 属竞态容错等价类，逐行论证保留） |
-| P2 | KuroGachaService 容错：日志被占用跳过、prefix 枚举守卫、畸形 URL | ~32 行 → **17 行** | FileShare.None 占位 + 畸形 URL 两组用例 | business/Channels.md | ✅ **2026-09-19 基本完成**（占用跳过 ×2、畸形 URL ×4、缓存损坏/目录不可写 ×2；残余：prefix 枚举守卫 :117-138 构造困难、翻页边界 :230-263，按变异裁决处理） |
-| P3 | Windows CI 腿：提权 740 回退整段（~45 行）、IsExecutableFile true 分支、AppPaths Windows 目录、HpatchzApplier `.exe` 补试 | Windows 专属 | Windows runner 上移除 Assert.Skip 或补平台腿；无法覆盖部分逐行论证保留 | business/Core/SystemProcessRunner.md 等 | ⬜ 未动 |
-| P3 | 每日变异冒烟批：核心服务每日小批变异防退化 | CI | 参考 MUTATION.md 的手工流程脚本化（教训：必须构建测试工程） | business/MUTATION.md | ⬜ 未动 |
-| P3 | SetDetailActive 路径订阅泄漏（M7 存活论证的残余）：`_ = StartVideoAsync`（:483）异常时 FrameUpdated 退订缺失 | GameItemViewModel :483 | 真机行为验证（Frame 为 null 时无行为差异）；或把订阅/退订收拢到 finally | business/MUTATION.md M7 条目 | ⬜ 未动 |
-| P3 | 杂散容错行：JsonException→null 类（GameBackdropService meta、IncrementalUpdateService 暂存清单等，每处 1-3 行）、SeamAnalyzer 防御行、LocalizationService 资源缺失、LaunchSettings 确认更新失败分支（:392-404）、GameItemViewModel Patching/CleaningUp 阶段文案臂（:944-946） | 散布 ~40 行 | 每处 1 用例；或变异验证后按等价类豁免 | business/ 各记录 | ⬜ 未动 |
-| P4 | 排除文件可回收（~50 行）：FfmpegLibraryResolver 路径候选、Program hyprctl 输出解析纯函数提取 | 排除文件 | 提取 internal 纯函数后直测 | business/App/Services-Views-Excluded.md | ⬜ 未动 |
+| 优先级 | 事项 | 结果 | 详细记录 |
+|---|---|---|---|
+| P1 | FakeChannel 失败注入 | ✅ 4 个可注入异常属性（2026-09-19 4b-2） | 本文件历史 |
+| P1 | GameItemViewModel 离线兜底 + 进度卡生命周期 | ✅ ×7 用例，M9/M10 击杀（4b-2） | business/App/ViewModels.md |
+| P2 | LaunchSettingsViewModel env 边界 + 重入守卫 | ✅ internal 直测 ×10 + GatedProvisioner 重入（4b-2）；4c 再补确认更新失败/取消 ×2 | business/App/ViewModels.md |
+| P2 | SystemProcessRunner env/释放/瞬秒分支 | ✅ ×5 用例（4b-2） | business/Core/SystemProcessRunner.md |
+| P2 | KuroGachaService 占用/畸形 URL/缓存容错 | ✅ ×8 用例（4b-2） | business/Channels.md |
+| P3 | Windows CI 腿 | ✅ 4c：IsExecutableFile Windows 分支、AppPaths %LOCALAPPDATA%、HpatchzApplier `.exe` PATH 补试、**740 提权回退整段**（现场编译 requireAdministrator 桩 exe；已提权环境显式 Skip）——4 个用例 Linux 腿显式 Skip，**首次命中验证待 push 后看 windows-latest 腿** | business/Core/SystemProcessRunner.md |
+| P3 | 每日变异冒烟批 | ✅ 4c：scripts/mutation-smoke.mjs（stale 规格检测/构建测试工程/自动还原）+ mutation-smoke.yml（每日 UTC 03:17 + 手动触发）。本地首批 5/5 击杀 | business/MUTATION.md |
+| P3 | SetDetailActive 订阅泄漏（M7 残余） | ✅ 4c：订阅/退订收拢 StartVideoAsync finally（结构性消除）；泄漏探针 VideoSource_FailedStart_DetachesFrameNotification（注入非空帧 + 手动通知才可见）经 M11 击杀验证 | business/MUTATION.md M7/M11 |
+| P3 | 杂散容错行 | ✅ 4c：背景 meta 损坏、暂存清单损坏、LocalizationService 缺资源（en-GB 前缀放行回退）、确认更新失败/取消、Patching/CleaningUp/Verifying 阶段文案臂、FormatBytes KB/MB/GB 臂、SeamAnalyzer 空跨度 + 指针重载（App.Tests 开 AllowUnsafeBlocks）、DisplayName 前缀回退 | 各 business/ 记录 |
+| P4 | 排除文件可回收 | ✅ 4c：FfmpegLibraryResolver.LocateLibraryDir 直测 ×4（本来已 internal）；hyprctl 缩放解析提取为 **CompositorScaleParser**（非排除新文件，可测且计入覆盖）——顺带修掉原实现空数组返回 0 而非 null 的边角缺陷 | business/App/Services-Views-Excluded.md |
 
-## 工具（本地生成，不入库）
+## 残余未覆盖行的定性（等价类论证，接受保留）
 
-```bash
-# 未覆盖行清单（当前 ~879 行 / 40 文件）：
-dotnet-coverage collect -f cobertura -o out.xml dotnet <测试dll>   # ×4 套件
-node artifacts/audit/tools/uncovered-lines.mjs UNCOVERED.md *.cobertura.xml
-# 覆盖率汇总 / CI 门禁（已入库）：
-node artifacts/audit/tools/coverage-summary.mjs SUMMARY.md *.cobertura.xml
-node scripts/coverage-gate.mjs 0.83 <xml...>                       # CI 同款
-```
+- **竞态容错类**（SystemProcessRunner :203-209/:259-271/:292-295/:312-314、GameBackdropService WriteMeta IOException 等）：
+  防御代码删除后仅在进程竞态/IO 竞态窗口可见，等价类豁免（MUTATION.md"处置汇总"）。
+- **构造困难类**：KuroGachaService prefix 枚举守卫（:117-138，需构造枚举中途 IOException）、
+  LocalizationService 内嵌资源 JsonException（:82-84，构建物损坏场景，无注入缝隙）、
+  SystemProcessRunner 740 段的个别容错行（双层释放竞态）。
+- **展示边角**：GameItemViewModel 服务器计数/渠道显示/抽卡入口的残余展示分支（~15 行，行为即字面映射）。
+- Windows 腿新增用例的首次 runner 命中验证（推上去看一眼 mutation-smoke 与 windows 腿日志即可）。
 
 ## 新会话必读（harness 教训，重踩成本高）
 
 1. **测试判定口径**：docs/audit/tests/CRITERIA.md——所有测试默认可疑，双向可证伪才算合格。
 2. **Dispatch 三规则**（AGENTS.md"UI / 无头测试已知坑"节）：`Dispatch(async)` 禁用（吞断言）；
-   `Dispatch(Action)` 必须 await（不 await 则 lambda 没跑）；Bitmap 只能会话线程。
-   正确形态先例：BackgroundImageServiceTests / SettingsHeadlessTests（RunToCompletion 泵）。
-3. **变异验证**：必须构建**测试工程**（测试 bin 持有独立依赖副本，只构建源项目不生效——
-   2026-09-19 Phase 4b-2 实测又踩一次：只构建 src 项目时变异测试照样绿）；测试数据必须能
-   区分变异前后（M8 教训：B 服须排首位）。
-4. **本机跑测试**：`dotnet test` 可能 0 发现——直跑
-   `dotnet tests/<工程>/bin/Debug/net10.0/<程序集>.dll`；单测试用 xunit runner 的 `-method`。
+   `Dispatch(Action)` 必须 await；Bitmap 只能会话线程。先例：BackgroundImageServiceTests / SettingsHeadlessTests。
+3. **变异验证**：必须构建**测试工程**（测试 bin 持有独立依赖副本）——4b-2/4c 各实踩一次；
+   测试数据必须能区分变异前后（M8 教训）。冒烟批已脚本化：`node scripts/mutation-smoke.mjs [id...]`。
+4. **本机跑测试**：`dotnet test` 可能 0 发现——直跑 `dotnet tests/<工程>/bin/Debug/net10.0/<程序集>.dll`；
+   单测试用 xunit runner 的 `-method`（FQN 注意命名空间：App.Tests 的无头窗口测试在 `UiTests`，
+   其余在 `AppTests`）。
 5. **应用运行中锁 bin**（MSB3021/3027）：构建前 `taskkill //F //IM YetAnotherGameLauncher.exe`（Windows）。
-6. **每轮改动后**：全量 4 套件 ×2 轮 + `dotnet format whitespace --verify-no-changes` +
-   覆盖率复测（基线 83% 门禁已由 CI 强制，本地提前自查）。
-7. **Progress&lt;T&gt; 回调异步到达**（2026-09-19 实测）：GameItemViewModel 的进度报告经
-   `Progress<UpdateProgress>` 转发，在无同步上下文的测试线程经线程池异步落地——断言进度
-   字段必须有界轮询等待（先例：GameItemProgressTests；变异 M10 证明轮询必要而非冗余）。
+6. **每轮改动后**：全量 4 套件 ×2 轮 + `dotnet format whitespace --verify-no-changes` + 覆盖率复测。
+7. **Progress&lt;T&gt; 回调异步到达**：断言进度字段须有界轮询或订阅 PropertyChanged 历史
+   （先例：GameItemProgressTests；M10 证明轮询必要）。多文件批量下载的进度是**累计字节**，
+   KB/MB 窗口会被跳过——测 FormatBytes 文案臂用单文件清单逐轮驱动（先例：Install_ProgressFormats）。
+8. **VM 测试里 `Games` 集合在 InitializeAsync 之后才有值**（先例踩坑：访问 `Games[0]` 前必须先初始化）。

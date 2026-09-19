@@ -164,6 +164,43 @@ public class VideoBackdropHeadlessTests : IDisposable
     }
 
     [Fact]
+    public async Task VideoSource_FailedStart_DetachesFrameNotification()
+    {
+        // M7 残余收拢（2026-09-19）：起播失败必须退订 FrameUpdated，否则共享播放器后续产出的帧
+        // （含上一游戏残帧的迟到通知）会点亮本页视频层。探针：失败后注入非空帧再手动触发通知——
+        // 已退订则 HasBackgroundVideo 恒 false；悬挂订阅会把它点亮（M7 的旧论证里 Frame 恒 null，
+        // 行为无差异、探测不到悬挂订阅，这里注入帧才让泄漏可见）。
+        var localVideo = _ctx.TempDir.FilePath("cached", "backdrop.mp4");
+        Directory.CreateDirectory(Path.GetDirectoryName(localVideo)!);
+        await File.WriteAllTextAsync(localVideo, "fake");
+        _ctx.KuroBackdrop.Resolver = _ => new BackdropSource(localVideo, BackdropKind.Video);
+        _player.PlayHandler = _ => throw new InvalidOperationException("decoder init failed");
+
+        await _ctx.Vm.InitializeAsync();
+
+        var videoLit = true;
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            window.Show();
+            window.UpdateLayout();
+
+            _ctx.Vm.GameNavSelection = _ctx.Vm.Games[0];
+            window.UpdateLayout(); // 起播同步失败（桩抛异常在首个 await 前）：finally 已退订
+
+            var frame = new WriteableBitmap(
+                new Avalonia.PixelSize(4, 4), new Avalonia.Vector(96, 96),
+                Avalonia.Platform.PixelFormats.Bgra8888, Avalonia.Platform.AlphaFormat.Opaque);
+            _player.Frame = frame;
+            _player.RaiseFrame(); // 迟到通知：悬挂订阅会在此点亮视频层
+            videoLit = _ctx.Vm.Games[0].HasBackgroundVideo;
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.False(videoLit); // 退订缺失即红
+    }
+
+    [Fact]
     public async Task VideoSource_SwitchingGames_LateStaleNotifyDoesNotLightNewGame()
     {
         // 两个游戏共享一个播放器（与生产 DI 单例一致）。切游戏后，上一游戏解码循环"最后一帧"

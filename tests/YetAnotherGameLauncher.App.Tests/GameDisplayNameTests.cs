@@ -55,6 +55,33 @@ public class GameDisplayNameTests
     }
 
     [Fact]
+    public async Task DisplayName_LanguagePrefixFallback_MatchesSamePrefixEntry()
+    {
+        // 语言前缀回退（审计缺口 :76-81）：配置只有 zh-TW 条目、语言为 zh-CN（唯一受支持的 zh 语言）时，
+        // 按前缀 zh 匹配置项而不是跌落到 displayName——繁体用户看到繁体名
+        const string config = """
+            {
+              "settings": { "installRoot": "~/yagl-test-games", "theme": "Dark", "language": "zh-CN" },
+              "games": [
+                {
+                  "id": "wuthering-waves",
+                  "displayName": "鸣潮",
+                  "nameLocalized": { "zh-TW": "鳴潮", "en-US": "Wuthering Waves" },
+                  "channel": "kuro",
+                  "installDir": "WutheringWaves",
+                  "executable": "Client/Binaries/Win64/Client-Win64-Shipping.exe",
+                  "servers": [ { "id": "cn", "name": "CN" } ]
+                }
+              ]
+            }
+            """;
+        using var ctx = VmFactory.Build(configJson: config);
+        await ctx.Vm.InitializeAsync();
+
+        Assert.Equal("鳴潮", ctx.Vm.Games[0].DisplayName);
+    }
+
+    [Fact]
     public async Task Migration_FillsLocalizedNamesFromSample()
     {
         // 旧配置（无 schemaVersion/nameLocalized）：迁移应从样例模板补齐名称映射

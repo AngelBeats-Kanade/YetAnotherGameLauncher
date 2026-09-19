@@ -292,4 +292,16 @@ public class IncrementalUpdateServiceTests : IDisposable
         Assert.Equal("new.dat", Assert.Single(loadedGroup.DstFiles).Path);
         Assert.NotNull(loadedGroup.Url);
     }
+
+    [Fact]
+    public void TryLoadStagedManifest_CorruptJson_ReturnsNull()
+    {
+        // 审计缺口（2026-09-19）：暂存清单写一半崩溃/损坏 → 按无暂存兜底（HasStagedPredownload=false），
+        // 唤起页与主操作按钮不得因 JsonException 崩溃
+        var staging = IncrementalUpdateService.PredownloadDir(_tempDir.Path);
+        Directory.CreateDirectory(staging);
+        File.WriteAllText(Path.Combine(staging, "manifest.json"), "{broken");
+
+        Assert.Null(IncrementalUpdateService.TryLoadStagedManifest(_tempDir.Path));
+    }
 }

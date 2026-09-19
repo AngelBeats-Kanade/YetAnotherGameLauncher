@@ -1,0 +1,39 @@
+# 每日变异冒烟批（docs/audit/REMAINING.md P3）：MUTATION.md 手工抽查流程的定时脚本化。
+# 每个变异单点破坏一处守卫逻辑，断言对应测试必须变红（击杀）——守卫空心化即红。
+# 变异批定义在 scripts/mutation-smoke.mjs 内（含 stale 检测：源码漂移时规格报错而非静默失效）。
+name: mutation-smoke
+
+on:
+  schedule:
+    - cron: '17 3 * * *' # 每日 UTC 03:17（错开整点高峰）
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-smoke
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: mutation smoke batch
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+      - name: Build test projects
+        run: |
+          dotnet build tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj --nologo -v q
+          dotnet build tests/YetAnotherGameLauncher.App.Tests/YetAnotherGameLauncher.App.Tests.csproj --nologo -v q
+      - name: Run mutation smoke batch
+        run: node scripts/mutation-smoke.mjs
