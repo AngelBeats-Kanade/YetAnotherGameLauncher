@@ -1,5 +1,9 @@
 # Phase 3 业务审计索引 —— App 层（2026-09-19）
 
+> 2026-09-20 补记：Phase 4c 提取的 `Services/CompositorScaleParser.cs`（hyprctl 缩放解析纯函数）
+> 在下表 Services-Views-Excluded.md 的审计时点之后新增，非漏审——判定见 REMAINING.md P4
+> "排除文件可回收"行（直测全绿、空数组返回 null 边角已修）。
+
 | 记录文件 | 覆盖的源文件 | 状态 |
 |---|---|---|
 | UmuComponentProvisioner.md | UmuComponentProvisioner (1157) | 完成 |
