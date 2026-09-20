@@ -128,7 +128,10 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         }
         finally
         {
+            // 下载器的失败路径会有意保留 <目标>.temp 以便断点续传——该语义对每次换新
+            // Guid 的临时 index.json 永不适用，这里一并清掉（2026-09-20 复审修复）
             FileUtilities.DeleteQuiet(tempPath);
+            FileUtilities.DeleteQuiet(tempPath + ".temp");
         }
     }
 

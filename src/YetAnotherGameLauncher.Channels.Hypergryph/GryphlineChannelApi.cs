@@ -38,6 +38,9 @@ public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger =
         if (response.Patch is { } patch
             && patch.ValueKind == JsonValueKind.Object
             && patch.TryGetProperty("version", out var versionElement)
+            // 逆向协议、结构随官方改动：GetString 对非字符串值抛裸 InvalidOperationException
+            //（本渠道其余解析处均有 ValueKind 防护，此处补齐）
+            && versionElement.ValueKind == JsonValueKind.String
             && versionElement.GetString() is { Length: > 0 } v)
         {
             predownloadVersion = v;
@@ -74,8 +77,9 @@ public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger =
             return null;
         }
 
-        var patchVersion = patch.TryGetProperty("version", out var v) ? v.GetString() : null;
-        if (patchVersion is null || !patch.TryGetProperty("pkg", out var pkgElement))
+        var patchVersion = patch.TryGetProperty("version", out var v)
+            && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        if (patchVersion is null || !patch.TryGetProperty("pkg", out var pkgElement) || pkgElement.ValueKind != JsonValueKind.Object)
         {
             return null;
         }

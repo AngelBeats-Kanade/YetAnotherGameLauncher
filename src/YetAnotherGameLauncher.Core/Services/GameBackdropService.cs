@@ -141,8 +141,8 @@ public sealed class GameBackdropService(
             && string.Equals(cached.Url, remote.Url, StringComparison.OrdinalIgnoreCase)
             && cached.Kind == remote.Kind)
         {
-            WriteMeta(Path.Combine(cacheDir, "meta.json"),
-                cached with { Region = request.Region, GameVersion = gameVersion });
+            await WriteMetaAsync(Path.Combine(cacheDir, "meta.json"),
+                cached with { Region = request.Region, GameVersion = gameVersion }).ConfigureAwait(false);
         }
 
         // 地址或类型变化（版本更新换投放）→ 重新下载覆盖缓存
@@ -155,7 +155,7 @@ public sealed class GameBackdropService(
                 .ConfigureAwait(false);
             if (downloaded is { } download)
             {
-                WriteMeta(Path.Combine(cacheDir, "meta.json"), download.Meta);
+                await WriteMetaAsync(Path.Combine(cacheDir, "meta.json"), download.Meta).ConfigureAwait(false);
                 return download.Resolved(cacheDir);
             }
         }
@@ -287,12 +287,13 @@ public sealed class GameBackdropService(
         }
     }
 
-    private static void WriteMeta(string path, BackdropMeta meta)
+    private static async Task WriteMetaAsync(string path, BackdropMeta meta)
     {
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(path, JsonSerializer.Serialize(meta, MetaJsonOptions));
+            // 原子写：非原子覆盖写到一半被杀会让 meta 永久损坏（且无锁读路径会读到半截）
+            await FileUtilities.WriteAtomicAsync(path, JsonSerializer.Serialize(meta, MetaJsonOptions)).ConfigureAwait(false);
         }
         catch (IOException)
         {

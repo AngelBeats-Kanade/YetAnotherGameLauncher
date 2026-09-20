@@ -1,4 +1,5 @@
 using YetAnotherGameLauncher.Core.Abstractions;
+using YetAnotherGameLauncher.Core.Utilities;
 
 namespace YetAnotherGameLauncher.Core.Services.Umu;
 
@@ -211,7 +212,8 @@ public static class UmuPrefix
 
         if (Directory.Exists(path))
         {
-            Directory.Delete(path, recursive: true);
+            // 目录树删除走统一防线：占用/只读时尽力删，不让单个文件打断整个前缀清理
+            FileUtilities.TryDeleteDirectory(path);
         }
     }
 }
