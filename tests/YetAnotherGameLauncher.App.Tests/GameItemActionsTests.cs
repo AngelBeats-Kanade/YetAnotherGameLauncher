@@ -226,6 +226,39 @@ public class GameItemActionsTests : IDisposable
     }
 
     [Fact]
+    public void HypergryphNamedClient_PinsSharedHandler_AndDisablesRotation()
+    {
+        // 回归（2026-09-20 复审）：命名客户端的 primary 即全局共享 SocketsHttpHandler，
+        // IHttpClientFactory 默认 2 分钟轮换会让过期链清理 Dispose 共享 handler，
+        // 全应用网络随之死亡。断言 primary 为共享实例、寿命为无限
+        // （代理热改由 NetworkProxyManager.Apply 承担，本就不依赖轮换）。
+        using var sp = YetAnotherGameLauncher.App.BuildServices();
+        var key = YetAnotherGameLauncher.Channels.Hypergryph.HypergryphServiceCollectionExtensions.ChannelKey;
+        var shared = sp.GetRequiredService<NetworkProxyManager>().Handler;
+
+        // 真实建链后经反射取 HttpClient 底层 handler(无公开 API;handler 字段在基类
+        // HttpMessageInvoker 上,按 handler 类型的私有字段找、不硬编码字段名),剥掉包装层,
+        // 最底层必须是共享 SocketsHttpHandler 本体
+        var client = sp.GetRequiredService<IHttpClientFactory>().CreateClient(key);
+        var handlerField = typeof(System.Net.Http.HttpMessageInvoker)
+            .GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            .FirstOrDefault(f => typeof(HttpMessageHandler).IsAssignableFrom(f.FieldType));
+        Assert.NotNull(handlerField);
+        var handler = (HttpMessageHandler?)handlerField.GetValue(client);
+        Assert.NotNull(handler);
+        while (handler is DelegatingHandler wrapping)
+        {
+            handler = wrapping.InnerHandler;
+        }
+
+        Assert.Same(shared, handler);
+
+        var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<
+            Microsoft.Extensions.Http.HttpClientFactoryOptions>>().Get(key);
+        Assert.Equal(System.Threading.Timeout.InfiniteTimeSpan, options.HandlerLifetime);
+    }
+
+    [Fact]
     public async Task ProxySave_UpdatesSharedHandlerState_NotJustPersistence()
     {
         // 回归（2026-09-20）：组合根曾漏传 proxyManager——持久化照写、共享 handler 永不切换，
