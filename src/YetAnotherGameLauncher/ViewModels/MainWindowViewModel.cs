@@ -841,7 +841,15 @@ public partial class MainWindowViewModel : ViewModelBase
             StatusMessage = _loc["message_launchMigrated"];
         }
 
-        await _catalogService.SaveAsync(cancellationToken);
+        try
+        {
+            await _catalogService.SaveAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 迁移写回失败不致命（与 schemaVersion 3 迁移同款）：版本号未落盘，下次启动幂等重试；
+            // 裸抛会让整个初始化中途夭折——空窗口无提示（2026-09-20 三审修复）
+        }
     }
 
     /// <summary>
@@ -863,7 +871,14 @@ public partial class MainWindowViewModel : ViewModelBase
             StatusMessage = _loc["message_launchMigrated"];
         }
 
-        await _catalogService.SaveAsync(cancellationToken);
+        try
+        {
+            await _catalogService.SaveAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 迁移写回失败不致命（与 schemaVersion 3 迁移同款）：版本号未落盘，下次启动幂等重试
+        }
     }
 
     /// <summary>

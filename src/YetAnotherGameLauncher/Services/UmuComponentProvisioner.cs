@@ -73,7 +73,10 @@ public sealed class UmuComponentProvisioner(
     {
         foreach (var flavor in ProtonFlavorTable)
         {
-            if (protonRequest.StartsWith(flavor.Codename[..3], StringComparison.OrdinalIgnoreCase))
+            // 双形态前缀：官方代号（Codename，如 "DW-Proton"）与本地目录名（LocalPrefix，
+            // 如 "dwproton-11.0-12"——已装目录名复制来的请求是自然输入，3 字符截断匹配不了它）
+            if (protonRequest.StartsWith(flavor.Codename[..3], StringComparison.OrdinalIgnoreCase)
+                || protonRequest.StartsWith(flavor.LocalPrefix + "-", StringComparison.OrdinalIgnoreCase))
             {
                 return flavor;
             }
@@ -152,7 +155,11 @@ public sealed class UmuComponentProvisioner(
             var runtime = ToolManifest.Load(path).RequiredRuntime;
             if (runtime.Name == "host" || string.IsNullOrEmpty(runtime.Variant))
             {
-                return null;
+                // 已装 Proton 声明 host（免容器直跑）是已知事实，返回它而不是 null——
+                // null 保留给"Proton 缺失/清单不可读"的未知情形（调用方回退 steamrt4 近似）；
+                // 声明 host 却按 steamrt4 准备会让设置页与启动路径互相矛盾（2026-09-20 复审修复）。
+                // 空 variant 在 IsRuntimeReady/EnsureRuntimeAsync 里即"无需准备"
+                return (runtime.Variant, runtime.Name);
             }
 
             return (runtime.Variant, runtime.Name);
@@ -796,10 +803,20 @@ public sealed class UmuComponentProvisioner(
         catch (Exception ex) when (ex is DownloadException or HttpRequestException)
         {
             // 下载器网络重试耗尽抛 DownloadException（含校验失败的 DownloadVerificationException）；
-            // 版本号拉取等直连请求抛 HttpRequestException——取消（OperationCanceledException）不匹配过滤器照常传播
+            // 版本号拉取等直连请求抛 HttpRequestException——用户取消不在此分类（下方 rethrow）
             throw new LaunchException(
                 LaunchFailureKind.UmuRuntimeDownloadFailed,
                 $"Steam Runtime 下载失败：{ex.Message}",
+                ex);
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            // 直连版本号/SHA256SUMS 的连接或响应头超时（token 未取消的 TCE）——与 Proton 下载同款
+            // 语义：超时必须按可重试失败分类，裸 OCE 上抛会被设置页的取消豁免静默吞、
+            // 启动路径则落 Unknown 类目（2026-09-20 复审修复）
+            throw new LaunchException(
+                LaunchFailureKind.UmuRuntimeDownloadFailed,
+                $"Steam Runtime 下载失败（超时）：{ex.Message}",
                 ex);
         }
 
@@ -807,7 +824,8 @@ public sealed class UmuComponentProvisioner(
         var staging = installRoot + ".staging";
         if (Directory.Exists(staging))
         {
-            Directory.Delete(staging, recursive: true);
+            // 上次中断的暂存树尽力清理（被占用时整删会抛，误报成下载失败）
+            FileUtilities.TryDeleteDirectory(staging);
         }
 
         Directory.CreateDirectory(staging);
@@ -890,8 +908,8 @@ public sealed class UmuComponentProvisioner(
         while (reader.GetNextEntry() is { } entry)
         {
             var key = entry.Name.Replace('\\', '/');
-            // 路径穿越防护
-            if (key.StartsWith('/') || key.Split('/').Contains(".."))
+            // 路径穿越防护（IsPathRooted 连 Windows 盘符形态一并拒绝）
+            if (Path.IsPathRooted(key) || key.Split('/').Contains(".."))
             {
                 continue;
             }

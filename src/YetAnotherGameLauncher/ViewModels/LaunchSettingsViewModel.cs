@@ -533,28 +533,41 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     /// 正是"选择即保存"要消灭的显示与实际启动错位（2026-09-20 复审修复）。
     /// 草稿文本的其余部分不受影响；整卡校验留给显式"保存启动设置"。可预期失败已由 SaveAsync
     /// 写入消息槽；此处兜底捕获防未观察任务异常。</summary>
+    /// <summary>启动设置保存串行门：发行版"选择即保存"（fire-and-forget）与整卡"保存启动设置"
+    /// 都做"_game.Launch 读改写 + 落盘"，交错时后完成的回滚会把先完成的修改吃掉——
+    /// 两条路径全程互斥（持门期间无嵌套获取，无死锁面）（2026-09-20 复审修复）。</summary>
+    private readonly SemaphoreSlim _launchSaveGate = new(1, 1);
+
     private async Task SaveSelectedFlavorAsync()
     {
-        var originalLaunch = _game.Launch;
-        var environment = new Dictionary<string, string>(originalLaunch.Environment, StringComparer.Ordinal);
-        environment["PROTONPATH"] = SelectedProtonFlavor ?? "";
-        _game.Launch = new LaunchOptions
-        {
-            CommandTemplate = originalLaunch.CommandTemplate,
-            WorkingDirectory = originalLaunch.WorkingDirectory,
-            Environment = environment,
-            UmuId = originalLaunch.UmuId,
-        };
-
+        await _launchSaveGate.WaitAsync();
         try
         {
-            await _catalogService.SaveAsync(CancellationToken.None);
-            // 变更恰好只有 PROTONPATH：沿用整卡保存的轻提示管线，按"Proton 发行版"汇报
-            RaiseChangedToast(false, false, false, false, ["PROTONPATH"]);
+            var originalLaunch = _game.Launch;
+            var environment = new Dictionary<string, string>(originalLaunch.Environment, StringComparer.Ordinal);
+            environment["PROTONPATH"] = SelectedProtonFlavor ?? "";
+            _game.Launch = new LaunchOptions
+            {
+                CommandTemplate = originalLaunch.CommandTemplate,
+                WorkingDirectory = originalLaunch.WorkingDirectory,
+                Environment = environment,
+                UmuId = originalLaunch.UmuId,
+            };
+
+            try
+            {
+                await _catalogService.SaveAsync(CancellationToken.None);
+                // 变更恰好只有 PROTONPATH：沿用整卡保存的轻提示管线，按"Proton 发行版"汇报
+                RaiseChangedToast(false, false, false, false, ["PROTONPATH"]);
+            }
+            catch (Exception)
+            {
+                _game.Launch = originalLaunch; // 失败回滚，内存与磁盘保持一致（对照整卡 SaveAsync 的快照纪律）
+            }
         }
-        catch (Exception)
+        finally
         {
-            _game.Launch = originalLaunch; // 失败回滚，内存与磁盘保持一致（对照整卡 SaveAsync 的快照纪律）
+            _launchSaveGate.Release();
         }
     }
 
@@ -717,9 +730,23 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             : normalizedPath;
     }
 
-    /// <summary>校验并保存启动设置回 games.json（含安装目录变更时就地生效）。</summary>
+    /// <summary>校验并保存启动设置回 games.json（含安装目录变更时就地生效）。
+    /// 经 _launchSaveGate 与发行版即时保存互斥（见该字段注释）。</summary>
     [RelayCommand]
     private async Task SaveAsync(CancellationToken cancellationToken)
+    {
+        await _launchSaveGate.WaitAsync();
+        try
+        {
+            await SaveAsyncCore(cancellationToken);
+        }
+        finally
+        {
+            _launchSaveGate.Release();
+        }
+    }
+
+    private async Task SaveAsyncCore(CancellationToken cancellationToken)
     {
         Save.Clear();
 

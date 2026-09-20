@@ -191,6 +191,10 @@ public partial class GameItemViewModel(
     /// （防止其失败兜底 StopVideo 误杀新一代起播）。</summary>
     private int _videoStartGeneration;
 
+    /// <summary>资产加载代际：每次 LoadAssetsCoreAsync 递增；仅更新的资产加载可作废在途结果
+    /// （与刷新代际解耦——刷新不总伴随资产重载，详见 LoadAssetsCoreAsync 头注释）。</summary>
+    private int _assetLoadGeneration;
+
     /// <summary>版本检测结果按服务器的会话缓存（进行中或已成功的任务；每启动每服务器至多一次网络检测）。</summary>
     private readonly Dictionary<GameServer, Task<ChannelVersionInfo>> _versionInfoTasks = [];
 
@@ -431,9 +435,11 @@ public partial class GameItemViewModel(
     /// </summary>
     private async Task LoadAssetsCoreAsync(bool remote, bool reloadIcon, CancellationToken cancellationToken)
     {
-        // 资产代际：刷新链路发射本任务后，新一轮刷新（语言/区域再变）会让本轮结果作废——
-        // 不设防时先发（旧区域）的后完成，旧背景"后到先赢"（2026-09-20 复审修复）
-        var generation = _refreshGeneration;
+        // 资产代际（专用，不复用刷新代际）：只有更新的资产加载才能作废本轮结果——
+        // 复用 _refreshGeneration 时，预加载在途而用户导航触发一次"版本未变、不重载资产"
+        // 的刷新（仅递增刷新代际）会把预加载结果误杀，图标/背景丢失直到版本/区域再变
+        // （2026-09-20 三审回归修复）；先发（旧区域）的后完成由新一轮加载递增本代际拦截
+        var generation = ++_assetLoadGeneration;
         var region = RegionForLanguage(Loc.EffectiveCulture);
         _loadedRegion = region; // 进入即记录：预加载与版本刷新并发触发时不重复解析
         EnsureAssetVersionLoaded();
@@ -444,7 +450,7 @@ public partial class GameItemViewModel(
             var icon = reloadIcon
                 ? await backgroundImageService.ReloadAsync(Game.Icon, cancellationToken)
                 : await backgroundImageService.LoadAsync(Game.Icon, cancellationToken);
-            if (generation != _refreshGeneration)
+            if (generation != _assetLoadGeneration)
             {
                 return;
             }
@@ -457,7 +463,7 @@ public partial class GameItemViewModel(
             // 装饰性资源失败不影响功能
         }
 
-        if (generation != _refreshGeneration)
+        if (generation != _assetLoadGeneration)
         {
             return;
         }
@@ -472,7 +478,7 @@ public partial class GameItemViewModel(
                 ? await backdropService.ResolveAsync(request, _assetVersion, cancellationToken)
                 : await backdropService.ResolveCachedAsync(request);
 
-            if (generation != _refreshGeneration)
+            if (generation != _assetLoadGeneration)
             {
                 return;
             }
