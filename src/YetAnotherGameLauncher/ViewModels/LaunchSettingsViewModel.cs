@@ -190,17 +190,19 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     /// <summary>当前系统是否为 Linux（决定是否显示兼容层选择；平台信息注入，测试可控）。</summary>
     public bool IsLinux => _platform.IsLinux;
 
-    /// <summary>启动方式选项取词（构造期与语言切换共用，语言切换时重建）。</summary>
-    private static IReadOnlyList<LaunchModeOption> BuildLaunchModes() =>
+    /// <summary>启动方式选项取词（用注入的文案服务惰性构建；语言切换时整体重建）。
+    /// 曾走静态 LocBridge 取词：字段初始化器早于构造函数体、_loc 不可用所致——
+    /// 双事实源在测试/并行场景会拿到别处语言（2026-09-20 复审修复）。</summary>
+    private IReadOnlyList<LaunchModeOption> BuildLaunchModes() =>
     [
-        new(LaunchMode.NativeUmu, LocBridge.Instance["launch_mode_native_umu"]),
-        new(LaunchMode.Direct, LocBridge.Instance["launch_mode_direct"]),
+        new(LaunchMode.NativeUmu, _loc["launch_mode_native_umu"]),
+        new(LaunchMode.Direct, _loc["launch_mode_direct"]),
     ];
 
-    private IReadOnlyList<LaunchModeOption> _launchModes = BuildLaunchModes();
+    private IReadOnlyList<LaunchModeOption>? _launchModes;
 
     /// <summary>启动方式选项（umu 在前作为推荐默认；仅 Linux 面板内展示）。语言切换时整体重建。</summary>
-    public IReadOnlyList<LaunchModeOption> LaunchModes => _launchModes;
+    public IReadOnlyList<LaunchModeOption> LaunchModes => _launchModes ??= BuildLaunchModes();
 
     [ObservableProperty]
     private LaunchModeOption? _selectedLaunchMode;
