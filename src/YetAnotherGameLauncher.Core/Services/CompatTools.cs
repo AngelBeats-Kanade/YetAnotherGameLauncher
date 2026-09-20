@@ -210,7 +210,7 @@ public static class CompatTools
     /// <summary>自然排序键：把字符串里的数字段左侧补零成定长（"GE-Proton10-31" → …000010000031），
     /// 使数字比较正确（"10-31" &gt; "10-9"）。Proton 版本比较的单一事实源（组件准备器与更新检测共用）。</summary>
     public static string NumericSortKey(string version) =>
-        string.Concat(Regex.Matches(version, @"\d+").Select(m => m.Value.PadLeft(6, '0')));
+        string.Concat(Regex.Matches(version, @"\d+").Select(m => m.Value.PadLeft(9, '0')));
 
     /// <summary>
     /// 按游戏给出的社区推荐环境变量（ACE 反作弊最佳实践）：

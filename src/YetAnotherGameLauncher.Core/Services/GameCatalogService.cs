@@ -48,6 +48,14 @@ public sealed class GameCatalogService
             throw new InvalidOperationException("No config has been loaded; nothing to save.");
         }
 
+        // 写前校验（读严写严）：Catalog 是公开可变对象，任何保存路径漏守卫即可能写出
+        // 下次启动拒载的配置——在唯一落盘口拦住（2026-09-20 三审修复）
+        var errors = Validate(Catalog);
+        if (errors.Count > 0)
+        {
+            throw new GameCatalogValidationException(errors);
+        }
+
         await FileUtilities.WriteAtomicAsync(_configFilePath, Serialize(Catalog), cancellationToken).ConfigureAwait(false);
     }
 
@@ -117,7 +125,22 @@ public sealed class GameCatalogService
             throw new GameCatalogValidationException([$"Config file contains invalid JSON: {ex.Message}"]);
         }
 
-        var errors = Validate(catalog);
+        // 显式 null 的引用属性会被原样赋 null（未开反序列化 nullability 校验）——放行会让
+        // Validate NRE，"手改坏配置→友好校验提示"的防线被绕过成无提示空壳启动（2026-09-20 三审修复）
+        var errors = new List<string>();
+        if (catalog.Settings is null)
+        {
+            errors.Add("settings must be an object (got null).");
+            catalog.Settings = new AppSettings();
+        }
+
+        if (catalog.Games is null)
+        {
+            errors.Add("games must be an array (got null).");
+            catalog.Games = [];
+        }
+
+        errors.AddRange(Validate(catalog));
         return errors.Count > 0 ? throw new GameCatalogValidationException(errors) : catalog;
     }
 

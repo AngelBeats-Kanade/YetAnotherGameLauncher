@@ -19,7 +19,7 @@ public static class ManifestChecks
     /// <param name="identity">条目标识（相对路径等）。</param>
     public static void EnsureDownloadUrl([NotNull] string? url, string entryKind, string identity)
     {
-        if (url is null)
+        if (string.IsNullOrWhiteSpace(url))
         {
             throw new UpdateException($"{entryKind} has no download URL: {identity}");
         }

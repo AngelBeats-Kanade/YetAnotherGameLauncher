@@ -171,6 +171,13 @@ public sealed class GameUpdateService(
                            server, plan.FromVersion, plan.ToVersion, cancellationToken).ConfigureAwait(false)
                        ?? throw new UpdateException("Incremental manifest unavailable; use the full update instead.");
 
+        // 差分清单必须是文件清单：archive 形态（EntriesAreArchives）交给 IncrementalUpdateService
+        // 会把压缩包原样搬进安装根（当前两渠道不可达——包式渠道无差分入口，纯防御缺口）
+        if (manifest.EntriesAreArchives)
+        {
+            throw new UpdateException("Incremental manifest unexpectedly contains archives; refusing to stage them as game files.");
+        }
+
         var incremental = new IncrementalUpdateService(downloader, patchApplier, logger);
         await incremental.PredownloadAsync(installDir, manifest, progress, cancellationToken).ConfigureAwait(false);
         await incremental.ApplyAsync(installDir, manifest, progress, cancellationToken).ConfigureAwait(false);

@@ -301,7 +301,11 @@ public sealed class GameBackdropService(
         }
     }
 
-    private static string Sanitize(string value) => string.Concat(value.Where(char.IsLetterOrDigit));
+    /// <summary>缓存目录名清洗：保留字母数字与 -_.（游戏 id 校验允许的字符集），
+    /// 其余替换为 '-'——纯 IsLetterOrDigit 过滤会把 "game-a"/"game.a"/"gamea" 映射到同一
+    /// 缓存目录，不同游戏互踩背景缓存（2026-09-20 复审修复）。</summary>
+    private static string Sanitize(string value) =>
+        string.Concat(value.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' or '.' ? c : '-'));
 
     /// <summary>背景缓存元数据：来源直链 + 本地文件名（+ 类型与海报），用于判断"是否有更新"；
     /// 区域与游戏版本驱动版本门控（区域/版本均未变化时跳过远程解析直接用缓存）。</summary>
