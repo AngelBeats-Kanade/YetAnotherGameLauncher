@@ -78,6 +78,7 @@
   "message_configReadFailed": "配置文件读取失败，文件保持原样：{0}",
   "message_launchMigrated": "已把 Linux 启动模板升级为社区推荐配置（内置 umu 启动链）。",
   "message_saveFailed": "保存配置失败：{0}",
+  "message_saveFailedGeneric": "配置未能写入磁盘",
   "message_serversAdded": "已从内置模板补充新内容：{0}",
   "message_unknownChannels": "以下游戏使用了未注册的渠道，已跳过：{0}",
   "predownload_done": "预下载完成（{0} → {1}），可随时应用",

@@ -115,7 +115,6 @@ public partial class MainWindowViewModel : ViewModelBase
         _umuProvisioner = umuProvisioner;
         _platform = platformInfo ?? PlatformInfoFactory.Create();
         Loc = localization;
-        LocBridge.Instance = localization; // 静态桥：LaunchSettingsViewModel 构造期（属性初始化器）经此取文案
         _loc.PropertyChanged += OnLanguageChanged;
         RebuildThemeModes(keepMode: null);
         SelectedTheme = ThemeModes[0];
@@ -348,11 +347,12 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     /// <param name="mode">代理模式。</param>
     /// <param name="address">手动代理地址（非 Manual 忽略）。</param>
-    public async Task ApplyProxySettingsAsync(ProxyMode mode, string address)
+    /// <returns>持久化是否成功——失败时调用方不得弹"已保存"（重启后设置回退，2026-09-20 复审修复）。</returns>
+    public async Task<bool> ApplyProxySettingsAsync(ProxyMode mode, string address)
     {
         if (_catalogService.Catalog is not { } catalog)
         {
-            return;
+            return false;
         }
 
         catalog.Settings.ProxyMode = mode;
@@ -361,7 +361,7 @@ public partial class MainWindowViewModel : ViewModelBase
             ? address
             : null;
         _proxyManager?.Apply(catalog.Settings);
-        await TrySaveCatalogAsync();
+        return await TrySaveCatalogAsync();
     }
 
     /// <summary>侧栏游戏计数文案（随语言切换刷新）。</summary>
@@ -721,15 +721,17 @@ public partial class MainWindowViewModel : ViewModelBase
         return await _filePicker.PickFolderAsync(title, suggestedPath);
     }
 
-    /// <summary>应用下载限速（字节/秒）并持久化；0 = 不限速。</summary>
-    public async Task ApplySpeedLimitAsync(long bytesPerSecond, CancellationToken cancellationToken = default)
+    /// <summary>应用下载限速（字节/秒）并持久化；0 = 不限速。返回持久化是否成功。</summary>
+    public async Task<bool> ApplySpeedLimitAsync(long bytesPerSecond, CancellationToken cancellationToken = default)
     {
         _downloader.Limiter.BytesPerSecond = bytesPerSecond;
         if (_catalogService.Catalog is { } catalog)
         {
             catalog.Settings.DownloadSpeedLimitBytes = bytesPerSecond;
-            await TrySaveCatalogAsync(cancellationToken);
+            return await TrySaveCatalogAsync(cancellationToken);
         }
+
+        return false;
     }
 
     /// <summary>异步查询自启状态（Windows 需起 reg 子进程，禁止在 UI 线程同步等待）。</summary>
@@ -1149,8 +1151,16 @@ public partial class SettingsViewModel : ViewModelBase
             return;
         }
 
-        await _owner.ApplyProxySettingsAsync(mode, address);
-        ProxySave.SetSuccess(Loc["settings_proxySaved"]);
+        var saved = await _owner.ApplyProxySettingsAsync(mode, address);
+        if (saved)
+        {
+            ProxySave.SetSuccess(Loc["settings_proxySaved"]);
+        }
+        else
+        {
+            // 持久化失败不得弹"已保存"：内存已生效但重启回退，双通道须一致（2026-09-20 复审修复）
+            ProxySave.SetFailure(Loc.Format("message_saveFailed", Loc["message_saveFailedGeneric"]));
+        }
     }
 
     /// <summary>校验限速草稿（MB/s ≥ 0）并应用，结果写入独立消息位。</summary>
@@ -1164,8 +1174,15 @@ public partial class SettingsViewModel : ViewModelBase
             return;
         }
 
-        await _owner.ApplySpeedLimitAsync((long)Math.Round(mb * 1024 * 1024), cancellationToken);
-        SpeedLimitSave.SetSuccess(Loc["settings_downloadLimitSaved"]);
+        var saved = await _owner.ApplySpeedLimitAsync((long)Math.Round(mb * 1024 * 1024), cancellationToken);
+        if (saved)
+        {
+            SpeedLimitSave.SetSuccess(Loc["settings_downloadLimitSaved"]);
+        }
+        else
+        {
+            SpeedLimitSave.SetFailure(Loc.Format("message_saveFailed", Loc["message_saveFailedGeneric"]));
+        }
     }
 
     /// <summary>开机自启动开关（写入系统注册表 / XDG autostart），打开设置页时异步初始化。</summary>

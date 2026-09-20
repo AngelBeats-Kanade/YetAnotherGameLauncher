@@ -78,6 +78,7 @@
   "message_configReadFailed": "Failed to read the config file (left untouched): {0}",
   "message_launchMigrated": "Linux launch templates upgraded to the community-recommended setup (built-in native umu).",
   "message_saveFailed": "Failed to save config: {0}",
+  "message_saveFailedGeneric": "Configuration could not be written to disk",
   "message_serversAdded": "Imported from built-in template: {0}",
   "message_unknownChannels": "Skipped games with unknown channels: {0}",
   "predownload_done": "Preload complete ({0} → {1}), ready to apply",

@@ -431,6 +431,9 @@ public partial class GameItemViewModel(
     /// </summary>
     private async Task LoadAssetsCoreAsync(bool remote, bool reloadIcon, CancellationToken cancellationToken)
     {
+        // 资产代际：刷新链路发射本任务后，新一轮刷新（语言/区域再变）会让本轮结果作废——
+        // 不设防时先发（旧区域）的后完成，旧背景"后到先赢"（2026-09-20 复审修复）
+        var generation = _refreshGeneration;
         var region = RegionForLanguage(Loc.EffectiveCulture);
         _loadedRegion = region; // 进入即记录：预加载与版本刷新并发触发时不重复解析
         EnsureAssetVersionLoaded();
@@ -441,12 +444,22 @@ public partial class GameItemViewModel(
             var icon = reloadIcon
                 ? await backgroundImageService.ReloadAsync(Game.Icon, cancellationToken)
                 : await backgroundImageService.LoadAsync(Game.Icon, cancellationToken);
+            if (generation != _refreshGeneration)
+            {
+                return;
+            }
+
             GameIcon = icon;
             HasGameIcon = icon is not null;
         }
         catch (Exception)
         {
             // 装饰性资源失败不影响功能
+        }
+
+        if (generation != _refreshGeneration)
+        {
+            return;
         }
 
         try
@@ -459,6 +472,10 @@ public partial class GameItemViewModel(
                 ? await backdropService.ResolveAsync(request, _assetVersion, cancellationToken)
                 : await backdropService.ResolveCachedAsync(request);
 
+            if (generation != _refreshGeneration)
+            {
+                return;
+            }
             if (backdrop?.Kind == BackdropKind.Video && backdrop.Source is { } videoPath)
             {
                 var poster = await backgroundImageService.LoadAsync(backdrop.PosterSource, cancellationToken);

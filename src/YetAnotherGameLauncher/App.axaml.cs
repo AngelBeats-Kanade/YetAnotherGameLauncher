@@ -28,6 +28,9 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             // Avalonia 模板默认的重复 DataContext 校验在此不必要：全部 ViewModel 均为 ObservableObject
+            // 有意不持有/Dispose ServiceProvider：退出期平台拆除会弄坏 GPU 解码栈等原生资源，
+            // IDisposable 单例的释放由下方 ShutdownRequested 的 videoPlayer.Stop() 显式承担；
+            // 若未来出现有真实释放逻辑的 IDisposable 单例，需先补 provider 的关闭路径再依赖其 Dispose
             var services = BuildServices();
             var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("YetAnotherGameLauncher");
             InstallGlobalExceptionLogging(logger);
@@ -180,7 +183,8 @@ public partial class App : Application
                 sp.GetRequiredService<KuroGachaService>(),
                 proxyManager: sp.GetRequiredService<NetworkProxyManager>(),
                 nativeUmu: sp.GetRequiredService<NativeUmuLauncher>(),
-                umuProvisioner: sp.GetRequiredService<IUmuComponentProvisioner>());
+                umuProvisioner: sp.GetRequiredService<IUmuComponentProvisioner>(),
+                platformInfo: sp.GetRequiredService<IPlatformInfo>());
         });
 
         return services.BuildServiceProvider();
