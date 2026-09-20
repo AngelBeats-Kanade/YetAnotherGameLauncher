@@ -203,9 +203,11 @@ jobs:
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          ESCAPED="${VERSION//./\\.}"
-          awk -v pat="^## \\[${ESCAPED}\\]" '
-            $0 ~ pat { flag = 1; next }
+          # 注意不能用正则匹配版本号：awk 的 -v 赋值会做转义处理，\\[ 到达匹配器时
+          # 已退化成字符类 [...]，标题永远匹配不上（gawk 实测，提取结果恒为空走占位兜底）。
+          # index() 是纯字符串匹配，无转义问题。
+          awk -v ver="${VERSION}" '
+            index($0, "## [" ver "]") == 1 { flag = 1; next }
             flag && (/^## / || /^\[/) { exit }
             flag { print }
           ' CHANGELOG.md > release_notes.md
