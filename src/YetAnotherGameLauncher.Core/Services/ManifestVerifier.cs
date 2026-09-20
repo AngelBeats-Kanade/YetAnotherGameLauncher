@@ -46,7 +46,10 @@ public static class ManifestVerifier
         string installDir, GameManifest manifest, Action<int, int>? onFileChecked = null) =>
         Verify(installDir, manifest, withMd5: true, onFileChecked);
 
-    /// <summary>检查单个文件：存在性 → 大小 →（可选）MD5，返回首个不匹配项或 Ok。</summary>
+    /// <summary>检查单个文件：存在性 → 大小 →（可选）MD5，返回首个不匹配项或 Ok。
+    /// 清单 size ≤ 0 或 MD5 为空表示渠道未提供该字段的校验信息：跳过对应项而非按目标值比较——
+    /// 否则字段缺失的健康文件恒判损坏，下载器重下真内容后仍过不了全量校验、更新必然失败
+    /// （与 <see cref="HttpFileDownloader.Verify"/> 同一语义，2026-09-20 复审补齐）。</summary>
     public static FileStatus CheckFile(string fullPath, ManifestFile file, bool withMd5)
     {
         if (!File.Exists(fullPath))
@@ -54,13 +57,12 @@ public static class ManifestVerifier
             return FileStatus.Missing;
         }
 
-        var length = new FileInfo(fullPath).Length;
-        if (length != file.Size)
+        if (file.Size > 0 && new FileInfo(fullPath).Length != file.Size)
         {
             return FileStatus.SizeMismatch;
         }
 
-        if (withMd5 && !string.Equals(
+        if (withMd5 && !string.IsNullOrEmpty(file.Md5) && !string.Equals(
                 Utilities.Hashing.Md5Hex(fullPath), file.Md5, StringComparison.OrdinalIgnoreCase))
         {
             return FileStatus.Md5Mismatch;

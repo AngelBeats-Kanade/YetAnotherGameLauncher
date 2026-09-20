@@ -254,6 +254,69 @@ public class KuroChannelApiTests
     }
 
     [Fact]
+    public async Task GetIncrementalManifest_FallsBackToOtherBlock_WhenSelectedBlockLacksEntry()
+    {
+        // 回归（2026-09-20 复审）：官方切版本窗口期差分条目与目标版本可能不同块——
+        // default 已切到 3.7.0、predownload 块残留同版本但其 patchConfig 已被 CDN 清理。
+        // 3.6.0 → 3.7.0 的常规增量选中 predownload 块后查不到条目，必须回退 default 块
+        // 找到差分入口，而不是返回 null 把可用增量推向全量重下。
+        const string patchIndexFile = """
+            {
+              "resource": [
+                { "dest": "Client/Content/Paks/updated.pak", "md5": "56785678567856785678567856785678", "size": 40 }
+              ]
+            }
+            """;
+        var indexJson = $$"""
+            {
+              "default": {
+                "version": "3.7.0",
+                "cdnList": [ { "P": 1, "K1": 1, "K2": 1, "url": "{{Cdn}}" } ],
+                "resourcesBasePath": "launcher/game/G152/10003/3.7.0/token/zip/",
+                "config": {
+                  "version": "3.7.0",
+                  "patchConfig": [ { "version": "3.6.0", "indexFile": "patch/360/indexFile.json", "indexFileMd5": "{{Md5(patchIndexFile)}}", "baseUrl": "patch360/" } ]
+                }
+              },
+              "predownload": {
+                "version": "3.7.0",
+                "cdnList": [ { "P": 10, "K1": 1, "K2": 1, "url": "https://cdn-pre.example.com/" } ],
+                "resourcesBasePath": "pre/370/",
+                "config": { "version": "3.7.0" }
+              },
+              "predownloadSwitch": 1
+            }
+            """;
+        _downloader.Serve(Server().Options["indexUrl"], indexJson);
+        _downloader.Serve(Cdn + "patch/360/indexFile.json", patchIndexFile);
+
+        var manifest = await CreateApi().GetIncrementalManifestAsync(Server(), "3.6.0", "3.7.0");
+
+        Assert.NotNull(manifest);
+        Assert.Equal("3.7.0", manifest.Version);
+        // 条目解析自回退命中的 default 块（CDN 与 baseUrl 都是 default 块的）
+        Assert.Equal(Cdn + "patch360/Client/Content/Paks/updated.pak", manifest.Files[0].Url);
+    }
+
+    [Fact]
+    public async Task GetVersionInfo_MissingVersion_IsRejected()
+    {
+        // 回归（2026-09-20 复审）：版本缺失（config 与块级都无 version）拒收而非登记空串——
+        // 空版本落盘后 IsNewer 恒判"无更新"，游戏永久失去更新检测且无自愈路径
+        const string indexJson = $$"""
+            {
+              "default": {
+                "cdnList": [ { "P": 1, "K1": 1, "K2": 1, "url": "{{Cdn}}" } ],
+                "resourcesBasePath": "launcher/game/G152/10003/3.6.0/token/zip/"
+              }
+            }
+            """;
+        _downloader.Serve(Server().Options["indexUrl"], indexJson);
+
+        await Assert.ThrowsAsync<UpdateException>(() => CreateApi().GetVersionInfoAsync(Server()));
+    }
+
+    [Fact]
     public async Task GetIncrementalManifest_UnknownSourceVersion_ReturnsNull()
     {
         RegisterFullFixture();

@@ -55,10 +55,15 @@ public sealed class HttpFileDownloader(
                 lastError = ex;
                 logger?.LogWarning(ex, "Download verification failed (attempt {Attempt}/{Max}) ({Url})", attempt, _options.MaxAttempts, request.Url);
             }
-            catch (Exception ex) when (ex is HttpRequestException or IOException
-                                       && ex is not OperationCanceledException)
+            catch (Exception ex) when ((ex is HttpRequestException or IOException
+                                        && ex is not OperationCanceledException)
+                                       || (ex is OperationCanceledException
+                                           && !cancellationToken.IsCancellationRequested))
             {
-                // 网络瞬态错误：保留 .temp 以便断点续传
+                // 网络瞬态错误：保留 .temp 以便断点续传。token 未取消时抛出的 OCE 是
+                // 连接/响应头超时（HttpClient.Timeout/ConnectTimeout 的 TaskCanceledException），
+                // 必须按瞬态网络错误重试而非上抛裸 OCE——消费端把一切 OCE 当"用户取消"
+                // 静默吞，超时就会无声中断（SystemProcessRunner 同款教训，2026-09-20 复审修复）
                 lastError = new DownloadException($"Download failed ({request.Url}): {ex.Message}", ex);
                 logger?.LogWarning(ex, "Network error on download (attempt {Attempt}/{Max}) ({Url})", attempt, _options.MaxAttempts, request.Url);
             }

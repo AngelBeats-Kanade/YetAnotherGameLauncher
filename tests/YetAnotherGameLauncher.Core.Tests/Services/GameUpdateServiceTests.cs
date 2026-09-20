@@ -390,3 +390,38 @@ public class GameUpdateServiceTests : IDisposable
         Assert.Equal("2.0.0", new LocalStateService(_tempDir.Path).Load(_game.Id, _server.Id)?.Version);
     }
 }
+
+public class GameUpdateServiceEmptyVersionTests : IDisposable
+{
+    private readonly TempDir _tempDir = new();
+    private readonly FakeDownloader _downloader = new();
+    private readonly FakePatchApplier _applier = new();
+    private readonly FakeChannel _channel = new();
+    private readonly GameServer _server = new() { Id = "cn", Name = "国服" };
+
+    public void Dispose() => _tempDir.Dispose();
+
+    [Fact]
+    public async Task UpdateAsync_RejectsEmptyLatestVersion_WithoutTouchingLocalState()
+    {
+        // 回归（2026-09-20 复审）：渠道响应版本缺失（LatestVersion=""）不得走"全量更新到空"
+        // 并把空串落盘——本地版本一旦为空，IsNewer 恒判无更新，游戏永久失去更新检测
+        _channel.VersionInfo = new ChannelVersionInfo { LatestVersion = "" };
+        var service = new GameUpdateService(_downloader, _applier);
+        var game = new GameDefinition
+        {
+            Id = "test-game",
+            DisplayName = "测试游戏",
+            Channel = "kuro",
+            InstallDir = "TestGame",
+            Executable = "game.exe",
+            Servers = [_server],
+        };
+
+        await Assert.ThrowsAsync<UpdateException>(
+            () => service.UpdateAsync(_tempDir.Path, game, _server, _channel));
+
+        Assert.Null(new LocalStateService(_tempDir.Path).Load(game.Id, _server.Id));
+        Assert.Empty(_downloader.Requests);
+    }
+}

@@ -138,6 +138,14 @@ public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger =
             throw new UpdateException("GRYPHLINE response is missing pkg (package info).");
         }
 
+        // 版本缺失即拒收：空版本一旦被登记/落盘为本地版本，IsNewer 恒判"无更新"，
+        // 该游戏此后永久失去更新检测且无自愈路径（协议逆向、字段随官方改动，
+        // 缺失时宁可报错也不能静默毒化状态）（2026-09-20 复审修复）
+        if (string.IsNullOrEmpty(gameResponse.Version))
+        {
+            throw new UpdateException("GRYPHLINE response is missing version.");
+        }
+
         return gameResponse;
     }
 

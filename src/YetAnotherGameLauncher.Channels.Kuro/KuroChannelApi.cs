@@ -24,7 +24,7 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         var predownloadConfig = index.Predownload?.Config;
         return new ChannelVersionInfo
         {
-            LatestVersion = block.Config?.Version ?? block.Version ?? "",
+            LatestVersion = RequireVersion(block),
             PatchSourceVersions = GetPatchSourceVersions(block.Config),
             // 预下载可用性按官方契约 = predownloadSwitch 开启且 predownload 块带 config；
             // 官方关闭开关但残留 predownload 块时不得误报可预下载（随后增量清单查找必失败）
@@ -62,33 +62,46 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
 
         // 差分入口与目标版本同块：预下载（live → predownload）的差分入口在 predownload 块的
         // patchConfig 里，常规更新（旧 live → live）在 default 块；目标版本不属于任一块时
-        // 回退 default 块，由下方查不到条目返回 null。
-        var block = index.Predownload?.Config is { } preConfig && preConfig.Version == toVersion
+        // 回退 default 块。选中块查不到条目时再回退另一块查一次：官方切版本窗口期差分条目
+        // 与目标版本可能不在同一块（如 default 已切到 V2 而 predownload 块残留且其 patchConfig
+        // 被 CDN 清理），硬性返回 null 会把可用的增量更新推向全量重下（2026-09-20 复审修复）。
+        var primary = index.Predownload?.Config is { } preConfig && preConfig.Version == toVersion
             ? index.Predownload!
             : RequireDefault(index);
-        var cdn = RequireCdn(block);
-        var config = RequireConfig(block);
+        var secondary = ReferenceEquals(primary, index.Predownload) ? index.Default : index.Predownload;
 
-        var patchEntry = config.PatchConfig?.FirstOrDefault(p => p.Version == fromVersion);
-        if (patchEntry?.IndexFile is null)
+        foreach (var block in new[] { primary, secondary })
         {
-            return null;
+            if (block?.Config is not { } config)
+            {
+                continue;
+            }
+
+            var patchEntry = config.PatchConfig?.FirstOrDefault(p => p.Version == fromVersion);
+            if (patchEntry?.IndexFile is null)
+            {
+                continue;
+            }
+
+            var cdn = RequireCdn(block);
+
+            var patchIndexJson = await FetchTextAsync(
+                KuroUrlBuilder.BuildFileUrl(cdn, null, patchEntry.IndexFile),
+                patchEntry.IndexFileMd5,
+                cancellationToken).ConfigureAwait(false);
+            var patchIndexFile = ParseJson<KuroIndexFile>(patchIndexJson, "incremental indexFile.json");
+
+            return new GameManifest
+            {
+                Version = toVersion,
+                Files = ToManifestFiles(
+                    patchIndexFile.Resource, cdn,
+                    folder: patchEntry.BaseUrl ?? config.BaseUrl ?? block.ResourcesBasePath),
+                Groups = ToGroups(patchIndexFile.GroupInfos, cdn, patchEntry.BaseUrl, config.BaseUrl, block.ResourcesBasePath),
+            };
         }
 
-        var patchIndexJson = await FetchTextAsync(
-            KuroUrlBuilder.BuildFileUrl(cdn, null, patchEntry.IndexFile),
-            patchEntry.IndexFileMd5,
-            cancellationToken).ConfigureAwait(false);
-        var patchIndexFile = ParseJson<KuroIndexFile>(patchIndexJson, "incremental indexFile.json");
-
-        return new GameManifest
-        {
-            Version = toVersion,
-            Files = ToManifestFiles(
-                patchIndexFile.Resource, cdn,
-                folder: patchEntry.BaseUrl ?? config.BaseUrl ?? block.ResourcesBasePath),
-            Groups = ToGroups(patchIndexFile.GroupInfos, cdn, patchEntry.BaseUrl, config.BaseUrl, block.ResourcesBasePath),
-        };
+        return null;
     }
 
     private async Task<KuroLauncherIndex> FetchIndexAsync(GameServer server, CancellationToken cancellationToken)
@@ -156,6 +169,16 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
 
     private static KuroResourceBlock RequireDefault(KuroLauncherIndex index) =>
         index.Default ?? throw new UpdateException("Kuro index.json has no default resource block.");
+
+    /// <summary>取服务器当前版本；缺失即拒收——空版本一旦登记落盘，IsNewer 恒判"无更新"，
+    /// 该游戏此后永久失去更新检测且无自愈路径（2026-09-20 复审修复）。</summary>
+    private static string RequireVersion(KuroResourceBlock block)
+    {
+        var version = block.Config?.Version ?? block.Version;
+        return string.IsNullOrEmpty(version)
+            ? throw new UpdateException("Kuro index.json has no version.")
+            : version;
+    }
 
     private static string RequireCdn(KuroResourceBlock block) =>
         KuroCdnSelector.SelectCdn(block.CdnList)

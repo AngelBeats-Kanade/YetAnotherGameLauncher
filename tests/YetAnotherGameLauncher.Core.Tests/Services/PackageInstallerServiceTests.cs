@@ -205,3 +205,37 @@ public class PackageInstallerServiceTests : IDisposable
         Assert.False(File.GetAttributes(target).HasFlag(FileAttributes.ReadOnly));
     }
 }
+
+public class PackageInstallerMissingInfoTests : IDisposable
+{
+    private readonly TempDir _tempDir = new();
+    private readonly FakeDownloader _downloader = new();
+
+    public void Dispose() => _tempDir.Dispose();
+
+    private const string ZipUrl = "https://cdn.example.com/game-0.zip";
+
+    [Fact]
+    public async Task ApplyPredownload_WithMissingVerificationFields_UsesStagedArchiveWithoutRedownload()
+    {
+        // 回归（2026-09-20 复审）：包清单缺 size/md5（上游字段缺口 → 0/空串）时，暂存包
+        // 不得被判损触发重下——否则每次应用都是数十 GB 全量重下（与下载器 Verify 同语义）
+        var zip = TestZip.Create(("game.exe", "MZ-stub"));
+        _downloader.Responses[ZipUrl] = zip;
+        var manifest = new GameManifest
+        {
+            Version = "1.2.0",
+            EntriesAreArchives = true,
+            Files = [new ManifestFile("game-0.zip", 0, "", Url: ZipUrl)],
+        };
+        var service = new PackageInstallerService(_downloader);
+
+        await service.PredownloadAsync(_tempDir.Path, manifest);
+        var requestsAfterPredownload = _downloader.Requests.Count;
+
+        await service.ApplyPredownloadAsync(_tempDir.Path, manifest);
+
+        Assert.Equal(requestsAfterPredownload, _downloader.Requests.Count);
+        Assert.Equal("MZ-stub", await File.ReadAllTextAsync(_tempDir.FilePath("game.exe")));
+    }
+}

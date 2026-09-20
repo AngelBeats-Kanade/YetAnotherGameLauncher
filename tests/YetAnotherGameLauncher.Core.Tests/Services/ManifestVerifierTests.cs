@@ -211,3 +211,44 @@ public class ManifestVerifierTests : IDisposable
         Assert.Equal(["missing.txt", "short.txt"], [.. result.NeedsDownload.Select(f => f.Path).OrderBy(p => p)]);
     }
 }
+
+public class ManifestVerifierMissingInfoTests
+{
+    [Fact]
+    public void Verify_SkipsMissingVerificationFields_InsteadOfTreatingHealthyFileAsCorrupt()
+    {
+        // 回归（2026-09-20 复审）：渠道清单条目缺 size/md5（字段缺失 → 0/空串）时，
+        // 磁盘上的健康文件不得按 0/空串判损——否则 VerifyFast/VerifyFull 恒失败，
+        // 补下载一轮真内容再校验再失败，更新必然失败（与 HttpFileDownloader.Verify 同语义）
+        using var tempDir = new TempDir();
+        var path = tempDir.FilePath("a.txt");
+        File.WriteAllText(path, "anything non-empty");
+        var manifest = new GameManifest
+        {
+            Version = "1.0.0",
+            Files = [new ManifestFile("a.txt", 0, "")],
+        };
+
+        var fast = ManifestVerifier.VerifyFast(tempDir.Path, manifest);
+        var full = ManifestVerifier.VerifyFull(tempDir.Path, manifest);
+
+        Assert.Equal(FileStatus.Ok, fast.Results[0].Status);
+        Assert.True(full.IsComplete);
+    }
+
+    [Fact]
+    public void CheckFile_StillReportsMissing_WhenVerificationFieldsAbsent()
+    {
+        // 字段缺失只豁免"值比较"，存在性检查不受影响
+        var manifest = new GameManifest
+        {
+            Version = "1.0.0",
+            Files = [new ManifestFile("gone.bin", 0, "")],
+        };
+
+        using var goneDir = new TempDir();
+        var result = ManifestVerifier.VerifyFast(goneDir.Path, manifest);
+
+        Assert.Equal(FileStatus.Missing, result.Results[0].Status);
+    }
+}

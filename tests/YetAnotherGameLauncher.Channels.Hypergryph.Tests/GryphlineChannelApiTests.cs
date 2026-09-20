@@ -231,3 +231,37 @@ public class GryphlineChannelApiTests
         }
     }
 }
+
+public class GryphlineChannelApiVersionGuardTests
+{
+    private const string BatchProxyUrl = "https://launcher.gryphline.com/api/proxy/batch_proxy";
+
+    private readonly StubHttpHandler _handler = new();
+
+    private static GameServer Server() => new()
+    {
+        Id = "global",
+        Name = "国际服",
+        Options = new Dictionary<string, string> { ["apiBase"] = "https://launcher.gryphline.com/api" },
+    };
+
+    [Theory]
+    [InlineData("""{ "version": "", "action": 1, "pkg": { "packs": [], "total_size": "0" } }""")]
+    [InlineData("""{ "action": 1, "pkg": { "packs": [], "total_size": "0" } }""")]
+    public async Task GetVersionInfo_MissingVersion_IsRejectedInsteadOfRegistered(string rspJson)
+    {
+        // 回归（2026-09-20 复审）：协议逆向、字段随官方改动——版本缺失/为空必须拒收，
+        // 空版本落盘后 IsNewer 恒判"无更新"，游戏永久失去更新检测且无自愈路径
+        _handler.Map(BatchProxyUrl, $$"""
+            {
+              "proxy_rsps": [
+                { "kind": "get_latest_game", "get_latest_game_rsp": {{rspJson}} }
+              ]
+            }
+            """);
+        var api = new GryphlineChannelApi(new HttpClient(_handler));
+
+        await Assert.ThrowsAsync<YetAnotherGameLauncher.Core.Abstractions.UpdateException>(
+            () => api.GetVersionInfoAsync(Server()));
+    }
+}

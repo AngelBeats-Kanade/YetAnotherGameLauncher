@@ -304,3 +304,34 @@ public class HttpFileDownloaderTests : IDisposable
             () => CreateDownloader().DownloadFileAsync(Request(), cancellationToken: cts.Token));
     }
 }
+
+public class HttpFileDownloaderTimeoutTests : IDisposable
+{
+    private readonly TempDir _tempDir = new();
+    private readonly StubHttpHandler _handler = new();
+
+    public void Dispose() => _tempDir.Dispose();
+
+    [Fact]
+    public async Task Download_RetriesTimeoutException_WhenCallerTokenNotCancelled()
+    {
+        // 回归（2026-09-20 复审）：连接/响应头超时抛 TaskCanceledException（外部 token 未取消），
+        // 必须按瞬态网络错误重试而非上抛裸 OCE——消费端把一切 OCE 当"用户取消"静默吞，
+        // 弱网下更新会无声中断且无失败提示（SystemProcessRunner 同款教训）
+        _handler.TimeoutFirstN = 1;
+        _handler.Map("https://cdn.example.com/file.bin", "timeout-retry-payload"u8.ToArray());
+        using var client = new HttpClient(_handler);
+        var downloader = new HttpFileDownloader(client, new HttpFileDownloaderOptions
+        {
+            MaxAttempts = 3,
+            RetryBaseDelay = TimeSpan.FromMilliseconds(1),
+        });
+
+        await downloader.DownloadFileAsync(new DownloadRequest(
+            "https://cdn.example.com/file.bin", _tempDir.FilePath("file.bin"), null, null));
+
+        Assert.Equal(
+            "timeout-retry-payload",
+            await File.ReadAllTextAsync(_tempDir.FilePath("file.bin")));
+    }
+}

@@ -101,11 +101,14 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
     private static string StagedArchivePath(string packagesDir, ManifestFile file) =>
         Path.Combine(packagesDir, Path.GetFileName(file.Path.Replace('\\', '/')));
 
-    /// <summary>暂存包完整性：文件存在、大小与 MD5 均与清单一致。</summary>
+    /// <summary>暂存包完整性：文件存在、大小与 MD5 均与清单一致。size ≤ 0 或 MD5 为空表示
+    /// 渠道未提供该字段的校验信息，只按存在性视为完好（与 <see cref="HttpFileDownloader.Verify"/>
+    /// 同一语义）——否则字段缺失的暂存包恒判损坏，每次应用都整包重下（2026-09-20 复审补齐）。</summary>
     private static bool IsArchiveIntact(string archivePath, ManifestFile file) =>
         File.Exists(archivePath)
-        && new FileInfo(archivePath).Length == file.Size
-        && Hashing.Md5Hex(archivePath).Equals(file.Md5, StringComparison.OrdinalIgnoreCase);
+        && (file.Size <= 0 || new FileInfo(archivePath).Length == file.Size)
+        && (string.IsNullOrEmpty(file.Md5)
+            || Hashing.Md5Hex(archivePath).Equals(file.Md5, StringComparison.OrdinalIgnoreCase));
 
     private async Task<List<(ManifestFile File, string ArchivePath)>> DownloadPackagesAsync(
         string packagesDir,

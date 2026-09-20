@@ -14,6 +14,9 @@ public sealed class StubHttpHandler : HttpMessageHandler
 
     public int FailFirstN { get; set; }
 
+    /// <summary>前 N 次请求抛 TaskCanceledException（模拟连接/响应头超时，外部 token 未取消）。</summary>
+    public int TimeoutFirstN { get; set; }
+
     public bool IgnoreRangeAndReturnFull { get; set; }
 
     public void Map(string url, byte[] content) => _responses[url] = content;
@@ -28,6 +31,12 @@ public sealed class StubHttpHandler : HttpMessageHandler
         {
             FailFirstN--;
             throw new HttpRequestException("模拟瞬态网络故障");
+        }
+
+        if (TimeoutFirstN > 0)
+        {
+            TimeoutFirstN--;
+            throw new TaskCanceledException("模拟请求超时（HttpClient.Timeout）");
         }
 
         var url = request.RequestUri!.ToString();

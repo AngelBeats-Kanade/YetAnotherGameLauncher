@@ -36,6 +36,15 @@ public sealed class GameUpdateService(
         var state = new LocalStateService(installDir);
         var localVersion = GetLocalVersion(state, game, server);
         var info = await channel.GetVersionInfoAsync(server, cancellationToken).ConfigureAwait(false);
+
+        // 空版本拒收：渠道层已把版本缺失当错误，这里防漏检的实现（含测试替身）穿透——
+        // 空目标版本会走全量"更新到空"并把空串落盘，此后 IsNewer 恒判无更新，
+        // 游戏永久失去更新检测且无自愈路径（2026-09-20 复审修复）
+        if (string.IsNullOrEmpty(info.LatestVersion))
+        {
+            throw new UpdateException($"Refusing to update {game.DisplayName}: channel reports no version.");
+        }
+
         var plan = UpdatePlanner.Plan(localVersion, info.LatestVersion, info.PatchSourceVersions);
 
         var repaired = plan.Strategy == UpdateStrategy.Incremental
