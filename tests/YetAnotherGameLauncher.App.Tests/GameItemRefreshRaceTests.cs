@@ -82,7 +82,8 @@ public class GameItemRefreshRaceTests : IDisposable
 
         // 放行旧 cn 刷新：其结果晚于切服到达，必须被代际门丢弃
         _cnGate.SetResult();
-        await Task.Delay(100);
+        // 负向断言只能靠等待：窗口太紧会让慢 CI 上的旧写入逃过断言（对被 revert 的代码假绿）
+        await Task.Delay(1000);
 
         Assert.True(wuwa.IsInstalled);
         Assert.Equal("已是最新版本", wuwa.StatusText);

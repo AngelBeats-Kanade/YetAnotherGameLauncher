@@ -1,6 +1,7 @@
 using Avalonia.Media;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Services;
+using YetAnotherGameLauncher.Channels.Kuro;
 using YetAnotherGameLauncher.Services;
 using YetAnotherGameLauncher.TestSupport;
 using YetAnotherGameLauncher.Themes;
@@ -52,6 +53,9 @@ public static class VmFactory
 
         /// <summary>VM 实际持有的代理管理器（断言共享 handler 随保存切换用——组合根装配缺口回归）。</summary>
         public required NetworkProxyManager ProxyManager { get; init; }
+
+        /// <summary>VM 实际持有的唤取服务（缓存目录在 TempDir/gacha-cache）。</summary>
+        public required KuroGachaService GachaService { get; init; }
 
         public void Dispose() => TempDir.Dispose();
     }
@@ -140,7 +144,8 @@ public static class VmFactory
         string? linuxDataHome = null,
         YetAnotherGameLauncher.Core.Services.Umu.NativeUmuLauncher? nativeUmu = null,
         YetAnotherGameLauncher.Core.Abstractions.IUmuComponentProvisioner? umuProvisioner = null,
-        NetworkProxyManager? proxyManager = null)
+        NetworkProxyManager? proxyManager = null,
+        KuroGachaService? gachaService = null)
     {
         var tempDir = new TempDir();
         var configPath = tempDir.FilePath("games.json");
@@ -183,6 +188,10 @@ public static class VmFactory
             new FakeProcessRunner(),
             logDirectory: tempDir.FilePath("logs"),
             pathValue: "");
+        // 生产组合根第 14 参为 KuroGachaService；测试镜像曾缺省（null），ShowGacha 门与
+        // 语言切换重建唤取页分支因此全测试不可达（2026-09-20 复审修复）
+        var gacha = gachaService ?? new KuroGachaService(
+            new HttpClient(backgroundHandler), cacheDirectory: tempDir.FilePath("gacha-cache"));
         var vm = new MainWindowViewModel(
             catalogService,
             new GameUpdateService(downloader, new FakePatchApplier()),
@@ -203,6 +212,7 @@ public static class VmFactory
             templateFactory,
             filePicker,
             videoPlayer,
+            gacha,
             proxyManager: resolvedProxyManager,
             platformInfo: platformInfo ?? new FakePlatformInfo(isLinux: false),
             linuxProtonVersions: linuxProtonVersions,
@@ -224,6 +234,7 @@ public static class VmFactory
             GryphlineBackdrop = gryphlineBackdrop,
             BackgroundHandler = backgroundHandler,
             ProxyManager = resolvedProxyManager,
+            GachaService = gacha,
         };
     }
 }
