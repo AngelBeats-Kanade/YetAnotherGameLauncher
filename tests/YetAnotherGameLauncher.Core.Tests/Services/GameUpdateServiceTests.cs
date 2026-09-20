@@ -425,3 +425,56 @@ public class GameUpdateServiceEmptyVersionTests : IDisposable
         Assert.Empty(_downloader.Requests);
     }
 }
+
+public class GameUpdateServiceArchiveIncrementGuardTests
+{
+    [Fact]
+    public async Task UpdateAsync_IncrementalManifestContainingArchives_IsRejected()
+    {
+        // 回归（2026-09-20 三审，纯防御）：差分清单误带 archive 形态时曾原样交给
+        // IncrementalUpdateService——压缩包会被当游戏文件搬进安装根
+        using var tempDir = new TempDir();
+        var channel = new FakeChannel
+        {
+            VersionInfo = new ChannelVersionInfo { LatestVersion = "2.0.0", PatchSourceVersions = ["1.0.0"] },
+        };
+        channel.IncrementalManifests[("1.0.0", "2.0.0")] = new GameManifest
+        {
+            Version = "2.0.0",
+            EntriesAreArchives = true,
+            Files = [new ManifestFile("pkg.zip", 10, "aa", Url: "https://cdn.example.com/pkg.zip")],
+        };
+        var server = new GameServer { Id = "cn", Name = "国服" };
+        var game = new GameDefinition
+        {
+            Id = "test-game",
+            DisplayName = "测试游戏",
+            Channel = "kuro",
+            InstallDir = "TestGame",
+            Executable = "game.exe",
+            Servers = [server],
+        };
+        await new LocalStateService(tempDir.Path).SaveAsync(
+            new LocalGameState { GameId = game.Id, ServerId = server.Id, Version = "1.0.0" });
+        var downloader = new FakeDownloader();
+        downloader.Responses["https://cdn.example.com/pkg.zip"] = new byte[10];
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => new GameUpdateService(downloader, new FakePatchApplier())
+                .UpdateAsync(tempDir.Path, game, server, channel));
+
+        Assert.Contains("archives", ex.Message, StringComparison.Ordinal);
+        Assert.Empty(downloader.Requests);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void EnsureDownloadUrl_BlankUrl_IsRejected(string? url)
+    {
+        // 回归（2026-09-20 三审）：只拒 null 时空串会穿到 HttpRequestMessage 抛裸 UriFormatException
+        Assert.Throws<UpdateException>(
+            () => YetAnotherGameLauncher.Core.Abstractions.ManifestChecks.EnsureDownloadUrl(url!, "X", "y"));
+    }
+}

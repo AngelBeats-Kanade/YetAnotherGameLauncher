@@ -209,7 +209,7 @@ public class GameBackdropServiceTests : IDisposable
     public async Task Resolve_LegacyMetaWithoutVersion_InvokesResolverOnceThenGates()
     {
         // 旧格式缓存（无 region/gameVersion 字段）：门控未命中解析一次后升级元数据，此后可门控
-        var cacheDir = _tempDir.FilePath("backdrops", "somegame");
+        var cacheDir = _tempDir.FilePath("backdrops", "some-game");
         Directory.CreateDirectory(cacheDir);
         await File.WriteAllTextAsync(Path.Combine(cacheDir, "meta.json"),
             """{"url":"https://cdn.example.com/bg.png","file":"backdrop.png","kind":"Image"}""");
@@ -285,7 +285,7 @@ public class GameBackdropServiceTests : IDisposable
     {
         // 审计缺口（2026-09-19）：缓存元数据损坏（写一半崩溃等）→ 按无缓存兜底：
         // 版本查询 null、离线缓存解析 null（回退主题渐变），解析链不崩
-        var cacheDir = _tempDir.FilePath("backdrops", "somegame"); // Sanitize 去掉连字符
+        var cacheDir = _tempDir.FilePath("backdrops", "some-game"); // 目录名按游戏 id 保形清洗
         Directory.CreateDirectory(cacheDir);
         File.WriteAllText(Path.Combine(cacheDir, "meta.json"), "{not-json");
 
@@ -307,5 +307,41 @@ public class GameBackdropServiceTests : IDisposable
             ResolveCount++;
             return Task.FromResult(Resolver(request.Region));
         }
+    }
+}
+
+public class GameBackdropCacheIsolationTests : IDisposable
+{
+    private sealed class StaticResolver(Func<string, BackdropSource?> resolve) : IBackdropResolver
+    {
+        public Task<BackdropSource?> GetBackdropUrlAsync(BackdropRequest request, CancellationToken cancellationToken = default) =>
+            Task.FromResult(resolve(request.Region));
+    }
+
+    private readonly TempDir _tempDir = new();
+    private readonly StubHttpHandler _handler = new();
+
+    public void Dispose() => _tempDir.Dispose();
+
+    [Fact]
+    public async Task Resolve_GameIdsDifferingOnlyInSeparator_DoNotShareCacheDirectory()
+    {
+        // 回归（2026-09-20 三审）：缓存目录清洗曾抹掉 -_. ——"game-a"/"game.a"/"gamea" 映射到
+        // 同一缓存目录，不同游戏互踩背景缓存与版本门控
+        _handler.Map("https://cdn.example.com/bg.png", [1]);
+        var service = new GameBackdropService(
+            new HttpClient(_handler),
+            new Dictionary<string, IBackdropResolver>
+            {
+                ["test"] = new StaticResolver(_ => new BackdropSource("https://cdn.example.com/bg.png", BackdropKind.Image)),
+            },
+            cacheRoot: _tempDir.FilePath("backdrops"));
+
+        var first = await service.ResolveAsync(new BackdropRequest("game-a", "test", "cn", null, new Dictionary<string, string>()));
+        var second = await service.ResolveAsync(new BackdropRequest("game.a", "test", "cn", null, new Dictionary<string, string>()));
+
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.NotEqual(first!.Source, second!.Source);
     }
 }

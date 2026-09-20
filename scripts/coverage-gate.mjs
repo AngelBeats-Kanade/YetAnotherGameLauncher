@@ -19,7 +19,9 @@ for (const p of xmlPaths) {
   let currentFile = null;
   for (const m of xml.matchAll(/<class\b[^>]*\bfilename="([^"]+)"[^>]*>|<line\b([^>]*)\/>/g)) {
     if (m[1] !== undefined) {
-      currentFile = m[1];
+      // cobertura 的 filename 在 Windows 腿是反斜杠绝对路径：归一成 '/' 再做前缀/包含判定，
+      // 否则 repoSrc('/src/') 永不匹配（当前 CI 只在 ubuntu 跑此步，属前瞻性归一）
+      currentFile = m[1].replaceAll('\\', '/');
       if (!perFile.has(currentFile)) perFile.set(currentFile, new Map());
     } else if (currentFile) {
       const num = /number="(\d+)"/.exec(m[2]);

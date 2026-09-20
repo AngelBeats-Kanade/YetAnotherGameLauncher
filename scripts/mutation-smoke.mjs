@@ -64,6 +64,17 @@ const MUTATIONS = [
     dll: 'tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll',
     method: 'YetAnotherGameLauncher.AppTests.GameItemOfflineTests.RefreshAsync_Offline_InstalledGame_ShowsLocalChipAndKeepsState',
   },
+  {
+    // 2026-09-20 三审新增：操作完成消息必须归属发起时的服务器（RunUpdateAsync finally 的
+    // ReferenceEquals 门）——去掉门后切服完成的旧结果会覆盖新服状态行
+    id: 'M12-status-message-server-scope',
+    file: 'src/YetAnotherGameLauncher/ViewModels/GameItemViewModel.cs',
+    find: 'if (!string.IsNullOrEmpty(message) && ReferenceEquals(originServer, SelectedServer))',
+    replace: 'if (!string.IsNullOrEmpty(message))',
+    project: 'tests/YetAnotherGameLauncher.App.Tests/YetAnotherGameLauncher.App.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll',
+    method: 'YetAnotherGameLauncher.AppTests.GameItemRefreshRaceTests.Predownload_ResultFromOldServer_DoesNotOverwriteNewServerStatus',
+  },
 ];
 
 function run(cmd, args) {

@@ -34,6 +34,12 @@ public sealed class FakeChannel : IGameChannelApi
 
     public List<string> ManifestRequests { get; } = [];
 
+    /// <summary>增量清单请求记录（from→to）；负向断言"未发起增量拉取"用（2026-09-20 补）。</summary>
+    public List<(string From, string To)> IncrementalManifestRequests { get; } = [];
+
+    /// <summary>预下载清单请求记录。</summary>
+    public List<string> PredownloadManifestRequests { get; } = [];
+
     /// <summary>版本检测调用次数（按调用顺序记录请求的服务器 id；验证"每启动每服务器只检测一次"用）。</summary>
     public List<string> VersionInfoRequests { get; } = [];
 
@@ -61,6 +67,7 @@ public sealed class FakeChannel : IGameChannelApi
     public Task<GameManifest?> GetIncrementalManifestAsync(
         GameServer server, string fromVersion, string toVersion, CancellationToken cancellationToken = default)
     {
+        IncrementalManifestRequests.Add((fromVersion, toVersion));
         if (IncrementalManifestError is { } incrementalError)
         {
             return Task.FromException<GameManifest?>(incrementalError);
@@ -73,6 +80,7 @@ public sealed class FakeChannel : IGameChannelApi
 
     public Task<GameManifest?> GetPredownloadManifestAsync(GameServer server, CancellationToken cancellationToken = default)
     {
+        PredownloadManifestRequests.Add(server.Id);
         if (PredownloadManifestError is { } predownloadError)
         {
             return Task.FromException<GameManifest?>(predownloadError);

@@ -23,9 +23,25 @@ public sealed class StubHttpHandler : HttpMessageHandler
 
     public void Map(string url, string content) => Map(url, System.Text.Encoding.UTF8.GetBytes(content));
 
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    private readonly Dictionary<string, TaskCompletionSource> _firstRequestGates = new(StringComparer.Ordinal);
+
+    /// <summary>让发往该 URL 的第一个请求挂起，直到 <see cref="ReleaseFirstRequest"/>；
+    /// 后续请求直通。竞态测试用它把调用链钉在真实 await 点上构造确定性交错。</summary>
+    public Task GateFirstRequest(string url) =>
+        (_firstRequestGates[url] = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
+
+    /// <summary>放行被 <see cref="GateFirstRequest"/> 挂住的第一个请求。</summary>
+    public void ReleaseFirstRequest(string url) => _firstRequestGates.GetValueOrDefault(url)?.TrySetResult();
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         Requests.Add(request);
+
+        if (_firstRequestGates.TryGetValue(request.RequestUri!.ToString(), out var gate))
+        {
+            _firstRequestGates.Remove(request.RequestUri.ToString());
+            await gate.Task.ConfigureAwait(false);
+        }
 
         if (FailFirstN > 0)
         {
@@ -47,7 +63,7 @@ public sealed class StubHttpHandler : HttpMessageHandler
             var bare = query.Length > 0 ? url[..^query.Length] : null;
             if (bare is null || !_responses.TryGetValue(bare, out content))
             {
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
             }
         }
 
@@ -58,7 +74,7 @@ public sealed class StubHttpHandler : HttpMessageHandler
         if (ranged && start >= content.Length)
         {
             // 规范服务器行为：Range 起点不小于内容长度时整个范围不可满足，回 416
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.RequestedRangeNotSatisfiable));
+            return new HttpResponseMessage(HttpStatusCode.RequestedRangeNotSatisfiable);
         }
 
         var slice = start == 0 ? content : content[start..];
@@ -68,6 +84,6 @@ public sealed class StubHttpHandler : HttpMessageHandler
         {
             Content = new ByteArrayContent(slice),
         };
-        return Task.FromResult(response);
+        return response;
     }
 }

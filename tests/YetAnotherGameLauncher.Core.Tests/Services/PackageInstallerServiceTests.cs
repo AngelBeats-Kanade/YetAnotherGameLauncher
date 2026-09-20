@@ -255,3 +255,35 @@ public class PackageInstallerMissingInfoTests : IDisposable
         Assert.Equal("MZ-stub", await File.ReadAllTextAsync(_tempDir.FilePath("game.exe")));
     }
 }
+
+public class PackageInstallerCollisionTests : IDisposable
+{
+    private readonly TempDir _tempDir = new();
+    private readonly FakeDownloader _downloader = new();
+
+    public void Dispose() => _tempDir.Dispose();
+
+    [Fact]
+    public async Task Predownload_SameFileNameEntries_ThrowsInsteadOfSilentlyOverwriting()
+    {
+        // 回归（2026-09-20 三审）：暂存按清单路径末段落盘——两个条目同名（不同 URL 目录）时
+        // 后包覆盖先包，解压循环把同一文件解两次、先包内容从未落地且全程无错误
+        var zip1 = TestZip.Create(("a.txt", "1"));
+        var zip2 = TestZip.Create(("b.txt", "2"));
+        _downloader.Responses["https://cdn.example.com/v1/data.zip"] = zip1;
+        _downloader.Responses["https://cdn.example.com/v2/data.zip"] = zip2;
+        var manifest = new GameManifest
+        {
+            Version = "1.2.0",
+            EntriesAreArchives = true,
+            Files =
+            [
+                new ManifestFile("v1/data.zip", zip1.Length, Hashing.Md5Hex(zip1), Url: "https://cdn.example.com/v1/data.zip"),
+                new ManifestFile("v2/data.zip", zip2.Length, Hashing.Md5Hex(zip2), Url: "https://cdn.example.com/v2/data.zip"),
+            ],
+        };
+
+        await Assert.ThrowsAsync<YetAnotherGameLauncher.Core.Abstractions.UpdateException>(
+            () => new PackageInstallerService(_downloader).PredownloadAsync(_tempDir.Path, manifest));
+    }
+}

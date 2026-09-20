@@ -69,13 +69,19 @@ public static class VmFactory
         /// <summary>按完整请求返回背景来源（需要断言 ServerOptions 等字段时用）；优先于 Resolver。</summary>
         public Func<BackdropRequest, BackdropSource?>? RequestResolver { get; set; }
 
+        /// <summary>异步形态（优先于 RequestResolver）：返回挂起 Task 可把资产加载钉在真实
+        /// await 点上——代际门/竞态测试构造确定性交错的注入缝。</summary>
+        public Func<BackdropRequest, Task<BackdropSource?>>? AsyncRequestResolver { get; set; }
+
         /// <summary>解析器被调用次数（验证"版本一致时跳过远程解析"用）。</summary>
         public int ResolveCount { get; private set; }
 
         public Task<BackdropSource?> GetBackdropUrlAsync(BackdropRequest request, CancellationToken cancellationToken = default)
         {
             ResolveCount++;
-            return Task.FromResult(RequestResolver?.Invoke(request) ?? Resolver?.Invoke(request.Region));
+            return AsyncRequestResolver is { } async
+                ? async(request)
+                : Task.FromResult(RequestResolver?.Invoke(request) ?? Resolver?.Invoke(request.Region));
         }
     }
 

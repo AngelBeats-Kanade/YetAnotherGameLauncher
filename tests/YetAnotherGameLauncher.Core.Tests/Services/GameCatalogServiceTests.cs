@@ -256,3 +256,37 @@ public class GameCatalogServiceTests : IDisposable
         Assert.NotNull(reloader.Catalog);
     }
 }
+
+public class GameCatalogNullMemberTests
+{
+    [Theory]
+    [InlineData("""{"settings":null,"games":[]}""")]
+    [InlineData("""{"settings":{"installRoot":"~/x"},"games":null}""")]
+    public void Parse_NullMembers_ThrowValidationInsteadOfNre(string json)
+    {
+        // 回归（2026-09-20 三审）：显式 null 的引用属性会绕过校验防线在 Validate 里 NRE，
+        // "手改坏配置→友好提示"变成无提示空壳启动
+        var ex = Assert.Throws<GameCatalogValidationException>(() => GameCatalogService.Parse(json));
+
+        Assert.Contains(ex.Errors, e => e.Contains("got null", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SaveAsync_InvalidCatalog_ThrowsBeforeWriting()
+    {
+        // 回归（2026-09-20 三审）：读严写宽——公开可变 Catalog 不校验就落盘，
+        // 任何保存路径漏守卫即写出下次启动拒载的配置
+        using var temp = new TempDir();
+        var path = temp.FilePath("games.json");
+        await File.WriteAllTextAsync(path,
+            """{"settings":{"installRoot":"~/x","schemaVersion":5},"games":[]}""");
+        var service = new GameCatalogService(path);
+        await service.LoadAsync();
+        service.Catalog!.Settings.InstallRoot = ""; // 可变设置对象：直接改成非法值
+
+        await Assert.ThrowsAsync<GameCatalogValidationException>(() => service.SaveAsync());
+
+        // 原文件保持原样（未被坏内容覆盖）
+        Assert.Contains("~/x", await File.ReadAllTextAsync(path));
+    }
+}

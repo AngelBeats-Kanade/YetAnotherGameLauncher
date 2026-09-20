@@ -508,3 +508,55 @@ public sealed class UmuComponentProvisionerTests : IDisposable
         return result.ToArray();
     }
 }
+
+public class UmuRuntimeTimeoutClassificationTests
+{
+    /// <summary>回归（2026-09-20 三审）：Runtime 版本号直连拉取的超时（token 未取消的 TCE）
+    /// 曾裸 OCE 上抛——设置页取消豁免静默吞、启动路径落 Unknown，与 Proton 下载超时分类不一致。</summary>
+    [Fact]
+    public async Task EnsureRuntimeAsync_DirectFetchTimeout_ClassifiesAsUmuRuntimeDownloadFailed()
+    {
+        var handler = new StubHttpHandler { TimeoutFirstN = 1 };
+        using var tempDir = new TempDir();
+        var provisioner = new UmuComponentProvisioner(
+            new HttpClient(handler), new FakeDownloader(), dataHome: tempDir.Path, cacheHome: tempDir.Path);
+
+        var ex = await Assert.ThrowsAsync<LaunchException>(
+            () => provisioner.EnsureRuntimeAsync("sniper", "SteamLinuxRuntime_sniper"));
+
+        Assert.Equal(LaunchFailureKind.UmuRuntimeDownloadFailed, ex.Kind);
+    }
+
+    /// <summary>回归（2026-09-20 三审）：已装 Proton 声明 host（无 require_tool_appid）是已知事实，
+    /// 不得返回 null（null = 未知 → 设置页按 steamrt4 准备，与启动路径免容器直跑矛盾）。</summary>
+    [Fact]
+    public void ResolveRequiredRuntime_HostManifest_ReturnsHostFactInsteadOfNull()
+    {
+        using var tempDir = new TempDir();
+        var provisioner = new UmuComponentProvisioner(
+            new HttpClient(new StubHttpHandler()), new FakeDownloader(), dataHome: tempDir.Path, cacheHome: tempDir.Path);
+        var dir = Path.Combine(UmuPaths.SteamCompatRoot(tempDir.Path), "GE-Proton10-9");
+        Directory.CreateDirectory(dir);
+        // commandline 必填：缺失时 ToolManifest.Load 抛 UpdateException，走进"清单不可读"null 分支
+        File.WriteAllText(
+            Path.Combine(dir, "toolmanifest.vdf"),
+            "\"manifest\" { \"commandline\" \"/proton %verb%\" }");
+        File.WriteAllText(Path.Combine(dir, "proton"), "#!/bin/sh\n");
+        // 架构过滤按 wineserver ELF 判定——缺它视同未安装
+        var bin = Path.Combine(dir, "files", "bin");
+        Directory.CreateDirectory(bin);
+        var elf = new byte[20];
+        elf[0] = 0x7F;
+        elf[1] = (byte)'E';
+        elf[2] = (byte)'L';
+        elf[3] = (byte)'F';
+        elf[18] = 0x3E; // e_machine = EM_X86_64
+        File.WriteAllBytes(Path.Combine(bin, "wineserver"), elf);
+
+        var result = provisioner.ResolveRequiredRuntime("GE-Proton10-9");
+
+        Assert.NotNull(result);
+        Assert.Equal("", result.Value.Variant);
+        Assert.Equal("host", result.Value.Name);
+    }
+}

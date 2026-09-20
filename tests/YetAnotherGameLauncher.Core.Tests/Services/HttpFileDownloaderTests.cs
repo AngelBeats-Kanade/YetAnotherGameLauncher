@@ -335,3 +335,39 @@ public class HttpFileDownloaderTimeoutTests : IDisposable
             await File.ReadAllTextAsync(_tempDir.FilePath("file.bin")));
     }
 }
+
+public class HttpFileDownloaderLockedDestinationTests : IDisposable
+{
+    private readonly TempDir _tempDir = new();
+    private readonly StubHttpHandler _handler = new();
+
+    public void Dispose() => _tempDir.Dispose();
+
+    [Fact]
+    public async Task Download_DestinationLocked_SingleAttemptClassifiedAsReplaceFailure()
+    {
+        // 回归（2026-09-20 三审防线守卫）：目标被占用（Windows 语义）单独分类为不可重试的
+        // DownloadException——该分支若被并入网络重试 catch，重下多少遍都不会好
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Skip("exclusive file locks blocking rename are Windows-only semantics");
+        }
+
+        _handler.Map("https://cdn.example.com/file.bin", "payload"u8.ToArray());
+        var destination = _tempDir.FilePath("file.bin");
+        using var lockHandle = File.Open(destination, FileMode.Create, FileAccess.ReadWrite, FileShare.None);
+        using var client = new HttpClient(_handler);
+        var downloader = new HttpFileDownloader(client, new HttpFileDownloaderOptions
+        {
+            MaxAttempts = 3,
+            RetryBaseDelay = TimeSpan.FromMilliseconds(1),
+        });
+
+        var ex = await Assert.ThrowsAsync<DownloadException>(
+            () => downloader.DownloadFileAsync(new DownloadRequest(
+                "https://cdn.example.com/file.bin", destination, null, null)));
+
+        Assert.Contains("replace", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Single(_handler.Requests); // 不进网络重试：单次请求即终止
+    }
+}

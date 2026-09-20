@@ -43,10 +43,7 @@ public class IncrementalUpdateServiceTests : IDisposable
         (string Path, byte[] Content)[] dsts)
     {
         var patchContent = System.Text.Encoding.UTF8.GetBytes($"patch-{patchName}");
-        foreach (var (_, content) in srcs.Concat(dsts))
-        {
-            _downloader.Responses[Url(patchName)] = patchContent;
-        }
+        _downloader.Responses[Url(patchName)] = patchContent;
         foreach (var (path, content) in dsts)
         {
             _downloader.Responses[Url(path.Replace('/', '_'))] = content;
@@ -392,5 +389,96 @@ public class IncrementalUpdateServiceStagedManifestTests : IDisposable
         }
 
         Assert.Null(IncrementalUpdateService.TryLoadStagedManifest(_tempDir.Path));
+    }
+}
+
+public class IncrementalUpdateHygieneTests : IDisposable
+{
+    private readonly TempDir _tempDir = new();
+    private readonly FakeDownloader _downloader = new();
+    private readonly FakePatchApplier _applier = new();
+
+    public void Dispose() => _tempDir.Dispose();
+
+    private IncrementalUpdateService CreateService() => new(_downloader, _applier);
+
+    private static string Url(string name) => $"https://cdn.example.com/{name}";
+
+    [Fact]
+    public async Task ApplyAsync_Success_RemovesPatchWorkDirectory()
+    {
+        // 回归（2026-09-20 三审）：差分工作草稿（SrcFiles 完整副本，可达数 GB~数十 GB）曾只在
+        // 下一次 Apply 开头清理——游戏停更或改走全量后永久滞留；.yagl 在安装同步保留名单里不会被游走清理
+        var oldContent = "old-content"u8.ToArray();
+        var newContent = "new-content"u8.ToArray();
+        Directory.CreateDirectory(_tempDir.FilePath("data"));
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "file.dat"), oldContent);
+        var patch = System.Text.Encoding.UTF8.GetBytes("patch-g1");
+        _downloader.Responses[Url("g1.krpdiff")] = patch;
+        _applier.Outputs["g1.krpdiff"] = new Dictionary<string, byte[]> { ["data/file.dat"] = newContent };
+        var group = new PatchGroup(
+            "g1.krpdiff", patch.Length, YetAnotherGameLauncher.Core.Utilities.Hashing.Md5Hex(newContent),
+            SrcFiles: [new ManifestFile("data/file.dat", oldContent.Length, YetAnotherGameLauncher.Core.Utilities.Hashing.Md5Hex(oldContent))],
+            DstFiles: [new ManifestFile("data/file.dat", newContent.Length, YetAnotherGameLauncher.Core.Utilities.Hashing.Md5Hex(newContent))],
+            Url("g1.krpdiff"));
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
+
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+        await CreateService().ApplyAsync(_tempDir.Path, manifest);
+
+        Assert.Equal(newContent, await File.ReadAllBytesAsync(_tempDir.FilePath("data", "file.dat")));
+        Assert.False(Directory.Exists(Path.Combine(_tempDir.Path, ".yagl", "patchwork")));
+    }
+
+    [Fact]
+    public async Task ApplyAsync_CancelledWithGroups_ThrowsOperationCanceled()
+    {
+        // 组循环顶部的取消检查点（此前只有文件循环检查点有测试）
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+        var patch = System.Text.Encoding.UTF8.GetBytes("patch-g1");
+        _downloader.Responses[Url("g1.krpdiff")] = patch;
+        var group = new PatchGroup(
+            "g1.krpdiff", patch.Length, "0".PadLeft(32, '0'),
+            SrcFiles: [new ManifestFile("data/file.dat", 1, "1".PadLeft(32, '1'))],
+            DstFiles: [new ManifestFile("data/file.dat", 1, "2".PadLeft(32, '2'))],
+            Url("g1.krpdiff"));
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => CreateService().ApplyAsync(_tempDir.Path, manifest, cancellationToken: cts.Token));
+    }
+
+    [Fact]
+    public async Task ApplyAsync_ReadOnlyTarget_Windows_ReplacedWithGuidance()
+    {
+        // 回归（2026-09-20 三审）：ReplaceWithBackup 曾不解只读属性——Windows 上只读游戏文件
+        // 让增量更新永久卡死（Move 抛、回滚 Delete 也抛，重试永不自愈）。
+        // Linux rename 不受目标只读位影响，此用例仅在 Windows 腿有意义
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Skip("read-only rename semantics are Windows-only (Linux rename ignores the target's read-only bit)");
+        }
+
+        var oldContent = "old-content"u8.ToArray();
+        var newContent = "new-content"u8.ToArray();
+        Directory.CreateDirectory(_tempDir.FilePath("data"));
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "file.dat"), oldContent);
+        File.SetAttributes(_tempDir.FilePath("data", "file.dat"), FileAttributes.ReadOnly);
+        var patch = System.Text.Encoding.UTF8.GetBytes("patch-g1");
+        _downloader.Responses[Url("g1.krpdiff")] = patch;
+        _applier.Outputs["g1.krpdiff"] = new Dictionary<string, byte[]> { ["data/file.dat"] = newContent };
+        var group = new PatchGroup(
+            "g1.krpdiff", patch.Length, YetAnotherGameLauncher.Core.Utilities.Hashing.Md5Hex(newContent),
+            SrcFiles: [new ManifestFile("data/file.dat", oldContent.Length, YetAnotherGameLauncher.Core.Utilities.Hashing.Md5Hex(oldContent))],
+            DstFiles: [new ManifestFile("data/file.dat", newContent.Length, YetAnotherGameLauncher.Core.Utilities.Hashing.Md5Hex(newContent))],
+            Url("g1.krpdiff"));
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
+
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+        await CreateService().ApplyAsync(_tempDir.Path, manifest);
+
+        Assert.Equal(newContent, await File.ReadAllBytesAsync(_tempDir.FilePath("data", "file.dat")));
     }
 }

@@ -49,3 +49,14 @@ public class CompatToolsTests : IDisposable
         Assert.True(launch.Environment.ContainsKey("STEAM_COMPAT_CLIENT_INSTALL_PATH"));
     }
 }
+
+public class NumericSortKeyLongSegmentTests
+{
+    [Fact]
+    public void NumericSortKey_SevenDigitSegment_SortsNumerically()
+    {
+        // 回归（2026-09-20 三审）：6 位补零对 7 位数字段会字符串错序（"1234567" < "999999"）
+        Assert.True(
+            string.CompareOrdinal(CompatTools.NumericSortKey("a-1234567"), CompatTools.NumericSortKey("a-999999")) > 0);
+    }
+}

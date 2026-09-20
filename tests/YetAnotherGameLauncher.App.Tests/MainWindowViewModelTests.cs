@@ -537,3 +537,75 @@ public class ConfigMigrationTests : IDisposable
         Assert.Equal(originalDraft, reloader.Catalog!.Settings.InstallRoot);
     }
 }
+
+/// <summary>
+/// 迁移写盘失败韧性回归（2026-09-20 三审）：schemaVersion 4/5 迁移的 SaveAsync 曾裸抛——
+/// games.json 被占用（Windows 杀软）时整个 InitializeAsync 中途夭折，空窗口无提示；
+/// 修复后与 schemaVersion 3 迁移同款吞掉（版本号未落盘，下次启动幂等重试）。
+/// </summary>
+[Collection("sequential")]
+public class MigrationSaveFailureTests
+{
+    private const string OldSchemaConfig = """
+        {
+          "settings": { "installRoot": "~/Games", "theme": "System", "language": "system", "schemaVersion": 3 },
+          "games": [
+            {
+              "id": "wuthering-waves", "displayName": "鸣潮", "channel": "kuro",
+              "installDir": "WutheringWaves", "executable": "Client/game.exe",
+              "servers": [ { "id": "cn", "name": "国服" } ]
+            }
+          ]
+        }
+        """;
+
+    [Fact]
+    public async Task Initialize_MigrationSaveFails_InitializationStillCompletes()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Skip("directory permission bits are Unix-only");
+        }
+
+        var ctx = VmFactory.Build(configJson: OldSchemaConfig);
+        try
+        {
+            // 预检：非 root 才能靠权限位制造写失败
+            var probe = Path.Combine(ctx.TempDir.Path, ".yagl-write-probe");
+            try
+            {
+                File.WriteAllText(probe, "x");
+                File.Delete(probe);
+            }
+            catch (Exception)
+            {
+                Assert.Skip("以 root 运行时权限位注入无效");
+            }
+
+            // 初始化**之前**就把目录改只读：config 加载只需读权限，而 schemaVersion 3→4/5 的
+            // 迁移 SaveAsync 在首次 InitializeAsync 内就会发生 → 修复版吞掉 IOException 继续，
+            // 裸抛变异（Migrate4 不兜底）会让 IOException 穿出 InitializeAsync
+            if (!OperatingSystem.IsWindows())
+            {
+                File.SetUnixFileMode(ctx.TempDir.Path, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            }
+
+            await ctx.Vm.InitializeAsync();
+
+            var ex = await Record.ExceptionAsync(() => ctx.Vm.InitializeAsync());
+
+            Assert.Null(ex); // 裸抛变异：IOException 穿出 InitializeAsync 即红
+            Assert.NotEmpty(ctx.Vm.Games); // 目录已在内存中，后续重建不被跳过
+        }
+        finally
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                File.SetUnixFileMode(
+                    ctx.TempDir.Path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+
+            ctx.Dispose();
+        }
+    }
+}
