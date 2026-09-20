@@ -152,6 +152,10 @@ public sealed class FfmpegVideoBackdropPlayer(
             }
             finally
             {
+                // 自然结束（循环自愈退出/解码失败）路径不经过 Cancel：先把仍指向本 cts 的
+                // 共享引用摘掉再释放，否则 _cts 悬挂已释放实例，下一次 Stop() 对其 Cancel
+                // 抛 ObjectDisposedException（切页/切游戏的 SetDetailActive→StopVideo 即崩）
+                Interlocked.CompareExchange(ref _cts, null, cts);
                 cts.Dispose();
             }
         }, CancellationToken.None);
@@ -162,6 +166,12 @@ public sealed class FfmpegVideoBackdropPlayer(
     /// <inheritdoc/>
     public void Stop() => StopCore();
 
+    /// <summary>测试观察点：后台任务收尾是否已摘除共享 cts 引用（回归测试等待落定用）。</summary>
+    internal bool CtsClearedForTest => Interlocked.CompareExchange(ref _cts, null, null) is null;
+
+    /// <summary>测试注入点：直接布置已释放的 cts，确定性复现 Stop 撞上悬挂引用的场景。</summary>
+    internal CancellationTokenSource? CtsForTest { set => _cts = value; }
+
     /// <summary>停止播放：取消解码循环、推进代际并清空帧缓冲（渲染层立即回到海报/渐变兜底；
     /// 共享播放器切游戏时，迟到的陈旧帧通知以空帧缓冲为证不再点亮新页面）。</summary>
     private void StopCore()
@@ -170,7 +180,15 @@ public sealed class FfmpegVideoBackdropPlayer(
         var cts = Interlocked.Exchange(ref _cts, null);
         if (cts is not null)
         {
-            cts.Cancel();
+            try
+            {
+                cts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // PlayAsync 收尾恰好先释放了 cts（摘除与 Exchange 之间的残余竞态）：
+                // 循环已自然结束，无需取消
+            }
         }
 
         ClearFrame();
