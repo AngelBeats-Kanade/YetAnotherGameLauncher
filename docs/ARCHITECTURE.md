@@ -300,6 +300,11 @@ flowchart LR
   旧循环另受代际门双重约束：`PresentFrame` 过门后方可渲染，`RenderFrame` 在位图拷入后复查代际，
   失配即整帧丢弃、不投递通知（旧画面无从复活；清帧由 Stop 的 `ClearFrame` 在锁内完成）——过门后的
   PTS 等待/sws/拷贝窗口内发生的 `Stop` 也不会让旧画面点亮新页面。
+- **起播与停止的生命周期（2026-09-20 复审补齐）**：播放器侧 `PlayAsync` 收尾先摘共享 `_cts` 引用
+  再释放（自然结束路径不经 Cancel，悬挂已释放实例曾是隐患；.NET 10 起 Cancel-on-disposed 为 no-op
+  不抛，防御性 try/catch 留作语义显式化）；VM 侧 `StartVideoAsync` 以起播代际标记——起播窗口内被
+  后发起播抢先的旧调用失败时不再执行 VM 级 StopVideo 清场（否则会误杀新一代起播，视频层不再
+  点亮直到离页再进），只有最新一次起播有权清理。
 - **关键约束**：本机 BtbN FFmpeg n9.0 构建的 mov demuxer 上 seek 不可靠——
   所有路径一律顺序读取 + 帧丢弃对齐，禁止带时间戳的 seek。
 

@@ -68,6 +68,13 @@ dotnet tests/<测试工程>/bin/Debug/net10.0/<测试程序集>.dll -method "<�
 - **详情页顶部信息簇（2026-09-16 方案 A「沉浸影院」落地）**：内容 Grid Margin `16,36,16,14`（操作坞通栏贴边：左右 16/距底 14），Row0 为左对齐簇（簇左缩进 12 = 距内容卡左缘 28px）——校验修复确认条 → chips 行（`Border.onart-chip` 胶囊：状态点+StatusText、已暂存徽章、版本 chip 四段 `VersionChipLead/Number/Mid/Target`，金色数字走 `AppVersionChipAccent` 暗色 #FFC861/亮色 #A96E10 成对）。簇后有一条高 150 的全出血顶部渐变纱带 `AppOnArtworkScrimBrush`（主题无关，IsHitTestVisible=False）。旧"页中上方居中合并胶囊"与"标题上墙"（DisplayName 30px + `DetailMetaText` 元信息行）已删除（2026-09-16 起仅留 chips 簇，`DetailMetaText`/`detail_meta_*` 键一并移除）；暗色 accent 为 #3D7DFF（方案 A 令牌，hover #2E68E0），NavIndicator 辉光同色；toast 卡用专属近实心底 `AppToastBackground`（亮暗成对；层次靠 1px 描边，不用 BoxShadow——见下方"UI / 无头测试已知坑"的 BoxShadow 条）；操作坞底色 `AppOnArtworkDockBrush` + 1px `AppOnArtworkCardBorder` 描边、标签 `AppOnArtworkTertiary` 11px、值列必须显式 `AppOnArtworkBrush`（继承主题前景在亮色主题会黑字上黑底——judge 02 实锤）。
 - **状态 chip/长文案必须限宽换行**：详情页顶部 chips 行为 `WrapPanel`（`MaxWidth=640`、`ItemSpacing/LineSpacing=10`——放不下自动换行而非溢出；水平 StackPanel 会原样溢出，窄窗口下被内容卡裁掉）+ 状态 chip 内 StatusText `MaxWidth=430 TextWrapping=Wrap`——启动预检的可操作提示很长，不设防会横穿窗口被裁（judge 实锤；2026-09-16 起旧合并胶囊改为顶部 chips 簇，防线沿用）。
 - **ComboBox 的 SelectedItem 按引用匹配**：从枚举"解析"出的选项若不是 `ItemsSource` 集合内的实例，下拉框显示空白（`LaunchSettingsViewModel.DetectLaunchMode` 返回 `LaunchModes.First(...)` 即此故）。
+- **涉 FFmpeg 原生库加载的测试类必须进 `sequential` 集合**（2026-09-20 实锤）：`EnsureReady` 的
+  dlopen 与 Avalonia headless 平台初始化并行竞争，会让 headless 首初始化在 Compositor 构造处炸
+  `InvalidOperationException`（`VideoBackdropPlayerCtsTests` 不进集合并行跑时引爆
+  `BackgroundImageServiceTests`；纯 Sleep 后台任务不触发，纯逻辑类不受限）。
+- **.NET 10 起 Dispose 后的 CTS `Cancel()` 是 no-op 不抛 ODE**（变异实验实锤：对已释放实例直接
+  Cancel 的"崩溃"测试击不杀）——"已释放实例悬挂"不再表现为崩溃但仍是悬挂；防御性 try/catch
+  的价值是语义显式化，别假设 ODE 会替你暴露 bug（先例：FfmpegVideoBackdropPlayer._cts 摘除）。
 - **headless 会话 `Dispatch` 三条实测规则（2026-09-19 探针+位图实验三连实锤，哨兵 `DispatchSentinelTests` 常驻守卫）**：
   ① **`Dispatch(Func<Task>)`（async lambda）全形态禁用**——lambda 首个 await 处即被放弃、返回任务被丢弃，await 前后抛的异常一律静默吞掉（探针实锤，`SettingsHeadlessTests`/`BackgroundImageServiceTests` 曾整文件假绿）；
   ② **`Dispatch(Action)` 同步 lambda 必须 `await`**——不 await 则 lambda 只是排队、根本没跑，读局部变量恒为初值（实测踩坑）；await 后 lambda 在会话线程执行完毕才返回、**异常与断言失败正常传播**（探针实锤：`Action` 重载不吞断言，此前的"两类都不可信"认知系过度泛化）；
