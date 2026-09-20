@@ -141,14 +141,24 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
         var totalBytes = packageManifest.Files.Sum(f => f.Size);
         var downloaded = 0L;
         var staged = new List<(ManifestFile, string)>();
+        var seenTargets = new HashSet<string>(
+            OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
 
         foreach (var (file, index) in packageManifest.Files.Select((f, i) => (f, i)))
         {
             ManifestChecks.EnsureDownloadUrl(file.Url, "Package entry", file.Path);
 
+            var archivePath = StagedArchivePath(packagesDir, file);
+            // 暂存落盘按清单路径末段命名：两个条目同名（不同 URL 目录）会互踩——后包覆盖先包，
+            // 解压循环把同一文件解两次、先包内容从未落地且全程无错误（2026-09-20 复审修复）
+            if (!seenTargets.Add(Path.GetFullPath(archivePath)))
+            {
+                throw new UpdateException(
+                    $"Two package entries share the staged file name \"{file.Path}\"; refusing to silently overwrite one with the other.");
+            }
+
             progress?.Report(new UpdateProgress(UpdatePhase.Downloading, totalBytes, downloaded, index, packageManifest.Files.Count, file.Path));
 
-            var archivePath = StagedArchivePath(packagesDir, file);
             if (!IsArchiveIntact(archivePath, file))
             {
                 await downloader.DownloadFileAsync(

@@ -211,8 +211,28 @@ public sealed class SystemProcessRunner(
                 throw;
             }
 
-            var stdout = await stdoutTask.ConfigureAwait(false);
-            var stderr = await stderrTask.ConfigureAwait(false);
+            string stdout;
+            string stderr;
+            try
+            {
+                stdout = await stdoutTask.ConfigureAwait(false);
+                stderr = await stderrTask.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // 进程本体已按时退出、孙进程仍持有输出管道：读泵被超时 CTS 取消——
+                // 与主超时同语义（kill + UpdateException），裸 OCE 会被消费端当用户取消静默吞
+                //（2026-09-20 复审修复）
+                await KillProcessTreeAsync(process).ConfigureAwait(false);
+                if (!cancellationToken.IsCancellationRequested)
+                {
+                    throw new UpdateException(
+                        $"Process timed out after {spec.TimeoutMilliseconds} ms and was killed: {spec.FileName}");
+                }
+
+                throw;
+            }
+
             return new ProcessResult(process.ExitCode, stdout, stderr);
         }
         finally

@@ -215,6 +215,9 @@ public sealed class IncrementalUpdateService(
 
         // 暂存目录完成使命后清理（Windows 上残留被占用时尽力清理即可，残留留给下次重置）
         FileUtilities.TryDeleteDirectory(staging, logger);
+        // 差分工作草稿同样清理：SrcFiles 的完整副本（olddir-*/newdir-*）可占数 GB~数十 GB，
+        // .yagl 在安装同步的保留名单里不会被游走清理，留着即滞留到下次增量（2026-09-20 复审修复）
+        FileUtilities.TryDeleteDirectory(workDir, logger);
 
         progress?.Report(new UpdateProgress(UpdatePhase.Done, 0, 0, total, total, null));
     }
@@ -301,6 +304,9 @@ public sealed class IncrementalUpdateService(
 
                 if (hadOriginal)
                 {
+                    // 只读目标的 Move/Delete 在 Windows 抛 UnauthorizedAccessException 且重试永不自愈
+                    //（同链路其余三处覆盖点都有只读防线，此处补齐；Linux rename 不受目标只读影响）
+                    File.SetAttributes(target, File.GetAttributes(target) & ~FileAttributes.ReadOnly);
                     File.Move(target, backup, overwrite: true);
                 }
 
@@ -322,6 +328,7 @@ public sealed class IncrementalUpdateService(
                         // 覆盖在途条目（新文件未落位，target 缺失）与已落位条目两种情形
                         if (File.Exists(target))
                         {
+                            File.SetAttributes(target, File.GetAttributes(target) & ~FileAttributes.ReadOnly);
                             File.Delete(target);
                         }
 
@@ -329,6 +336,7 @@ public sealed class IncrementalUpdateService(
                     }
                     else if (File.Exists(target))
                     {
+                        File.SetAttributes(target, File.GetAttributes(target) & ~FileAttributes.ReadOnly);
                         File.Delete(target);
                     }
                 }
