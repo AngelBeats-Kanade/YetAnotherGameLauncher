@@ -13,7 +13,7 @@ Built on .NET 10 + Avalonia 12 + MVVM. Games are driven entirely by a configurat
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-blueviolet)
 ![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=.net&logoColor=white)
 ![Avalonia](https://img.shields.io/badge/Avalonia-12-9B4FAB)
-![Version](https://img.shields.io/badge/version-v0.1.0-blue)
+![Version](https://img.shields.io/badge/version-v0.1.1-blue)
 
 [简体中文](README.md) | **English**
 
