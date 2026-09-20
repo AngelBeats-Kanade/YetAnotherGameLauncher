@@ -15,9 +15,6 @@ public sealed record ToolManifest(
     /// <summary>该工具是否为 Proton（需要 wine prefix 布局）。</summary>
     public bool IsProton => string.Equals(LayerName, "proton", StringComparison.Ordinal);
 
-    /// <summary>toolmanifest 是否声明了容器 Runtime（require_tool_appid）。</summary>
-    public bool HasRequiredRuntime => !string.IsNullOrWhiteSpace(RequiredToolAppId);
-
     /// <summary>解析结果的 Runtime；无 appid 时为 host。</summary>
     public SteamRuntimeInfo RequiredRuntime =>
         SteamRuntimeCatalog.FromAppId(RequiredToolAppId) ?? SteamRuntimeCatalog.Host;

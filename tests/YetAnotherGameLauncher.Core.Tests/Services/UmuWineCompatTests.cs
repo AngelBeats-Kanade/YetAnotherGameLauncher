@@ -38,19 +38,6 @@ public sealed class UmuWineCompatTests : IDisposable
         Assert.Null(CompatTools.FindSystemWine(pathValue: "", home: _home.Path));
     }
 
-    [Fact]
-    public void FindLutrisWineVersions_ListsRunnerDirs()
-    {
-        var runners = _home.FilePath(".local", "share", "lutris", "runners", "wine");
-        Directory.CreateDirectory(Path.Combine(runners, "wine-ge-8-26", "bin"));
-        Directory.CreateDirectory(Path.Combine(runners, "lutris-7.2", "bin"));
-        Directory.CreateDirectory(Path.Combine(runners, "broken-runner")); // 无 bin/ 不算
-
-        var versions = CompatTools.FindLutrisWineVersions(_home.Path);
-
-        Assert.Equal(["lutris-7.2", "wine-ge-8-26"], versions);
-    }
-
     // ---------- Prefix 统一位置 ----------
 
     [Fact]

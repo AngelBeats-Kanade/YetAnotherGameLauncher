@@ -18,8 +18,6 @@ public enum LaunchMode
     /// <summary>通过 Proton（含 dw-proton 等自定义版本）启动。</summary>
     Proton,
 
-    /// <summary>自定义命令模板（不自动生成）。</summary>
-    Custom,
 }
 
 /// <summary>
@@ -107,32 +105,6 @@ public static class CompatTools
         SearchPath(
             pathValue ?? Environment.GetEnvironmentVariable("PATH") ?? "",
             "wine");
-
-    /// <summary>列出 Lutris 的 Wine runner 版本名（~/.local/share/lutris/runners/wine/ 下含 bin/ 的目录）。</summary>
-    public static IReadOnlyList<string> FindLutrisWineVersions(string? home = null)
-    {
-        home ??= Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var root = Path.Combine(home, ".local", "share", "lutris", "runners", "wine");
-        if (!Directory.Exists(root))
-        {
-            return [];
-        }
-
-        return Directory.EnumerateDirectories(root)
-            .Where(dir => Directory.Exists(Path.Combine(dir, "bin")))
-            .Select(dir => Path.GetFileName(dir))
-            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
-    /// <summary>定位 Lutris Wine runner 的 wine 可执行文件；找不到返回 null。</summary>
-    public static string? LocateLutrisWine(string version, string? home = null)
-    {
-        home ??= Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var wine = Path.Combine(
-            home, ".local", "share", "lutris", "runners", "wine", version, "bin", "wine");
-        return FileUtilities.IsExecutableFile(wine) ? wine : null;
-    }
 
     /// <summary>Wine prefix 统一根目录：{dataHome}/yagl/prefixes（dataHome 缺省取 AppPaths.DataHomeDirectory，Linux 尊重 XDG_DATA_HOME）。</summary>
     public static string PrefixRoot(string? dataHome = null) =>
