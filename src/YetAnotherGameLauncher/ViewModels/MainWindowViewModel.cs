@@ -1401,7 +1401,7 @@ public sealed partial class AboutViewModel(MainWindowViewModel owner) : ViewMode
     /// <summary>games.json 配置文件完整路径（展示用）。</summary>
     public string ConfigFilePath => owner.ConfigFilePath;
 
-    /// <summary>应用程序集版本（AssemblyInformationalVersion 优先，含 git 信息时更长）。</summary>
+    /// <summary>应用程序集版本（取 AssemblyName.Version 的主/次/补丁三段）。</summary>
     public string AppVersion =>
         System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "0.0.0";
 

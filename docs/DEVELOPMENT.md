@@ -53,7 +53,7 @@ src/
                     CompositorScaleParser（hyprctl monitors -j 的缩放解析纯函数，Xft.dpi 同步用，直测见 App.Tests）；
                     WindowStateMapper（视觉最大化判定：Wayland 实验后端把平铺误报 Maximized，
                     需校验客户区铺满工作区才去圆角；纯函数，决策表测试见 App.Tests）；
-                    LocalizationService/ILocalizationService + LocBridge（JSON 资源本地化；LocBridge 为构造期取文案的静态桥）；
+                    LocalizationService/ILocalizationService（JSON 资源本地化）；
                     FfmpegVideoBackdropPlayer/IVideoBackdropPlayer（FFmpeg 背景视频解码播放）+ FfmpegLibraryResolver（原生库准备/下载）；
                     SeamAnalyzer（循环接缝分析）+ PrerollHandoff（预卷零间隙交接状态机）实现无缝循环；
                     BackgroundImageService（静态背景图加载与缓存：会话内存 + http 来源磁盘缓存，失败结果按 TTL 短暂缓存；ReloadAsync 绕过缓存强制重取）、
@@ -148,9 +148,7 @@ tests/
   `"Item[]"` 与 `"Item"` 通知——Avalonia 的索引器绑定只认 `"Item"`（WPF 习惯的
   `"Item[]"` 不刷新）。
 - XAML 中取文案用 `{Binding Loc[key]}`（`Loc` 是 VM 暴露的服务属性，索引器通知依赖
-  上一条的 `Item[]` + `Item` 双通知）。曾用 `{svc:Loc key}` 标记扩展，已随绑定迁移删除；
-  `LocBridge.Instance` 静态桥现仅供 `LaunchSettingsViewModel.LaunchModes` 属性初始化器
-  （构造期早于实例 `_loc` 可用）与测试确定性注入使用。
+  上一条的 `Item[]` + `Item` 双通知）。曾用 `{svc:Loc key}` 标记扩展，已随绑定迁移删除。
 - VM 内文案用注入的 `ILocalizationService`：`_loc["key"]` / `_loc.Format("key", args)`。
   `Format` 无参数时原样返回（资源串里的 `{exe}` 等占位符不会被 string.Format 误解析）。
 - 新增文案：两个 JSON 同步加键（有键集一致性测试防漏译），VM/axaml 用下划线键名。
@@ -208,8 +206,9 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64   --self-contain
 - 采集：`dotnet-coverage collect -f cobertura -o out.xml dotnet <测试dll>`（直跑 DLL 是
   xunit.v3 自带 runner，无 MTP `--coverage` 开关；`dotnet test --collect` 受 0 发现问题限制）。
   CI 在 ubuntu 腿执行同一采集并做**行覆盖 ≥ 83% 门禁**（ci.yml Coverage gate 步骤）。
-- **实测基线（2026-09-20）**：口径=仅本仓库 src/ 的 .cs（排除 `obj/` 与 .axaml 伪行；
-  `[ExcludeFromCodeCoverage]` 类天然不计）。历次快照：80.29%（2026-09-19 起点）→ 83.49% → 84.94%（2026-09-20 实测）。
+- **实测基线（2026-09-21）**：口径=仅本仓库 src/ 的 .cs（排除 `obj/` 与 .axaml 伪行；
+  `[ExcludeFromCodeCoverage]` 类天然不计）。历次快照：80.29%（2026-09-19 起点）→ 83.49% →
+  84.94%（2026-09-20 实测）→ 85.42%（2026-09-21 实测，5125/6000 行）。
 - **判定口径**：行覆盖只是必要条件——合格证据 = 行覆盖命中 + 变异击杀（每日冒烟批
   scripts/mutation-smoke.mjs 即该纪律的脚本化；手工变异纪律见 AGENTS.md「变异实验纪律」）。
   测试须双向可证伪：断言真实执行、失败会传播、断被测行为而非镜像自身。
