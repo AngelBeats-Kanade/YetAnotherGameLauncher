@@ -36,7 +36,7 @@ src/
                     CompatTools（Linux 兼容层单一来源：umu/wine/Lutris/Proton 发现、prefix 统一路径、推荐链 BuildRecommendedLaunch、Proton 发行版代号/umuId 解析、含 LaunchMode 枚举与 CompatLaunch）、
                     Umu/（原生 umu：UmuPaths、VdfMiniParser、SteamRuntimeCatalog、ToolManifest、UmuPrefix、UmuEnvironment、NativeUmuLauncher），
                     GameBackdropService（详情页背景远程解析 + 本地缓存编排：区域/游戏版本门控，版本一致零网络）、WindowsPlatformInfo / LinuxPlatformInfo（IPlatformInfo 双实现）+ PlatformInfoFactory（唯一的 OS 选择分支，DI 与各 ViewModel 缺省共用）
-    Utilities/      Hashing（MD5 hex）、Json（统一序列化选项）、FileUtilities（原子写入/只读目标容错/目录树尽力删除/启动日志唯一路径）
+    Utilities/      Hashing（MD5/SHA-256 hex）、Json（统一序列化选项）、FileUtilities（原子写入/只读目标容错/目录树尽力删除/启动日志唯一路径）
   YetAnotherGameLauncher.Channels.Kuro/         # 库洛渠道（鸣潮）
     KuroChannelApi（index.json/indexFile 解析、CDN 选择、URL 拼接）
     KuroUrlBuilder（含同文件的 KuroCdnSelector：CDN 节点优先级选择）、HpatchzApplier（HDiffPatch 目录模式；HpatchzApplierOptions 配置路径/超时）
@@ -69,7 +69,8 @@ src/
                     ToastHost（右上角轻提示宿主：版本检测结果/检测到游戏、服务器切换/
                     启动设置实际变更，容量 3 丢最旧、4s 自灭；分别经 GameItemViewModel 的
                     StatusToastRequested/SettingsToastRequested 事件转发，状态首轮预热不弹）
-    ViewModels/     MainWindowViewModel、GameItemViewModel、GameSettingsViewModel、LaunchSettingsViewModel、
+    ViewModels/     MainWindowViewModel（SettingsViewModel、AboutViewModel 与其同文件）、GameItemViewModel、
+                    GameSettingsViewModel、LaunchSettingsViewModel、
                     LaunchErrorViewModel（启动失败覆盖层：类目化原因/技术详情/日志入口/umu 一键安装）、
                     GachaViewModel（鸣潮唤取记录页）、SaveMessageSlot（表单保存结果消息槽）、ToastItem（轻提示条目模型）、ViewModelBase
     Assets/         game-icons/（两游戏的官方图标 jpg，samples/games.json 以 avares:// 引用）
