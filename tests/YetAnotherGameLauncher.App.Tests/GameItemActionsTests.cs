@@ -225,6 +225,52 @@ public class GameItemActionsTests : IDisposable
         Assert.Same(sp.GetRequiredService<NetworkProxyManager>(), vm.ProxyManager);
     }
 
+    [Theory]
+    [InlineData(typeof(GameUpdateService))]
+    [InlineData(typeof(GameLauncherService))]
+    [InlineData(typeof(HttpFileDownloader))]
+    public void CompositionRoot_WiresTypedLoggers_InsteadOfSilentNull(Type serviceType)
+    {
+        // 回归（2026-09-20 复审）：裸 ILogger 不在容器里，类型激活会让可注入 logger
+        // 落到默认 null——更新完成/下载重试/启动失败等关键日志全部静默丢弃。
+        // 组合根必须显式工厂传类型化 logger（与 proxyManager 漏传同一形态的装配缺口）
+        using var sp = YetAnotherGameLauncher.App.BuildServices();
+        var service = sp.GetRequiredService(serviceType);
+
+        var loggerField = serviceType.GetFields(
+            System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.NonPublic
+            | System.Reflection.BindingFlags.Public)
+            .FirstOrDefault(f => typeof(Microsoft.Extensions.Logging.ILogger).IsAssignableFrom(f.FieldType));
+
+        Assert.NotNull(loggerField);
+        Assert.NotNull(loggerField.GetValue(service));
+    }
+
+    [Fact]
+    public void CompositionRoot_WiresChannelLoggers()
+    {
+        // 渠道 keyed 注册同样不得拿到 null logger
+        using var sp = YetAnotherGameLauncher.App.BuildServices();
+        var keyed = (IKeyedServiceProvider)sp;
+
+        var kuro = keyed.GetRequiredKeyedService<YetAnotherGameLauncher.Core.Abstractions.IGameChannelApi>(
+            YetAnotherGameLauncher.Channels.Kuro.KuroServiceCollectionExtensions.ChannelKey);
+        var gryphline = keyed.GetRequiredKeyedService<YetAnotherGameLauncher.Core.Abstractions.IGameChannelApi>(
+            YetAnotherGameLauncher.Channels.Hypergryph.HypergryphServiceCollectionExtensions.ChannelKey);
+
+        foreach (var api in new[] { kuro, gryphline })
+        {
+            var loggerField = api.GetType().GetFields(
+                System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Public)
+                .FirstOrDefault(f => typeof(Microsoft.Extensions.Logging.ILogger).IsAssignableFrom(f.FieldType));
+            Assert.NotNull(loggerField);
+            Assert.NotNull(loggerField.GetValue(api));
+        }
+    }
+
     [Fact]
     public void HypergryphNamedClient_PinsSharedHandler_AndDisablesRotation()
     {

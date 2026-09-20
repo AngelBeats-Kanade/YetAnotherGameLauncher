@@ -38,8 +38,7 @@ public partial class App : Application
             var videoPlayer = services.GetRequiredService<IVideoBackdropPlayer>();
             desktop.ShutdownRequested += (_, _) => videoPlayer.Stop();
             // fire-and-forget 初始化：除方法内部的分类处理外，仍可能逃逸的异常至少留日志尾巴
-            _ = viewModel.InitializeAsync().ContinueWith(
-                t => logger.LogError(t.Exception, "初始化任务异常逃逸"),
+            _ = viewModel.InitializeAsync().ContinueWith(t => logger.LogError(t.Exception, "初始化任务异常逃逸"),
                 TaskContinuationOptions.OnlyOnFaulted);
         }
 
@@ -96,7 +95,11 @@ public partial class App : Application
             };
         });
         services.AddSingleton<SpeedLimiter>();
-        services.AddSingleton<HttpFileDownloader>();
+        // 显式工厂传类型化 logger：裸 ILogger 不在容器里，类型激活会让可注入 logger 落到默认 null，
+        // 下载重试/更新完成/启动失败等关键日志全部静默丢弃（2026-09-20 复审修复）
+        services.AddSingleton(sp => new HttpFileDownloader(
+            sp.GetRequiredService<HttpClient>(),
+            logger: sp.GetRequiredService<ILoggerFactory>().CreateLogger<HttpFileDownloader>()));
         services.AddSingleton<IDownloader>(sp => sp.GetRequiredService<HttpFileDownloader>());
         services.AddSingleton<IProcessRunner>(sp =>
             new SystemProcessRunner(
@@ -106,7 +109,9 @@ public partial class App : Application
         services.AddSingleton<IAutostartService>(sp => OperatingSystem.IsLinux()
             ? new LinuxAutostartService()
             : new WindowsAutostartService(sp.GetRequiredService<IProcessRunner>()));
-        services.AddSingleton<IPatchApplier>(sp => new HpatchzApplier(sp.GetRequiredService<IProcessRunner>()));
+        services.AddSingleton<IPatchApplier>(sp => new HpatchzApplier(
+            sp.GetRequiredService<IProcessRunner>(),
+            logger: sp.GetRequiredService<ILoggerFactory>().CreateLogger<HpatchzApplier>()));
 
         // 渠道（keyed by games.json 的 game.channel）
         services.AddKuroChannel();
@@ -114,8 +119,13 @@ public partial class App : Application
 
         // 领域服务
         services.AddSingleton(sp => new GameCatalogService(AppPaths.GetConfigFilePath()));
-        services.AddSingleton<GameUpdateService>();
-        services.AddSingleton<GameLauncherService>();
+        services.AddSingleton(sp => new GameUpdateService(
+            sp.GetRequiredService<IDownloader>(),
+            sp.GetRequiredService<IPatchApplier>(),
+            logger: sp.GetRequiredService<ILoggerFactory>().CreateLogger<GameUpdateService>()));
+        services.AddSingleton(sp => new GameLauncherService(
+            sp.GetRequiredService<IProcessRunner>(),
+            logger: sp.GetRequiredService<ILoggerFactory>().CreateLogger<GameLauncherService>()));
         services.AddSingleton<ThemeService>();
         services.AddSingleton<ILocalizationService, LocalizationService>();
         services.AddSingleton<BackgroundImageService>();

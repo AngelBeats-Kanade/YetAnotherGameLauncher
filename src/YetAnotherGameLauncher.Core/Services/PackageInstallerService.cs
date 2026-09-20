@@ -42,19 +42,40 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
         progress?.Report(new UpdateProgress(UpdatePhase.Done, 0, 0, packageManifest.Files.Count, packageManifest.Files.Count, null));
     }
 
-    /// <summary>预下载：把压缩包下载到暂存目录并写入暂存清单。</summary>
+    /// <summary>预下载：把压缩包下载到暂存目录并写入暂存清单。已完整暂存（size/MD5 一致）
+    /// 的包直接复用、不再下载：暂存清单写入失败或进程中断后重试是幂等的，不会把数十 GB
+    /// 已下载内容全部作废（2026-09-20 复审修复；此前每次 Predownload 先整删暂存目录再全量重下）。</summary>
     public async Task PredownloadAsync(
         string installDir,
         GameManifest packageManifest,
         IProgress<UpdateProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        var staging = IncrementalUpdateService.ResetStaging(installDir);
+        // 不再整删暂存目录：中断残留由 IsArchiveIntact 核对消化，清单外的游离包单独清理
+        var staging = IncrementalUpdateService.PredownloadDir(installDir);
+        Directory.CreateDirectory(PackagesDir(installDir));
+
         await DownloadPackagesAsync(PackagesDir(installDir), packageManifest, progress, cancellationToken).ConfigureAwait(false);
+        PruneForeignPackages(PackagesDir(installDir), packageManifest);
 
         await IncrementalUpdateService.WriteStagedManifestAsync(staging, packageManifest, cancellationToken).ConfigureAwait(false);
 
         progress?.Report(new UpdateProgress(UpdatePhase.Done, 0, 0, packageManifest.Files.Count, packageManifest.Files.Count, null));
+    }
+
+    /// <summary>清理暂存包目录里不属于当前清单的游离文件（上次预下载的旧代际残留）。</summary>
+    private static void PruneForeignPackages(string packagesDir, GameManifest packageManifest)
+    {
+        var keep = packageManifest.Files
+            .Select(f => Path.GetFullPath(StagedArchivePath(packagesDir, f)))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in Directory.EnumerateFiles(packagesDir))
+        {
+            if (!keep.Contains(Path.GetFullPath(file)))
+            {
+                FileUtilities.DeleteQuiet(file);
+            }
+        }
     }
 
     /// <summary>
@@ -128,8 +149,11 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
             progress?.Report(new UpdateProgress(UpdatePhase.Downloading, totalBytes, downloaded, index, packageManifest.Files.Count, file.Path));
 
             var archivePath = StagedArchivePath(packagesDir, file);
-            await downloader.DownloadFileAsync(
-                new DownloadRequest(file.Url, archivePath, file.Size, file.Md5), null, cancellationToken).ConfigureAwait(false);
+            if (!IsArchiveIntact(archivePath, file))
+            {
+                await downloader.DownloadFileAsync(
+                    new DownloadRequest(file.Url, archivePath, file.Size, file.Md5), null, cancellationToken).ConfigureAwait(false);
+            }
 
             downloaded += file.Size;
             staged.Add((file, archivePath));

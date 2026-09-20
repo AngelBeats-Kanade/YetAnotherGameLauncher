@@ -85,6 +85,35 @@ public class LaunchSettingsMatrixTests : IDisposable
     }
 
     [Fact]
+    public async Task ProtonFlavorSwitch_WithHalfLineDraft_StillPersistsProtonPath()
+    {
+        // 回归（2026-09-20 复审）：发行版"选择即保存"曾走整卡 SaveAsync——草稿里的半行
+        // （用户输入到一半、还没有 "="）让环境校验失败提前返回，PROTONPATH 不落盘：
+        // 下拉显示 GE-Proton、实际仍按旧配置启动，重启后选择回退。
+        await _ctx.Vm.InitializeAsync();
+        var settings = NewSettings();
+        settings.EnvironmentText = "DXVK_HUD=1\nDXVK"; // 完整行 + 半行
+
+        settings.SelectedProtonFlavor = "GE-Proton";
+
+        // 即时保存是 fire-and-forget：轮询等待落盘
+        for (var i = 0; i < 100 && !File.ReadAllText(_ctx.ConfigPath).Contains("GE-Proton", StringComparison.Ordinal); i++)
+        {
+            await Task.Delay(20);
+        }
+
+        // PROTONPATH 仍须落盘（半行不得阻断）；草稿里其余行不随即时保存落盘（保持草稿语义），
+        // 半行本身原样保留
+        using var doc = System.Text.Json.JsonDocument.Parse(
+            await File.ReadAllTextAsync(_ctx.ConfigPath));
+        var environment = doc.RootElement.GetProperty("games")[0]
+            .GetProperty("launch").GetProperty("environment");
+        Assert.Equal("GE-Proton", environment.GetProperty("PROTONPATH").GetString());
+        Assert.False(environment.TryGetProperty("DXVK_HUD", out _));
+        Assert.Contains("\nDXVK", settings.EnvironmentText);
+    }
+
+    [Fact]
     public async Task PrepareUmuComponents_Failure_ShowsFailureInSaveSlot()
     {
         await _ctx.Vm.InitializeAsync();

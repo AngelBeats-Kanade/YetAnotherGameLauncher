@@ -212,7 +212,7 @@ public sealed partial class FfmpegLibraryResolver(
     }
 
     /// <summary>按扩展名解压（zip 用内置实现，tar.xz 用 SharpCompress），拒绝路径穿越条目。</summary>
-    private static void ExtractArchive(string archivePath, string targetDir)
+    internal static void ExtractArchive(string archivePath, string targetDir)
     {
         if (archivePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
         {
@@ -222,6 +222,10 @@ public sealed partial class FfmpegLibraryResolver(
 
         using var stream = File.OpenRead(archivePath);
         using var reader = ReaderFactory.Open(stream);
+        // 前缀比较必须带目录分隔符：targetDir=/data/ff 时裸前缀会放过 "../ffx/x" 条目
+        // （解析到兄弟目录 /data/ffx），与 ManifestVerifier.ResolveSafe 同一防线
+        var sandboxRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(targetDir))
+                          + Path.DirectorySeparatorChar;
         while (reader.MoveToNextEntry())
         {
             if (reader.Entry.IsDirectory)
@@ -230,7 +234,7 @@ public sealed partial class FfmpegLibraryResolver(
             }
 
             var fullPath = Path.GetFullPath(Path.Combine(targetDir, reader.Entry.Key!));
-            if (!fullPath.StartsWith(Path.GetFullPath(targetDir), StringComparison.Ordinal))
+            if (!fullPath.StartsWith(sandboxRoot, StringComparison.Ordinal))
             {
                 throw new IOException($"Refusing entry outside target dir: {reader.Entry.Key}");
             }

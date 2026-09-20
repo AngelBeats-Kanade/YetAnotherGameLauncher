@@ -86,6 +86,22 @@ public class PackageInstallerServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Predownload_ReusesIntactStagedPackages_OnRetry()
+    {
+        // 回归（2026-09-20 复审）：包式预下载曾每次先整删暂存目录再全量重下——清单写入
+        // 失败或中断后重试会把数十 GB 已下载内容全部作废。现在已完整暂存的包直接复用
+        _downloader.Responses[ZipUrl] = ZipBytes;
+        var service = new PackageInstallerService(_downloader);
+
+        await service.PredownloadAsync(_tempDir.Path, Manifest());
+        var requestsAfterFirst = _downloader.Requests.Count;
+
+        await service.PredownloadAsync(_tempDir.Path, Manifest());
+
+        Assert.Equal(requestsAfterFirst, _downloader.Requests.Count);
+    }
+
+    [Fact]
     public async Task ApplyPredownload_CorruptStagedArchive_FallsBackToReDownload()
     {
         _downloader.Responses[ZipUrl] = ZipBytes;

@@ -40,11 +40,13 @@ public sealed class IncrementalUpdateService(
         return staging;
     }
 
-    /// <summary>把暂存对应的清单写入暂存目录（应用预下载时按此核对）；增量与包式预下载链路共用。</summary>
+    /// <summary>把暂存对应的清单写入暂存目录（应用预下载时按此核对）；增量与包式预下载链路共用。
+    /// 原子写：数十 GB 预下载完成后 manifest.json 写到一半被杀（断电/占用截断）会让全部预下载
+    /// 作废（读回即损坏 → Apply 报"No preloaded update found"）（2026-09-20 复审修复）。</summary>
     public static async Task WriteStagedManifestAsync(
         string staging, GameManifest manifest, CancellationToken cancellationToken)
     {
-        await File.WriteAllTextAsync(
+        await FileUtilities.WriteAtomicAsync(
             Path.Combine(staging, "manifest.json"),
             JsonSerializer.Serialize(manifest, Json.Default),
             cancellationToken).ConfigureAwait(false);
@@ -118,7 +120,10 @@ public sealed class IncrementalUpdateService(
         progress?.Report(new UpdateProgress(UpdatePhase.Done, totalBytes, bytes, totalItems, totalItems, null));
     }
 
-    /// <summary>读取暂存清单；没有已预下载内容时返回 null。</summary>
+    /// <summary>读取暂存清单；没有已预下载内容时返回 null。文件被占用/无权限同样按
+    /// "暂存未知"处理返回 null（与 <see cref="LocalStateService.Load"/> 同语义）——
+    /// 只捕 JsonException 会让 Windows 上杀软瞬时锁住 manifest.json 时异常穿出
+    /// RefreshAsync 的弃元调用点，静默丢失状态刷新与完成提示（2026-09-20 复审修复）。</summary>
     public static GameManifest? TryLoadStagedManifest(string installDir)
     {
         var path = Path.Combine(PredownloadDir(installDir), "manifest.json");
@@ -131,7 +136,7 @@ public sealed class IncrementalUpdateService(
         {
             return JsonSerializer.Deserialize<GameManifest>(File.ReadAllText(path), Json.Default);
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
             return null;
         }

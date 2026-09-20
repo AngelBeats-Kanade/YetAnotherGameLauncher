@@ -187,6 +187,10 @@ public partial class GameItemViewModel(
     /// <summary>播放器帧通知订阅状态（避免重复订阅）。</summary>
     private bool _videoSubscribed;
 
+    /// <summary>起播代际：每次 StartVideoAsync 递增，被抢先的旧调用凭比对放弃清场权
+    /// （防止其失败兜底 StopVideo 误杀新一代起播）。</summary>
+    private int _videoStartGeneration;
+
     /// <summary>版本检测结果按服务器的会话缓存（进行中或已成功的任务；每启动每服务器至多一次网络检测）。</summary>
     private readonly Dictionary<GameServer, Task<ChannelVersionInfo>> _versionInfoTasks = [];
 
@@ -526,6 +530,10 @@ public partial class GameItemViewModel(
             return;
         }
 
+        // 起播代际：被后发起播抢先的旧调用无权清场——其 finally 的 StopVideo 是 VM 级全局
+        // 停止，会误杀新一代起播（视频层不再点亮直到离页再进，2026-09-20 复审修复）。
+        // 过期调用不退订是安全的：新起播入口的 StopVideo 已退订旧订阅并重新订阅。
+        var generation = ++_videoStartGeneration;
         StopVideo();
         _pendingVideoPath = videoPath;
         VideoPlayer.FrameUpdated += OnVideoFrameUpdated;
@@ -543,7 +551,7 @@ public partial class GameItemViewModel(
         }
         finally
         {
-            if (!playing)
+            if (!playing && generation == _videoStartGeneration)
             {
                 StopVideo();
             }
@@ -851,6 +859,9 @@ public partial class GameItemViewModel(
         }
 
         IsBusy = true;
+        // 结果消息归属发起时的服务器：完成前切服时不得覆盖新服状态行
+        // （RefreshAsync 有代际门，紧随其后的 StatusText 写入没有，2026-09-20 复审修复）
+        var originServer = SelectedServer;
         var failureMessage = "";
         try
         {
@@ -873,8 +884,8 @@ public partial class GameItemViewModel(
             {
                 await RefreshAsync(cancellationToken);
             }
-            // 成功后刷新出的"已是最新版本"即最终状态；仅失败时覆盖
-            if (failureMessage.Length > 0)
+            // 成功后刷新出的"已是最新版本"即最终状态；仅失败时覆盖，且仅当仍在发起时的服务器
+            if (failureMessage.Length > 0 && ReferenceEquals(originServer, SelectedServer))
             {
                 StatusText = failureMessage;
             }
@@ -906,6 +917,9 @@ public partial class GameItemViewModel(
         }
 
         IsBusy = true;
+        // 结果消息归属发起时的服务器：完成前切服时不得覆盖新服状态行
+        // （RefreshAsync 有代际门，紧随其后的 StatusText 写入没有，2026-09-20 复审修复）
+        var originServer = SelectedServer;
         var message = "";
         try
         {
@@ -913,8 +927,10 @@ public partial class GameItemViewModel(
                 _installDir, Game, SelectedServer, channel, Progress, cancellationToken);
             message = Loc.Format("predownload_done", summary.FromVersion, summary.ToVersion);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            // 取消不报"预下载失败"（与 RegisterVersion/RunUpdate 的豁免一致）：
+            // 已取消时 finally 跳过刷新与提示，重试幂等
             message = Loc.Format("predownload_failed", ex.Message);
         }
         finally
@@ -927,7 +943,10 @@ public partial class GameItemViewModel(
             {
                 await RefreshAsync(cancellationToken);
             }
-            StatusText = message;
+            if (ReferenceEquals(originServer, SelectedServer))
+            {
+                StatusText = message;
+            }
         }
     }
 
@@ -960,6 +979,9 @@ public partial class GameItemViewModel(
         }
 
         IsBusy = true;
+        // 结果消息归属发起时的服务器：完成前切服时不得覆盖新服状态行
+        // （RefreshAsync 有代际门，紧随其后的 StatusText 写入没有，2026-09-20 复审修复）
+        var originServer = SelectedServer;
         ProgressPercent = 0;
         ProgressText = Loc["progress_preparing"];
         var message = "";
@@ -987,7 +1009,7 @@ public partial class GameItemViewModel(
             {
                 await RefreshAsync(cancellationToken);
             }
-            if (!string.IsNullOrEmpty(message))
+            if (!string.IsNullOrEmpty(message) && ReferenceEquals(originServer, SelectedServer))
             {
                 StatusText = message;
             }

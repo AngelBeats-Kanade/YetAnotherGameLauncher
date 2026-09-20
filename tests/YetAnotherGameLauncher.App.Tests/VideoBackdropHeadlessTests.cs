@@ -14,6 +14,76 @@ namespace YetAnotherGameLauncher.UiTests;
 /// 首帧到达后视频层可见、切走/关页停止；静态图来源不触碰播放器。
 /// </summary>
 [Collection("sequential")]
+public class VideoBackdropHeadlessStartTests
+{
+    [Fact]
+    public async Task StartVideo_OlderPendingCallFailingLater_DoesNotKillNewerPlayback()
+    {
+        // 回归（2026-09-20 复审）：起播窗口内被后发起播抢先时，旧调用的 finally 失败兜底
+        // StopVideo 是 VM 级全局停止，会误杀新一代起播——视频层不再点亮直到离页再进。
+        // 场景载体：详情页在播窗口内切语言触发 LoadAssetsCoreAsync 再起播。
+        var tempDir = new TestSupport.TempDir();
+        try
+        {
+            var player = new VmFactory.FakeVideoPlayer();
+            using var ctx = VmFactory.Build(videoPlayer: player);
+            var localVideo = tempDir.FilePath("cached", "backdrop.mp4");
+            Directory.CreateDirectory(Path.GetDirectoryName(localVideo)!);
+            await File.WriteAllTextAsync(localVideo, "fake");
+            ctx.KuroBackdrop.Resolver = _ => new BackdropSource(localVideo, BackdropKind.Video);
+            await ctx.Vm.InitializeAsync();
+            var game = ctx.Vm.Games[0];
+
+            var calls = 0;
+            var firstPlayGate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            player.AsyncPlayHandler = _ =>
+            {
+                calls++;
+                return calls == 1 ? firstPlayGate.Task : Task.FromResult(true);
+            };
+
+            // 第一次起播挂在起播窗口内；随后第二次起播（先停旧的、再成功）
+            game.SetDetailActive(true);
+            Assert.Equal(1, calls);
+            game.SetDetailActive(false);
+            game.SetDetailActive(true);
+            Assert.Equal(2, calls);
+            var stopCountAfterSecondStart = player.StopCount;
+
+            // 第二次起播点亮视频层（假帧即可：只判非空，不触渲染接口——Bitmap 须在会话线程）
+            player.Frame = new StubImage();
+            player.RaiseFrame();
+            Assert.True(game.HasBackgroundVideo);
+
+            // 第一次起播此时失败返回：不得停掉新一代播放
+            firstPlayGate.SetResult(false);
+            await Task.Delay(100);
+
+            Assert.Equal(stopCountAfterSecondStart, player.StopCount);
+            Assert.True(game.HasBackgroundVideo);
+        }
+        finally
+        {
+            tempDir.Dispose();
+        }
+    }
+
+    /// <summary>非空占位帧：仅用于"帧缓冲非空才点亮"判定，不触平台渲染接口。</summary>
+    private sealed class StubImage : Avalonia.Media.IImage
+    {
+        public Avalonia.Size Size => new(4, 4);
+
+        public void Draw(Avalonia.Media.DrawingContext context, Avalonia.Rect sourceRect, Avalonia.Rect destRect)
+        {
+        }
+    }
+}
+
+/// <summary>
+/// 背景视频链路无头回归（UI 线程）：解析器返回视频源时，进入详情页起播（fake 播放器）、
+/// 首帧到达后视频层可见、切走/关页停止；静态图来源不触碰播放器。
+/// </summary>
+[Collection("sequential")]
 public class VideoBackdropHeadlessTests : IDisposable
 {
     private readonly VmFactory.Context _ctx;

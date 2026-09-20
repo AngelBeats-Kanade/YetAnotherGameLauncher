@@ -366,3 +366,31 @@ public class IncrementalUpdateServiceTests : IDisposable
             () => service.ApplyAsync(_tempDir.Path, manifest, cancellationToken: cts.Token));
     }
 }
+
+public class IncrementalUpdateServiceStagedManifestTests : IDisposable
+{
+    private readonly TempDir _tempDir = new();
+
+    public void Dispose() => _tempDir.Dispose();
+
+    [Fact]
+    public void TryLoadStagedManifest_UnreadableFile_ReturnsNullInsteadOfThrowing()
+    {
+        // 回归（2026-09-20 复审）：manifest.json 读不了（占用/无权限）按"暂存未知"处理返回 null，
+        // 与 LocalStateService.Load 同语义——只捕 JsonException 会让异常穿出 RefreshAsync
+        // 的弃元调用点，静默丢失状态刷新与完成提示
+        var staging = IncrementalUpdateService.ResetStaging(_tempDir.Path);
+        var manifestPath = Path.Combine(staging, "manifest.json");
+        File.WriteAllText(manifestPath, "{}");
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(manifestPath, UnixFileMode.None);
+        }
+        else
+        {
+            Assert.Skip("Unix file modes are unavailable on Windows; the locked-file scenario is covered on the Linux leg.");
+        }
+
+        Assert.Null(IncrementalUpdateService.TryLoadStagedManifest(_tempDir.Path));
+    }
+}

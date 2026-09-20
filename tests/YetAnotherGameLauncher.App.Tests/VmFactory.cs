@@ -81,6 +81,9 @@ public static class VmFactory
         /// <summary>起播是否成功（默认 true）。</summary>
         public Func<string, bool>? PlayHandler { get; set; }
 
+        /// <summary>异步起播（优先于 PlayHandler）：返回挂起的 Task 可模拟起播窗口内被后发起播抢先。</summary>
+        public Func<string, Task<bool>>? AsyncPlayHandler { get; set; }
+
         public List<string> PlayedPaths { get; } = [];
 
         public int StopCount { get; private set; }
@@ -99,7 +102,9 @@ public static class VmFactory
         public Task<bool> PlayAsync(string videoPath, CancellationToken cancellationToken = default)
         {
             PlayedPaths.Add(videoPath);
-            return Task.FromResult(PlayHandler?.Invoke(videoPath) ?? true);
+            return AsyncPlayHandler is { } async
+                ? async(videoPath)
+                : Task.FromResult(PlayHandler?.Invoke(videoPath) ?? true);
         }
 
         public void Stop()

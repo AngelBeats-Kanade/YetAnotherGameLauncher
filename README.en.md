@@ -100,7 +100,7 @@ No development environment needed — four steps (the release packages are **sel
 > - **No wine / Proton needed on Linux beforehand**: the default umu launch chain automatically downloads
 >   DW-Proton (the default flavor; switch to GE-Proton / UMU-Proton in game settings) and Steam Runtime
 > - Wuthering Waves **incremental updates** need the [hpatchz (HDiffPatch)](https://github.com/sisong/HDiffPatch/releases)
->   executable: install it and make sure it is on PATH, or configure its path (see [GAME_CONFIG.md](docs/GAME_CONFIG.md))
+>   executable: install it and make sure it is on PATH (configuring a custom tool path is not supported yet)
 > - Want the games somewhere else? Change the **install root** under "Settings → Downloads" before installing
 > - The config file lives at `~/.config/yagl/games.json` on Linux and `%APPDATA%\yagl\games.json` on Windows
 

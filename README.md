@@ -95,7 +95,7 @@
 > - **Linux 上不需要提前装 wine / Proton**：默认的 umu 启动链会在启动游戏时自动下载
 >   DW-Proton（默认发行版，可改选 GE-Proton / UMU-Proton）与 Steam Runtime
 > - 鸣潮的**增量更新**需要 [hpatchz（HDiffPatch）](https://github.com/sisong/HDiffPatch/releases)可执行文件：
->   装好并确保在 PATH 里即可，也可在配置中指定路径（见 [GAME_CONFIG.md](docs/GAME_CONFIG.md)）
+>   装好并确保在 PATH 里即可（工具路径暂不支持在配置中指定）
 > - 想把游戏装到别处？先到「设置 → 下载」改**安装根目录**，再去安装
 > - 配置文件在 Linux 的 `~/.config/yagl/games.json`、Windows 的 `%APPDATA%\yagl\games.json`
 

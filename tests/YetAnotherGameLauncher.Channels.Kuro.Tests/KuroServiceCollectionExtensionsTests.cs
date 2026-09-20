@@ -13,6 +13,8 @@ public class KuroServiceCollectionExtensionsTests
     {
         var services = new ServiceCollection();
         services.AddSingleton<Core.Abstractions.IDownloader>(new YetAnotherGameLauncher.TestSupport.FakeDownloader());
+        services.AddSingleton<Microsoft.Extensions.Logging.ILoggerFactory>(
+            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance); // 生产组合根提供日志设施；工厂 lambda 解析 ILoggerFactory
         services.AddKuroChannel();
 
         using var provider = services.BuildServiceProvider();

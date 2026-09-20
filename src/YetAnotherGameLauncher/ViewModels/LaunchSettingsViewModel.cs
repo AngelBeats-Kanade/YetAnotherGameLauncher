@@ -525,17 +525,34 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             Environment.NewLine, merged.Select(kv => $"{kv.Key}={kv.Value}").Concat(preserved));
     }
 
-    /// <summary>把发行版选择立即保存回 games.json（选择即生效）。可预期失败已由 SaveAsync 写入消息槽；
-    /// 此处兜底捕获防未观察任务异常。</summary>
+    /// <summary>把发行版选择立即保存回 games.json（选择即生效）。走窄通道：只把
+    /// PROTONPATH 写进已保存的环境变量并落盘，不做整卡校验——环境草稿里的半行（输入到一半）
+    /// 不得阻断发行版切换，否则下拉显示新发行版、PROTONPATH 仍是旧值，重启后选择回退，
+    /// 正是"选择即保存"要消灭的显示与实际启动错位（2026-09-20 复审修复）。
+    /// 草稿文本的其余部分不受影响；整卡校验留给显式"保存启动设置"。可预期失败已由 SaveAsync
+    /// 写入消息槽；此处兜底捕获防未观察任务异常。</summary>
     private async Task SaveSelectedFlavorAsync()
     {
+        var originalLaunch = _game.Launch;
+        var environment = new Dictionary<string, string>(originalLaunch.Environment, StringComparer.Ordinal);
+        environment["PROTONPATH"] = SelectedProtonFlavor ?? "";
+        _game.Launch = new LaunchOptions
+        {
+            CommandTemplate = originalLaunch.CommandTemplate,
+            WorkingDirectory = originalLaunch.WorkingDirectory,
+            Environment = environment,
+            UmuId = originalLaunch.UmuId,
+        };
+
         try
         {
-            await SaveAsync(CancellationToken.None);
+            await _catalogService.SaveAsync(CancellationToken.None);
+            // 变更恰好只有 PROTONPATH：沿用整卡保存的轻提示管线，按"Proton 发行版"汇报
+            RaiseChangedToast(false, false, false, false, ["PROTONPATH"]);
         }
         catch (Exception)
         {
-            // SaveAsync 消息槽已提示用户；静默防崩
+            _game.Launch = originalLaunch; // 失败回滚，内存与磁盘保持一致（对照整卡 SaveAsync 的快照纪律）
         }
     }
 

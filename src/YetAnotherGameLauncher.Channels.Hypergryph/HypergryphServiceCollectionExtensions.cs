@@ -28,7 +28,8 @@ public static class HypergryphServiceCollectionExtensions
         services.AddKeyedTransient<IGameChannelApi>(ChannelKey, (serviceProvider, _) =>
             new GryphlineChannelApi(
                 serviceProvider.GetRequiredService<IHttpClientFactory>().CreateClient(ChannelKey),
-                serviceProvider.GetService<ILogger>()));
+                logger: serviceProvider.GetRequiredService<ILoggerFactory>()
+                    .CreateLogger<GryphlineChannelApi>()));
 
         return services;
     }

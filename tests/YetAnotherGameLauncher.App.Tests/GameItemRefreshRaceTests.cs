@@ -97,4 +97,27 @@ public class GameItemRefreshRaceTests : IDisposable
             await Task.Delay(10);
         }
     }
+
+    [Fact]
+    public async Task Predownload_ResultFromOldServer_DoesNotOverwriteNewServerStatus()
+    {
+        // 回归（2026-09-20 复审）：操作完成消息归属发起时的服务器——RefreshAsync 有代际门，
+        // 紧随其后的 StatusText 写入没有；切服后完成的操作会把旧服结果文案盖到新服状态行上
+        await _ctx.Vm.InitializeAsync();
+        var wuwa = _ctx.Vm.Games[0];
+        Assert.Equal("cn", wuwa.SelectedServer.Id);
+
+        // cn 上发起预下载（闸门挂起 = 慢网在途），期间切到 global
+        var operation = wuwa.PredownloadCommand.ExecuteAsync(null);
+        wuwa.SelectedServer = wuwa.Servers[1];
+        _cnGate.SetResult();
+        await operation;
+
+        // global 的状态行只由它自己的刷新写（未登记 → "未安装"），不得被旧服的
+        // "预下载失败/完成"文案覆盖
+        await WaitForAsync(() => wuwa.StatusText.Length > 0);
+        Assert.False(
+            wuwa.StatusText.Contains("预下载", StringComparison.Ordinal),
+            $"新服务器状态行被旧服结果覆盖：{wuwa.StatusText}");
+    }
 }
