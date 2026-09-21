@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Xunit;
@@ -310,6 +311,40 @@ public class SidebarNavHeadlessTests : IDisposable
             Assert.Equal(downSpans[i].Item2, downT[i] + height * downS[i], 6);
             Assert.Equal(upSpans[i].Item1, upT[i], 6);
             Assert.Equal(upSpans[i].Item2, upT[i] + height * upS[i], 6);
+        }
+    }
+
+    [Fact]
+    public void BuildTransferAnimation_SingleTimeline_CarriesTranslateAndScalePerFrame()
+    {
+        const double height = 46;
+        const double oldCenter = 200;
+        const double gap = 100;
+        var (translate, scale) = MainWindow.BuildTransferCues(oldCenter, oldCenter + gap, height);
+
+        var animation = MainWindow.BuildTransferAnimation(oldCenter, oldCenter + gap, height);
+
+        Assert.Equal(MainWindow.TransferDuration, animation.Duration);
+        Assert.Equal(4, animation.Children.Count);
+        var expectedCues = new[] { 0.0, 0.45, 0.55, 1.0 };
+        // 段落缓动：0→45% 与 55→100% 带缓出样条，中间 42ms 跳变段线性
+        var expectedSplined = new[] { true, false, true, false };
+        for (var i = 0; i < animation.Children.Count; i++)
+        {
+            var frame = animation.Children[i];
+            Assert.Equal(expectedCues[i], frame.Cue.CueValue, 6);
+            Assert.Equal(expectedSplined[i], frame.KeySpline is not null);
+            // 平移与缩放必须同帧携带（单时间线）：两属性同进度插值是"远端边钉住"形态的前提，
+            // 拆成两条并行动画会在向上迁移起步段一帧失步即观感卡顿。
+            // Setters 是 IAnimationSetter 列表（接口成员不可访问），读属性需转具体 Setter
+            Assert.Equal(2, frame.Setters.Count);
+            Assert.Contains(frame.Setters.OfType<Setter>(), s => s.Property == TranslateTransform.YProperty);
+            Assert.Contains(frame.Setters.OfType<Setter>(), s => s.Property == ScaleTransform.ScaleYProperty);
+            foreach (var setter in frame.Setters.OfType<Setter>())
+            {
+                var expected = setter.Property == TranslateTransform.YProperty ? translate[i] : scale[i];
+                Assert.Equal(expected, (double)setter.Value!, 6);
+            }
         }
     }
 

@@ -75,15 +75,13 @@ public partial class MainWindow : Window
     private const double CollapsedEdgeX = 3;
 
     /// <summary>迁移动画总时长：0-45% 旧项上变长、45-55% 跳变、55-100% 新项上收缩。</summary>
-    private static readonly TimeSpan TransferDuration = TimeSpan.FromMilliseconds(420);
-
-    /// <summary>平移段的缓入缓出贝塞尔样条（标准 ease-in-out 控制点）。</summary>
-    private static readonly KeySpline EaseInOutSpline = new(0.42, 0, 0.58, 1);
+    internal static readonly TimeSpan TransferDuration = TimeSpan.FromMilliseconds(420);
 
     /// <summary>拉长/缩短段的缓出贝塞尔样条（标准 ease-out 控制点）。</summary>
     private static readonly KeySpline EaseOutSpline = new(0, 0, 0.58, 1);
 
-    /// <summary>在途迁移动画的取消源：快速连点时中断上一段，从当前视觉状态重新出发。</summary>
+    /// <summary>在途迁移动画的取消源：快速连点时中断上一段；取消后属性回落基值
+    /// （上一目标的终态），下一段迁移从那里出发。</summary>
     private CancellationTokenSource? _indicatorCts;
 
     /// <summary>合并同一 UI 批次里的多次触发（选中变化与高亮归属变化往往同时发生）。</summary>
@@ -448,29 +446,46 @@ public partial class MainWindow : Window
     /// <summary>
     /// 迁移编舞（两段式）：①旧项上朝行进方向变长一倍（远端边固定）→ 45-55% 以 2 倍长形态
     /// 快速跳到新选中项（长度固定 2×点高，与行距无关，不会把两行连成一条）→
-    /// ②在新疆界以逆向拉长形态落位并收缩回小点。平移与缩放各一条 keyframe 动画并行驱动
-    /// RenderTransform 组内的对应子变换（目标必须是控件，TransformAnimator 才能找到子变换）。
+    /// ②在新疆界以逆向拉长形态落位并收缩回小点。先取消在途动画再启动新动画。
     /// </summary>
     private void RunTransferAnimation(double oldCenter, double newCenter, double height)
     {
         _indicatorCts?.Cancel();
-        _indicatorCts = new CancellationTokenSource();
-        var ct = _indicatorCts.Token;
+        var cts = new CancellationTokenSource();
+        _indicatorCts = cts;
 
+        PlayAsync(BuildTransferAnimation(oldCenter, newCenter, height), NavIndicator, cts.Token);
+    }
+
+    /// <summary>
+    /// 构建迁移编舞动画：单条 Animation 的 4 个 KeyFrame（对应 0%/45%/55%/100%）各携带平移与
+    /// 缩放两个 Setter，一次 RunAsync 驱动 RenderTransform 组内的两个子变换（目标必须是控件，
+    /// Animator 才能按属性找到子变换）。两属性共享同一条时间线是"远端边钉住"形态成立的前提：
+    /// 该形态要求任意插值时刻平移与缩放同进度，拆成两条并行动画会因起步批次/时钟不同步被破坏
+    /// （向上迁移起步段平移缩放同时动，一帧之差即观感卡顿，2026-09-21 修复）。
+    /// 段落缓动：0→45% 与 55→100% 用缓出样条，中间 42ms 跳变段线性（观感为"跳"而非"滑"）；
+    /// Avalonia 12 的 keyframe 缓动为 WPF 式贝塞尔控制点（KeySpline），作用于进入该帧的段落。
+    /// </summary>
+    internal static Animation BuildTransferAnimation(double oldCenter, double newCenter, double height)
+    {
         var (translateValues, scaleValues) = BuildTransferCues(oldCenter, newCenter, height);
         var cues = new[] { 0.0, 0.45, 0.55, 1.0 };
-        // 跳变段（帧1，45%→55%）线性：42ms 内原样平移，观感为"跳"而非"滑"
         var splines = new KeySpline?[] { EaseOutSpline, null, EaseOutSpline, null };
-        var translate = new Animation { Duration = TransferDuration };
-        var scale = new Animation { Duration = TransferDuration };
+        var animation = new Animation { Duration = TransferDuration };
         for (var i = 0; i < cues.Length; i++)
         {
-            translate.Children.Add(TransformCue(TranslateTransform.YProperty, cues[i], translateValues[i], splines[i]));
-            scale.Children.Add(TransformCue(ScaleTransform.ScaleYProperty, cues[i], scaleValues[i], splines[i]));
+            var frame = new KeyFrame { Cue = new Cue(cues[i]) };
+            if (splines[i] is { } spline)
+            {
+                frame.KeySpline = spline;
+            }
+
+            frame.Setters.Add(new Setter { Property = TranslateTransform.YProperty, Value = translateValues[i] });
+            frame.Setters.Add(new Setter { Property = ScaleTransform.ScaleYProperty, Value = scaleValues[i] });
+            animation.Children.Add(frame);
         }
 
-        PlayAsync(translate, NavIndicator, ct);
-        PlayAsync(scale, NavIndicator, ct);
+        return animation;
     }
 
     /// <summary>
@@ -490,20 +505,6 @@ public partial class MainWindow : Window
             ? new[] { top0, top0 - DotHeight, top1, top1 }      // 向上：底沿固定向上变长
             : new[] { top0, top0, top1 - DotHeight, top1 };     // 向下：顶沿固定向下变长
         return (translate, new[] { dotScale, stretchedScale, stretchedScale, dotScale });
-    }
-
-    /// <summary>构建单个 Transform 子属性 keyframe（默认线性；显式传入 KeySpline 的段落做平滑过渡，
-    /// Avalonia 12 的 keyframe 缓动为 WPF 式贝塞尔控制点而非 Easing 对象）。</summary>
-    private static KeyFrame TransformCue(AvaloniaProperty property, double cue, double value, KeySpline? spline = null)
-    {
-        var frame = new KeyFrame { Cue = new Cue(cue) };
-        if (spline is not null)
-        {
-            frame.KeySpline = spline;
-        }
-
-        frame.Setters.Add(new Setter { Property = property, Value = value });
-        return frame;
     }
 
     /// <summary>启动一条动画（Transform 同为 Animatable）；取消视为正常结束。</summary>
