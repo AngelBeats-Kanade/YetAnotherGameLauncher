@@ -279,13 +279,16 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>启动遮蔽最小展示时长（测试注入缩小时长）。</summary>
     internal TimeSpan BootMinSplash { get; set; } = TimeSpan.FromSeconds(BootGate.MinSplashSeconds);
 
+    /// <summary>静态海报放行宽限（测试注入缩小时长）：优先等视频首帧，海报只作宽限后的兜底。</summary>
+    internal TimeSpan BootPosterGrace { get; set; } = TimeSpan.FromSeconds(BootGate.PosterGraceSeconds);
+
     /// <summary>开启启动遮蔽（App 启动路径在窗口上屏前调用一次）：初始化与背景预载在遮蔽后进行。</summary>
     public void BeginBootSplash() => IsBooting = true;
 
     /// <summary>
-    /// 启动门控：遮蔽下有界轮询等待首个选中游戏的背景就绪（视频首帧 <c>HasBackgroundVideo</c> 或
-    /// 静态海报 <c>HasBackgroundImage</c>），叠加最小展示时长；超时/配置错误/无游戏无条件放行——
-    /// 放行后海报/渐变照常兜底、视频就绪后弹入。App 在 <see cref="InitializeAsync"/> 完成后调用；
+    /// 启动门控：遮蔽下有界轮询等待首个选中游戏的背景就绪——优先视频首帧（进入主界面即见
+    /// 动画，无静态→动态跳变），静态海报仅在宽限期（<see cref="BootPosterGrace"/>）后兜底放行；
+    /// 超时/配置错误/无游戏无条件放行。App 在 <see cref="InitializeAsync"/> 完成后调用；
     /// 未开启遮蔽（测试/重复调用）为空跑。纯决策见 <see cref="BootGate"/>。
     /// </summary>
     public async Task RunBootGateAsync(CancellationToken cancellationToken = default)
@@ -301,14 +304,15 @@ public partial class MainWindowViewModel : ViewModelBase
             while (true)
             {
                 var game = SelectedGame;
-                var ready = game is null || game.HasBackgroundVideo || game.HasBackgroundImage;
                 if (BootGate.ShouldRelease(
-                        ready,
-                        game is not null,
-                        ConfigError,
-                        stopwatch.Elapsed.TotalSeconds,
-                        BootReadinessTimeout.TotalSeconds,
-                        BootMinSplash.TotalSeconds))
+                        videoReady: game?.HasBackgroundVideo == true,
+                        posterReady: game?.HasBackgroundImage == true,
+                        hasSelectedGame: game is not null,
+                        configError: ConfigError,
+                        elapsedSeconds: stopwatch.Elapsed.TotalSeconds,
+                        timeoutSeconds: BootReadinessTimeout.TotalSeconds,
+                        minSplashSeconds: BootMinSplash.TotalSeconds,
+                        posterGraceSeconds: BootPosterGrace.TotalSeconds))
                 {
                     return;
                 }

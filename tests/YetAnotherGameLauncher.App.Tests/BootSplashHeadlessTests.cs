@@ -88,6 +88,50 @@ public class BootSplashHeadlessTests
     }
 
     [Fact]
+    public async Task RunBootGate_PosterOnly_HoldsUntilGrace_VideoWinsEarly()
+    {
+        // 观感核心回归：海报先到不立即放行（压到宽限给视频留胜出窗口）；
+        // 视频首帧在宽限期内到达则提前放行。直接置 VM 就绪标志驱动门控时序
+        //（不引入位图解码——纯时序断言，位图链路由其他用例覆盖）
+        var tempDir = new TestSupport.TempDir();
+        try
+        {
+            var player = new VmFactory.FakeVideoPlayer();
+            using var ctx = VmFactory.Build(playerFactory: () => player);
+            var localVideo = tempDir.FilePath("cached", "backdrop.mp4");
+            Directory.CreateDirectory(Path.GetDirectoryName(localVideo)!);
+            await File.WriteAllTextAsync(localVideo, "fake");
+            ctx.KuroBackdrop.Resolver = _ => new BackdropSource(localVideo, BackdropKind.Video);
+            await ctx.Vm.InitializeAsync();
+            var game = ctx.Vm.Games[0];
+
+            ctx.Vm.BootMinSplash = TimeSpan.FromMilliseconds(50);
+            ctx.Vm.BootPosterGrace = TimeSpan.FromMilliseconds(400);
+            ctx.Vm.BootReadinessTimeout = TimeSpan.FromSeconds(5);
+
+            // 只有海报：压到宽限期才放行
+            ctx.Vm.BeginBootSplash();
+            game.HasBackgroundImage = true;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            await ctx.Vm.RunBootGateAsync();
+            Assert.True(sw.Elapsed >= TimeSpan.FromMilliseconds(380),
+                $"海报应压到宽限才放行，实际 {sw.Elapsed.TotalMilliseconds:F0}ms");
+
+            // 海报 + 视频：最小时长一过即放行（不等宽限）
+            ctx.Vm.BeginBootSplash();
+            game.HasBackgroundVideo = true;
+            sw.Restart();
+            await ctx.Vm.RunBootGateAsync();
+            Assert.True(sw.Elapsed < TimeSpan.FromMilliseconds(400),
+                $"视频就绪应提前放行，实际 {sw.Elapsed.TotalMilliseconds:F0}ms");
+        }
+        finally
+        {
+            tempDir.Dispose();
+        }
+    }
+
+    [Fact]
     public async Task SplashOverlay_ShowsWhileBooting_AndCollapsesAfterGate()
     {
         var tempDir = new TestSupport.TempDir();

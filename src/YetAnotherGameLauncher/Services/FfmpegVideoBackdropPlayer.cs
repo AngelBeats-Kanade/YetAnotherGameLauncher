@@ -262,24 +262,18 @@ public sealed class FfmpegVideoBackdropPlayer(
             // 几乎相同的画面之间；时间基/帧率/时长不齐就整段循环，靠接缝自适应兜底。
             // 起播不 seek：从流头顺序读取、由 aligningToStart 在渲染前丢弃循环起点之前的帧
             // （带时间戳的 seek 在部分环境的新开 demuxer 上不可靠，顺序读包最稳妥）
-            var loopPlan = timeBase > 0 && fps > 0 && duration >= MinAnalysisDuration
-                ? AnalyzeLoopPoints(path, duration, token)
-                : [];
-            if (loopPlan.Count == 0)
-            {
-                loopPlan = [(0.0, 0.0)]; // 分析完全不可行：整段循环，接缝处走最长淡化
-            }
-
-            if (loopPlan[0].Start > 0)
-            {
-                logger?.LogInformation(
-                    "Video loop plan: {Pairs} (duration {Duration:F2}s)",
-                    string.Join(", ", loopPlan.Select(p => $"{p.Start:F2}s→{p.End:F2}s")), duration);
-            }
-            else
-            {
-                logger?.LogDebug("Video loop point analysis found no match, looping full clip");
-            }
+            //
+            // 分析与播放并行（2026-09-21）：分析要顺序软解全片采尾窗，秒级耗时——
+            // 挡在首帧前是"静态海报→视频"延迟的主要来源。首轮按整段循环立刻起播（从流头
+            // 播到 EOF），分析完成后的下一个循环边界（RotateLoopPlan）收编计划；分析晚于
+            // 首轮结束也只会多整段循环一两圈，不阻塞出画
+            var loopPlanTask = timeBase > 0 && fps > 0 && duration >= MinAnalysisDuration
+                ? Task.Run(() => AnalyzeLoopPoints(path, duration, token), CancellationToken.None)
+                : null;
+            var loopPlan = new List<(double Start, double End)> { (0.0, 0.0) };
+            var loopPlanInstalled = false;
+            logger?.LogInformation(
+                "Video playback starting; loop point analysis running in background (duration {Duration:F2}s)", duration);
 
             // PTS 节拍（解码多快播多快会呈数倍速快进）；pts 与帧率都拿不到时保持不节拍
             var clock = timeBase > 0 || fps > 0 ? new PlaybackClock() : null;
@@ -444,9 +438,36 @@ public sealed class FfmpegVideoBackdropPlayer(
             }
 
             // 轮换循环点：本圈起点已定（收编帧/对齐丢弃都指向当前头帧），终点换下一候选的尾帧；
-            // 下一次预卷随之对齐到新头帧——切口永远是"某候选的尾帧 → 该候选的头帧"配对
+            // 下一次预卷随之对齐到新头帧——切口永远是"某候选的尾帧 → 该候选的头帧"配对。
+            // 并行分析的计划在此收编：完成即接管（首轮整段循环只是过渡），未完成不阻塞
             void RotateLoopPlan()
             {
+                if (!loopPlanInstalled && loopPlanTask is not null)
+                {
+                    if (loopPlanTask.IsCompletedSuccessfully && loopPlanTask.Result.Count > 0)
+                    {
+                        loopPlan = loopPlanTask.Result;
+                        passIndex = 0;
+                        (loopStartPts, loopEndPts) = loopPlan[0];
+                        loopPlanInstalled = true;
+                        logger?.LogInformation(
+                            "Video loop plan installed: {Pairs} (duration {Duration:F2}s)",
+                            string.Join(", ", loopPlan.Select(p => $"{p.Start:F2}s→{p.End:F2}s")), duration);
+                        return; // 收编即生效：本圈从整段循环直接进入计划首对，不再轮换
+                    }
+
+                    if (loopPlanTask.IsCompleted)
+                    {
+                        // 分析结束但无候选（取消/失败/全窗不匹配）：整段循环即为终态
+                        loopPlanInstalled = true;
+                        logger?.LogDebug("Video loop point analysis found no match, looping full clip");
+                    }
+                    else
+                    {
+                        return; // 分析仍在跑：本圈继续整段循环，下个边界再试
+                    }
+                }
+
                 if (loopPlan.Count <= 1)
                 {
                     return;
