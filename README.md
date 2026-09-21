@@ -60,7 +60,7 @@
 | 多服务器 | 鸣潮国服/B服/国际服、终末地国服/国际服/B服 一键切换（全部配置驱动） |
 | 唤取（抽卡）记录 | 鸣潮：游戏内地址自动提取、官方接口拉取、本地缓存与保底统计 |
 | 现代化 UI | 圆角无边框窗口 + 自绘标题栏（拖拽区 / 最小化 / 最大化 / 关闭）；海报式详情页：当期海报全幅铺满主区域（左缘完整不裁切、无遮罩）+ 左上圆角全出血布局，顶部渐变纱带下的状态/版本胶囊簇（版本号金色强调）；侧栏选中指示点两段式动效；窗口宽度穿越阈值侧栏自动收放（带滞回防抖）；亮/暗/跟随系统三态主题；页面切换与按钮微动效；设置页可自定义应用背景 |
-| 背景视频 | 详情页播放官方当期背景视频：FFmpeg 硬解（Windows D3D11VA / Linux VAAPI→NVDEC），智能循环点 + 预卷零间隙续播（循环无缝）；切非游戏页暂停保活、重进即时续播；Linux 上优先复用发行版 FFmpeg 9（libavcodec.so.63），缺失时自动下载 BtbN 构建到应用数据目录 |
+| 背景视频 | 详情页播放官方当期背景视频：FFmpeg 硬解（Windows D3D11VA / Linux VAAPI→NVDEC），智能循环点（彩色评分 / 多循环点轮换 / 自适应淡化）+ 预卷零间隙续播（循环无缝）；切非游戏页暂停保活、重进即时续播；Linux 上优先复用发行版 FFmpeg 9（libavcodec.so.63），缺失时自动下载 BtbN 构建到应用数据目录 |
 | 资产缓存与预热 | 图标与背景全部本地缓存：启动即从磁盘缓存显示全部游戏图标并预加载背景（不等到选中），零网络；版本/预载检测每游戏每启动一次，游戏版本更新后才重新获取背景与图标（背景严格跟随游戏版本） |
 | Wine prefix | 统一放在应用数据目录 `~/.local/share/yagl/prefixes/<游戏id>`（Windows 形态的 STEAM_COMPAT_DATA_PATH 同样指向此处），绝不写入游戏安装目录——安装同步不会误删 |
 | 界面语言 | 简体中文 / English，跟随系统可选，切换即时生效（设置页调整） |
@@ -178,7 +178,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（749 个，2026-09-21 实测）
+### 运行测试（755 个，2026-09-21 实测）
 
 ```bash
 # 4 个测试工程分别运行编译产物（Windows 亦可直接跑 .exe；本机 dotnet test 可能发现 0 个测试）：

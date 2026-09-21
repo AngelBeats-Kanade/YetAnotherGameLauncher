@@ -16,9 +16,10 @@ namespace YetAnotherGameLauncher.Services;
 /// 基于 FFmpeg 的背景视频播放器：后台线程循环解码（软解为基线，D3D11VA/VAAPI 硬解自动启用），
 /// 帧经 swscale 转成 BGRA 后逐行拷进 WriteableBitmap，UI 线程节流触发 <see cref="FrameUpdated"/>
 /// 重绘。静音（不解码音频轨）、分辨率 clamp ≤4K（防呆上限，官方投放原样渲染不降采样）。
-/// 无缝循环 = 智能循环点（头尾窗口找最相似帧对，接缝落在几乎相同的画面之间）
+/// 无缝循环 = 智能循环点（头尾窗口找最相似帧对，接缝落在几乎相同的画面之间；v2：RGB 综合评分、
+/// 渲染选中尾帧的精确切口、多循环点轮换与自适应淡化时长）
 /// + 预卷零间隙收编（临近结尾提前解码好下一循环开头几帧，接缝处直接换源续播，无停顿）；
-/// 预卷未就绪时回退关键帧回卷 + 交叉淡化。
+/// 预卷未就绪时回退重开解码源 + 最长交叉淡化。
 /// 解码管线与原生库获取（<see cref="FfmpegLibraryResolver"/>）解耦，可整体替换实现。
 /// </summary>
 [ExcludeFromCodeCoverage]
@@ -46,8 +47,9 @@ public sealed class FfmpegVideoBackdropPlayer(
     /// <summary>预卷预解码帧数：收编后按节拍先消费这些帧，为就地续解吸收调度抖动。</summary>
     private const int PrerollFrames = 10;
 
-    /// <summary>循环点分析窗口：头/尾各分析的源秒数。</summary>
-    private const double AnalysisWindowSeconds = 2.0;
+    /// <summary>循环点分析窗口：头/尾各分析的源秒数（v2 加宽到 3s：片头 logo 渐入等场景下
+    /// 2s 头窗可能全是废帧；分析成本在顺序解码本身，窗口只加缩略内存）。</summary>
+    private const double AnalysisWindowSeconds = 3.0;
 
     /// <summary>时长低于该值（秒）不做循环点分析（窗口过窄没有搜索价值）。</summary>
     private const double MinAnalysisDuration = 2.0;
@@ -66,11 +68,9 @@ public sealed class FfmpegVideoBackdropPlayer(
     /// <summary>淡化层当前不透明度。</summary>
     private double _fadeOpacity;
 
-    /// <summary>每帧递减的淡化步长（按帧率与淡化时长折算）。</summary>
+    /// <summary>每帧递减的淡化步长（按帧率与淡化时长折算）。淡化时长随接缝差自适应
+    /// （<see cref="SeamAnalyzer.PickCrossfadeDuration"/>），不再用固定常量。</summary>
     private double _fadeStep;
-
-    /// <summary>淡化时长（秒）：覆盖循环接缝的交叉淡化窗口（仅预卷未就绪或接缝差异大时启用）。</summary>
-    private const double FadeSeconds = 0.6;
 
     /// <summary>当前播放的取消源（Stop 时取消解码/渲染循环）。</summary>
     private CancellationTokenSource? _cts;
@@ -249,18 +249,23 @@ public sealed class FfmpegVideoBackdropPlayer(
             var timeBase = active.TimeBase;
             var duration = active.DurationSeconds;
 
-            // 智能循环点：头/尾窗口找最相似帧对，把接缝落在几乎相同的画面之间；
-            // 时间基/帧率/时长不齐就整段循环，靠接缝自适应兜底。
+            // 智能循环点：头/尾窗口找最相似帧对（v2：排名候选供多循环点轮换），把接缝落在
+            // 几乎相同的画面之间；时间基/帧率/时长不齐就整段循环，靠接缝自适应兜底。
             // 起播不 seek：从流头顺序读取、由 aligningToStart 在渲染前丢弃循环起点之前的帧
             // （带时间戳的 seek 在部分环境的新开 demuxer 上不可靠，顺序读包最稳妥）
-            var (loopStartPts, loopEndPts) = timeBase > 0 && fps > 0 && duration >= MinAnalysisDuration
+            var loopPlan = timeBase > 0 && fps > 0 && duration >= MinAnalysisDuration
                 ? AnalyzeLoopPoints(path, duration, token)
-                : (0.0, 0.0);
-            if (loopStartPts > 0)
+                : [];
+            if (loopPlan.Count == 0)
+            {
+                loopPlan = [(0.0, 0.0)]; // 分析完全不可行：整段循环，接缝处走最长淡化
+            }
+
+            if (loopPlan[0].Start > 0)
             {
                 logger?.LogInformation(
-                    "Video loop points: start {Start:F2}s end {End:F2}s (duration {Duration:F2}s)",
-                    loopStartPts, loopEndPts, duration);
+                    "Video loop plan: {Pairs} (duration {Duration:F2}s)",
+                    string.Join(", ", loopPlan.Select(p => $"{p.Start:F2}s→{p.End:F2}s")), duration);
             }
             else
             {
@@ -271,6 +276,11 @@ public sealed class FfmpegVideoBackdropPlayer(
             var clock = timeBase > 0 || fps > 0 ? new PlaybackClock() : null;
             var halfFrame = fps > 0 ? 0.5 / fps : 0.001;
             long frameIndex = 0;
+            // 多循环点轮换：本圈从 loopStartPts 起播、在 loopEndPts 截断；每过一圈 HandleLoopEnd
+            // 轮换到下一候选——重复周期翻倍且每圈路径不同，"看得出在循环"的感觉显著下降。
+            // 切口始终是分析配对（尾帧→头帧），接缝匹配性不受轮换影响
+            var passIndex = 0;
+            var (loopStartPts, loopEndPts) = loopPlan[0];
             var aligningToStart = loopStartPts > 0;
             var loopEndReached = false;
             var prerollKicked = false;
@@ -302,7 +312,10 @@ public sealed class FfmpegVideoBackdropPlayer(
                     aligningToStart = false;
                 }
 
-                if (loopEndPts > 0 && !double.IsNaN(ptsSeconds) && ptsSeconds >= loopEndPts)
+                // 循环终点截断（v2 边界修复）：渲染分析选中的尾帧本身、丢弃其后一帧——
+                // 旧判据 `>=` 把选中尾帧丢掉，实际切口落在"尾帧前一帧→头帧"，与分析最优对
+                // 错位一帧（快运动下可感知，接缝差也因此在运行时与分值脱节）
+                if (loopEndPts > 0 && !double.IsNaN(ptsSeconds) && ptsSeconds > loopEndPts + halfFrame)
                 {
                     loopEndReached = true;
                     return;
@@ -346,8 +359,9 @@ public sealed class FfmpegVideoBackdropPlayer(
                 _ = Task.Run(() => RunPreroll(path, loopStartPts, handoff, token), CancellationToken.None);
             }
 
-            // 循环终点处理：预卷就绪则零间隙收编（按接缝差选硬化切/交叉淡化），
-            // 否则回退关键帧回卷 + 交叉淡化。返回 false = 无法继续（应结束循环）
+            // 循环终点处理：预卷就绪则零间隙收编（按接缝差选硬化切/自适应时长交叉淡化），
+            // 否则回退重开全新解码源 + 最长交叉淡化。两路径收尾都轮换到下一循环点。
+            // 返回 false = 无法继续（应结束循环）
             bool HandleLoopEnd()
             {
                 // 取消（停止/退出）后不再重开/收编解码源：退出期 GPU 栈可能已坏，
@@ -362,12 +376,17 @@ public sealed class FfmpegVideoBackdropPlayer(
                 {
                     var seamDiff = ComputeSeamDiff(pixelBuffer, lastRenderedWidth, lastRenderedHeight, payload.FirstThumb);
                     var hardCut = SeamAnalyzer.ShouldHardCut(seamDiff);
+                    var fadeSeconds = hardCut ? 0 : SeamAnalyzer.PickCrossfadeDuration(seamDiff);
                     logger?.LogInformation(
-                        "Video loop seam: diff {Diff:F1} → {Mode}", seamDiff, hardCut ? "hard cut" : "crossfade");
+                        "Video loop seam: diff {Diff:F1} → {Mode}{Fade}",
+                        seamDiff,
+                        hardCut ? "hard cut" : "crossfade",
+                        hardCut ? "" : $" {fadeSeconds:F2}s");
                     if (!hardCut)
                     {
-                        // 先把旧末帧转成淡化层，再让收编源的新帧上屏
-                        PrepareLoopCrossfade(fps);
+                        // 先把旧末帧转成淡化层，再让收编源的新帧上屏（时长随接缝差自适应：
+                        // 轻微错配走短微淡化，固定 0.6s 长溶解本身就是醒目的循环信号）
+                        PrepareLoopCrossfade(fps, fadeSeconds);
                     }
 
                     active.Dispose();
@@ -380,11 +399,12 @@ public sealed class FfmpegVideoBackdropPlayer(
                     prerollKicked = false;
                     guard.Reset(); // 健康交接自带自愈：失败计数清零
                     clock?.Reset();
+                    RotateLoopPlan();
                     return true;
                 }
 
                 // 预卷未就绪：回退 = 重新打开全新解码源（不 seek——本构建的 mov seek 不可靠，
-                // 顺序读取最稳妥）；打开停顿由交叉淡化掩盖。连续多路解码源都未产出有效回
+                // 顺序读取最稳妥）；打开停顿由最长交叉淡化掩盖。连续多路解码源都未产出有效回
                 // （GPU 解码栈坏死，如退出期平台拆除/驱动重置）则停止播放，帧清空后由海报兜底
                 if (guard.OnPassEnd((int)frameIndex, fps))
                 {
@@ -406,10 +426,25 @@ public sealed class FfmpegVideoBackdropPlayer(
                 pendingFrames.Clear();
                 pendingFramePts.Clear();
                 frameIndex = 0;
+                // 对齐到当前（轮换前的）头帧：刚离开的正是当前配对的尾帧，切口须落在配对上
                 aligningToStart = loopStartPts > 0;
                 clock?.Reset();
-                PrepareLoopCrossfade(fps);
+                PrepareLoopCrossfade(fps, SeamAnalyzer.MaxCrossfadeSeconds);
+                RotateLoopPlan();
                 return true;
+            }
+
+            // 轮换循环点：本圈起点已定（收编帧/对齐丢弃都指向当前头帧），终点换下一候选的尾帧；
+            // 下一次预卷随之对齐到新头帧——切口永远是"某候选的尾帧 → 该候选的头帧"配对
+            void RotateLoopPlan()
+            {
+                if (loopPlan.Count <= 1)
+                {
+                    return;
+                }
+
+                passIndex++;
+                (loopStartPts, loopEndPts) = loopPlan[passIndex % loopPlan.Count];
             }
 
             while (!token.IsCancellationRequested)
@@ -517,10 +552,11 @@ public sealed class FfmpegVideoBackdropPlayer(
     }
 
     /// <summary>
-    /// 智能循环点分析：解码头/尾各约一个窗口的帧并采集灰度缩略，搜索最相似帧对。
-    /// 任一步不可行返回 (0, 0)（整段循环），绝不抛出——起播不能因分析失败而失败。
+    /// 智能循环点分析：解码头/尾各约一个窗口的帧并采集 RGB 缩略，搜索最相似帧对排名
+    /// （供多循环点轮换）。空列表 = 完全不可分析（调用方回退整段循环）；无阈值内命中时
+    /// 返回单条降级最优（配最长淡化）。绝不抛出——起播不能因分析失败而失败。
     /// </summary>
-    private unsafe (double LoopStart, double LoopEnd) AnalyzeLoopPoints(
+    private unsafe List<(double Start, double End)> AnalyzeLoopPoints(
         string path, double durationSeconds, CancellationToken token)
     {
         DecodeSource? source = null;
@@ -561,7 +597,7 @@ public sealed class FfmpegVideoBackdropPlayer(
                     continue;
                 }
 
-                var thumb = ExtractGrayThumb(softwareFrame, ref thumbScaler);
+                var thumb = ExtractRgbThumb(softwareFrame, ref thumbScaler);
                 av_frame_unref(softwareFrame);
                 if (thumb is null)
                 {
@@ -586,16 +622,17 @@ public sealed class FfmpegVideoBackdropPlayer(
 
             if (token.IsCancellationRequested || headThumbs.Count == 0 || tailThumbs.Count == 0)
             {
-                return (0, 0);
+                return [];
             }
 
-            var match = SeamAnalyzer.FindLoopPoint(headThumbs, headPts, tailThumbs, tailPts);
-            return match is null ? (0, 0) : (headPts[match.HeadIndex], tailPts[match.TailIndex]);
+            return SeamAnalyzer.FindLoopPoints(headThumbs, headPts, tailThumbs, tailPts)
+                .Select(m => (headPts[m.HeadIndex], tailPts[m.TailIndex]))
+                .ToList();
         }
         catch (Exception ex)
         {
             logger?.LogInformation(ex, "Video loop point analysis failed");
-            return (0, 0);
+            return [];
         }
         finally
         {
@@ -655,7 +692,7 @@ public sealed class FfmpegVideoBackdropPlayer(
                 return;
             }
 
-            var thumb = ExtractGrayThumb(softwareFrame, ref thumbScaler);
+            var thumb = ExtractRgbThumb(softwareFrame, ref thumbScaler);
             if (thumb is not null)
             {
                 thumbs.Add(thumb);
@@ -710,7 +747,7 @@ public sealed class FfmpegVideoBackdropPlayer(
                 {
                     frames.Add((nint)copy);
                     pendingPts.Add(pts);
-                    firstThumb ??= ExtractGrayThumb(softwareFrame, ref thumbScaler);
+                    firstThumb ??= ExtractRgbThumb(softwareFrame, ref thumbScaler);
                 }
 
                 av_frame_unref(softwareFrame);
@@ -1004,8 +1041,9 @@ public sealed class FfmpegVideoBackdropPlayer(
         return pts != AV_NOPTS_VALUE && pts >= 0 ? pts * timeBase : double.NaN;
     }
 
-    /// <summary>把软帧缩略成固定尺寸灰度图（分析用小尺寸 sws，缩略上下文按源格式缓存复用）；失败返回 null。</summary>
-    private static unsafe byte[]? ExtractGrayThumb(AVFrame* softFrame, ref SwsContext* thumbScaler)
+    /// <summary>把软帧缩略成固定尺寸 RGB 图（分析用小尺寸 sws，缩略上下文按源格式缓存复用；
+    /// v2 保留彩色——灰度缩略会漏掉同亮度不同色相的跳变）；失败返回 null。</summary>
+    private static unsafe byte[]? ExtractRgbThumb(AVFrame* softFrame, ref SwsContext* thumbScaler)
     {
         if (softFrame->width <= 0 || softFrame->height <= 0)
         {
@@ -1014,18 +1052,18 @@ public sealed class FfmpegVideoBackdropPlayer(
 
         thumbScaler = sws_getCachedContext(
             thumbScaler, softFrame->width, softFrame->height, (AVPixelFormat)softFrame->format,
-            SeamAnalyzer.ThumbWidth, SeamAnalyzer.ThumbHeight, AVPixelFormat.AV_PIX_FMT_GRAY8,
+            SeamAnalyzer.ThumbWidth, SeamAnalyzer.ThumbHeight, AVPixelFormat.AV_PIX_FMT_RGB24,
             SwsBilinear, null, null, null);
         if (thumbScaler is null)
         {
             return null;
         }
 
-        var thumb = new byte[SeamAnalyzer.ThumbWidth * SeamAnalyzer.ThumbHeight];
+        var thumb = new byte[SeamAnalyzer.ThumbWidth * SeamAnalyzer.ThumbHeight * SeamAnalyzer.ThumbChannels];
         fixed (byte* thumbPtr = thumb)
         {
             var destination = new byte_ptrArray4 { [0] = thumbPtr };
-            var destinationLines = new int_array4 { [0] = SeamAnalyzer.ThumbWidth };
+            var destinationLines = new int_array4 { [0] = SeamAnalyzer.ThumbWidth * SeamAnalyzer.ThumbChannels };
             sws_scale(thumbScaler, softFrame->data, softFrame->linesize, 0, softFrame->height,
                 destination, destinationLines);
         }
@@ -1033,7 +1071,8 @@ public sealed class FfmpegVideoBackdropPlayer(
         return thumb;
     }
 
-    /// <summary>接缝差：旧循环末帧（仍在像素暂存缓冲里）与预卷首帧缩略的平均绝对差；无末帧视为最大（必然走淡化）。</summary>
+    /// <summary>接缝差：旧循环末帧（仍在像素暂存缓冲里）与预卷首帧缩略的综合分
+    /// （全局平均 + 分块惩罚）；无末帧视为最大（必然走淡化）。</summary>
     private static unsafe double ComputeSeamDiff(byte* pixelBuffer, int width, int height, byte[] prerollFirstThumb)
     {
         if (pixelBuffer is null || width <= 0 || height <= 0)
@@ -1041,9 +1080,9 @@ public sealed class FfmpegVideoBackdropPlayer(
             return double.MaxValue;
         }
 
-        var lastThumb = SeamAnalyzer.DownsampleBgraToGray(
+        var lastThumb = SeamAnalyzer.DownsampleBgraToRgb(
             pixelBuffer, width, height, width * 4, SeamAnalyzer.ThumbWidth, SeamAnalyzer.ThumbHeight);
-        return SeamAnalyzer.MeanAbsoluteDifference(lastThumb, prerollFirstThumb);
+        return SeamAnalyzer.Difference(lastThumb, prerollFirstThumb);
     }
 
     /// <summary>释放帧引用队列（每帧 av_frame_free，队列随之清空）。</summary>
@@ -1070,9 +1109,10 @@ public sealed class FfmpegVideoBackdropPlayer(
 
     /// <summary>
     /// 循环回卷的交叉淡化准备：旧循环末帧保留为淡化层（整体淡出掩盖接缝），
-    /// 新循环写全新位图不受旧层覆盖；淡化步长按帧率折算（约 <see cref="FadeSeconds"/> 秒淡完）。
+    /// 新循环写全新位图不受旧层覆盖；淡化步长按帧率与 <paramref name="fadeSeconds"/> 折算
+    /// （时长随接缝差自适应，见 <see cref="SeamAnalyzer.PickCrossfadeDuration"/>）。
     /// </summary>
-    private void PrepareLoopCrossfade(double fps)
+    private void PrepareLoopCrossfade(double fps, double fadeSeconds)
     {
         lock (_gate)
         {
@@ -1082,7 +1122,7 @@ public sealed class FfmpegVideoBackdropPlayer(
             }
 
             _fadeFrame = _frame;
-            _fadeStep = fps > 0 ? 1.0 / (fps * FadeSeconds) : 0.25;
+            _fadeStep = fps > 0 ? 1.0 / (fps * fadeSeconds) : 1.0 / (4 * fadeSeconds);
             _fadeOpacity = 1;
             _frame = null;
         }
