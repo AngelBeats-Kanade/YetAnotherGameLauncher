@@ -68,6 +68,44 @@ public class VideoBackdropHeadlessStartTests
         }
     }
 
+    [Fact]
+    public async Task StartVideo_DefersPastTransferWindow_AndDropsSupersededCalls()
+    {
+        // 2026-09-21 真机插桩实锤：切游戏时新背景视频的首帧位图分配/上传是 UI 线程重活
+        // （大视频 Debug 单帧渲染可达 80ms），落在指示点迁移编舞窗口（420ms）内会把动画
+        // 饿成"两段缩放、中间无过渡"。起播必须延迟到编舞之后；延迟窗口内被更新的
+        // 切换抢先时，旧调用直接放弃（不 PlayAsync、不干扰新一代的状态）。
+        var tempDir = new TestSupport.TempDir();
+        try
+        {
+            var player = new VmFactory.FakeVideoPlayer();
+            using var ctx = VmFactory.Build(videoPlayer: player);
+            GameItemViewModel.VideoStartDeferral = TimeSpan.FromMilliseconds(150);
+            var localVideo = tempDir.FilePath("cached", "backdrop.mp4");
+            Directory.CreateDirectory(Path.GetDirectoryName(localVideo)!);
+            await File.WriteAllTextAsync(localVideo, "fake");
+            ctx.KuroBackdrop.Resolver = _ => new BackdropSource(localVideo, BackdropKind.Video);
+            await ctx.Vm.InitializeAsync();
+            var game = ctx.Vm.Games[0];
+
+            // 延迟窗口内不起播
+            game.SetDetailActive(true);
+            await Task.Delay(60);
+            Assert.Empty(player.PlayedPaths);
+
+            // 延迟窗口内二次触发（离开再进入）：第一次的挂起调用被抢先，最终只起播一次
+            game.SetDetailActive(false);
+            game.SetDetailActive(true);
+            await Task.Delay(250);
+            Assert.Equal([localVideo], player.PlayedPaths);
+        }
+        finally
+        {
+            GameItemViewModel.VideoStartDeferral = TimeSpan.Zero;
+            tempDir.Dispose();
+        }
+    }
+
     /// <summary>非空占位帧：仅用于"帧缓冲非空才点亮"判定，不触平台渲染接口。</summary>
     private sealed class StubImage : Avalonia.Media.IImage
     {

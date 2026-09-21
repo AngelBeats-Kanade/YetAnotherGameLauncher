@@ -77,7 +77,8 @@ public partial class MainWindow : Window
     /// <summary>迁移动画总时长：0-45% 旧项上变长、45-55% 跳变、55-100% 新项上收缩。</summary>
     internal static readonly TimeSpan TransferDuration = TimeSpan.FromMilliseconds(420);
 
-    /// <summary>拉长/缩短段的缓出贝塞尔样条（标准 ease-out 控制点）。</summary>
+    /// <summary>跳变段的缓出贝塞尔样条（挂在 55% 帧上，引擎按"进入该帧"的段落取用——
+    /// 42ms 跳变因此减速入位；其余帧无样条，生长/收缩段为线性，2026-09-21 真机插桩实测确认）。</summary>
     private static readonly KeySpline EaseOutSpline = new(0, 0, 0.58, 1);
 
     /// <summary>在途迁移动画的取消源：快速连点时中断上一段；取消后属性回落基值
@@ -375,14 +376,17 @@ public partial class MainWindow : Window
         }
 
         // "此前隐藏→本次显示"也算变化：先读值再置可见（2026-09-20 复审修复——
-        // 原实现先置 true 再读，!IsVisible 恒为 false 的死条件让该分支永远不触发）
+        // 原实现先置 true 再读，!IsVisible 恒为 false 的死条件让该分支永远不触发）。
+        // 几何比较必须用基值快照（IndicatorTop 等字段），不能读变换属性——动画进行中
+        // 生效值被动画优先级覆盖，恒不等于终态，空闲复核会以每秒数万次自旋直到动画
+        // 结束（2026-09-21 实测 141K 次/7s，纯自耗）
         var wasHidden = !indicator.IsVisible;
         indicator.IsVisible = true;
         var changed = wasHidden
             || !NearEqual(indicator.Height, height)
-            || !NearEqual(IndicatorTranslate.X, newX)
-            || !NearEqual(IndicatorTranslate.Y, newTop)
-            || !NearEqual(IndicatorScale.ScaleY, newScale);
+            || !NearEqual(IndicatorLeft, newX)
+            || !NearEqual(IndicatorTop, newTop)
+            || !NearEqual(IndicatorScaleY, newScale);
         indicator.Height = height;
         IndicatorTranslate.X = newX;
         IndicatorTranslate.Y = newTop;
@@ -460,11 +464,12 @@ public partial class MainWindow : Window
     /// <summary>
     /// 构建迁移编舞动画：单条 Animation 的 4 个 KeyFrame（对应 0%/45%/55%/100%）各携带平移与
     /// 缩放两个 Setter，一次 RunAsync 驱动 RenderTransform 组内的两个子变换（目标必须是控件，
-    /// Animator 才能按属性找到子变换）。两属性共享同一条时间线是"远端边钉住"形态成立的前提：
-    /// 该形态要求任意插值时刻平移与缩放同进度，拆成两条并行动画会因起步批次/时钟不同步被破坏
-    /// （向上迁移起步段平移缩放同时动，一帧之差即观感卡顿，2026-09-21 修复）。
-    /// 段落缓动：0→45% 与 55→100% 用缓出样条，中间 42ms 跳变段线性（观感为"跳"而非"滑"）；
-    /// Avalonia 12 的 keyframe 缓动为 WPF 式贝塞尔控制点（KeySpline），作用于进入该帧的段落。
+    /// Animator 才能按属性找到子变换）。两属性同条时间线让编舞声明上保持一体；引擎侧两条
+    /// 单属性动画与本形态等价（2026-09-21 真机 A/B 插桩实测：两形态的逐帧数值轨迹一致）。
+    /// 注意：动画按 UI 线程渲染节拍推进——迁移窗口内不得有重活落上 UI 线程（视频首帧位图
+    /// 分配曾把 420ms 动画饿成两段跳变，配合 GameItemViewModel 的视频延迟起播防线）。
+    /// 段落缓动（KeySpline 作用于进入该帧的段落）：45% 帧无样条→生长段线性；
+    /// 55% 帧缓出→跳变段减速入位；100% 帧无样条→收缩段线性。
     /// </summary>
     internal static Animation BuildTransferAnimation(double oldCenter, double newCenter, double height)
     {

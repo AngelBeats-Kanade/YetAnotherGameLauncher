@@ -154,6 +154,9 @@ public static class VmFactory
         KuroGachaService? gachaService = null)
     {
         var tempDir = new TempDir();
+        // 生产默认 500ms 的视频起播延迟会拖慢/打乱既有断言时序——测试统一置零
+        // （涉视频用例均在 sequential 集合，静态开关无并行竞态；专门用例自行临时调回）
+        GameItemViewModel.VideoStartDeferral = TimeSpan.Zero;
         var configPath = tempDir.FilePath("games.json");
         var gamesRoot = tempDir.FilePath("games-root").Replace(Path.DirectorySeparatorChar, '/');
         if (configJson is not null)

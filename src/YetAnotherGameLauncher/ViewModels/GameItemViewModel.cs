@@ -40,6 +40,12 @@ public partial class GameItemViewModel(
     /// <summary>背景视频播放器（单例共享；null = 测试场景或平台无解码能力）。</summary>
     public IVideoBackdropPlayer? VideoPlayer { get; } = videoPlayer;
 
+    /// <summary>视频起播延迟：跨越侧栏指示点迁移编舞（420ms）后再点亮新背景。
+    /// 首帧位图分配+上传是 UI 线程重活（大视频 Debug 实测单帧渲染可达 80ms），
+    /// 落在迁移窗口内会把动画饿成两段跳变；首帧本就晚于切换约 300ms 到达，延后无感知损失。
+    /// 测试经 VmFactory 统一置零以保持既有断言时序（涉视频用例均在 sequential 集合，无并行竞态）。</summary>
+    internal static TimeSpan VideoStartDeferral { get; set; } = TimeSpan.FromMilliseconds(500);
+
     private LaunchSettingsViewModel? _launchSettings;
 
     /// <summary>平台环境（Linux 兼容层能力等；透传给启动设置卡）。</summary>
@@ -561,6 +567,15 @@ public partial class GameItemViewModel(
         _pendingVideoPath = videoPath;
         VideoPlayer.FrameUpdated += OnVideoFrameUpdated;
         _videoSubscribed = true;
+
+        // 迁移动画窗口内不起播：把首帧位图分配/上传的 UI 线程重活挪出编舞窗口
+        // （见 VideoStartDeferral 注释）。等待期间被更新的切换抢先则直接放弃——
+        // 新起播已接管订阅与状态，旧调用无权也无需清场
+        await Task.Delay(VideoStartDeferral);
+        if (generation != _videoStartGeneration)
+        {
+            return;
+        }
 
         var playing = false;
         try
