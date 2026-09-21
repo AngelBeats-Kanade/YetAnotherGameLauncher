@@ -92,6 +92,15 @@ public class GameItemErrorPathTests : IDisposable
         // 原生 umu 链 + 必然下载失败的准备器：ProtonDownloadFailed → canRetry=true →
         // 覆盖层 RetryCommand 触发 OnLaunchErrorRetryRequested（async void 处理器本体）：
         // 清掉覆盖层、重新启动、再次失败生成新覆盖层
+        if (!OperatingSystem.IsLinux())
+        {
+            // 平台门控（NativeUmuLauncher.EnsureLinux）在非 Linux 上先于准备器抛 Unknown，
+            // ProtonDownloadFailed 的重试分类只有 Linux 真实链路可构造；Windows 腿的门控
+            // 行为由 NativeUmuLaunchRoutingTests.Windows 分支覆盖
+            Assert.Skip("原生 umu 启动链仅 Linux 可达，重试分类由 Linux 腿覆盖");
+            return;
+        }
+
         var provisioner = new ThrowingProvisioner();
         var launcher = new NativeUmuLauncher(_runner, provisioner, dataHome: _temp.Path);
         using var ctx = VmFactory.Build(

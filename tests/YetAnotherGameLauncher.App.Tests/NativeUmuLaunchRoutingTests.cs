@@ -30,9 +30,23 @@ public class NativeUmuLaunchRoutingTests : IDisposable
             // 审计修复（2026-09-19）：原实现直接 return（Windows CI 零断言静默绿）。
             // Windows 腿反向断言平台门控本身：原生 umu 链在非 Linux 上不可用，
             // 启动必须给出明确失败态，且绝不产出 umu 容器命令。
-            using var winCtx = VmFactory.Build(nativeUmu: new NativeUmuLauncher(_runner, provisioner: null, dataHome: _temp.Path));
+            // 注意必须用 isLinux:true 假平台驱动首运迁移，模板才会变成 native-umu 并路由进
+            // NativeUmuLauncher 命中 EnsureLinux 门控；默认 isLinux:false 时模板保持直连模式，
+            // 启动经 FakeProcessRunner 成功、门控根本不可达（2026-09-21 Windows CI 实锤）。
+            using var winCtx = VmFactory.Build(
+                configJson: null,
+                templateFactory: () => VmFactory.SampleConfigJson,
+                platformInfo: new FakePlatformInfo(isLinux: true),
+                linuxProtonVersions: [],
+                nativeUmu: new NativeUmuLauncher(_runner, provisioner: null, dataHome: _temp.Path));
             await winCtx.Vm.InitializeAsync();
             var winGame = winCtx.Vm.Games[0];
+
+            var exePath = Path.Combine(
+                winGame.InstallDirPath, "Client", "Binaries", "Win64", "Client-Win64-Shipping.exe");
+            Directory.CreateDirectory(Path.GetDirectoryName(exePath)!);
+            await File.WriteAllTextAsync(exePath, "MZ");
+            await winGame.RefreshAsync();
 
             await winGame.LaunchAsync();
 

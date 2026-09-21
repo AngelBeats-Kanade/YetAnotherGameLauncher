@@ -56,7 +56,7 @@ public class SystemProcessRunnerTests
         {
             if (File.Exists(logPath))
             {
-                content = await File.ReadAllTextAsync(logPath);
+                content = await ReadAllTextSharedAsync(logPath);
                 if (content.Contains("exited with code 7", StringComparison.Ordinal))
                 {
                     break; // 退出脚注落盘 = 输出已排空
@@ -357,6 +357,17 @@ public class SystemProcessRunnerTests
         }
     }
 
+    /// <summary>
+    /// 以共享读写方式读取日志：Windows 上生产端 StreamWriter 持有写锁期间，
+    /// File.ReadAllTextAsync 的共享模式不允许并发读（IOException），轮询必须用 FileShare.ReadWrite。
+    /// </summary>
+    private static async Task<string> ReadAllTextSharedAsync(string logPath)
+    {
+        await using var stream = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream);
+        return await reader.ReadToEndAsync();
+    }
+
     /// <summary>轮询等待日志退出脚注落盘（输出泵收尾是异步的），返回完整日志文本。</summary>
     private static async Task<string> WaitForLogFootnoteAsync(string logPath, string footnote)
     {
@@ -366,7 +377,7 @@ public class SystemProcessRunnerTests
         {
             if (File.Exists(logPath))
             {
-                content = await File.ReadAllTextAsync(logPath);
+                content = await ReadAllTextSharedAsync(logPath);
                 if (content.Contains(footnote, StringComparison.Ordinal))
                 {
                     return content;
