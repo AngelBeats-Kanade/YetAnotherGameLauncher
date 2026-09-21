@@ -3,7 +3,6 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Media;
-using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Xunit;
@@ -315,37 +314,102 @@ public class SidebarNavHeadlessTests : IDisposable
     }
 
     [Fact]
-    public void BuildTransferAnimation_SingleTimeline_CarriesTranslateAndScalePerFrame()
+    public void TransferEval_PinsEdges_PhasesInOrder_AndStaysContinuous()
     {
         const double height = 46;
         const double oldCenter = 200;
         const double gap = 100;
-        var (translate, scale) = MainWindow.BuildTransferCues(oldCenter, oldCenter + gap, height);
+        var dot = MainWindow.DotHeight;
+        var top0 = oldCenter - dot / 2;
 
-        var animation = MainWindow.BuildTransferAnimation(oldCenter, oldCenter + gap, height);
-
-        Assert.Equal(MainWindow.TransferDuration, animation.Duration);
-        Assert.Equal(4, animation.Children.Count);
-        var expectedCues = new[] { 0.0, 0.45, 0.55, 1.0 };
-        // 段落缓动：0→45% 与 55→100% 带缓出样条，中间 42ms 跳变段线性
-        var expectedSplined = new[] { true, false, true, false };
-        for (var i = 0; i < animation.Children.Count; i++)
+        foreach (var (name, newCenter) in new[] { ("down", oldCenter + gap), ("up", oldCenter - gap) })
         {
-            var frame = animation.Children[i];
-            Assert.Equal(expectedCues[i], frame.Cue.CueValue, 6);
-            Assert.Equal(expectedSplined[i], frame.KeySpline is not null);
-            // 平移与缩放必须同帧携带（单时间线）：两属性同进度插值是"远端边钉住"形态的前提，
-            // 拆成两条并行动画会在向上迁移起步段一帧失步即观感卡顿。
-            // Setters 是 IAnimationSetter 列表（接口成员不可访问），读属性需转具体 Setter
-            Assert.Equal(2, frame.Setters.Count);
-            Assert.Contains(frame.Setters.OfType<Setter>(), s => s.Property == TranslateTransform.YProperty);
-            Assert.Contains(frame.Setters.OfType<Setter>(), s => s.Property == ScaleTransform.ScaleYProperty);
-            foreach (var setter in frame.Setters.OfType<Setter>())
+            var top1 = newCenter - dot / 2;
+            var s0 = dot / height;
+            var s1 = dot * 2 / height;
+
+            // 端点即静息形态（Lerp 舍入差 <1ulp，用容差而非元组全等）
+            var start = MainWindow.EvalTransfer(oldCenter, newCenter, height, 0);
+            var end = MainWindow.EvalTransfer(oldCenter, newCenter, height, 1);
+            Assert.Equal(top0, start.TranslateY, 6);
+            Assert.Equal(s0, start.ScaleY, 6);
+            Assert.Equal(top1, end.TranslateY, 6);
+            Assert.Equal(s0, end.ScaleY, 6);
+            // 越界钳到端点（驱动循环末拍可能因节拍粒度略超 1）
+            var over = MainWindow.EvalTransfer(oldCenter, newCenter, height, 1.3);
+            Assert.Equal(end.TranslateY, over.TranslateY, 6);
+            Assert.Equal(end.ScaleY, over.ScaleY, 6);
+
+            (double Ty, double Sy) prev = default;
+            for (var i = 0; i <= 200; i++)
             {
-                var expected = setter.Property == TranslateTransform.YProperty ? translate[i] : scale[i];
-                Assert.Equal(expected, (double)setter.Value!, 6);
+                var p = i / 200.0;
+                var (ty, sy) = MainWindow.EvalTransfer(oldCenter, newCenter, height, p);
+                var top = ty;
+                var bottom = ty + height * sy;
+
+                // 任意时刻长度 ≤ 2×点高：不把两行连成一条
+                Assert.True(bottom - top <= dot * 2 + 0.001, $"{name} p={p} span={bottom - top}");
+                // 生长段（0-45%）：远端边钉在旧项（向下=顶沿，向上=底沿）
+                if (p is > 0 and < 0.45)
+                {
+                    if (name == "down")
+                    {
+                        Assert.Equal(top0, top, 0.001);
+                    }
+                    else
+                    {
+                        Assert.Equal(oldCenter + dot / 2, bottom, 0.001);
+                    }
+                }
+                // 跳变段（45-55%）：保持 2 倍长形态平移
+                else if (p is >= 0.45 and <= 0.55)
+                {
+                    Assert.Equal(s1, sy, 6);
+                }
+                // 收缩段（55-100%）：近端边钉在新项（向下=底沿，向上=顶沿）
+                else if (p > 0.55)
+                {
+                    if (name == "down")
+                    {
+                        Assert.Equal(newCenter + dot / 2, bottom, 0.001);
+                    }
+                    else
+                    {
+                        Assert.Equal(top1, top, 0.001);
+                    }
+                }
+
+                // 逐拍连续：段内与段接缝都不允许像素级跳变（缓动只改速度不改值域）
+                if (i > 0)
+                {
+                    Assert.True(Math.Abs(ty - prev.Ty) < dot, $"{name} p={p} translate jump");
+                    Assert.True(Math.Abs(sy - prev.Sy) < 0.1, $"{name} p={p} scale jump");
+                }
+
+                prev = (ty, sy);
             }
         }
+    }
+
+    [Fact]
+    public void TransferEval_Hop_IsEasedOut_FastStartDeceleratingLanding()
+    {
+        const double height = 46;
+        const double oldCenter = 200;
+        const double gap = 100;
+
+        // 跳变段缓出（贝塞尔 0,0,0.58,1）：起步快、入位减速——
+        // 时间中点的进度应超过线性中点，且前 1/5 段位移大于后 1/5 段
+        var mid = MainWindow.EvalTransfer(oldCenter, oldCenter - gap, height, 0.5).TranslateY;
+        var linearMid = (oldCenter - 16) + ((oldCenter - gap) - (oldCenter - 16)) * 0.5;
+        Assert.True(mid < linearMid, $"up hop mid {mid} should overshoot linear {linearMid}");
+
+        var early = Math.Abs(MainWindow.EvalTransfer(oldCenter, oldCenter - gap, height, 0.46).TranslateY
+            - MainWindow.EvalTransfer(oldCenter, oldCenter - gap, height, 0.45).TranslateY);
+        var late = Math.Abs(MainWindow.EvalTransfer(oldCenter, oldCenter - gap, height, 0.55).TranslateY
+            - MainWindow.EvalTransfer(oldCenter, oldCenter - gap, height, 0.54).TranslateY);
+        Assert.True(early > late, $"hop should decelerate: early={early} late={late}");
     }
 
     [Fact]

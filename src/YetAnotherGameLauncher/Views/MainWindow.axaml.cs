@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using Avalonia;
-using Avalonia.Animation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
@@ -17,12 +16,12 @@ namespace YetAnotherGameLauncher.Views;
 /// <summary>
 /// 主窗口代码后置：侧栏选中指示点动画。
 /// 指示点是覆盖在侧栏上的共享 Border，展开态位于选中项内部左缘（收起态贴侧栏左缘——
-/// 收起行内被图标占满，内置会压图标）；RenderTransform 为 TransformGroup
+/// 收起行内被图标占满，内置会压图标）；renderTransform 为 TransformGroup
 /// （先 Scale 后 Translate、原点 0,0）→ 视觉区间 = [TranslateY, TranslateY+Height×ScaleY]。
-/// 选中项变更时写入最终基值并播放两段式编舞：①旧项上朝行进方向变长一倍 → 快速跳到新项 →
-/// ②以逆向拉长形态落位后收缩回小点（两段各自贴着新旧项，不把两行连成一条；
-/// 动画进行中动画值覆盖基值，结束后回落到基值即终态；headless 会话不执行动画，
-/// 基值始终可见，测试因此可直接断言渲染位置）。
+/// 选中项变更时写入最终基值并启动手写驱动的两段式编舞：①旧项上朝行进方向变长一倍 →
+/// 快速跳到新项 → ②以逆向拉长形态落位后收缩回小点（两段各自贴着新旧项，不把两行连成一条；
+/// 驱动循环逐拍直写变换基值——不经过 Animation API，节拍由 Task.Delay 自泵，
+/// 渲染循环空闲降频不影响；取消后残留中间值由新驱动首拍覆盖）。
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -77,12 +76,7 @@ public partial class MainWindow : Window
     /// <summary>迁移动画总时长：0-45% 旧项上变长、45-55% 跳变、55-100% 新项上收缩。</summary>
     internal static readonly TimeSpan TransferDuration = TimeSpan.FromMilliseconds(420);
 
-    /// <summary>跳变段的缓出贝塞尔样条（挂在 55% 帧上，引擎按"进入该帧"的段落取用——
-    /// 42ms 跳变因此减速入位；其余帧无样条，生长/收缩段为线性，2026-09-21 真机插桩实测确认）。</summary>
-    private static readonly KeySpline EaseOutSpline = new(0, 0, 0.58, 1);
-
-    /// <summary>在途迁移动画的取消源：快速连点时中断上一段；取消后属性回落基值
-    /// （上一目标的终态），下一段迁移从那里出发。</summary>
+    /// <summary>在途迁移动画的取消源：快速连点时中断上一段；取消后残留中间值由新驱动首拍覆盖。</summary>
     private CancellationTokenSource? _indicatorCts;
 
     /// <summary>合并同一 UI 批次里的多次触发（选中变化与高亮归属变化往往同时发生）。</summary>
@@ -146,6 +140,7 @@ public partial class MainWindow : Window
         PropertyChanged += OnWindowPropertyChanged; // 窗口状态 → 圆角/卡片边距与标题栏图标
         SizeChanged += OnWindowSizeChanged; // 窗口宽度 → 侧栏阈值自适应收放
         Closing += OnWindowClosing; // 关闭时持久化尺寸/最大化状态
+        Closed += (_, _) => _indicatorCts?.Cancel(); // 窗口销毁即停驱动循环，不 orphan
     }
 
     /// <summary>DataContext 就绪：注入持久化窗口状态的应用回调（目录加载完成时由 VM 调用）。</summary>
@@ -450,7 +445,11 @@ public partial class MainWindow : Window
     /// <summary>
     /// 迁移编舞（两段式）：①旧项上朝行进方向变长一倍（远端边固定）→ 45-55% 以 2 倍长形态
     /// 快速跳到新选中项（长度固定 2×点高，与行距无关，不会把两行连成一条）→
-    /// ②在新疆界以逆向拉长形态落位并收缩回小点。先取消在途动画再启动新动画。
+    /// ②在新疆界以逆向拉长形态落位并收缩回小点。先取消在途驱动再启动新驱动。
+    /// 手写驱动而非 Animation API：本应用的渲染循环空闲时按需降频（实测 ~10Hz），
+    /// Animation 时钟取自渲染循环、无外部泵时无法自举——旧版复核环的每秒数万次
+    /// 分发器投递曾意外充当渲染泵（2026-09-21 实测：泵移除后两方向动画都掉到 ~10fps）。
+    /// Task.Delay 循环自身就是泵：每拍写变换基值 → 失效 → 渲染，节拍不依赖渲染循环。
     /// </summary>
     private void RunTransferAnimation(double oldCenter, double newCenter, double height)
     {
@@ -458,39 +457,98 @@ public partial class MainWindow : Window
         var cts = new CancellationTokenSource();
         _indicatorCts = cts;
 
-        PlayAsync(BuildTransferAnimation(oldCenter, newCenter, height), NavIndicator, cts.Token);
+        DriveTransferAsync(oldCenter, newCenter, height, cts.Token);
+    }
+
+    /// <summary>驱动节拍：~8ms 一拍（60-125fps），足以平滑且开销可忽略（每次迁移 ≤53 拍）。</summary>
+    private static readonly TimeSpan TransferTickInterval = TimeSpan.FromMilliseconds(8);
+
+    /// <summary>
+    /// 迁移驱动循环：按墙钟进度逐拍把插值结果写进变换基值；取消/完成即退出。
+    /// 编舞时间线与旧 Animation 引擎实测行为一致（生长/收缩线性、跳变段缓出减速入位）。
+    /// </summary>
+    private async void DriveTransferAsync(double oldCenter, double newCenter, double height, CancellationToken ct)
+    {
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var duration = TransferDuration.TotalMilliseconds;
+            while (true)
+            {
+                var progress = sw.Elapsed.TotalMilliseconds / duration;
+                var (translateY, scaleY) = EvalTransfer(oldCenter, newCenter, height, progress);
+                IndicatorTranslate.Y = translateY;
+                IndicatorScale.ScaleY = scaleY;
+                if (progress >= 1)
+                {
+                    return; // 末拍即终态（与基值一致），无需收尾
+                }
+
+                await Task.Delay(TransferTickInterval, ct);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 快速连点时被新一段驱动接管，属预期；残留中间值会被新驱动首拍覆盖
+        }
+        catch (Exception)
+        {
+            // async void 内未捕获异常会崩掉整个进程：动画失败是纯装饰性问题，兜住
+        }
     }
 
     /// <summary>
-    /// 构建迁移编舞动画：单条 Animation 的 4 个 KeyFrame（对应 0%/45%/55%/100%）各携带平移与
-    /// 缩放两个 Setter，一次 RunAsync 驱动 RenderTransform 组内的两个子变换（目标必须是控件，
-    /// Animator 才能按属性找到子变换）。两属性同条时间线让编舞声明上保持一体；引擎侧两条
-    /// 单属性动画与本形态等价（2026-09-21 真机 A/B 插桩实测：两形态的逐帧数值轨迹一致）。
-    /// 注意：动画按 UI 线程渲染节拍推进——迁移窗口内不得有重活落上 UI 线程（视频首帧位图
-    /// 分配曾把 420ms 动画饿成两段跳变，配合 GameItemViewModel 的视频延迟起播防线）。
-    /// 段落缓动（KeySpline 作用于进入该帧的段落）：45% 帧无样条→生长段线性；
-    /// 55% 帧缓出→跳变段减速入位；100% 帧无样条→收缩段线性。
+    /// 迁移编舞插值（纯函数）：progress ∈ [0,1] → (TranslateY, ScaleY)，越界钳到端点。
+    /// 段落曲线：0-45% 生长线性、45-55% 跳变缓出（快速起步减速入位）、55-100% 收缩线性。
     /// </summary>
-    internal static Animation BuildTransferAnimation(double oldCenter, double newCenter, double height)
+    internal static (double TranslateY, double ScaleY) EvalTransfer(
+        double oldCenter, double newCenter, double elementHeight, double progress)
     {
-        var (translateValues, scaleValues) = BuildTransferCues(oldCenter, newCenter, height);
-        var cues = new[] { 0.0, 0.45, 0.55, 1.0 };
-        var splines = new KeySpline?[] { EaseOutSpline, null, EaseOutSpline, null };
-        var animation = new Animation { Duration = TransferDuration };
-        for (var i = 0; i < cues.Length; i++)
+        var (t, s) = BuildTransferCues(oldCenter, newCenter, elementHeight);
+        var p = Math.Clamp(progress, 0, 1);
+        if (p < 0.45)
         {
-            var frame = new KeyFrame { Cue = new Cue(cues[i]) };
-            if (splines[i] is { } spline)
-            {
-                frame.KeySpline = spline;
-            }
-
-            frame.Setters.Add(new Setter { Property = TranslateTransform.YProperty, Value = translateValues[i] });
-            frame.Setters.Add(new Setter { Property = ScaleTransform.ScaleYProperty, Value = scaleValues[i] });
-            animation.Children.Add(frame);
+            var u = p / 0.45;
+            return (Lerp(t[0], t[1], u), Lerp(s[0], s[1], u));
         }
 
-        return animation;
+        if (p <= 0.55)
+        {
+            var u = EaseOutHop((p - 0.45) / 0.10);
+            return (Lerp(t[1], t[2], u), s[1]);
+        }
+
+        var v = (p - 0.55) / 0.45;
+        return (Lerp(t[2], t[3], v), Lerp(s[2], s[3], v));
+    }
+
+    /// <summary>线性插值。</summary>
+    private static double Lerp(double from, double to, double u) => from + (to - from) * u;
+
+    /// <summary>
+    /// 跳变段缓出：三次贝塞尔 (0,0)-(0.58,1) 的缓动曲线（对齐旧引擎 KeySpline 行为——
+    /// 输入均匀时间 x，解曲线参数 t 再取 y）。二分 24 拍，误差远小于亚像素。
+    /// </summary>
+    private static double EaseOutHop(double x)
+    {
+        var lo = 0.0;
+        var hi = 1.0;
+        for (var i = 0; i < 24; i++)
+        {
+            var mid = (lo + hi) / 2;
+            var bezierX = 3 * (1 - mid) * mid * mid * 0.58 + mid * mid * mid;
+            if (bezierX < x)
+            {
+                lo = mid;
+            }
+            else
+            {
+                hi = mid;
+            }
+        }
+
+        var t = (lo + hi) / 2;
+        return 3 * (1 - t) * t * t + t * t * t;
     }
 
     /// <summary>
@@ -510,22 +568,5 @@ public partial class MainWindow : Window
             ? new[] { top0, top0 - DotHeight, top1, top1 }      // 向上：底沿固定向上变长
             : new[] { top0, top0, top1 - DotHeight, top1 };     // 向下：顶沿固定向下变长
         return (translate, new[] { dotScale, stretchedScale, stretchedScale, dotScale });
-    }
-
-    /// <summary>启动一条动画（Transform 同为 Animatable）；取消视为正常结束。</summary>
-    private async void PlayAsync(Animation animation, Animatable target, CancellationToken ct)
-    {
-        try
-        {
-            await animation.RunAsync(target, ct);
-        }
-        catch (OperationCanceledException)
-        {
-            // 快速连点时被新一段动画接管，属预期
-        }
-        catch (Exception)
-        {
-            // async void 内未捕获异常会崩掉整个进程：动画失败是纯装饰性问题，兜住
-        }
     }
 }
