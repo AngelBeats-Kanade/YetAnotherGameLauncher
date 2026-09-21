@@ -184,6 +184,40 @@ public class SidebarNavHeadlessTests : IDisposable
     }
 
     [Fact]
+    public async Task NavIndicator_DuringTransfer_TransformStaysAtOldPosition_NoDestinationFlash()
+    {
+        // 手写驱动回归（2026-09-21 实锤）：启动迁移后，终态基值不得立即写进变换属性——
+        // 驱动直写基值（没有动画优先级层遮盖），此刻写入会把飞行值盖成终态，
+        // 观感为指示点先在目的地闪现再跳回旧项。headless 下驱动停在首拍
+        // （Task.Delay 是真实墙钟），变换值应钉在旧项中心。
+        await _ctx.Vm.InitializeAsync();
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            window.Show();
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+
+            var indicator = window.FindControl<Border>("NavIndicator")!;
+            var overlay = (Panel)indicator.Parent!;
+            var rows = window.GetVisualDescendants().OfType<ListBoxItem>().ToList();
+            var oldCenter = RowCenterY(rows[0], overlay);
+            var newCenter = RowCenterY(rows[1], overlay);
+
+            _ctx.Vm.GameNavSelection = _ctx.Vm.Games[1];
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs(); // 驱动首拍同步写入旧项位置
+
+            var rendered = ((TransformGroup)indicator.RenderTransform!).Value
+                .Transform(new Point(indicator.Width / 2, indicator.Height / 2));
+            Assert.Equal(oldCenter, rendered.Y, 1);        // 钉在旧项，不是新项（闪现）
+            Assert.True(Math.Abs(rendered.Y - newCenter) > 5, "迁移起步不应已在目的地");
+            window.Close(); // Closed 取消驱动循环
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task NavIndicator_FollowsSettingsAndAboutEntries()
     {
         await _ctx.Vm.InitializeAsync();

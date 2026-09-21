@@ -79,6 +79,10 @@ public partial class MainWindow : Window
     /// <summary>在途迁移动画的取消源：快速连点时中断上一段；取消后残留中间值由新驱动首拍覆盖。</summary>
     private CancellationTokenSource? _indicatorCts;
 
+    /// <summary>迁移驱动是否在途：为真时 MoveNavIndicator 只记录基值、不直写变换属性
+    /// （飞行值由驱动独占写入，终态在驱动末拍收敛落位）。</summary>
+    private bool _indicatorDriving;
+
     /// <summary>合并同一 UI 批次里的多次触发（选中变化与高亮归属变化往往同时发生）。</summary>
     private bool _indicatorMoveQueued;
 
@@ -382,10 +386,18 @@ public partial class MainWindow : Window
             || !NearEqual(IndicatorLeft, newX)
             || !NearEqual(IndicatorTop, newTop)
             || !NearEqual(IndicatorScaleY, newScale);
+        // 迁移驱动进行中不直写平移/缩放（驱动独占写入飞行值），终态只入记录：
+        // 手写驱动逐拍直写基值，此刻写入会把飞行值盖成终态（指示点先在目的地闪现
+        // 再跳回，2026-09-21 实锤）；记录基值与飞行值的残差（按压缩放等几何漂移）
+        // 由驱动末拍按实时几何收敛。Height 除外——驱动不写它，而渲染区间 = 高度×
+        // 缩放，跨高度迁移（游戏行↔设置按钮）必须首拍就用新高度配新缩放
         indicator.Height = height;
-        IndicatorTranslate.X = newX;
-        IndicatorTranslate.Y = newTop;
-        IndicatorScale.ScaleY = newScale;
+        if (!_indicatorDriving)
+        {
+            IndicatorTranslate.X = newX;
+            IndicatorTranslate.Y = newTop;
+            IndicatorScale.ScaleY = newScale;
+        }
         IndicatorTop = newTop;
         IndicatorLeft = newX;
         IndicatorScaleY = newScale;
@@ -456,19 +468,24 @@ public partial class MainWindow : Window
         _indicatorCts?.Cancel();
         var cts = new CancellationTokenSource();
         _indicatorCts = cts;
+        _indicatorDriving = true;
 
-        DriveTransferAsync(oldCenter, newCenter, height, cts.Token);
+        DriveTransferAsync(oldCenter, newCenter, height, cts);
     }
 
     /// <summary>驱动节拍：~8ms 一拍（60-125fps），足以平滑且开销可忽略（每次迁移 ≤53 拍）。</summary>
     private static readonly TimeSpan TransferTickInterval = TimeSpan.FromMilliseconds(8);
 
     /// <summary>
-    /// 迁移驱动循环：按墙钟进度逐拍把插值结果写进变换基值；取消/完成即退出。
-    /// 编舞时间线与旧 Animation 引擎实测行为一致（生长/收缩线性、跳变段缓出减速入位）。
+    /// 迁移驱动循环：按墙钟进度逐拍把插值结果写进变换基值；完成/取消/被替换即退出。
+    /// 所有权以 <c>_indicatorCts</c> 比对判定：快速连点时旧驱动的收尾（异常复位/收敛）
+    /// 不得覆盖新驱动的飞行值。编舞时间线与旧 Animation 引擎实测行为一致
+    /// （生长/收缩线性、跳变段缓出减速入位）。
     /// </summary>
-    private async void DriveTransferAsync(double oldCenter, double newCenter, double height, CancellationToken ct)
+    private async void DriveTransferAsync(double oldCenter, double newCenter, double height,
+        CancellationTokenSource owner)
     {
+        var ct = owner.Token;
         try
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -481,19 +498,44 @@ public partial class MainWindow : Window
                 IndicatorScale.ScaleY = scaleY;
                 if (progress >= 1)
                 {
-                    return; // 末拍即终态（与基值一致），无需收尾
+                    break;
                 }
 
                 await Task.Delay(TransferTickInterval, ct);
             }
+
+            // 末拍收敛：迁移起点几何可能带着按压时的 RenderTransform 缩放（pressable 按下
+            // scale(0.97) 参与 TranslatePoint），飞行期间布局也可能微调——按实时几何重算
+            // 并吸附，残差在落地帧内吃掉，不会推迟到下一次指针活动才补写（旧症状：
+            // 动画结束、鼠标移开时指示点又挪一下）
+            if (ReferenceEquals(_indicatorCts, owner))
+            {
+                _indicatorDriving = false;
+                MoveNavIndicator();
+            }
         }
         catch (OperationCanceledException)
         {
-            // 快速连点时被新一段驱动接管，属预期；残留中间值会被新驱动首拍覆盖
+            // 快速连点时被新一段驱动接管，属预期；残留中间值由新驱动首拍覆盖
         }
         catch (Exception)
         {
-            // async void 内未捕获异常会崩掉整个进程：动画失败是纯装饰性问题，兜住
+            // async void 内未捕获异常会崩掉整个进程：动画失败是纯装饰性问题，兜住。
+            // 仅在仍持有所有权时按记录基值复位，别把新驱动的飞行值拉回旧终态
+            if (ReferenceEquals(_indicatorCts, owner))
+            {
+                IndicatorTranslate.X = IndicatorLeft;
+                IndicatorTranslate.Y = IndicatorTop;
+                IndicatorScale.ScaleY = IndicatorScaleY;
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(_indicatorCts, owner))
+            {
+                _indicatorDriving = false;
+                _indicatorCts = null; // 摘除已完成的所有权引用，窗口关闭的 Cancel 对 null 安全
+            }
         }
     }
 
