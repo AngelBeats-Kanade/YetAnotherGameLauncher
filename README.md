@@ -153,6 +153,9 @@
 
 ## 🧑‍💻 快速开始（开发者）
 
+本项目采用测试驱动开发（TDD，2026-09-22 起）：行为改动先写测试、确认红，再写实现；
+修 bug 先写复现测试——完整流程与合入标准见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) §3。
+
 ### 环境要求
 
 - .NET 10 SDK
@@ -178,7 +181,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（760 个，2026-09-21 实测）
+### 运行测试（807 个，2026-09-22 实测）
 
 ```bash
 # 4 个测试工程分别运行编译产物（Windows 亦可直接跑 .exe；本机 dotnet test 可能发现 0 个测试）：

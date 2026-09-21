@@ -95,6 +95,96 @@ public sealed class UmuRuntimeInstallTests : IDisposable
         Assert.Equal(LaunchFailureKind.UmuRuntimeDownloadFailed, ex.Kind);
     }
 
+    // ==== 2026-09-22 测试审计补齐：SHA256 校验失败、包形态异常、暂存残留清理 ====
+
+    [Fact]
+    public async Task EnsureRuntimeAsync_Sha256Mismatch_ThrowsAndLeavesNoCachedArchive()
+    {
+        var provisioner = NewProvisioner();
+        var baseUrl = $"https://repo.steampowered.com{ImagesPath}/0-0-0";
+        var archiveName = $"{RuntimeName}.tar.xz";
+        _http.Map($"https://repo.steampowered.com{ImagesPath}/latest-public-beta.txt", "0-0-0\n");
+        _http.Map($"{baseUrl}/SHA256SUMS", $"{new string('f', 64)}  {archiveName}\n");
+        _http.Map($"{baseUrl}/BUILD_ID.txt", "b123\n");
+        _downloader.Serve($"{baseUrl}/{archiveName}", BuildRuntimeArchive(RuntimeName));
+
+        var ex = await Assert.ThrowsAsync<LaunchException>(
+            () => provisioner.EnsureRuntimeAsync(Variant, RuntimeName));
+
+        Assert.Equal(LaunchFailureKind.UmuRuntimeDownloadFailed, ex.Kind);
+        Assert.Contains("校验失败", ex.Message, StringComparison.Ordinal);
+        // 校验失败必须发生在落位之前：安装目录不得出现半成品
+        Assert.False(Directory.Exists(InstallRoot()));
+    }
+
+    [Fact]
+    public async Task EnsureRuntimeAsync_ArchiveWithoutTopLevelDirectory_ThrowsClassified()
+    {
+        // 包里只有散文件没有顶层目录：落位失败必须归类 UmuRuntimeDownloadFailed（可重试），
+        // 不得以裸异常逃逸到 Unknown
+        var provisioner = NewProvisioner();
+        var baseUrl = $"https://repo.steampowered.com{ImagesPath}/0-0-0";
+        _http.Map($"https://repo.steampowered.com{ImagesPath}/latest-public-beta.txt", "0-0-0\n");
+        _http.Map($"{baseUrl}/SHA256SUMS", "");
+        _http.Map($"{baseUrl}/BUILD_ID.txt", "b123\n");
+        _downloader.Serve($"{baseUrl}/{RuntimeName}.tar.xz", BuildFileOnlyArchive());
+
+        var ex = await Assert.ThrowsAsync<LaunchException>(
+            () => provisioner.EnsureRuntimeAsync(Variant, RuntimeName));
+
+        Assert.Equal(LaunchFailureKind.UmuRuntimeDownloadFailed, ex.Kind);
+        Assert.Contains("顶层目录", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task EnsureRuntimeAsync_StagingLeftoverFromAbortedRun_CleanedAndReinstalled()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("符号链接与执行位为 POSIX 语义（与正流程用例同款跳过）");
+        }
+
+        var provisioner = NewProvisioner();
+        var staging = InstallRoot() + ".staging";
+        Directory.CreateDirectory(staging);
+        File.WriteAllText(Path.Combine(staging, "garbage-from-aborted-run"), "x");
+        var baseUrl = $"https://repo.steampowered.com{ImagesPath}/0-0-0";
+        var tarGz = BuildRuntimeArchive(RuntimeName);
+        var expectedSha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(tarGz)).ToLowerInvariant();
+        _http.Map($"https://repo.steampowered.com{ImagesPath}/latest-public-beta.txt", "0-0-0\n");
+        _http.Map($"{baseUrl}/SHA256SUMS", $"{expectedSha}  {RuntimeName}.tar.xz\n");
+        _http.Map($"{baseUrl}/BUILD_ID.txt", "b123\n");
+        _downloader.Serve($"{baseUrl}/{RuntimeName}.tar.xz", tarGz);
+
+        await provisioner.EnsureRuntimeAsync(Variant, RuntimeName);
+
+        Assert.False(Directory.Exists(staging)); // 上次中断的暂存树已清
+        Assert.True(Directory.Exists(InstallRoot()));
+    }
+
+    /// <summary>只含散文件（无目录条目）的 gzip+tar：解压后暂存目录里没有任何子目录。</summary>
+    private static byte[] BuildFileOnlyArchive()
+    {
+        using var tarBuffer = new MemoryStream();
+        using (var writer = new TarWriter(tarBuffer, TarEntryFormat.Pax, leaveOpen: true))
+        {
+            var entry = new PaxTarEntry(TarEntryType.RegularFile, "loose-file.txt")
+            {
+                DataStream = new MemoryStream("data"u8.ToArray()),
+            };
+            writer.WriteEntry(entry);
+        }
+
+        using var result = new MemoryStream();
+        tarBuffer.Position = 0;
+        using (var gz = new GZipStream(result, CompressionMode.Compress, leaveOpen: true))
+        {
+            tarBuffer.CopyTo(gz);
+        }
+
+        return result.ToArray();
+    }
+
     private UmuComponentProvisioner NewProvisioner() => new(
         new HttpClient(_http), _downloader,
         dataHome: _temp.Path, cacheHome: _temp.Path);

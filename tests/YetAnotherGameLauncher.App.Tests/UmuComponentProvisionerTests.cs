@@ -402,6 +402,125 @@ public sealed class UmuComponentProvisionerTests : IDisposable
         Assert.Equal(string.Empty, UmuComponentProvisioner.ParseSha256For("deadbeef  a.tar.xz\n", "b.tar.xz"));
     }
 
+    // ==== 2026-09-22 测试审计补齐：按 tag 下载、默认代号回退、latest 解析容错 ====
+    // （覆盖率证据：DownloadProtonByTagAsync 此前整方法未覆盖，空请求/畸形 release 分支同批缺口）
+
+    [Fact]
+    public async Task EnsureProtonAsync_SpecificVersionName_DownloadsThatTagOnly()
+    {
+        // 请求是具体版本名（非代号、本地未装）：只下该 tag 的 release，不拉 latest
+        ServeGitHubRelease(
+            "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/tags/GE-Proton11-6",
+            "GE-Proton11-6",
+            [("GE-Proton11-6.tar.gz", "https://github.com/x/GE-Proton11-6.tar.gz")]);
+        _downloader.Serve(
+            "https://github.com/x/GE-Proton11-6.tar.gz",
+            BuildProtonArchive("GE-Proton11-6", wineserverElfMachine: ElfX86_64));
+
+        var path = await NewProvisioner(Architecture.X64).EnsureProtonAsync("GE-Proton11-6");
+
+        Assert.EndsWith(
+            NormalizeSeparators(Path.Combine("compatibilitytools.d", "GE-Proton11-6")),
+            NormalizeSeparators(path));
+        Assert.Equal(["https://github.com/x/GE-Proton11-6.tar.gz"], _downloader.Requests);
+    }
+
+    [Fact]
+    public async Task EnsureProtonAsync_UnknownVersionTag404_ThrowsWithCodenameHint()
+    {
+        // 404 是"版本不存在"的用户可修复错误：提示改用代号或本机已装版本
+        var ex = await Assert.ThrowsAsync<LaunchException>(
+            () => NewProvisioner(Architecture.X64).EnsureProtonAsync("GE-Proton99-0"));
+
+        Assert.Equal(LaunchFailureKind.ProtonDownloadFailed, ex.Kind);
+        Assert.Contains("找不到 Proton 版本", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("DW-Proton", ex.Message, StringComparison.Ordinal);
+        Assert.Empty(_downloader.Requests);
+    }
+
+    [Fact]
+    public async Task EnsureProtonAsync_EmptyRequest_FallsBackToDefaultFlavor()
+    {
+        // 空请求 = CompatTools.DefaultProtonFlavor（DW-Proton）：latest 走 Forgejo
+        ServeForgejoReleases([
+            ("dwproton-11.0-99-x86_64.tar.xz", "https://dawn.wine/x/dwproton-11.0-99-x86_64.tar.xz"),
+        ]);
+        _downloader.Serve(
+            "https://dawn.wine/x/dwproton-11.0-99-x86_64.tar.xz",
+            BuildProtonArchive("dwproton-11.0-99-x86_64", wineserverElfMachine: ElfX86_64));
+
+        var path = await NewProvisioner(Architecture.X64).EnsureProtonAsync("");
+
+        Assert.EndsWith(
+            NormalizeSeparators(Path.Combine("compatibilitytools.d", "dwproton-11.0-99")),
+            NormalizeSeparators(path));
+    }
+
+    [Fact]
+    public async Task FetchLatestProtonTagAsync_EmptyRequest_UsesDefaultFlavor()
+    {
+        ServeForgejoReleases([]);
+
+        Assert.Equal("dwproton-11.0-99", await _provisioner.FetchLatestProtonTagAsync(""));
+    }
+
+    [Fact]
+    public async Task FetchLatestProtonTagAsync_DraftAndPrereleaseReleases_Skipped()
+    {
+        // Forgejo latest 数组：draft/prerelease 不算最新（社区源常把草稿排前）
+        _http.Map(UmuComponentProvisioner.DwProtonReleaseApi, """
+            [
+              { "tag_name": "draft-1", "draft": true, "prerelease": false, "assets": [] },
+              { "tag_name": "pre-1", "draft": false, "prerelease": true, "assets": [] },
+              { "tag_name": "dwproton-11.0-99", "draft": false, "prerelease": false, "assets": [] }
+            ]
+            """);
+
+        Assert.Equal("dwproton-11.0-99", await _provisioner.FetchLatestProtonTagAsync("DW-Proton"));
+    }
+
+    [Fact]
+    public async Task FetchLatestProtonTagAsync_AllReleasesFilteredOut_ThrowsMissingTag()
+    {
+        _http.Map(UmuComponentProvisioner.DwProtonReleaseApi,
+            """[ { "tag_name": "x", "draft": true, "prerelease": false, "assets": [] } ]""");
+
+        var ex = await Assert.ThrowsAsync<LaunchException>(
+            () => _provisioner.FetchLatestProtonTagAsync("DW-Proton"));
+
+        Assert.Equal(LaunchFailureKind.ProtonDownloadFailed, ex.Kind);
+        Assert.Contains("tag_name", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FetchLatestProtonTagAsync_InvalidJson_ThrowsParseFailure()
+    {
+        _http.Map(UmuComponentProvisioner.DwProtonReleaseApi, "{ not json");
+
+        var ex = await Assert.ThrowsAsync<LaunchException>(
+            () => _provisioner.FetchLatestProtonTagAsync("DW-Proton"));
+
+        Assert.Equal(LaunchFailureKind.ProtonDownloadFailed, ex.Kind);
+        Assert.Contains("解析失败", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReadWineserverElfMachine_ShortOrNonElfFile_ReturnsNull()
+    {
+        using var tempDir = new TempDir();
+        var bin = Path.Combine(tempDir.Path, "files", "bin");
+        Directory.CreateDirectory(bin);
+        var wineserver = Path.Combine(bin, "wineserver");
+
+        // 过短（不足 20 字节 ELF 头）
+        File.WriteAllBytes(wineserver, "hello"u8.ToArray());
+        Assert.Null(UmuComponentProvisioner.ReadWineserverElfMachine(tempDir.Path));
+
+        // 足长但非 ELF 魔数
+        File.WriteAllBytes(wineserver, new byte[20]);
+        Assert.Null(UmuComponentProvisioner.ReadWineserverElfMachine(tempDir.Path));
+    }
+
     /// <summary>路径断言两侧统一成正斜杠：Windows 上 Path.Combine 产反斜杠，不归一则永不相等。</summary>
     private static string NormalizeSeparators(string path) => path.Replace('\\', '/');
 

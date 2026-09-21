@@ -1,4 +1,5 @@
 using Xunit;
+using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
 
@@ -120,5 +121,48 @@ public class GameItemRefreshRaceTests : IDisposable
         Assert.False(
             wuwa.StatusText.Contains("预下载", StringComparison.Ordinal),
             $"新服务器状态行被旧服结果覆盖：{wuwa.StatusText}");
+    }
+
+    [Fact]
+    public async Task Update_ResultFromOldServer_DoesNotOverwriteNewServerStatus()
+    {
+        // 回归（2026-09-22 测试审计）：RunUpdateAsync 通用骨架的结果消息同样归属发起时的
+        // 服务器——2b053c0 重构把更新/校验收编进骨架后，其服务期门一度没有任何竞态测试驱动
+        // （变异冒烟实锤：指向旧写点的变异规格存活）。此处把更新链路钉在版本检测的真实
+        // await 点上构造同款交错。
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ctx = VmFactory.Build(configJson: TwoServerConfig);
+        using var _ = ctx;
+        var cnVersionCalls = 0;
+        ctx.Kuro.VersionInfoHandler = async (server, cancellationToken) =>
+        {
+            // 第 1 次 cn 检测（初始化首刷）放行；第 2 次（更新链路）挂起后失败
+            if (server.Id == "cn" && ++cnVersionCalls >= 2)
+            {
+                await gate.Task.WaitAsync(cancellationToken);
+                throw new UpdateException("simulated slow failure");
+            }
+
+            return ctx.Kuro.VersionInfo;
+        };
+
+        await ctx.Vm.InitializeAsync();
+        var wuwa = ctx.Vm.Games[0];
+        Assert.Equal("cn", wuwa.SelectedServer.Id);
+
+        // cn 上发起主操作（挂起 = 慢网在途），期间切到 global
+        var operation = wuwa.InstallOrUpdateCommand.ExecuteAsync(null);
+        wuwa.SelectedServer = wuwa.Servers[1];
+        gate.SetResult();
+        await operation;
+
+        // global 自己的刷新完成后状态行即稳定；旧服的失败文案不得盖上来
+        await WaitForAsync(() => wuwa.StatusText.Length > 0);
+        var statusAfterSwitch = wuwa.StatusText;
+        await Task.Delay(200);
+        Assert.Equal(statusAfterSwitch, wuwa.StatusText);
+        Assert.False(
+            wuwa.StatusText.Contains("simulated slow failure", StringComparison.Ordinal),
+            $"新服务器状态行被旧服失败文案覆盖：{wuwa.StatusText}");
     }
 }

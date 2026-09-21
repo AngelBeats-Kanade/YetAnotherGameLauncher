@@ -167,6 +167,11 @@ Enter via **Settings** at the bottom of the sidebar:
 
 ## 🧑‍💻 Quick Start (developers)
 
+This project uses test-driven development (TDD, effective 2026-09-22): every behavior change
+starts with a test that is confirmed red before the implementation; bug fixes start with a
+reproducing test — see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) §3 for the full workflow
+and definition of done.
+
 ### Requirements
 
 - .NET 10 SDK
@@ -193,7 +198,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### Running tests (760 tests, measured 2026-09-21)
+### Running tests (807 tests, measured 2026-09-22)
 
 ```bash
 # Run the 4 test projects' compiled binaries directly (on Windows you can run the .exe;

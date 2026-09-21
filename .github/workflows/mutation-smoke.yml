@@ -34,6 +34,7 @@ jobs:
       - name: Build test projects
         run: |
           dotnet build tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj --nologo -v q
+          dotnet build tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests.csproj --nologo -v q
           dotnet build tests/YetAnotherGameLauncher.App.Tests/YetAnotherGameLauncher.App.Tests.csproj --nologo -v q
       - name: Run mutation smoke batch
         run: node scripts/mutation-smoke.mjs

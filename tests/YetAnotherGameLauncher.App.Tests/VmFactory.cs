@@ -54,6 +54,9 @@ public static class VmFactory
         /// <summary>VM 实际持有的代理管理器（断言共享 handler 随保存切换用——组合根装配缺口回归）。</summary>
         public required NetworkProxyManager ProxyManager { get; init; }
 
+        /// <summary>VM 实际持有的下载器（ApplySpeedLimitAsync 即时改其 Limiter，断言热生效用）。</summary>
+        public required HttpFileDownloader HttpDownloader { get; init; }
+
         /// <summary>VM 实际持有的唤取服务（缓存目录在 TempDir/gacha-cache）。</summary>
         public required KuroGachaService GachaService { get; init; }
 
@@ -293,6 +296,7 @@ public static class VmFactory
             GryphlineBackdrop = gryphlineBackdrop,
             BackgroundHandler = backgroundHandler,
             ProxyManager = resolvedProxyManager,
+            HttpDownloader = httpDownloader,
             GachaService = gacha,
             PlayerFactory = playerFactory,
             Players = players,

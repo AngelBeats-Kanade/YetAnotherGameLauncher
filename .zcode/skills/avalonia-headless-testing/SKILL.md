@@ -92,13 +92,19 @@ public async Task Window_Shows_Items()
   `new Bitmap(...)` 会因 locator 未初始化抛 `IPlatformRenderInterface` 缺失。
 - 被测代码若会碰 UI（如切主题），实现层要自检 `CheckAccess()`/`Dispatcher.Post`（`ThemeService` 即范例）。
 - **视图层命中/交互回归必须走真实指针**：`window.MouseMove(center); window.MouseDown(center, MouseButton.Left); window.MouseUp(center, MouseButton.Left)`（中心点用 `TranslatePoint` 换算到窗口坐标，先例 `SidebarNavHeadlessTests` / `ToastHeadlessTests`）。直接 `command.Execute()` 的 VM 层测试拦不住命中测试断裂——toast 关闭钮被宿主 `IsHitTestVisible=False` 整树剪掉（Avalonia 语义：祖先剪枝连子级一起剪，子级设回 True 翻不回来），VM 测试全绿而按钮实际点不动，即此故。
+- **窗口已挂接后 VM 的 InitializeAsync 必须仍在会话线程内驱动**：`Games` 是 ObservableCollection，
+  窗口 Show 后再在测试线程直调 InitializeAsync，集合变更跨线程打进已挂接的 ListBox 绑定直接
+  `InvalidOperationException`。模式：`Dispatch(() => { var t = vm.InitializeAsync(); while (!t.IsCompleted) { Dispatcher.UIThread.RunJobs(); Thread.Sleep(1); } })`
+  （RunJobs 泵，先例 `BackgroundImageServiceTests.RunToCompletion`、
+  `MainWindowChromeHeadlessTests.PersistedMaximizedState_AppliedWhenCatalogLoads`）。
 - `Progress<T>` 回调异步投递且**不保证顺序**：测试收集必须用 `ConcurrentQueue` + `SpinWait.SpinUntil`
   等待期望值，禁止断言"最后一条"（本项目踩过的 flaky 根因）。
 - 测试间状态隔离：临时目录放 fixture，禁写真实用户目录（`TempDir`）。
   **VmFactory 已把模板里的 `~/yagl-test-games` 一并重写到临时目录**——漏改会让首运物化的
   配置把安装根目录指向真实家目录（实踩：测试桩 exe 被写进真实 `~/yagl-test-games`）。
 - 共享替身集中在 `tests/YetAnotherGameLauncher.TestSupport/`（FakeDownloader/FakePatchApplier/
-  FakeProcessRunner/FakeChannel/StubHttpHandler/TestZip），不要在各测试项目里复制。
+  FakeProcessRunner/FakeChannel/FakePlatformInfo/FakeAutostartService/StubHttpHandler/TempDir/
+  TestZip/ManualTimeProvider），不要在各测试项目里复制。
 
 ## 5. 平台相关测试（Windows / Linux 双平台 CI）
 
@@ -110,7 +116,9 @@ public async Task Window_Shows_Items()
 - 平台分支期望值惯例（照 `InstallPathTests` / `SystemProcessRunnerTests`）：
   `OperatingSystem.IsWindows() ? "C:/Windows/evil.txt" : "/etc/evil.txt"`。
 - 平台专属真实集成（如 `WindowsAutostartService` 真跑 `reg`）：按 OS 分支注入各平台真实现
-  （Linux 用 `LinuxAutostartService(home: 临时目录)`），**不要**用 `Assert.Skip` 跳过
-  ——跳过会让该平台失去覆盖（仓库无 Skip 先例）。
+  （Linux 用 `LinuxAutostartService(home: 临时目录)`），**优先**双平台真跑而非跳过。
+  真实平台上被前置门控挡住、不可达的场景（POSIX 执行位/符号链接语义、Windows 独占文件锁、
+  权限位注入等）用 `Assert.Skip("原因")` 显式跳过——先例 20+ 处（2026-09-22 审计口径），
+  对侧平台由 CI 双平台腿兜底；禁止无条件 Skip（那会让两个平台都失去覆盖）。
 - 依赖真机状态的扫描（Proton 版本、/proc NVIDIA、$HOME）在测试里一律注入固定值，
   否则测试结果随执行机器漂移。

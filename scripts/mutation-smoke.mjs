@@ -65,15 +65,60 @@ const MUTATIONS = [
     method: 'YetAnotherGameLauncher.AppTests.GameItemOfflineTests.RefreshAsync_Offline_InstalledGame_ShowsLocalChipAndKeepsState',
   },
   {
-    // 2026-09-20 三审新增：操作完成消息必须归属发起时的服务器（RunUpdateAsync finally 的
-    // ReferenceEquals 门）——去掉门后切服完成的旧结果会覆盖新服状态行
+    // 2026-09-20 三审新增；2026-09-22 重定向：操作完成消息必须归属发起时的服务器。
+    // 原规格指向的共享写点在 2b053c0 重构中被抽进 RunUpdateAsync 骨架，预下载测试
+    // 实际驱动的是本处（PredownloadAsync 自己的服务期门）——规格随源码漂移即空心化
     id: 'M12-status-message-server-scope',
+    file: 'src/YetAnotherGameLauncher/ViewModels/GameItemViewModel.cs',
+    find: 'if (ReferenceEquals(originServer, SelectedServer))',
+    replace: 'if (true)',
+    project: 'tests/YetAnotherGameLauncher.App.Tests/YetAnotherGameLauncher.App.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll',
+    method: 'YetAnotherGameLauncher.AppTests.GameItemRefreshRaceTests.Predownload_ResultFromOldServer_DoesNotOverwriteNewServerStatus',
+  },
+  {
+    // 2026-09-22 测试审计新增：VDF 转义处理（toolmanifest 读取正确性）——
+    // 关掉转义分支后带转义引号的值解析错误
+    id: 'M13-vdf-escape-handling',
+    file: 'src/YetAnotherGameLauncher.Core/Services/Umu/VdfMiniParser.cs',
+    find: 'if (text[i] == \'\\\\\' && i + 1 < text.Length)',
+    replace: 'if (false && text[i] == \'\\\\\' && i + 1 < text.Length)',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.VdfMiniParserTests.Parse_EscapedQuoteAndBackslash_UnescapeToLiteral',
+  },
+  {
+    // 2026-09-22 测试审计新增：自启切换后的状态复核——写入"成功"但状态没变必须报 false，
+    // 恒真化复核后组策略拦截场景被误报为成功
+    id: 'M14-autostart-state-verify',
+    file: 'src/YetAnotherGameLauncher/ViewModels/MainWindowViewModel.cs',
+    find: 'return await _autostart.IsEnabledAsync() == enabled;',
+    replace: 'return true;',
+    project: 'tests/YetAnotherGameLauncher.App.Tests/YetAnotherGameLauncher.App.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll',
+    method: 'YetAnotherGameLauncher.AppTests.MainWindowViewModelSettingsApiTests.SetAutostartAsync_StateMismatchAfterSet_ReturnsFalseSilently',
+  },
+  {
+    // 2026-09-22 测试审计新增：协议参数空值回退（国服/国际服切换依赖）——
+    // 回退值换成 key 后空白配置回退出错误端点
+    id: 'M15-gryphline-option-fallback',
+    file: 'src/YetAnotherGameLauncher.Channels.Hypergryph/GryphlineProtocol.cs',
+    find: ': fallback;',
+    replace: ': key;',
+    project: 'tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Hypergryph.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Hypergryph.Tests.GryphlineProtocolTests.OptionOrDefault_MissingOrWhitespace_FallsBack',
+  },
+  {
+    // 2026-09-22 测试审计新增：RunUpdateAsync 通用骨架的服务期门（更新/校验/应用预下载
+    // 共用）——M12 原规格曾指向此写点，2b053c0 重构后由本守卫测试驱动
+    id: 'M16-update-skeleton-server-scope',
     file: 'src/YetAnotherGameLauncher/ViewModels/GameItemViewModel.cs',
     find: 'if (!string.IsNullOrEmpty(message) && ReferenceEquals(originServer, SelectedServer))',
     replace: 'if (!string.IsNullOrEmpty(message))',
     project: 'tests/YetAnotherGameLauncher.App.Tests/YetAnotherGameLauncher.App.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll',
-    method: 'YetAnotherGameLauncher.AppTests.GameItemRefreshRaceTests.Predownload_ResultFromOldServer_DoesNotOverwriteNewServerStatus',
+    method: 'YetAnotherGameLauncher.AppTests.GameItemRefreshRaceTests.Update_ResultFromOldServer_DoesNotOverwriteNewServerStatus',
   },
 ];
 

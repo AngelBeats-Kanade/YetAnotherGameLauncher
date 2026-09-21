@@ -79,7 +79,7 @@ src/
     Views/MainWindow
 tests/
   YetAnotherGameLauncher.TestSupport/           # 共享测试设施（可复用的替身与工具）
-    FakeDownloader / FakePatchApplier / FakeProcessRunner / FakeChannel / FakePlatformInfo / StubHttpHandler / TempDir / TestZip / ManualTimeProvider（虚拟时钟）
+    FakeDownloader / FakePatchApplier / FakeProcessRunner / FakeChannel / FakePlatformInfo / FakeAutostartService / StubHttpHandler / TempDir / TestZip / ManualTimeProvider（虚拟时钟）
   YetAnotherGameLauncher.Core.Tests/            # 领域层测试
   YetAnotherGameLauncher.Channels.Kuro.Tests/   # 鸣潮渠道测试
   YetAnotherGameLauncher.Channels.Hypergryph.Tests/ # 包式协议渠道测试
@@ -92,14 +92,46 @@ tests/
 
 ## 3. TDD 工作流（本项目铁律）
 
-每个功能模块遵循 **红 → 绿 → 重构**：
+**自 2026-09-22 起本项目从快速迭代转入 TDD 模式**：src/ 下四个生产项目的每一处行为改动，都由一个先于实现存在、且确认红过的测试驱动。覆盖率门禁/变异冒烟等守卫是这一流程的安全网而非替代品（定位见 §3.4）。
 
-1. **先写测试**：在对应 `*.Tests` 项目新建测试类，定义目标行为（含边界与失败路径）。
-2. **运行确认失败**：`dotnet test --project tests/...`（新用例应失败）。
-3. **实现最小代码**让测试通过。
-4. **全绿后提交**：`git commit`，再进入下一个模块。
+### 3.1 红 → 绿 → 重构
 
-本项目实际开发顺序（每步全绿后才进入下一步）：
+1. **红（先写测试）**：在对应 `*.Tests` 工程写测试定义目标行为——正常路径、边界、失败路径三者都要有。写完只跑新用例，确认它红**且红在断言上**（若红在 NullReference 之类装配错误，先修测试脚手架再确认——那种红不能证明任何行为缺失）：
+   ```bash
+   dotnet tests/<工程>/bin/Debug/net10.0/<测试程序集>.dll -method "<完整类型名>.<方法名>"
+   ```
+   （`dotnet test` 在部分环境发现 0 个测试，红绿判定一律直跑 DLL，下同。）
+2. **绿（最小实现）**：写恰好让测试通过的实现，不顺手实现测试之外的诉求。
+3. **重构**：全绿保护下清理实现。重构以**测试不动**为前提——若发现"必须改测试才能过"，说明该测试断言的是实现结构而非行为，先修测试的断言对象再继续（这算还测试债，不算破坏 TDD）。
+4. 全绿后提交，进入下一个模块。
+
+### 3.2 bug 修复同样测试先行
+
+修 bug 的第一个动作不是改代码，是**写复现测试**：沿失败路径复现 bug → 确认红 → 修复 → 绿。禁止"先修完再补一个对已修代码的快照测试"——那种测试钉住的是现状而非正确行为，修错了也会绿。已提交的 bug 复现测试是变异冒烟批（scripts/mutation-smoke.mjs）的候选守卫。
+
+### 3.3 合入标准（Definition of Done）
+
+一个变更可以提交，当且仅当：
+
+1. 每个行为改动都有**实现前确认过红**的测试（bug 修复 = 复现测试）；
+2. 全量测试绿（本地直跑 4 个测试 DLL，命令见 README「运行测试」节）；
+3. 行覆盖不低于 §9 门禁基线——新增行为默认由自己的测试覆盖，门禁只是兜底；
+4. AGENTS.md「文档同步」耦合表已执行；
+5. 涉 UI 的改动跑过视觉自检（UiScreenshotTests 导出截图 + 审查）。
+
+### 3.4 守卫与 TDD 的关系
+
+| 守卫 | 定位 | 红了意味着什么 |
+|---|---|---|
+| 行覆盖 ≥83% 门禁（ci.yml） | **回归地板**：防存量覆盖被新代码稀释 | 有代码未经测试先行就合入——流程失守的信号，不是"补测再合入"的许可 |
+| 每日变异冒烟（mutation-smoke.yml） | **守卫有效性审计**：证明守卫测试非空心 | 某守卫测试已空心化，测试本身要修 |
+| `Dispatch(async` grep（ci.yml） | **形态审计**：禁用吞断言的测试形态 | 有测试写成了必假绿的形态 |
+
+安全网兜的是"人会犯错"，不是"可以不按流程走"。
+
+### 3.5 项目初建期开发顺序（历史存档）
+
+初建期（TDD 模式确立之前）的模块开发顺序，每步全绿后才进入下一步；仅作历史记录，不是新代码的工作法：
 
 ```
 配置模型/校验 → 下载器 → 清单校验/版本计划 → 安装同步 → 增量应用 → 更新编排
@@ -108,7 +140,7 @@ tests/
 
 ## 4. 测试布局要点
 
-- **共享替身**（TestSupport 项目）：`FakeDownloader`（URL→字节）、`StubHttpHandler`（可模拟 Range/瞬态故障/忽略 Range）、`FakePatchApplier`（预设输出/可失败/可损坏）、`FakeChannel`（可配置版本信息与清单）、`FakeProcessRunner`、`FakePlatformInfo`（IsLinux/NVIDIA 探测可控）、`TempDir`、`TestZip`。
+- **共享替身**（TestSupport 项目）：`FakeDownloader`（URL→字节）、`StubHttpHandler`（可模拟 Range/瞬态故障/忽略 Range）、`FakePatchApplier`（预设输出/可失败/可损坏）、`FakeChannel`（可配置版本信息与清单）、`FakeProcessRunner`、`FakePlatformInfo`（IsLinux/NVIDIA 探测可控）、`FakeAutostartService`（启用状态可控/可编程写入失败）、`TempDir`、`TestZip`。
 - **平台相关测试**：不依赖真机 OS——`VmFactory.Build` 缺省注入 Windows 假平台（确定性），
   Linux 分支经 `platformInfo:` / `linuxProtonVersions:` 参数注入；期望值按平台分支时照
   `InstallPathTests`/`SystemProcessRunnerTests` 的 `OperatingSystem.IsWindows() ? … : …` 惯例。
@@ -207,13 +239,16 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64   --self-contain
 
 ## 9. 测试覆盖率政策
 
+- **定位**：门禁是 TDD 流程（§3）的**回归地板**——防存量覆盖被新代码稀释，不是开发方法本身。按 §3.3 合入标准，新增行为默认由自己的先行测试覆盖；门禁红说明有代码绕过了测试先行，不是"补测再合入"的许可。
 - 采集：`dotnet-coverage collect -f cobertura -o out.xml dotnet <测试dll>`（直跑 DLL 是
   xunit.v3 自带 runner，无 MTP `--coverage` 开关；`dotnet test --collect` 受 0 发现问题限制）。
   CI 在 ubuntu 腿执行同一采集并做**行覆盖 ≥ 83% 门禁**（ci.yml Coverage gate 步骤）。
-- **实测基线（2026-09-21）**：口径=仅本仓库 src/ 的 .cs（排除 `obj/` 与 .axaml 伪行；
+- **实测基线（2026-09-22）**：口径=仅本仓库 src/ 的 .cs（排除 `obj/` 与 .axaml 伪行；
   `[ExcludeFromCodeCoverage]` 类天然不计）。历次快照：80.29%（2026-09-19 起点）→ 83.49% →
   84.94%（2026-09-20 实测）→ 85.42%（2026-09-21 实测，5125/6000 行）→
-  85.09%（2026-09-21 视频体验四连改造后，5336/6271 行——分母随按游戏独占播放器等新代码增长）。
+  85.09%（2026-09-21 视频体验四连改造后，5336/6271 行——分母随按游戏独占播放器等新代码增长）→
+  **86.79%（2026-09-22 TDD 转型审计补测后，5445/6274 行——补齐 MWVM 设置 API/Proton 按 tag 下载/
+  VDF 解析/协议工具/主窗口 chrome 47 用例）**。
 - **判定口径**：行覆盖只是必要条件——合格证据 = 行覆盖命中 + 变异击杀（每日冒烟批
   scripts/mutation-smoke.mjs 即该纪律的脚本化；手工变异纪律见 AGENTS.md「变异实验纪律」）。
   测试须双向可证伪：断言真实执行、失败会传播、断被测行为而非镜像自身。
@@ -222,6 +257,9 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64   --self-contain
   `FilePickerService`（系统对话框封装）、`FfmpegVideoBackdropPlayer` 与 `FfmpegLibraryResolver`
   （原生库 unsafe 互操作；其纯逻辑已提取为 PlaybackClock/DecodeGuard/SeamAnalyzer/PrerollHandoff
   并全测）、`WindowsPlatformInfo`（真机语义）。
-- **剩余缺口定性**：Windows 专属分支（`Assert.Skip` 显式化，命中靠 windows-latest 腿）、
-  竞态容错等价类（防御行删除仅在竞态窗口可见）、进度回调散点（可观测性等价豁免）；
-  本地生成物在 `artifacts/coverage/`（不入库）。
+- **剩余缺口定性**（2026-09-22 审计后）：Windows 专属分支（`Assert.Skip` 显式化，命中靠
+  windows-latest 腿；**口径盲区**：覆盖率门禁仅 ubuntu 腿采集，Windows 分支行不进合并口径）；
+  `UmuComponentProvisioner` 剩余 ~22%（GE/UMU 按标签下载的资产散点、清理的删除失败容错行）；
+  `MainWindow.axaml.cs` 手势/动画层（标题栏拖拽与双击最大化依赖平台手势合成，headless 不可达；
+  脉动/迁移驱动循环观感只能真机验证）；竞态容错等价类（防御行删除仅在竞态窗口可见）；
+  进度回调散点（可观测性等价豁免）；本地生成物在 `artifacts/coverage/`（不入库）。
