@@ -35,17 +35,37 @@ public partial class App : Application
             var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("YetAnotherGameLauncher");
             InstallGlobalExceptionLogging(logger);
             var viewModel = services.GetRequiredService<MainWindowViewModel>();
+            // 启动遮蔽：初始化与首个背景预载在遮蔽后进行，就绪/超时后放行（BootGate 纯决策）
+            viewModel.BeginBootSplash();
             desktop.MainWindow = new MainWindow { DataContext = viewModel };
             // 非"关窗"路径的程序性 Shutdown 也停视频（点 X 关闭已由窗口 Closing 覆盖）：
             // 退出期平台拆除会弄坏 GPU 解码栈，解码循环必须先行停止
             var videoPlayer = services.GetRequiredService<IVideoBackdropPlayer>();
             desktop.ShutdownRequested += (_, _) => videoPlayer.Stop();
-            // fire-and-forget 初始化：除方法内部的分类处理外，仍可能逃逸的异常至少留日志尾巴
-            _ = viewModel.InitializeAsync().ContinueWith(t => logger.LogError(t.Exception, "初始化任务异常逃逸"),
-                TaskContinuationOptions.OnlyOnFaulted);
+            // fire-and-forget 启动序列：初始化完成后跑启动门控撤遮蔽；
+            // 除方法内部的分类处理外，仍可能逃逸的异常至少留日志尾巴
+            _ = RunBootSequenceAsync(viewModel, logger);
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    /// <summary>
+    /// 启动序列：初始化（配置/目录/导航/预热）→ 启动门控（遮蔽下等首个背景就绪或超时兜底，撤下遮蔽）。
+    /// 初始化异常只记日志不阻断门控——遮蔽必须在任何结局下都被撤下（RunBootGateAsync 的 finally 兜底）。
+    /// </summary>
+    private static async Task RunBootSequenceAsync(MainWindowViewModel viewModel, ILogger logger)
+    {
+        try
+        {
+            await viewModel.InitializeAsync();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "初始化任务异常逃逸");
+        }
+
+        await viewModel.RunBootGateAsync();
     }
 
     /// <summary>防重复安装全局 handler 的标记（OnFrameworkInitializationCompleted 实际只走一次，防御性保留）。</summary>

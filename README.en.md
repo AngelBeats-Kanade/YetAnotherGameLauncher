@@ -41,6 +41,7 @@ Currently supported games:
 - 🧰 **Verify & repair** — Post-install manifest verification (MD5) that automatically repairs missing/corrupted files and cleans orphaned files (keeping `Saved/` game saves)
 - 🖥️ **One-click server switching** — Wuthering Waves CN/Bilibili/Global, Endfield CN/Global/Bilibili, all configuration-driven
 - 🎞️ **Poster-style detail page + video backdrop** — Official artwork/video fills the main area; FFmpeg hardware decoding (D3D11VA on Windows / VAAPI→NVDEC on Linux) with seamless loop points; switching to Settings/About and back keeps the video alive (paused, instantly resumed — no restart, no poster flash)
+- 🚀 **Boot splash with backdrop preload** — Startup fetches the backdrop behind a splash cover (released once the video's first frame or poster is ready, 5s cap as fallback), so the main view opens with the backdrop already playing
 - 💌 **Wish (gacha) records** — Wuthering Waves: automatic in-game URL extraction, official API fetching, local caching and pity statistics
 - 🌗 **Themes / i18n** — Light / dark / follow-system themes; Simplified Chinese and English UI, switching takes effect immediately
 - 🧭 **Native Wayland first** — On Linux with a Wayland session, the experimental Avalonia 12.1 native Wayland backend is used (compositor-provided fractional scaling); fall back to X11/XWayland anytime with `YAGL_FORCE_XWAYLAND=1`
@@ -192,7 +193,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### Running tests (738 tests, measured 2026-09-21)
+### Running tests (749 tests, measured 2026-09-21)
 
 ```bash
 # Run the 4 test projects' compiled binaries directly (on Windows you can run the .exe;

@@ -422,6 +422,53 @@ public class UiScreenshotTests
         File.WriteAllBytes(Path.Combine(outDir, "15-proton-update-confirm-dark.png"), png!);
     }
 
+    [Fact]
+    public async Task Export_BootSplash_ForReview()
+    {
+        var outDir = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "..", "artifacts", "ui-review"));
+        Directory.CreateDirectory(outDir);
+
+        using var ctx = VmFactory.Build();
+        // 模拟 App 启动路径：窗口上屏前开启遮蔽，初始化在遮蔽后进行
+        ctx.Vm.BeginBootSplash();
+
+        var splashVisible = false;
+        byte[]? png = null;
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            RunToCompletion(() => ctx.Vm.InitializeAsync());
+            var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
+            window.NavIndicatorAnimationEnabled = false;
+            window.SplashAnimationEnabled = false; // headless 冻结脉动条：关泵取静态帧
+            window.Show();
+            window.UpdateLayout();
+
+            var splash = window.GetVisualDescendants()
+                .OfType<Panel>()
+                .FirstOrDefault(p => p.Name == "BootSplash");
+            Assert.NotNull(splash);
+            splashVisible = splash.IsVisible;
+
+            Thread.Sleep(150);
+            Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+            var frame = window.CaptureRenderedFrame();
+            if (frame is not null)
+            {
+                using var ms = new MemoryStream();
+                frame.Save(ms, new PngBitmapEncoderOptions());
+                png = ms.ToArray();
+            }
+
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.True(splashVisible, "启动遮蔽层未随 DataContext 点亮");
+        Assert.NotNull(png);
+        File.WriteAllBytes(Path.Combine(outDir, "16-boot-splash-dark.png"), png!);
+    }
+
     /// <summary>更新确认截图的组件准备器替身：本地 11-6、上游 11-7 → 必然弹更新确认。</summary>
     private sealed class UpdateConfirmProvisioner : YetAnotherGameLauncher.Core.Abstractions.IUmuComponentProvisioner
     {

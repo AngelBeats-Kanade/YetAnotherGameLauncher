@@ -144,7 +144,11 @@ public partial class MainWindow : Window
         PropertyChanged += OnWindowPropertyChanged; // 窗口状态 → 圆角/卡片边距与标题栏图标
         SizeChanged += OnWindowSizeChanged; // 窗口宽度 → 侧栏阈值自适应收放
         Closing += OnWindowClosing; // 关闭时持久化尺寸/最大化状态
-        Closed += (_, _) => _indicatorCts?.Cancel(); // 窗口销毁即停驱动循环，不 orphan
+        Closed += (_, _) =>
+        {
+            _indicatorCts?.Cancel(); // 窗口销毁即停驱动循环，不 orphan
+            _splashCts?.Cancel(); // 启动遮蔽的脉动泵同理
+        };
     }
 
     /// <summary>DataContext 就绪：注入持久化窗口状态的应用回调（目录加载完成时由 VM 调用）。</summary>
@@ -277,6 +281,7 @@ public partial class MainWindow : Window
             vm.WindowStateApplier = ApplyPersistedWindowState; // 目录加载完成后应用持久化窗口状态
             _hookedVm = vm;
             QueueIndicatorMove();
+            SyncBootSplash(vm.IsBooting); // DataContext 后置：已处于启动遮蔽中的 VM（如截图导出）立即点亮遮蔽
         }
     }
 
@@ -288,6 +293,150 @@ public partial class MainWindow : Window
                 or nameof(MainWindowViewModel.IsSidebarExpanded))
         {
             QueueIndicatorMove();
+        }
+        else if (e.PropertyName == nameof(MainWindowViewModel.IsBooting))
+        {
+            SyncBootSplash(((MainWindowViewModel?)sender)?.IsBooting == true);
+        }
+    }
+
+    // ==================== 启动遮蔽层（IsBooting 驱动）：脉动条自泵 + 放行淡出 ====================
+
+    /// <summary>测试开关：headless 会话不推进动画时钟，关闭后遮蔽放行即刻收起（放行逻辑本身不变）。</summary>
+    internal bool SplashAnimationEnabled { get; set; } = true;
+
+    /// <summary>脉动泵所有权守卫：遮蔽重入/窗口销毁时取消旧泵（快速连切不 orphan、不互踩）。</summary>
+    private CancellationTokenSource? _splashCts;
+
+    /// <summary>淡出代际守卫：放行瞬间若遮蔽又被开启（理论上不会，防御），旧淡出不得把新遮蔽收起。</summary>
+    private int _splashFadeGeneration;
+
+    /// <summary>脉动滑块位移（Transform 不能 x:Name（AVLN2000），运行时挂上；驱动循环独占写入）。</summary>
+    private readonly TranslateTransform _splashPulseOffset = new();
+
+    /// <summary>脉动滑块滑动行程（轨道 200 − 滑块 48；与 AXAML 常数保持同步）。</summary>
+    private const double SplashPulseTravel = 200 - 48;
+
+    /// <summary>脉动往返周期（秒）：三角波左右往返，观感即经典不定进度。</summary>
+    private const double SplashPulsePeriodSeconds = 1.8;
+
+    /// <summary>遮蔽放行淡出时长：就绪后遮蔽 0.25s 内让位（渲染循环空闲降频下自泵驱动，同迁移编舞）。</summary>
+    private static readonly TimeSpan SplashFadeDuration = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>脉动/淡出驱动节拍：~16ms 一拍，装饰性动画足够平滑且开销可忽略。</summary>
+    private static readonly TimeSpan SplashTickInterval = TimeSpan.FromMilliseconds(16);
+
+    /// <summary>同步遮蔽层可见性（VM IsBooting 变化与 DataContext 就绪两处入口）。
+    /// 门控轮询的 finally 在线程池线程撤 IsBooting，此处必须回 UI 线程再摸控件。</summary>
+    private void SyncBootSplash(bool booting)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Post(() => SyncBootSplash(booting));
+            return;
+        }
+
+        if (booting)
+        {
+            _splashFadeGeneration++; // 撤销在途淡出的所有权（若有）
+            BootSplash.Opacity = 1;
+            BootSplash.IsVisible = true;
+            if (SplashAnimationEnabled)
+            {
+                StartSplashPulse();
+            }
+        }
+        else
+        {
+            _splashCts?.Cancel();
+            if (SplashAnimationEnabled && BootSplash.IsVisible)
+            {
+                DriveSplashFadeAsync(++_splashFadeGeneration);
+            }
+            else
+            {
+                BootSplash.IsVisible = false;
+                BootSplash.Opacity = 1;
+            }
+        }
+    }
+
+    /// <summary>启动脉动泵（先取消在途泵）：滑块 Transform 只挂一次，位移由泵独占写入。</summary>
+    private void StartSplashPulse()
+    {
+        _splashCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _splashCts = cts;
+        SplashPulseBar.RenderTransform = _splashPulseOffset;
+        DriveSplashPulseAsync(cts);
+    }
+
+    /// <summary>
+    /// 脉动驱动循环：三角波往返写滑块位移基值。手写驱动而非 Animation API，与迁移编舞同理——
+    /// 本应用渲染循环空闲时按需降频，Animation 时钟无外部泵无法自举；Task.Delay 循环自身即泵。
+    /// </summary>
+    private async void DriveSplashPulseAsync(CancellationTokenSource owner)
+    {
+        var ct = owner.Token;
+        try
+        {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            while (true)
+            {
+                // 三角波：0 → 行程 → 0（往返一个周期），线性即可
+                var phase = stopwatch.Elapsed.TotalSeconds % SplashPulsePeriodSeconds / SplashPulsePeriodSeconds;
+                var triangle = phase < 0.5 ? phase * 2 : (1 - phase) * 2;
+                _splashPulseOffset.X = Math.Round(triangle * SplashPulseTravel, 1);
+                await Task.Delay(SplashTickInterval, ct);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 放行/重入/窗口销毁取消，属预期
+        }
+        catch (Exception)
+        {
+            // async void 内未捕获异常会崩掉整个进程：装饰性动画失败静默兜住
+        }
+    }
+
+    /// <summary>放行淡出：0.25s 线性淡出后收起并复位不透明度（终态写入基值，headless 可断言）。</summary>
+    private async void DriveSplashFadeAsync(int generation)
+    {
+        try
+        {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var duration = SplashFadeDuration.TotalMilliseconds;
+            while (true)
+            {
+                var progress = Math.Min(1, stopwatch.Elapsed.TotalMilliseconds / duration);
+                BootSplash.Opacity = 1 - progress;
+                if (progress >= 1)
+                {
+                    break;
+                }
+
+                await Task.Delay(SplashTickInterval);
+                if (generation != _splashFadeGeneration)
+                {
+                    return; // 遮蔽被重新开启：新状态已接管可见性，旧淡出无权收起
+                }
+            }
+
+            if (generation == _splashFadeGeneration)
+            {
+                BootSplash.IsVisible = false;
+                BootSplash.Opacity = 1;
+            }
+        }
+        catch (Exception)
+        {
+            // 装饰性动画失败兜住；保底收起，避免遮蔽永久钉在屏幕上
+            if (generation == _splashFadeGeneration)
+            {
+                BootSplash.IsVisible = false;
+                BootSplash.Opacity = 1;
+            }
         }
     }
 

@@ -31,10 +31,11 @@ dotnet test --project tests/YetAnotherGameLauncher.App.Tests \
 - 保存：`frame.Save(path, new PngBitmapEncoderOptions())`。
 - 数据必须真实：用 `VmFactory` 样例数据（两个游戏、假渠道状态：已安装/有更新/预下载可用都摆出来）。
 - 截图窗口固定 1120×720（`UiScreenshotTests` 内写死，与主窗口默认 1464×720 无关，保证构图稳定）。
-  共导出 16 张（张数以 `UiScreenshotTests.Export_UiScreenshots_ForReview` 实际为准）：01 游戏详情暗、
+  共导出 17 张（张数以 `UiScreenshotTests.Export_UiScreenshots_ForReview` 实际为准）：01 游戏详情暗、
   02 亮、02b 游戏设置、03 第二游戏、04 侧栏收起、05 设置、06 关于、07 英文、08 已安装态、
   09 校验修复确认条、10 启动失败覆盖层、11 Linux 启动设置卡、12 详情页空态、13 最大化、14 toast、
-  15 Proton 更新确认（亮暗主题与多页面/多状态覆盖都在其中；另有 `Export_LaunchErrorOverlay_ForReview`
+  15 Proton 更新确认、16 启动遮蔽层（`Export_BootSplash_ForReview`，2026-09-21 增）
+  （亮暗主题与多页面/多状态覆盖都在其中；另有 `Export_LaunchErrorOverlay_ForReview`
   与 `Export_ProtonUpdateConfirm_ForReview` 两组专项导出，后者内含纱罩压暗的像素断言）。
 
 ## 2. 看图检查清单（逐项过，亮暗各一遍）

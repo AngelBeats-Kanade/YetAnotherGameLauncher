@@ -268,6 +268,16 @@ flowchart LR
   图标 URL 缓存于 `%ConfigDirectory%/image-cache/`（`BackgroundImageService`，URL SHA256 键；
   `ReloadAsync` 绕过缓存强制重取）。区域随界面语言（cn/global），语言切换换区时重新解析新区域。
   离线启动状态行照常提示无连接，资产由缓存兜底。
+- **启动遮蔽门控（2026-09-21）**：`App` 启动路径在窗口上屏前 `BeginBootSplash()` 开启全窗遮蔽
+  （`MainWindow` 根 Panel 末位的 `BootSplash` 层：主题渐变 + logo/字标 + 自泵脉动条），初始化与
+  首个背景预载在遮蔽后进行；`InitializeAsync` 完成后接 `RunBootGateAsync`——有界轮询等首个选中
+  游戏的背景就绪（视频首帧 `HasBackgroundVideo` 或静态海报 `HasBackgroundImage` 任一），叠加最小
+  展示时长（0.4s，防全热缓存下一闪而过），超时（5s，首启下载 FFmpeg 库/视频与慢网络兜底）/
+  配置错误/无游戏无条件放行；放行后海报/渐变照常兜底、视频就绪后弹入。纯决策在
+  `BootGate.ShouldRelease`（放行矩阵单测）；遮蔽可见性/淡出由 `MainWindow` 代码后置驱动
+  （IsBooting 属性通知 → `SyncBootSplash`，回 UI 线程再摸控件；淡出为手写自泵 0.25s——
+  同迁移编舞纪律，Animation API 空闲渲染循环下无法自举；`SplashAnimationEnabled` 测试开关）。
+  `IsBooting` 默认 false：headless 测试与截图导出不受影响，仅生产启动路径显式开启。
 - **播放**：`FfmpegVideoBackdropPlayer` 后台线程解码（Windows D3D11VA / Linux VAAPI→CUDA(NVDEC)
   硬解，按序尝试、设备创建失败自动落到下一项直至回软解；硬解 GPU 帧经 `av_hwframe_transfer_data`
   回读系统内存——回读不拷贝帧属性，pts 必须在回读前从原始解码帧捕获），swscale 转 BGRA 后逐行 blit 进

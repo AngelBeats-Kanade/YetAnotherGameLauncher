@@ -127,6 +127,7 @@
   "sidebar_collapsed_expand": "Expand sidebar",
   "sidebar_expanded_collapse": "Collapse sidebar",
   "sidebar_games_count": "{0} games",
+  "splash_loading": "Preparing game backdrop…",
   "status_hasUpdate": "Update available",
   "status_launchFailed": "Launch failed: {0}",
   "status_launchNotReady": "Game executable not found: install first, or check the path under Game Settings → Launch.",

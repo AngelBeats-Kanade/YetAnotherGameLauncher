@@ -235,6 +235,64 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private string _statusMessage = "";
 
+    /// <summary>启动遮蔽是否在屏（App 启动路径经 <see cref="BeginBootSplash"/> 开启、
+    /// <see cref="RunBootGateAsync"/> 放行撤下；默认 false——测试与截图导出不受影响）。</summary>
+    [ObservableProperty]
+    private bool _isBooting;
+
+    /// <summary>启动门控放行超时（首启下载/慢网络兜底；测试注入缩小时长）。</summary>
+    internal TimeSpan BootReadinessTimeout { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>启动遮蔽最小展示时长（测试注入缩小时长）。</summary>
+    internal TimeSpan BootMinSplash { get; set; } = TimeSpan.FromSeconds(BootGate.MinSplashSeconds);
+
+    /// <summary>开启启动遮蔽（App 启动路径在窗口上屏前调用一次）：初始化与背景预载在遮蔽后进行。</summary>
+    public void BeginBootSplash() => IsBooting = true;
+
+    /// <summary>
+    /// 启动门控：遮蔽下有界轮询等待首个选中游戏的背景就绪（视频首帧 <c>HasBackgroundVideo</c> 或
+    /// 静态海报 <c>HasBackgroundImage</c>），叠加最小展示时长；超时/配置错误/无游戏无条件放行——
+    /// 放行后海报/渐变照常兜底、视频就绪后弹入。App 在 <see cref="InitializeAsync"/> 完成后调用；
+    /// 未开启遮蔽（测试/重复调用）为空跑。纯决策见 <see cref="BootGate"/>。
+    /// </summary>
+    public async Task RunBootGateAsync(CancellationToken cancellationToken = default)
+    {
+        if (!IsBooting)
+        {
+            return;
+        }
+
+        try
+        {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            while (true)
+            {
+                var game = SelectedGame;
+                var ready = game is null || game.HasBackgroundVideo || game.HasBackgroundImage;
+                if (BootGate.ShouldRelease(
+                        ready,
+                        game is not null,
+                        ConfigError,
+                        stopwatch.Elapsed.TotalSeconds,
+                        BootReadinessTimeout.TotalSeconds,
+                        BootMinSplash.TotalSeconds))
+                {
+                    return;
+                }
+
+                await Task.Delay(TimeSpan.FromSeconds(BootGate.PollIntervalSeconds), cancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 应用退出：遮蔽随窗口一起消失
+        }
+        finally
+        {
+            IsBooting = false;
+        }
+    }
+
     /// <summary>右上角轻提示集合（瞬态信息：版本检测结果/检测到游戏、服务器切换/启动设置实际变更）；容量 3，过载丢弃最旧。</summary>
     public ObservableCollection<ToastItem> Toasts { get; } = [];
 

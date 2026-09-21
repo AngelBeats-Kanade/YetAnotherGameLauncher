@@ -127,6 +127,7 @@
   "sidebar_collapsed_expand": "展开侧栏",
   "sidebar_expanded_collapse": "收起侧栏",
   "sidebar_games_count": "{0} 款游戏",
+  "splash_loading": "正在准备游戏背景…",
   "status_hasUpdate": "有可用更新",
   "status_launchFailed": "启动失败：{0}",
   "status_launchNotReady": "尚未检测到游戏主程序：先完成安装，或在「游戏设置 → 启动参数」中检查路径。",

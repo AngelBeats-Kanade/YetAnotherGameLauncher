@@ -56,6 +56,7 @@ src/
                     LocalizationService/ILocalizationService（JSON 资源本地化）；
                     FfmpegVideoBackdropPlayer/IVideoBackdropPlayer（FFmpeg 背景视频解码播放）+ FfmpegLibraryResolver（原生库准备/下载）；
                     SeamAnalyzer（循环接缝分析）+ PrerollHandoff（预卷零间隙交接状态机）实现无缝循环；
+                    BootGate（启动门控纯决策：遮蔽放行矩阵——背景就绪/最小展示时长/超时兜底）；
                     BackgroundImageService（静态背景图加载与缓存：会话内存 + http 来源磁盘缓存，失败结果按 TTL 短暂缓存；ReloadAsync 绕过缓存强制重取）、
                     UmuComponentProvisioner（原生 umu 的 Proton/Runtime 下载与校验；Proton 发行版三源：
                     DW-Proton 走 dawn.wine Forgejo API，GE/UMU-Proton 走 GitHub；资产按主机架构过滤
