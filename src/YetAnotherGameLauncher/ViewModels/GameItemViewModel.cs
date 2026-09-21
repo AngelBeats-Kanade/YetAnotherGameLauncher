@@ -611,8 +611,10 @@ public partial class GameItemViewModel(
     }
 
     /// <summary>全停清场：退订通知、停止播放器并清帧（视频层回退海报/渐变）。
-    /// 调用方仅限三处——保活淘汰（超过暂停上限，MainWindowViewModel 驱动）、窗口关闭/应用退出、
-    /// 游戏列表重建（installRoot 变更，旧 VM 整体废弃）；普通切页一律走 SuspendVideo 保活。</summary>
+    /// 语义上与 <see cref="SuspendVideo"/>（暂停保活）相对——仅用于会话不再需要的场合：
+    /// 保活淘汰（超暂停上限）、窗口关闭/应用退出、游戏列表重建（旧 VM 整体废弃）、
+    /// 背景解析为非视频类（会话失去存在依据），以及起播序列内部的换场清理；
+    /// 普通切页一律走 SuspendVideo 保活。</summary>
     internal void StopVideo()
     {
         _pendingVideoPath = null;

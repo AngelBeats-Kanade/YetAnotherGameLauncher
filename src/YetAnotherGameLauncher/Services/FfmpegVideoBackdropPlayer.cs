@@ -223,8 +223,11 @@ public sealed class FfmpegVideoBackdropPlayer(
             }
         }
 
-        // 暂停中泊车的解码循环靠取消令牌唤醒退出；这里放行门仅作冗余兜底（无副作用）
+        // 暂停中泊车的解码循环靠取消令牌唤醒退出；这里放行门仅作冗余兜底（无副作用）。
+        // 会话标志同步清零：接口语义"未停止"，且 Dispose() 直接委托本方法——不清的话
+        // 陈旧标志会让续播判定误判（VM 侧另有 _videoSubscribed 双重守卫，此处收口契约）
         _resumeGate.Set();
+        Interlocked.Exchange(ref _sessionActive, 0);
         ClearFrame();
     }
 

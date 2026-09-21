@@ -235,7 +235,7 @@ public partial class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(GameNavSelection));
     }
 
-    /// <summary>登记一个刚被暂停保会的游戏页并执行上限淘汰：最旧的保活会话被全停清场
+    /// <summary>登记一个刚被暂停保活的游戏页并执行上限淘汰：最旧的保活会话被全停清场
     /// （帧位图/解码源释放；该游戏重进时凭已解析路径重新起播自愈）。</summary>
     private void TrackParkedVideo(GameItemViewModel parked)
     {
