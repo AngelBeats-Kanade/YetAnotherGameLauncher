@@ -42,6 +42,10 @@ public class VideoBackdropHeadlessStartTests
                 return calls == 1 ? firstPlayGate.Task : Task.FromResult(true);
             };
 
+            // 初始化期的起播已完成（默认处理器成功）：先离页停掉它，制造"死会话"起点——
+            // 新契约下 SetDetailActive(true) 对存活会话走续播快路径，不再重复起播
+            game.SetDetailActive(false);
+
             // 第一次起播挂在起播窗口内；随后第二次起播（先停旧的、再成功）
             game.SetDetailActive(true);
             Assert.Equal(1, calls);
@@ -106,6 +110,42 @@ public class VideoBackdropHeadlessStartTests
         }
     }
 
+    [Fact]
+    public async Task StartVideo_SuspendedDuringDeferralWindow_DoesNotStartWhileHidden()
+    {
+        // 起播延迟窗口内切去非游戏页（SuspendVideo）：挂起的起播必须放弃——不得在页外
+        // 隐形起播浪费解码（重进详情页时经续播快路径或路径重启恢复）。
+        var tempDir = new TestSupport.TempDir();
+        try
+        {
+            var player = new VmFactory.FakeVideoPlayer();
+            using var ctx = VmFactory.Build(videoPlayer: player);
+            GameItemViewModel.VideoStartDeferral = TimeSpan.FromMilliseconds(150);
+            var localVideo = tempDir.FilePath("cached", "backdrop.mp4");
+            Directory.CreateDirectory(Path.GetDirectoryName(localVideo)!);
+            await File.WriteAllTextAsync(localVideo, "fake");
+            ctx.KuroBackdrop.Resolver = _ => new BackdropSource(localVideo, BackdropKind.Video);
+            await ctx.Vm.InitializeAsync();
+            var game = ctx.Vm.Games[0];
+
+            // 延迟窗口内暂停（模拟切去设置页）：挂起的起播过期放弃
+            await Task.Delay(60);
+            game.SuspendVideo();
+            await Task.Delay(250);
+            Assert.Empty(player.PlayedPaths);
+
+            // 重进详情页：凭已解析路径正常起播（延迟窗口 150ms，等待须覆盖）
+            game.SetDetailActive(true);
+            await Task.Delay(300);
+            Assert.Equal([localVideo], player.PlayedPaths);
+        }
+        finally
+        {
+            GameItemViewModel.VideoStartDeferral = TimeSpan.Zero;
+            tempDir.Dispose();
+        }
+    }
+
     /// <summary>非空占位帧：仅用于"帧缓冲非空才点亮"判定，不触平台渲染接口。</summary>
     private sealed class StubImage : Avalonia.Media.IImage
     {
@@ -118,8 +158,9 @@ public class VideoBackdropHeadlessStartTests
 }
 
 /// <summary>
-/// 背景视频链路无头回归（UI 线程）：解析器返回视频源时，进入详情页起播（fake 播放器）、
-/// 首帧到达后视频层可见、切走/关页停止；静态图来源不触碰播放器。
+/// 背景视频链路无头回归：解析器返回视频源时，进入详情页起播（fake 播放器）、
+/// 首帧到达后视频层可见、切去非游戏页暂停保活（帧与会话保留）、切另一游戏页全停清帧；
+/// 静态图来源不触碰播放器。
 /// </summary>
 [Collection("sequential")]
 public class VideoBackdropHeadlessTests : IDisposable
@@ -135,7 +176,7 @@ public class VideoBackdropHeadlessTests : IDisposable
     public void Dispose() => _ctx.TempDir.Dispose();
 
     [Fact]
-    public async Task VideoSource_PlaysWhenDetailVisible_StopsWhenLeaving()
+    public async Task VideoSource_PlaysWhenDetailVisible_PausesWhenLeavingToOtherPage()
     {
         var localVideo = _ctx.TempDir.FilePath("cached", "backdrop.mp4");
         Directory.CreateDirectory(Path.GetDirectoryName(localVideo)!);
@@ -167,11 +208,16 @@ public class VideoBackdropHeadlessTests : IDisposable
             Assert.True(game.HasBackgroundVideo);
             AssertSurfaceVisible(window, game, expected: true);
 
-            // 切到设置页：视频停止且层隐藏
+            // 切到设置页：暂停保活——不停止（Stop 数不增）、不清帧、会话与视频层可见标志保留
+            //（页面模板已卸载所以渲染面不可见，重进详情页即时恢复）
+            var stopsBeforeLeave = _player.StopCount;
             _ctx.Vm.ShowSettingsCommand.Execute(null);
             window.UpdateLayout();
-            Assert.True(_player.StopCount >= 1);
-            Assert.False(game.HasBackgroundVideo);
+            Assert.Equal(stopsBeforeLeave, _player.StopCount);
+            Assert.Equal(1, _player.PauseCount);
+            Assert.True(_player.IsSessionActive);
+            Assert.NotNull(_player.Frame);
+            Assert.True(game.HasBackgroundVideo);
             AssertSurfaceVisible(window, game, expected: false);
 
             window.Close();
@@ -179,7 +225,7 @@ public class VideoBackdropHeadlessTests : IDisposable
     }
 
     [Fact]
-    public async Task VideoSource_ReentersDetailPage_ResumesPlayback()
+    public async Task VideoSource_ReentersDetailPage_ResumesWithoutRestarting()
     {
         var localVideo = _ctx.TempDir.FilePath("cached", "backdrop.mp4");
         Directory.CreateDirectory(Path.GetDirectoryName(localVideo)!);
@@ -199,15 +245,85 @@ public class VideoBackdropHeadlessTests : IDisposable
             window.UpdateLayout();
             Assert.Equal([localVideo], _player.PlayedPaths);
 
-            // 切到设置页停播；再切回同一游戏详情：不重新解析背景也应凭已解析路径恢复播放
+            _player.Frame = NewFrame();
+            _player.RaiseFrame();
+            window.UpdateLayout();
+            Assert.True(game.HasBackgroundVideo);
+
+            // 切到设置页暂停；再切回同一游戏详情：续播快路径——不重新起播（无新 PlayAsync），
+            // 不停止，Resume 恰一次；无新帧通知的情况下渲染面重挂即画暂停帧（可见性立即可见）
             _ctx.Vm.ShowSettingsCommand.Execute(null);
             window.UpdateLayout();
             var playsAfterLeave = _player.PlayedPaths.Count;
+            var stopsAfterLeave = _player.StopCount;
 
             _ctx.Vm.ShowGamesCommand.Execute(null);
             window.UpdateLayout();
-            Assert.True(_player.PlayedPaths.Count > playsAfterLeave);
-            Assert.Equal(localVideo, _player.PlayedPaths[^1]);
+            Assert.Equal(playsAfterLeave, _player.PlayedPaths.Count);
+            Assert.Equal(stopsAfterLeave, _player.StopCount);
+            Assert.Equal(1, _player.ResumeCount);
+            Assert.True(game.HasBackgroundVideo);
+            AssertSurfaceVisible(window, game, expected: true);
+
+            window.Close();
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task VideoSource_SuspendedGame_SwitchingToAnotherGame_StopsAndClearsFrame()
+    {
+        // 保活不弱化切游戏契约：从"暂停保活中的游戏 A"直接切到游戏 B（经侧栏或返回路径），
+        // A 的会话必须全停清帧——否则共享播放器上 B 的会话会被 A 的悬挂订阅/残留帧污染
+        var videoA = _ctx.TempDir.FilePath("cached", "a.mp4");
+        var videoB = _ctx.TempDir.FilePath("cached", "b.mp4");
+        Directory.CreateDirectory(Path.GetDirectoryName(videoA)!);
+        await File.WriteAllTextAsync(videoA, "fake");
+        await File.WriteAllTextAsync(videoB, "fake");
+        _ctx.KuroBackdrop.Resolver = _ => new BackdropSource(videoA, BackdropKind.Video);
+        _ctx.GryphlineBackdrop.Resolver = _ => new BackdropSource(videoB, BackdropKind.Video);
+
+        await _ctx.Vm.InitializeAsync();
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            window.Show();
+            window.UpdateLayout();
+
+            var a = _ctx.Vm.Games[0];
+            var b = _ctx.Vm.Games[1];
+
+            _ctx.Vm.GameNavSelection = a;
+            window.UpdateLayout();
+            _player.Frame = NewFrame();
+            _player.RaiseFrame();
+            window.UpdateLayout();
+            Assert.True(a.HasBackgroundVideo);
+
+            // 切到设置页（A 暂停保活），再直接切到游戏 B：A 全停
+            _ctx.Vm.ShowSettingsCommand.Execute(null);
+            window.UpdateLayout();
+            Assert.Equal(1, _player.PauseCount);
+
+            _ctx.Vm.GameNavSelection = b;
+            window.UpdateLayout();
+            Assert.True(_player.StopCount >= 1);
+            Assert.Null(_player.Frame); // 停止即清帧：B 未出首帧前不被 A 的残留帧点亮
+            Assert.Equal(videoB, _player.PlayedPaths[^1]);
+            Assert.False(b.HasBackgroundVideo);
+            AssertSurfaceVisible(window, b, expected: false);
+
+            // A 的迟到的陈旧帧通知不得点亮 B（暂停中被停掉的会话同样受契约保护）
+            _player.RaiseFrame();
+            window.UpdateLayout();
+            Assert.False(b.HasBackgroundVideo);
+
+            // B 自己的首帧到达：正常点亮
+            _player.Frame = NewFrame();
+            _player.RaiseFrame();
+            window.UpdateLayout();
+            Assert.True(b.HasBackgroundVideo);
+            AssertSurfaceVisible(window, b, expected: true);
 
             window.Close();
         }, CancellationToken.None);

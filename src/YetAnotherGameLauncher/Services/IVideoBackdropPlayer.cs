@@ -32,4 +32,18 @@ public interface IVideoBackdropPlayer
     /// <summary>停止播放、取消解码循环并清空帧缓冲（渲染层立即回到海报/渐变兜底；
     /// 迟到的陈旧帧通知以空帧缓冲为证不再点亮视频层）。</summary>
     void Stop();
+
+    /// <summary>
+    /// 暂停播放：解码循环在下一帧处理点泊车（不占 CPU/GPU），帧缓冲与解码源原样保留——
+    /// 切到非详情页时保活会话用。无活动会话时为 no-op；不清帧、不触发海报兜底。
+    /// </summary>
+    void Pause();
+
+    /// <summary>恢复播放：唤醒泊车的解码循环并重定节拍基线（暂停时长不计入时间轴，
+    /// 下一帧立即呈现后恢复 PTS 节拍）。与 <see cref="Pause"/> 配对，无会话时为 no-op。</summary>
+    void Resume();
+
+    /// <summary>是否有活动播放会话（PlayAsync 已启动且未停止/自然结束）：
+    /// 调用方据此在重回详情页时选择 <see cref="Resume"/> 续播而非重新起播。</summary>
+    bool IsSessionActive { get; }
 }

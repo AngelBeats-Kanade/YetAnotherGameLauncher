@@ -63,4 +63,24 @@ public class VideoBackdropPlayerCtsTests
         Assert.Null(stopped);
         Assert.True(player.CtsClearedForTest);
     }
+
+    [Fact]
+    public void PauseResume_WithoutActiveSession_AreNoOps()
+    {
+        // 无会话时 Pause/Resume 必须是无害 no-op（Pause 尤其不得留下复位门——
+        // 否则下一次 PlayAsync 起播即泊车永不产帧；新会话启动时 Set 门兜底另有一层防线）
+        var player = new FfmpegVideoBackdropPlayer(new FfmpegLibraryResolver(new NetworkProxyManager()));
+
+        Assert.False(player.IsSessionActive);
+
+        var thrown = Record.Exception(() =>
+        {
+            player.Pause();
+            player.Resume();
+            player.Pause();
+        });
+
+        Assert.Null(thrown);
+        Assert.False(player.IsSessionActive);
+    }
 }

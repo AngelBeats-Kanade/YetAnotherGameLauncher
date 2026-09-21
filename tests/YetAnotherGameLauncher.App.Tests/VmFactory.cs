@@ -85,7 +85,7 @@ public static class VmFactory
         }
     }
 
-    /// <summary>可编程的视频播放器假实现：记录起播/停止调用，帧事件由测试手动触发。</summary>
+    /// <summary>可编程的视频播放器假实现：记录起播/停止/暂停/恢复调用，帧事件由测试手动触发。</summary>
     public sealed class FakeVideoPlayer : IVideoBackdropPlayer
     {
         /// <summary>起播是否成功（默认 true）。</summary>
@@ -98,6 +98,16 @@ public static class VmFactory
 
         public int StopCount { get; private set; }
 
+        /// <summary>Pause 调用次数（切非游戏页保活断言用）。</summary>
+        public int PauseCount { get; private set; }
+
+        /// <summary>Resume 调用次数（重进详情页续播断言用）。</summary>
+        public int ResumeCount { get; private set; }
+
+        /// <summary>是否有活动会话：PlayAsync 起播置位、Stop/起播失败清零（与 FfmpegVideoBackdropPlayer 一致）。
+        /// 假实现的 PlayAsync 即刻完成，会话"存活"直至 Stop——足以驱动 VM 侧续播/重启分叉。</summary>
+        public bool IsSessionActive { get; private set; }
+
         /// <summary>帧位图（测试可注入假帧）。</summary>
         public IImage? Frame { get; set; }
 
@@ -109,20 +119,34 @@ public static class VmFactory
 
         public event EventHandler? FrameUpdated;
 
-        public Task<bool> PlayAsync(string videoPath, CancellationToken cancellationToken = default)
+        public async Task<bool> PlayAsync(string videoPath, CancellationToken cancellationToken = default)
         {
             PlayedPaths.Add(videoPath);
-            return AsyncPlayHandler is { } async
-                ? async(videoPath)
-                : Task.FromResult(PlayHandler?.Invoke(videoPath) ?? true);
+            IsSessionActive = true;
+            var playing = AsyncPlayHandler is { } async
+                ? await async(videoPath)
+                : PlayHandler?.Invoke(videoPath) ?? true;
+            if (!playing)
+            {
+                IsSessionActive = false;
+            }
+
+            return playing;
         }
 
         public void Stop()
         {
             StopCount++;
+            IsSessionActive = false;
             // 契约：Stop 清空帧缓冲（与 FfmpegVideoBackdropPlayer 一致）
             Frame = null;
         }
+
+        /// <summary>契约：暂停不清帧、不断会话（与 FfmpegVideoBackdropPlayer 一致）。</summary>
+        public void Pause() => PauseCount++;
+
+        /// <summary>恢复泊车的会话；无会话时为 no-op（与 FfmpegVideoBackdropPlayer 一致）。</summary>
+        public void Resume() => ResumeCount++;
 
         /// <summary>模拟解码器产出帧（测试手动驱动，UI 线程触发）。</summary>
         public void RaiseFrame() => FrameUpdated?.Invoke(this, EventArgs.Empty);

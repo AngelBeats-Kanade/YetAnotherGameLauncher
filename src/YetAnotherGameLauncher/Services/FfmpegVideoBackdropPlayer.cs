@@ -78,6 +78,13 @@ public sealed class FfmpegVideoBackdropPlayer(
     /// <summary>播放代际：Play/Stop 各递增一次；循环凭代际比对丢弃旧代的输出（避免 Stop/Play 竞争）。</summary>
     private int _generation;
 
+    /// <summary>续播门（初始放行）：Pause 复位后解码循环在帧处理点泊车，Resume/新会话/Stop 放行。
+    /// 与取消令牌一起 WaitAny——暂停中 Stop（切游戏/退出）靠取消令牌唤醒泊车线程正常退出。</summary>
+    private readonly ManualResetEventSlim _resumeGate = new(initialState: true);
+
+    /// <summary>活动会话标志（0/1）：PlayAsync 启动置位、后台任务收尾归零；Pause/Resume 据此判定 no-op。</summary>
+    private int _sessionActive;
+
     /// <inheritdoc/>
     public IImage? Frame
     {
@@ -130,6 +137,8 @@ public sealed class FfmpegVideoBackdropPlayer(
         var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var generation = Interlocked.Increment(ref _generation);
         _cts = cts;
+        _resumeGate.Set();
+        Interlocked.Exchange(ref _sessionActive, 1);
 
         var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         _ = Task.Run(async () =>
@@ -156,6 +165,7 @@ public sealed class FfmpegVideoBackdropPlayer(
                 // 共享引用摘掉再释放，否则 _cts 悬挂已释放实例，下一次 Stop() 对其 Cancel
                 // 抛 ObjectDisposedException（切页/切游戏的 SetDetailActive→StopVideo 即崩）
                 Interlocked.CompareExchange(ref _cts, null, cts);
+                Interlocked.Exchange(ref _sessionActive, 0);
                 cts.Dispose();
             }
         }, CancellationToken.None);
@@ -165,6 +175,22 @@ public sealed class FfmpegVideoBackdropPlayer(
 
     /// <inheritdoc/>
     public void Stop() => StopCore();
+
+    /// <inheritdoc/>
+    public bool IsSessionActive => Interlocked.CompareExchange(ref _sessionActive, 0, 0) != 0;
+
+    /// <inheritdoc/>
+    public void Pause()
+    {
+        // 无会话时不得留下复位门：否则下一次 PlayAsync 起播即泊车（新会话启动时也会 Set 兜底）
+        if (IsSessionActive)
+        {
+            _resumeGate.Reset();
+        }
+    }
+
+    /// <inheritdoc/>
+    public void Resume() => _resumeGate.Set();
 
     /// <summary>测试观察点：后台任务收尾是否已摘除共享 cts 引用（回归测试等待落定用）。</summary>
     internal bool CtsClearedForTest => Interlocked.CompareExchange(ref _cts, null, null) is null;
@@ -191,6 +217,8 @@ public sealed class FfmpegVideoBackdropPlayer(
             }
         }
 
+        // 暂停中泊车的解码循环靠取消令牌唤醒退出；这里放行门仅作冗余兜底（无副作用）
+        _resumeGate.Set();
         ClearFrame();
     }
 
@@ -386,6 +414,21 @@ public sealed class FfmpegVideoBackdropPlayer(
 
             while (!token.IsCancellationRequested)
             {
+                // 暂停泊车：Pause 后解码循环在此挂起，不再消费帧/节拍/上屏——帧缓冲与解码源
+                // 原样保留（页外不占解码资源）。唤醒只认续播门或取消令牌（暂停中 Stop 切
+                // 游戏/退出经取消令牌正常退出）；醒来重定节拍基线：暂停时长不计入时间轴，
+                // 下一帧立即呈现后恢复 PTS 节拍
+                if (!_resumeGate.IsSet)
+                {
+                    if (WaitHandle.WaitAny([_resumeGate.WaitHandle, token.WaitHandle]) == 1
+                        || token.IsCancellationRequested)
+                    {
+                        break;
+                    }
+
+                    clock?.Reset();
+                }
+
                 if (pendingFrames.Count > 0)
                 {
                     // 收编的预解码帧优先消费：这是零间隙续播的关键路径

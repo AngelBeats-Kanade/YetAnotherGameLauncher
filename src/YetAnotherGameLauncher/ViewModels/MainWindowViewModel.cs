@@ -182,17 +182,35 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    /// <summary>当前正在播放背景视频的详情页（切页时驱动播放/停止；页外不占用解码资源）。</summary>
+    /// <summary>保活中的游戏详情页（切页时驱动播放/停止/暂停；切去非游戏页后仍指向该页的暂停态，
+    /// 直到被另一游戏页替换——从非游戏页再切游戏时仍要驱动它的全停换源）。</summary>
     private GameItemViewModel? _activeVideoPage;
 
-    /// <summary>页面切换时触发：转发通知给依赖 CurrentPage 的侧栏高亮与选中项绑定，并驱动背景视频起停。</summary>
+    /// <summary>页面切换时触发：转发通知给依赖 CurrentPage 的侧栏高亮与选中项绑定，并驱动背景视频起停。
+    /// 游戏页 ↔ 非游戏页（设置/关于/抽卡/游戏设置）往返走暂停保活——解码泊车、帧保留，
+    /// 重进即时续播；切另一游戏页才全停换源（停止即清帧契约不变）。</summary>
     partial void OnCurrentPageChanged(object? value)
     {
-        if (!ReferenceEquals(_activeVideoPage, value))
+        var gamePage = value as GameItemViewModel;
+        if (gamePage is not null && ReferenceEquals(_activeVideoPage, gamePage))
         {
-            _activeVideoPage?.SetDetailActive(false);
-            _activeVideoPage = value as GameItemViewModel;
-            _activeVideoPage?.SetDetailActive(true);
+            // 从非游戏页切回同一游戏页：续播保活会话（无会话则按已解析路径重新起播）
+            gamePage.SetDetailActive(true);
+        }
+        else if (!ReferenceEquals(_activeVideoPage, value))
+        {
+            var previous = _activeVideoPage;
+            if (gamePage is not null)
+            {
+                previous?.SetDetailActive(false);
+                _activeVideoPage = gamePage;
+                gamePage.SetDetailActive(true);
+            }
+            else if (previous is not null)
+            {
+                // 切到非游戏页：暂停保活，_activeVideoPage 保持指向该游戏页
+                previous.SuspendVideo();
+            }
         }
 
         OnPropertyChanged(nameof(IsGameNavActive));

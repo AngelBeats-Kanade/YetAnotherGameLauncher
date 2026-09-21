@@ -528,7 +528,8 @@ public partial class GameItemViewModel(
         }
     }
 
-    /// <summary>详情页可见性变化（MainWindowViewModel 切页驱动）：进页起播待播视频（无需重新解析），离页停止。</summary>
+    /// <summary>详情页可见性变化（MainWindowViewModel 切页驱动）：进页起播待播视频（无需重新解析），
+    /// 离页（切去另一游戏页）停止。切去非游戏页走 <see cref="SuspendVideo"/> 暂停保活，不在此路径。</summary>
     internal void SetDetailActive(bool active)
     {
         _detailActive = active;
@@ -538,12 +539,30 @@ public partial class GameItemViewModel(
             return;
         }
 
+        // 续播快路径：切去非游戏页时会话保活（帧缓冲仍在），直接唤醒解码——重挂的渲染面
+        // 立即画出暂停帧并恢复节拍，无需重开解码源/重新分析循环点/重付起播延迟
+        if (VideoPlayer is { IsSessionActive: true } && _videoSubscribed)
+        {
+            VideoPlayer.Resume();
+            return;
+        }
+
         // 离页会清掉 pending，但已解析路径保留：同游戏切走再切回时据此恢复播放
         var path = _pendingVideoPath ?? _videoPath;
         if (path is { } videoPath)
         {
             _ = StartVideoAsync(videoPath);
         }
+    }
+
+    /// <summary>切到非游戏页（设置/关于/抽卡记录/游戏设置）时暂停保活：解码泊车、帧缓冲与
+    /// 订阅原样保留，视频层可见标志不翻——重进详情页经 <see cref="SetDetailActive"/>(true)
+    /// 的续播快路径无缝接续。区别于 StopVideo 的全停清场（切另一游戏/退出用，帧清空回退海报）。</summary>
+    internal void SuspendVideo()
+    {
+        _detailActive = false;
+        _pendingVideoPath = null;
+        VideoPlayer?.Pause();
     }
 
     /// <summary>
@@ -570,9 +589,11 @@ public partial class GameItemViewModel(
 
         // 迁移动画窗口内不起播：把首帧位图分配/上传的 UI 线程重活挪出编舞窗口
         // （见 VideoStartDeferral 注释）。等待期间被更新的切换抢先则直接放弃——
-        // 新起播已接管订阅与状态，旧调用无权也无需清场
+        // 新起播已接管订阅与状态，旧调用无权也无需清场；
+        // 等待期间离页（含切游戏全停/切非游戏页暂停）同样放弃——起播入口会在
+        // 重进详情页时经续播快路径或路径重启恢复，无需在此隐形起播浪费解码
         await Task.Delay(VideoStartDeferral);
-        if (generation != _videoStartGeneration)
+        if (generation != _videoStartGeneration || !_detailActive)
         {
             return;
         }

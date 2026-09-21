@@ -54,13 +54,18 @@ public class FrameSurface : Control
         base.OnDetachedFromVisualTree(e);
     }
 
-    /// <summary>控件重新挂回视觉树时恢复订阅。</summary>
+    /// <summary>控件重新挂回视觉树时恢复订阅；已有帧（暂停保活重进详情页）立即重绘——
+    /// 不等下一帧通知，暂停帧当场上屏。</summary>
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
         if (Player is { } player)
         {
             player.FrameUpdated += OnFrameUpdated;
+            if (player.Frame is not null)
+            {
+                InvalidateVisual();
+            }
         }
     }
 
