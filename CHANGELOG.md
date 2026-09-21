@@ -3,7 +3,7 @@
 所有对外可感知的变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [0.1.3] — 2026-09-21
+## [0.1.2] — 2026-09-21
 
 v0.1.1 之后的功能版本：背景视频体验全面改造（启动遮蔽预载、切页/切游戏保活不重启、
 智能循环 v2、静态→视频提速），附侧栏指示点迁移编舞修复。760 个测试全绿，
@@ -40,7 +40,7 @@ v0.1.1 之后的功能版本：背景视频体验全面改造（启动遮蔽预�
 
 ---
 
-### English · 0.1.3 — 2026-09-21
+### English · 0.1.2 — 2026-09-21
 
 A feature release after 0.1.1: a full overhaul of the backdrop-video
 experience (boot splash with preload, keep-alive across page and game
