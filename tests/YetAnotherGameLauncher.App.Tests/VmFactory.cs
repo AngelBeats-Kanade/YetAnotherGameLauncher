@@ -57,6 +57,12 @@ public static class VmFactory
         /// <summary>VM 实际持有的唤取服务（缓存目录在 TempDir/gacha-cache）。</summary>
         public required KuroGachaService GachaService { get; init; }
 
+        /// <summary>测试注入的视频播放器工厂（镜像生产：每游戏一路播放器）。null = 游戏无播放器（海报兜底）。</summary>
+        public required Func<YetAnotherGameLauncher.Services.IVideoBackdropPlayer>? PlayerFactory { get; init; }
+
+        /// <summary>默认工厂创建的假播放器（与 Games 同序；测试未注入自定义工厂时用 Players[i] 观察第 i 个游戏）。</summary>
+        public required IReadOnlyList<FakeVideoPlayer> Players { get; init; }
+
         public void Dispose() => TempDir.Dispose();
     }
 
@@ -105,8 +111,12 @@ public static class VmFactory
         public int ResumeCount { get; private set; }
 
         /// <summary>是否有活动会话：PlayAsync 起播置位、Stop/起播失败清零（与 FfmpegVideoBackdropPlayer 一致）。
-        /// 假实现的 PlayAsync 即刻完成，会话"存活"直至 Stop——足以驱动 VM 侧续播/重启分叉。</summary>
+        /// 假实现的 PlayAsync 即刻完成，会话"存活"直至 Stop——足以驱动 VM 侧续播/重启分叉；
+        /// 被后发起播抢先的过期调用失败返回时不得清掉新会话（与真实现的代际守卫一致）。</summary>
         public bool IsSessionActive { get; private set; }
+
+        /// <summary>起播代际（与真实现同语义）：过期起播的失败收尾无权清会话标志。</summary>
+        private int _playGeneration;
 
         /// <summary>帧位图（测试可注入假帧）。</summary>
         public IImage? Frame { get; set; }
@@ -122,11 +132,12 @@ public static class VmFactory
         public async Task<bool> PlayAsync(string videoPath, CancellationToken cancellationToken = default)
         {
             PlayedPaths.Add(videoPath);
+            var generation = ++_playGeneration;
             IsSessionActive = true;
             var playing = AsyncPlayHandler is { } async
                 ? await async(videoPath)
                 : PlayHandler?.Invoke(videoPath) ?? true;
-            if (!playing)
+            if (!playing && generation == _playGeneration)
             {
                 IsSessionActive = false;
             }
@@ -137,6 +148,7 @@ public static class VmFactory
         public void Stop()
         {
             StopCount++;
+            _playGeneration++; // 在途起播即时作废：其失败收尾不得复活会话标志
             IsSessionActive = false;
             // 契约：Stop 清空帧缓冲（与 FfmpegVideoBackdropPlayer 一致）
             Frame = null;
@@ -154,6 +166,8 @@ public static class VmFactory
 
     /// <summary>
     /// 构建 ViewModel。configJson 为 null 时<b>不创建</b>配置文件（模拟首次运行）；
+    /// playerFactory 为每个游戏创建独立的背景视频播放器（镜像生产"播放器按游戏独占"），
+    /// 缺省每游戏一个 FakeVideoPlayer（记录进 Context.Players）；
     /// templateFactory 对应注入 VM 的默认配置模板工厂（null = 无模板）；
     /// autostart 可注入真实 AutostartService（回归测试用），缺省为 FakeProcessRunner 版本；
     /// platformInfo 缺省为 Windows 假平台——让全部测试在任意 OS 上确定性地走 Windows 语义
@@ -167,7 +181,7 @@ public static class VmFactory
         Func<string?>? templateFactory = null,
         IAutostartService? autostart = null,
         IFilePickerService? filePicker = null,
-        IVideoBackdropPlayer? videoPlayer = null,
+        Func<IVideoBackdropPlayer>? playerFactory = null,
         IPlatformInfo? platformInfo = null,
         IReadOnlyList<string>? linuxProtonVersions = null,
         string? linuxWinePath = "",
@@ -181,6 +195,18 @@ public static class VmFactory
         // 生产默认 500ms 的视频起播延迟会拖慢/打乱既有断言时序——测试统一置零
         // （涉视频用例均在 sequential 集合，静态开关无并行竞态；专门用例自行临时调回）
         GameItemViewModel.VideoStartDeferral = TimeSpan.Zero;
+        // 播放器按游戏独占（镜像生产 transient）：缺省每游戏一路 FakeVideoPlayer 并按序记录
+        var players = new List<FakeVideoPlayer>();
+        Func<IVideoBackdropPlayer> resolvedPlayerFactory = playerFactory!;
+        if (playerFactory is null)
+        {
+            resolvedPlayerFactory = () =>
+            {
+                var player = new FakeVideoPlayer();
+                players.Add(player);
+                return player;
+            };
+        }
         var configPath = tempDir.FilePath("games.json");
         var gamesRoot = tempDir.FilePath("games-root").Replace(Path.DirectorySeparatorChar, '/');
         if (configJson is not null)
@@ -244,7 +270,7 @@ public static class VmFactory
             },
             templateFactory,
             filePicker,
-            videoPlayer,
+            resolvedPlayerFactory,
             gacha,
             proxyManager: resolvedProxyManager,
             platformInfo: platformInfo ?? new FakePlatformInfo(isLinux: false),
@@ -268,6 +294,8 @@ public static class VmFactory
             BackgroundHandler = backgroundHandler,
             ProxyManager = resolvedProxyManager,
             GachaService = gacha,
+            PlayerFactory = playerFactory,
+            Players = players,
         };
     }
 }

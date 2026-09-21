@@ -28,7 +28,9 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly BackgroundImageService _backgroundImageService;
     private readonly GameBackdropService _backdropService;
     private readonly IFilePickerService? _filePicker;
-    private readonly IVideoBackdropPlayer? _videoPlayer;
+    /// <summary>按游戏创建背景视频播放器的工厂（播放器随游戏页独占——切游戏互不干扰会话；
+    /// null = 测试空跑，游戏 VM 拿到 null 播放器、静态海报兜底）。</summary>
+    private readonly Func<IVideoBackdropPlayer>? _videoPlayerFactory;
     private readonly KuroGachaService? _gachaService;
 
     /// <summary>平台环境（打开目录等 OS 差异的抽象）。</summary>
@@ -83,7 +85,7 @@ public partial class MainWindowViewModel : ViewModelBase
         Func<string, IGameChannelApi?> channelResolver,
         Func<string?>? defaultConfigTemplateFactory = null,
         IFilePickerService? filePicker = null,
-        IVideoBackdropPlayer? videoPlayer = null,
+        Func<IVideoBackdropPlayer>? videoPlayerFactory = null,
         KuroGachaService? gachaService = null,
         NetworkProxyManager? proxyManager = null,
         IPlatformInfo? platformInfo = null,
@@ -105,7 +107,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _channelResolver = channelResolver;
         _defaultConfigTemplateFactory = defaultConfigTemplateFactory;
         _filePicker = filePicker;
-        _videoPlayer = videoPlayer;
+        _videoPlayerFactory = videoPlayerFactory;
         _gachaService = gachaService;
         _proxyManager = proxyManager;
         _linuxProtonVersions = linuxProtonVersions;
@@ -183,18 +185,26 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>保活中的游戏详情页（切页时驱动播放/停止/暂停；切去非游戏页后仍指向该页的暂停态，
-    /// 直到被另一游戏页替换——从非游戏页再切游戏时仍要驱动它的全停换源）。</summary>
+    /// 直到被另一游戏页替换——从非游戏页再切游戏时仍要驱动它的起停）。</summary>
     private GameItemViewModel? _activeVideoPage;
 
+    /// <summary>暂停保活中的游戏页（按暂停先后排序，最新在尾）：超出上限淘汰最旧，防会话/帧位图无界驻留。</summary>
+    private readonly List<GameItemViewModel> _parkedVideoPages = [];
+
+    /// <summary>暂停保活上限：2 路暂停 + 1 路在播 = 最多 3 个解码会话与帧位图同时驻留
+    /// （一路 ≈ 帧位图 13MB @2324×1392 + 打开的解码源；本启动器双游戏场景永不被淘汰）。</summary>
+    internal const int MaxParkedVideoSessions = 2;
+
     /// <summary>页面切换时触发：转发通知给依赖 CurrentPage 的侧栏高亮与选中项绑定，并驱动背景视频起停。
-    /// 游戏页 ↔ 非游戏页（设置/关于/抽卡/游戏设置）往返走暂停保活——解码泊车、帧保留，
-    /// 重进即时续播；切另一游戏页才全停换源（停止即清帧契约不变）。</summary>
+    /// 播放器按游戏独占，切页（游戏页 ↔ 游戏页 / 游戏页 ↔ 非游戏页）一律暂停保活——解码泊车、
+    /// 帧保留，重进即时续播；只有保活淘汰（超上限）/关窗/退出/列表重建才全停清场。</summary>
     partial void OnCurrentPageChanged(object? value)
     {
         var gamePage = value as GameItemViewModel;
         if (gamePage is not null && ReferenceEquals(_activeVideoPage, gamePage))
         {
             // 从非游戏页切回同一游戏页：续播保活会话（无会话则按已解析路径重新起播）
+            _parkedVideoPages.Remove(gamePage);
             gamePage.SetDetailActive(true);
         }
         else if (!ReferenceEquals(_activeVideoPage, value))
@@ -202,8 +212,9 @@ public partial class MainWindowViewModel : ViewModelBase
             var previous = _activeVideoPage;
             if (gamePage is not null)
             {
-                previous?.SetDetailActive(false);
+                previous?.SetDetailActive(false); // 游戏间切换：旧页同样保活（不再全停换源）
                 _activeVideoPage = gamePage;
+                _parkedVideoPages.Remove(gamePage);
                 gamePage.SetDetailActive(true);
             }
             else if (previous is not null)
@@ -211,12 +222,34 @@ public partial class MainWindowViewModel : ViewModelBase
                 // 切到非游戏页：暂停保活，_activeVideoPage 保持指向该游戏页
                 previous.SuspendVideo();
             }
+
+            if (previous is not null && !ReferenceEquals(previous, gamePage))
+            {
+                TrackParkedVideo(previous);
+            }
         }
 
         OnPropertyChanged(nameof(IsGameNavActive));
         OnPropertyChanged(nameof(IsSettingsNavActive));
         OnPropertyChanged(nameof(IsAboutNavActive));
         OnPropertyChanged(nameof(GameNavSelection));
+    }
+
+    /// <summary>登记一个刚被暂停保会的游戏页并执行上限淘汰：最旧的保活会话被全停清场
+    /// （帧位图/解码源释放；该游戏重进时凭已解析路径重新起播自愈）。</summary>
+    private void TrackParkedVideo(GameItemViewModel parked)
+    {
+        _parkedVideoPages.Remove(parked);
+        _parkedVideoPages.Add(parked);
+        while (_parkedVideoPages.Count > MaxParkedVideoSessions)
+        {
+            var evicted = _parkedVideoPages[0];
+            _parkedVideoPages.RemoveAt(0);
+            if (!ReferenceEquals(evicted, _activeVideoPage))
+            {
+                evicted.StopVideo();
+            }
+        }
     }
 
     /// <summary>切换当前页并记录方向（决定切换动画自左/自右滑入）。</summary>
@@ -659,11 +692,19 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 停止背景视频播放（窗口关闭/应用退出时调用）。必须先于窗口销毁执行：退出期平台拆除会
-    /// 弄坏 GPU 解码栈（VAAPI/NVDEC 全部初始化失败），解码循环若继续运行会以每帧两条的速度
-    /// 向 stderr 刷硬件解码失败。静默：视频仅是装饰，失败不影响退出。
+    /// 停止全部背景视频播放（窗口关闭/应用退出时调用）。播放器按游戏独占，必须逐个停掉——
+    /// 含暂停保活中的会话。必须先于窗口销毁执行：退出期平台拆除会弄坏 GPU 解码栈
+    /// （VAAPI/NVDEC 全部初始化失败），解码循环若继续运行会以每帧两条的速度向 stderr 刷
+    /// 硬件解码失败。静默：视频仅是装饰，失败不影响退出。
     /// </summary>
-    public void StopBackdropVideo() => _videoPlayer?.Stop();
+    public void StopBackdropVideo()
+    {
+        _parkedVideoPages.Clear();
+        foreach (var game in Games)
+        {
+            game.StopVideo();
+        }
+    }
 
     /// <summary>
     /// 窗口关闭时把当前尺寸/最大化状态写回配置（Closing 是同步事件，JSON 很小，
@@ -697,12 +738,16 @@ public partial class MainWindowViewModel : ViewModelBase
     private List<string> RebuildGames(GameCatalog catalog)
     {
         // 旧列表整体废弃：先退订懒创建子 VM（LaunchSettings）对单例服务的事件订阅，
-        // 否则旧 VM 链被单例委托钉住无法回收（2026-09-20 复审结构性消除）
+        // 否则旧 VM 链被单例委托钉住无法回收（2026-09-20 复审结构性消除）；
+        // 播放器按游戏独占后，旧 VM 的会话（含暂停保活中的）也须一并全停释放
         foreach (var game in Games)
         {
             game.DetachEventSubscriptions();
+            game.StopVideo();
         }
 
+        _parkedVideoPages.Clear();
+        _activeVideoPage = null;
         Games.Clear();
         var unknownChannels = new List<string>();
         foreach (var game in catalog.Games)
@@ -723,7 +768,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 _catalogService,
                 _backgroundImageService,
                 _backdropService,
-                _videoPlayer,
+                _videoPlayerFactory?.Invoke(),
                 _filePicker,
                 _platform,
                 _nativeUmu,
@@ -864,8 +909,7 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>
     /// 游戏列表就绪后的预热（启动与安装根目录变更重建列表后调用）：非选中游戏并行预加载
     /// 图标与背景（仅读磁盘缓存，零网络）并做各自的一次版本/预载检测。
-    /// 选中游戏跳过——其完整刷新（含资产加载与版本检测）已由 SelectedGame 赋值触发；
-    /// 对它再跑预加载会在其背景视频起播后用"缓存未命中"分支误停共享播放器。
+    /// 选中游戏跳过——其完整刷新（含资产加载与版本检测）已由 SelectedGame 赋值触发，重复跑纯属浪费。
     /// </summary>
     private void WarmupGames()
     {

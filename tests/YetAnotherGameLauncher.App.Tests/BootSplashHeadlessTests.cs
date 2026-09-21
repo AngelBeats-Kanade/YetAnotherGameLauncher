@@ -19,13 +19,13 @@ public class BootSplashHeadlessTests
         var tempDir = new TestSupport.TempDir();
         try
         {
-            var player = new VmFactory.FakeVideoPlayer();
-            using var ctx = VmFactory.Build(videoPlayer: player);
+            using var ctx = VmFactory.Build();
             var localVideo = tempDir.FilePath("cached", "backdrop.mp4");
             Directory.CreateDirectory(Path.GetDirectoryName(localVideo)!);
             await File.WriteAllTextAsync(localVideo, "fake");
             ctx.KuroBackdrop.Resolver = _ => new BackdropSource(localVideo, BackdropKind.Video);
             await ctx.Vm.InitializeAsync();
+            var player = ctx.Players[0];
 
             ctx.Vm.BootMinSplash = TimeSpan.FromMilliseconds(60);
             ctx.Vm.BootReadinessTimeout = TimeSpan.FromSeconds(5);
@@ -54,8 +54,7 @@ public class BootSplashHeadlessTests
         var tempDir = new TestSupport.TempDir();
         try
         {
-            var player = new VmFactory.FakeVideoPlayer();
-            using var ctx = VmFactory.Build(videoPlayer: player);
+            using var ctx = VmFactory.Build();
             var localVideo = tempDir.FilePath("cached", "backdrop.mp4");
             Directory.CreateDirectory(Path.GetDirectoryName(localVideo)!);
             await File.WriteAllTextAsync(localVideo, "fake");
@@ -94,8 +93,7 @@ public class BootSplashHeadlessTests
         var tempDir = new TestSupport.TempDir();
         try
         {
-            var player = new VmFactory.FakeVideoPlayer();
-            using var ctx = VmFactory.Build(videoPlayer: player);
+            using var ctx = VmFactory.Build();
             var localVideo = tempDir.FilePath("cached", "backdrop.mp4");
             Directory.CreateDirectory(Path.GetDirectoryName(localVideo)!);
             await File.WriteAllTextAsync(localVideo, "fake");

@@ -40,7 +40,7 @@ Currently supported games:
 - 🩹 **Incremental updates + pre-download** — Wuthering Waves uses official krpdiff patch packages applied via native `hpatchz` (HDiffPatch) with `.yagl-bak` backup rollback; two-phase pre-download (stage first, apply when official servers open); package-based channels can register an already-installed game with zero downloads
 - 🧰 **Verify & repair** — Post-install manifest verification (MD5) that automatically repairs missing/corrupted files and cleans orphaned files (keeping `Saved/` game saves)
 - 🖥️ **One-click server switching** — Wuthering Waves CN/Bilibili/Global, Endfield CN/Global/Bilibili, all configuration-driven
-- 🎞️ **Poster-style detail page + video backdrop** — Official artwork/video fills the main area; FFmpeg hardware decoding (D3D11VA on Windows / VAAPI→NVDEC on Linux) with seamless loop points; switching to Settings/About and back keeps the video alive (paused, instantly resumed — no restart, no poster flash)
+- 🎞️ **Poster-style detail page + video backdrop** — Official artwork/video fills the main area; FFmpeg hardware decoding (D3D11VA on Windows / VAAPI→NVDEC on Linux) with seamless loop points; switching games or pages keeps the video alive (paused, instantly resumed — no restart, no poster flash)
 - 🚀 **Boot splash with backdrop preload** — Startup fetches the backdrop behind a splash cover (released once the video's first frame or poster is ready, 5s cap as fallback), so the main view opens with the backdrop already playing
 - 💌 **Wish (gacha) records** — Wuthering Waves: automatic in-game URL extraction, official API fetching, local caching and pity statistics
 - 🌗 **Themes / i18n** — Light / dark / follow-system themes; Simplified Chinese and English UI, switching takes effect immediately
@@ -63,7 +63,7 @@ Currently supported games:
 | Multi-server | Wuthering Waves CN/Bilibili/Global, Endfield CN/Global/Bilibili — one-click switching, all configuration-driven |
 | Wish (gacha) records | Wuthering Waves: automatic in-game URL extraction, official API fetching, local cache and pity statistics |
 | Modern UI | Borderless rounded window with custom title bar (drag region / minimize / maximize / close); poster-style detail page: official artwork fills the main area (left edge preserved, no overlay) with top-left rounded full-bleed layout and a status/version chip cluster under a gradient scrim (gold version accent); two-phase sidebar selection indicator animation; sidebar auto-collapses below a width threshold (with hysteresis); light/dark/follow-system themes; page transitions and button micro-animations; custom app background image in settings |
-| Video backdrop | Detail page plays the official video backdrop: FFmpeg hardware decoding (D3D11VA on Windows / VAAPI→NVDEC on Linux), smart loop points (color-aware scoring / multi-point rotation / adaptive crossfade) + preroll for gapless looping; switching to a non-game page pauses and keeps the session alive for instant resume; on Linux prefers the distro FFmpeg 9 (libavcodec.so.63) and auto-downloads a BtbN build to the app data directory when missing |
+| Video backdrop | Detail page plays the official video backdrop: FFmpeg hardware decoding (D3D11VA on Windows / VAAPI→NVDEC on Linux), smart loop points (color-aware scoring / multi-point rotation / adaptive crossfade) + preroll for gapless looping; one player per game — switching games or pages pauses and keeps sessions alive for instant resume; on Linux prefers the distro FFmpeg 9 (libavcodec.so.63) and auto-downloads a BtbN build to the app data directory when missing |
 | Asset cache & preheat | Icons and backdrops are all cached locally: all game icons show from disk cache at startup and backdrops pre-load (without waiting for selection) — zero network; version/preload detection runs once per game per launch, and backdrops/icons are only re-fetched after the game version changes (backdrops strictly follow game versions) |
 | Wine prefix | Uniformly located at `~/.local/share/yagl/prefixes/<gameId>` (the Windows-shaped STEAM_COMPAT_DATA_PATH points here too), never inside the game install directory — install sync cannot wipe it |
 | UI language | Simplified Chinese / English, optional follow-system, switching takes effect immediately (settings page) |
@@ -193,7 +193,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### Running tests (755 tests, measured 2026-09-21)
+### Running tests (756 tests, measured 2026-09-21)
 
 ```bash
 # Run the 4 test projects' compiled binaries directly (on Windows you can run the .exe;

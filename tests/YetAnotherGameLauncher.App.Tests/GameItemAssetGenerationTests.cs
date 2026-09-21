@@ -14,15 +14,17 @@ namespace YetAnotherGameLauncher.AppTests;
 public class GameItemAssetGenerationTests : IDisposable
 {
     private readonly VmFactory.Context _ctx;
-    private readonly VmFactory.FakeVideoPlayer _player = new();
 
     public GameItemAssetGenerationTests()
     {
-        _ctx = VmFactory.Build(videoPlayer: _player);
+        _ctx = VmFactory.Build();
         _ctx.Kuro.VersionInfo = new ChannelVersionInfo { LatestVersion = "2.0.0" };
     }
 
     public void Dispose() => _ctx.Dispose();
+
+    /// <summary>被观察游戏的独占播放器（本测试组只观察 Games[0] 的起播）。</summary>
+    private VmFactory.FakeVideoPlayer Player => _ctx.Players[0];
 
     [Fact]
     public async Task AssetLoad_RefreshWithoutReload_DoesNotDiscardInFlightLoad()
@@ -53,10 +55,10 @@ public class GameItemAssetGenerationTests : IDisposable
         for (var i = 0; i < 500 && !played; i++)
         {
             await Task.Delay(10);
-            played = _player.PlayedPaths.Count == 1;
+            played = Player.PlayedPaths.Count == 1;
         }
 
-        Assert.Equal([video], _player.PlayedPaths);
+        Assert.Equal([video], Player.PlayedPaths);
     }
 
     [Fact]
@@ -93,7 +95,7 @@ public class GameItemAssetGenerationTests : IDisposable
         for (var i = 0; i < 500 && !enPlayed; i++)
         {
             await Task.Delay(10);
-            enPlayed = _player.PlayedPaths.Contains(videoEn);
+            enPlayed = Player.PlayedPaths.Contains(videoEn);
         }
 
         // 放行旧区域的图标请求：旧加载继续走到解析（zh 视频）——
@@ -101,8 +103,8 @@ public class GameItemAssetGenerationTests : IDisposable
         _ctx.BackgroundHandler.ReleaseFirstRequest(iconUrl);
         await Task.Delay(300);
 
-        Assert.True(enPlayed, $"新区域加载应已起播 en 视频; played=[{string.Join(",", _player.PlayedPaths)}] resolved=[{string.Join(",", resolvedRegions)}] culture={_ctx.Vm.Loc.EffectiveCulture}");
-        Assert.Equal(videoEn, _player.PlayedPaths[^1]);
-        Assert.DoesNotContain(videoZh, _player.PlayedPaths[..^1]);
+        Assert.True(enPlayed, $"新区域加载应已起播 en 视频; played=[{string.Join(",", Player.PlayedPaths)}] resolved=[{string.Join(",", resolvedRegions)}] culture={_ctx.Vm.Loc.EffectiveCulture}");
+        Assert.Equal(videoEn, Player.PlayedPaths[^1]);
+        Assert.DoesNotContain(videoZh, Player.PlayedPaths[..^1]);
     }
 }

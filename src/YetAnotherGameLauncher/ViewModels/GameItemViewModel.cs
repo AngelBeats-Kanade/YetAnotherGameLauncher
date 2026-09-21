@@ -506,16 +506,9 @@ public partial class GameItemViewModel(
             }
             else
             {
-                // 仅活动页才触碰共享播放器：其他游戏的后台资产加载不得停掉正在播放的背景视频
-                if (_detailActive)
-                {
-                    StopVideo();
-                }
-                else
-                {
-                    _pendingVideoPath = null;
-                }
-
+                // 非视频类背景（静态图/解析失败）：清停自己的会话并回退静态图——
+                // 播放器按游戏独占，后台资产加载触发的清停不会波及其他游戏页
+                StopVideo();
                 _videoPath = null;
                 var image = await backgroundImageService.LoadAsync(backdrop?.Source, cancellationToken);
                 BackgroundImage = image;
@@ -528,18 +521,19 @@ public partial class GameItemViewModel(
         }
     }
 
-    /// <summary>详情页可见性变化（MainWindowViewModel 切页驱动）：进页起播待播视频（无需重新解析），
-    /// 离页（切去另一游戏页）停止。切去非游戏页走 <see cref="SuspendVideo"/> 暂停保活，不在此路径。</summary>
+    /// <summary>详情页可见性变化（MainWindowViewModel 切页驱动）：进页起播/续播，离页暂停保活。
+    /// 播放器按游戏独占（不再共享单例），离页一律 <see cref="SuspendVideo"/> 泊车——游戏间切换
+    /// 同样保活；全停清场只在保活淘汰/关窗/退出/列表重建时经 <see cref="StopVideo"/> 发生。</summary>
     internal void SetDetailActive(bool active)
     {
         _detailActive = active;
         if (!active)
         {
-            StopVideo();
+            SuspendVideo();
             return;
         }
 
-        // 续播快路径：切去非游戏页时会话保活（帧缓冲仍在），直接唤醒解码——重挂的渲染面
+        // 续播快路径：切走时会话保活（帧缓冲仍在），直接唤醒解码——重挂的渲染面
         // 立即画出暂停帧并恢复节拍，无需重开解码源/重新分析循环点/重付起播延迟
         if (VideoPlayer is { IsSessionActive: true } && _videoSubscribed)
         {
@@ -555,9 +549,8 @@ public partial class GameItemViewModel(
         }
     }
 
-    /// <summary>切到非游戏页（设置/关于/抽卡记录/游戏设置）时暂停保活：解码泊车、帧缓冲与
-    /// 订阅原样保留，视频层可见标志不翻——重进详情页经 <see cref="SetDetailActive"/>(true)
-    /// 的续播快路径无缝接续。区别于 StopVideo 的全停清场（切另一游戏/退出用，帧清空回退海报）。</summary>
+    /// <summary>切离本页时暂停保活：解码泊车、帧缓冲与订阅原样保留，视频层可见标志不翻——
+    /// 重进详情页经 <see cref="SetDetailActive"/>(true) 的续播快路径无缝接续（游戏页/非游戏页通用）。</summary>
     internal void SuspendVideo()
     {
         _detailActive = false;
@@ -617,8 +610,10 @@ public partial class GameItemViewModel(
         }
     }
 
-    /// <summary>停止视频播放：退订通知、隐藏视频层（静态海报/渐变兜底立即显示）。</summary>
-    private void StopVideo()
+    /// <summary>全停清场：退订通知、停止播放器并清帧（视频层回退海报/渐变）。
+    /// 调用方仅限三处——保活淘汰（超过暂停上限，MainWindowViewModel 驱动）、窗口关闭/应用退出、
+    /// 游戏列表重建（installRoot 变更，旧 VM 整体废弃）；普通切页一律走 SuspendVideo 保活。</summary>
+    internal void StopVideo()
     {
         _pendingVideoPath = null;
         if (_videoSubscribed && VideoPlayer is not null)
@@ -632,8 +627,8 @@ public partial class GameItemViewModel(
     }
 
     /// <summary>播放器帧就绪：首帧到达后隐藏海报、显示视频层（幂等，重设同值不触发通知）。
-    /// 以帧缓冲非空为准——停止瞬间迟到的陈旧通知（共享播放器上一游戏最后一帧经 UI 线程
-    /// 异步投递）不得点亮新页面的视频层。</summary>
+    /// 以帧缓冲非空为准——停止瞬间迟到的陈旧通知（本游戏播放器最后一帧经 UI 线程
+    /// 异步投递）不得在停止后再点亮视频层。</summary>
     private void OnVideoFrameUpdated(object? sender, EventArgs e) =>
         HasBackgroundVideo = VideoPlayer?.Frame is not null;
 

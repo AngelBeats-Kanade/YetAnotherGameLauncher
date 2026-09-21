@@ -39,9 +39,9 @@ public partial class App : Application
             viewModel.BeginBootSplash();
             desktop.MainWindow = new MainWindow { DataContext = viewModel };
             // 非"关窗"路径的程序性 Shutdown 也停视频（点 X 关闭已由窗口 Closing 覆盖）：
-            // 退出期平台拆除会弄坏 GPU 解码栈，解码循环必须先行停止
-            var videoPlayer = services.GetRequiredService<IVideoBackdropPlayer>();
-            desktop.ShutdownRequested += (_, _) => videoPlayer.Stop();
+            // 播放器按游戏独占，须停掉全部会话（含暂停保活中的）；退出期平台拆除会弄坏
+            // GPU 解码栈，解码循环必须先行停止
+            desktop.ShutdownRequested += (_, _) => viewModel.StopBackdropVideo();
             // fire-and-forget 启动序列：初始化完成后跑启动门控撤遮蔽；
             // 除方法内部的分类处理外，仍可能逃逸的异常至少留日志尾巴
             _ = RunBootSequenceAsync(viewModel, logger);
@@ -154,9 +154,13 @@ public partial class App : Application
         services.AddSingleton<BackgroundImageService>();
         services.AddSingleton<IFilePickerService, StorageProviderFilePicker>();
 
-        // 背景视频（FFmpeg 解码；原生库缺失时自动降级静态海报）
+        // 背景视频（FFmpeg 解码；原生库缺失时自动降级静态海报）。
+        // 播放器按游戏独占（transient）：游戏间切换各自暂停保活互不干扰；
+        // 原生库准备仍由单例 resolver 共享（每实例重复下载/探测是浪费）
         services.AddSingleton<FfmpegLibraryResolver>();
-        services.AddSingleton<IVideoBackdropPlayer, FfmpegVideoBackdropPlayer>();
+        services.AddTransient<IVideoBackdropPlayer, FfmpegVideoBackdropPlayer>();
+        services.AddSingleton(sp => new Func<IVideoBackdropPlayer>(
+            () => sp.GetRequiredService<IVideoBackdropPlayer>()));
 
         // Linux 兼容层：原生 umu（内置 C# 启动链，自动准备 Proton 与 Steam Runtime）
         services.AddSingleton<IUmuComponentProvisioner>(sp => new UmuComponentProvisioner(
@@ -199,7 +203,7 @@ public partial class App : Application
                 channelKey => keyed.GetKeyedService<IGameChannelApi>(channelKey),
                 TryLoadEmbeddedSampleTemplate,
                 sp.GetRequiredService<IFilePickerService>(),
-                sp.GetRequiredService<IVideoBackdropPlayer>(),
+                sp.GetRequiredService<Func<IVideoBackdropPlayer>>(),
                 sp.GetRequiredService<KuroGachaService>(),
                 proxyManager: sp.GetRequiredService<NetworkProxyManager>(),
                 nativeUmu: sp.GetRequiredService<NativeUmuLauncher>(),
