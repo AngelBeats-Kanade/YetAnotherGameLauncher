@@ -178,7 +178,9 @@ tests/
 ## 7. 发布
 
 **标准流程（CI 自动出包）**：推送 `v*` tag（tag 名必须与 `Directory.Build.props` 的 `<Version>` 一致，
-CI 会校验）→ `.github/workflows/ci.yml` 先跑完测试门禁，再由 `package` job 双平台原生构建
+CI 会校验；必须 annotated 创建——本机已配 `tag.gpgsign=true` 自动 SSH 签名，签名是 GitHub 显示
+Verified 的前提，轻量标签无法签名，v0.1.1 即因未签名标签显示 Unverified，2026-09-21）→
+`.github/workflows/ci.yml` 先跑完测试门禁，再由 `package` job 双平台原生构建
 Release 自包含包（ubuntu 出 linux-x64 tar.gz、windows 出 win-x64 zip，包内顶层目录带版本名），
 最后 `draft-release` job 汇总两个包并创建**草稿** GitHub Release（正文取自 CHANGELOG.md 对应版本节；
 发布说明语言要求见 AGENTS.md「代码约定」：自 v0.1.1 后下一次发布起中英双语）。
