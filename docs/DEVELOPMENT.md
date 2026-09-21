@@ -180,7 +180,8 @@ tests/
 **标准流程（CI 自动出包）**：推送 `v*` tag（tag 名必须与 `Directory.Build.props` 的 `<Version>` 一致，
 CI 会校验）→ `.github/workflows/ci.yml` 先跑完测试门禁，再由 `package` job 双平台原生构建
 Release 自包含包（ubuntu 出 linux-x64 tar.gz、windows 出 win-x64 zip，包内顶层目录带版本名），
-最后 `draft-release` job 汇总两个包并创建**草稿** GitHub Release（正文取自 CHANGELOG.md 对应版本节）。
+最后 `draft-release` job 汇总两个包并创建**草稿** GitHub Release（正文取自 CHANGELOG.md 对应版本节；
+发布说明语言要求见 AGENTS.md「代码约定」：自 v0.1.1 后下一次发布起中英双语）。
 人工检查草稿内容与产物后手动点击 Publish。
 
 **手工构建（本地排查/复现用）**：

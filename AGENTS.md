@@ -52,6 +52,7 @@ dotnet tests/<测试工程>/bin/Debug/net10.0/<测试程序集>.dll -method "<�
 - 提交信息：英文 conventional 风格（`feat(ui): ...`）。
 - 本地化文案在 `src/YetAnotherGameLauncher/Resources/strings_*.json`（文件名用下划线）；主题资源在 `App.axaml` ThemeDictionaries，键以 `App` 前缀，**亮暗必须成对新增**。
 - 默认配置模板单一来源是 `samples/games.json`（嵌入为 `games.sample.json`）。
+- 发布说明自 v0.1.1 之后的下一次发布起**中英双语**：CHANGELOG.md 新版本节内中文在前、英文对照在后（CI draft-release 从该节提取 GitHub Release 正文，随之中英双语）；v0.1.1 及之前保持仅中文、不追溯调整（2026-09-21 决定）。
 
 ## UI / 无头测试已知坑（实踩）
 
@@ -104,6 +105,7 @@ dotnet tests/<测试工程>/bin/Debug/net10.0/<测试程序集>.dll -method "<�
 - 安装同步清理游离文件时 **prefix/compatdata 在保留名单**（`GameInstallService.PreservedEntries`）：Wine prefix 里有注册表/着色器缓存/用户数据，被清单外清理删掉等于毁掉游戏环境；Wine prefix 统一放 `~/.local/share/yagl/prefixes/<游戏id>`，绝不写进安装目录。
 - **切 PATH 必须用 `Path.PathSeparator`，不能硬编码 `':'`**：Windows 上盘符 `C:` 会被切开，`SearchPath`/`FindOnPath` 返回缺盘符的相对根路径（CI Windows 腿红过）。同理，`GameLauncherService.ValidateCommand` 仅在 `pathValue is null && Windows` 时跳过裸命令预检——测试注入 `pathValue:""` 必须仍走 PATH 扫描，否则预检/错误覆盖层用例在 Windows 上会假绿成「已启动」。
 - **测试里的路径断言两侧必须统一分隔符再比较**：期望值 `Path.Combine(...)` 在 Windows 产反斜杠、实际值常被归一成正斜杠，Linux CI 恰好两侧同斜杠掩盖问题（Windows CI 一次红 11 个）。两类实锤：①只归一实际值没归一期望值（`UmuComponentProvisionerTests`）；②期望值拼相对路径硬编码 `/` 而生产经 `GetFullPath` 产原生分隔符，或反之配置模板里的 `{installDir}/saves` 展开是**字面替换**不归一（`LaunchParameterRoundTripTests`）。比较前两侧都过 `Replace('\\', '/')`。
+- **测试的平台分支本机只能执行到一边，另一边是死代码，本地全绿不代表分支正确**（2026-09-21 实锤：v0.1.1 发布被 windows 腿 5 个从未绿过的测试阻塞——均为 v0.1.0 后新增、本地 Linux 全绿的测试）。写 `OperatingSystem.IsWindows()/IsLinux()` 分支或 `Assert.Skip` 对侧断言时：①对照测试工厂的默认平台语义（`VmFactory` 默认 `FakePlatformInfo(isLinux:false)`=Windows 语义），分支需要的前置状态（如首运迁移成 native-umu 模板）必须在分支内自己驱动，不能假设对侧路径发生过（先例：`NativeUmuLaunchRoutingTests` Windows 分支曾因用默认平台导致门控不可达、启动假成功）；②真实平台上被前置门控挡住、不可达的场景（如 `NativeUmuLauncher.EnsureLinux` 先于准备器抛错挡住 ProtonDownloadFailed 重试分类），用 `Assert.Skip` 显式跳过并写明原因，不留假红；③Windows 上生产 `StreamWriter` 持写锁期间，测试轮询读同一日志必须 `FileShare.ReadWrite` 打开（`File.ReadAllTextAsync` 直接 IOException；Linux 允许并发读所以本地测不出，先例：`SystemProcessRunnerTests` 三兄弟）；④CI 失败注解只有用例名，断言消息需登录 Actions 看完整日志（logs API 要管理员权限，check-runs 注解公开可读）。
 - **Windows 占用/只读语义是跨平台更新的头号杀手**（Linux `rename()`/`unlink()` 总能成功，问题只在 Windows 暴露）：被占用或只读的文件会让 `File.Move(overwrite:true)` 抛 IOException/UnauthorizedAccessException、让 `Directory.Delete(recursive:true)` 整体抛异常。统一防线（2026-09 全量修复）：原子写 `FileUtilities.WriteAtomicAsync`（解除只读+重试一次）、目录树 `FileUtilities.TryDeleteDirectory`（能删多少删多少）、下载落盘 `HttpFileDownloader.ReplaceDestination`（单独分类报"目标被占用"，绝不落进网络错误重试——重下多少遍都不会好）、背景落盘 `GameBackdropService` 换时间戳备用名。新增删除/覆盖代码先想这层。
 - **`ZipFile.ExtractToDirectory` 在 Unix 把含 `\` 的 zip 条目名当字面文件名**（dotnet/runtime#98247，未修复）：Windows 打包器产出的包会在 Linux 解成安装根目录下的平铺垃圾文件，且"更新成功"。凡解包不可信外部 zip 必须手动遍历 `ZipArchive` 归一条目名（`PackageInstallerService.ExtractArchive`，顺带做 `..`/盘符穿越校验）。
 - **Windows 的 `CreateProcess` 对裸命令名自动补 `.exe`，而 `File.Exists`/`IsExecutableFile` 不会**：预检 PATH 上的 "hpatchz" 时必须补试 `name + ".exe"`（`HpatchzApplier.ResolvePatchTool`），否则 Windows 误报工具缺失。Linux 还额外要求执行位（`FileUtilities.IsExecutableFile` 已含）。
