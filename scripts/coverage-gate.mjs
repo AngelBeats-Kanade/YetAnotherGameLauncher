@@ -51,6 +51,6 @@ if (valid === 0) {
 const rate = covered / valid;
 console.log(`行覆盖率: ${covered}/${valid} = ${(rate * 100).toFixed(2)}%（阈值 ${(threshold * 100).toFixed(0)}%）`);
 if (rate + 1e-9 < threshold) {
-  console.error(`::error::行覆盖率低于基线——新增代码缺测试。补测后本地复测再合入（命令见 docs/DEVELOPMENT.md §9）`);
+  console.error(`::error::行覆盖率低于基线——有代码未经测试先行就合入（TDD 流程见 docs/DEVELOPMENT.md §3；本地复测命令见 §9）`);
   process.exit(1);
 }

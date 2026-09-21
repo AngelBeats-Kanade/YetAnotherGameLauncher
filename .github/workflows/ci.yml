@@ -91,9 +91,10 @@ jobs:
             exit 1
           fi
 
-      # 覆盖率门禁（ubuntu 单腿）：行覆盖不得低于既定基线——防止"新增代码不配测试"静默退化。
+      # 覆盖率门禁（ubuntu 单腿）：行覆盖不得低于既定基线——TDD 的回归地板（docs/DEVELOPMENT.md §3.4），
+      # 防存量覆盖被新代码静默稀释；门禁红 = 有代码绕过了测试先行，不是"补测再合入"的许可。
       # 口径：仅本仓库 src/ 的 .cs（排除 obj/ 与 .axaml 伪行）；基线提升流程：本地复测 →
-      # 改 THRESHOLD → 同一 commit 内补齐缺口测试。
+      # 改下方命令行阈值参数 → 同一 commit 内补齐缺口测试。
       - name: Coverage gate (line >= 83%)
         if: matrix.os == 'ubuntu-latest'
         shell: bash
