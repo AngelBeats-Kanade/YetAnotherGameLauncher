@@ -265,13 +265,14 @@ public sealed partial class FfmpegLibraryResolver(
         }
     }
 
-    /// <summary>首运下载/解压目标根目录（按 RID 分目录，双平台互不干扰）。</summary>
-    private static string DownloadRoot
+    /// <summary>首运下载/解压目标根目录（按 RID 分目录，双平台互不干扰；internal 供路径策略直测）：
+    /// 数据目录下的 ffmpeg——可重建大体积二进制归数据目录（2026-09-22 迁移，config 下旧库成遗留可手删）。</summary>
+    internal static string DownloadRoot
     {
         get
         {
             var rid = OperatingSystem.IsWindows() ? "win-x64" : OperatingSystem.IsLinux() ? "linux-x64" : "unknown";
-            return Path.Combine(AppPaths.ConfigDirectory, "ffmpeg", rid);
+            return Path.Combine(AppPaths.DataDirectory, "ffmpeg", rid);
         }
     }
 

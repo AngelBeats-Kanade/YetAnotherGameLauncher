@@ -37,7 +37,10 @@ public sealed class GameBackdropService(
     /// <summary>按游戏串行化解析与下载，避免并发重复下载同一背景。</summary>
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _gameLocks = new();
 
-    private static string DefaultCacheRoot => Path.Combine(AppPaths.ConfigDirectory, "backdrops");
+    /// <summary>缺省缓存根（internal 供路径策略直测）：数据目录下的 backdrops——
+    /// 可重建缓存归数据目录（Linux ~/.local/share/yagl | Windows %LOCALAPPDATA%\yagl），
+    /// 配置目录只留 games.json 等不可清理物（2026-09-22 迁移，config 下旧缓存成遗留可手删）。</summary>
+    internal static string DefaultCacheRoot => Path.Combine(AppPaths.DataDirectory, "backdrops");
 
     /// <summary>
     /// 解析游戏的当期背景，返回本地缓存文件路径、远程直链或解析器给出的本地路径。

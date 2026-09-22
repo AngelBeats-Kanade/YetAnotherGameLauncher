@@ -1,4 +1,5 @@
 using Xunit;
+using YetAnotherGameLauncher.Core;
 using YetAnotherGameLauncher.Services;
 
 namespace YetAnotherGameLauncher.AppTests;
@@ -11,6 +12,18 @@ namespace YetAnotherGameLauncher.AppTests;
 public class FfmpegLibraryResolverTests : IDisposable
 {
     private readonly TestSupport.TempDir _tempDir = new();
+
+    [Fact]
+    public void DownloadRoot_LivesUnderDataDirectory_NotConfigDirectory()
+    {
+        // 2026-09-22 路径策略：FFmpeg 原生库（可重建，体积大）归数据目录；
+        // 叶子目录按 RID 分（win-x64/linux-x64），此处只钉父目录策略不镜像 RID 分支
+        Assert.Equal(
+            Path.Combine(AppPaths.DataDirectory, "ffmpeg"),
+            Path.GetDirectoryName(FfmpegLibraryResolver.DownloadRoot));
+        Assert.False(FfmpegLibraryResolver.DownloadRoot.StartsWith(
+            AppPaths.ConfigDirectory + Path.DirectorySeparatorChar, StringComparison.Ordinal));
+    }
 
     public void Dispose() => _tempDir.Dispose();
 

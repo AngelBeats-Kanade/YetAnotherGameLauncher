@@ -3,6 +3,7 @@ using System.Text;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Xunit;
+using YetAnotherGameLauncher.Core;
 using YetAnotherGameLauncher.Services;
 using YetAnotherGameLauncher.TestSupport;
 
@@ -20,6 +21,17 @@ namespace YetAnotherGameLauncher.AppTests;
 /// </summary>
 public sealed class BackgroundImageServiceTests
 {
+    [Fact]
+    public void DefaultDiskCacheRoot_LivesUnderDataDirectory_NotConfigDirectory()
+    {
+        // 2026-09-22 路径策略：可重建缓存（http 图标/背景图）归数据目录，
+        // 配置目录只留 games.json 等不可清理物
+        Assert.Equal(
+            Path.Combine(AppPaths.DataDirectory, "image-cache"), BackgroundImageService.DefaultDiskCacheRoot);
+        Assert.False(BackgroundImageService.DefaultDiskCacheRoot.StartsWith(
+            AppPaths.ConfigDirectory + Path.DirectorySeparatorChar, StringComparison.Ordinal));
+    }
+
     /// <summary>1×1 PNG。</summary>
     private static readonly byte[] Png = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==");

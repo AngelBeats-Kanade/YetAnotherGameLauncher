@@ -20,6 +20,17 @@ public class GameBackdropServiceTests : IDisposable
     public void Dispose() => _tempDir.Dispose();
 
     [Fact]
+    public void DefaultCacheRoot_LivesUnderDataDirectory_NotConfigDirectory()
+    {
+        // 2026-09-22 路径策略：可重建缓存（背景视频/首帧图）归数据目录
+        // （Linux ~/.local/share/yagl | Windows %LOCALAPPDATA%\yagl），
+        // 配置目录只留 games.json 等不可清理物
+        Assert.Equal(Path.Combine(AppPaths.DataDirectory, "backdrops"), GameBackdropService.DefaultCacheRoot);
+        Assert.False(GameBackdropService.DefaultCacheRoot.StartsWith(
+            AppPaths.ConfigDirectory + Path.DirectorySeparatorChar, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Resolve_RemoteUrl_DownloadsAndCaches()
     {
         _handler.Map("https://cdn.example.com/bg.png", [4, 5, 6, 7]);

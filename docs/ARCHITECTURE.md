@@ -254,7 +254,7 @@ flowchart LR
   `hypergryph`：官方启动器 `get_main_bg_image` 接口（视频优先、静态图兜底）。
   两渠道一致的单级回退模型：视频不可用时首帧/静态图兜底，解析失败返回 null 交上层处理，不再探测
   本机官方启动器缓存或本地帧序列。
-  `GameBackdropService` 把远程背景流式下载缓存到 `%ConfigDirectory%/backdrops/<gameId>/`
+  `GameBackdropService` 把远程背景流式下载缓存到 `%DataDirectory%/backdrops/<gameId>/`
   （`backdrop.*` + `poster.*` + `meta.json`），地址未变不重复下载，离线/下载失败回退上次缓存。
   **版本门控**（产品决策：背景严格跟随游戏版本，卡池轮换等与版本无关的运营投放不触发刷新）：
   `meta.json` 记录 `region`/`gameVersion`，`ResolveAsync(request, gameVersion)` 在区域与版本均未变化、
@@ -265,7 +265,7 @@ flowchart LR
   每游戏每启动一次 `GetVersionInfoAsync`（`GameItemViewModel` 按 SelectedServer 会话缓存，
   选中/切语言/操作完成后的刷新不再打网络；测试经 `ResetVersionCheckCache` 模拟重启），
   版本检测成功且与资产缓存记录版本不一致时才重新解析背景并重取 http 图标。
-  图标 URL 缓存于 `%ConfigDirectory%/image-cache/`（`BackgroundImageService`，URL SHA256 键；
+  图标 URL 缓存于 `%DataDirectory%/image-cache/`（`BackgroundImageService`，URL SHA256 键；
   `ReloadAsync` 绕过缓存强制重取）。区域随界面语言（cn/global），语言切换换区时重新解析新区域。
   离线启动状态行照常提示无连接，资产由缓存兜底。
 - **启动遮蔽门控（2026-09-21）**：`App` 启动路径在窗口上屏前 `BeginBootSplash()` 开启全窗遮蔽
@@ -292,7 +292,9 @@ flowchart LR
 - **原生库供给**（`FfmpegLibraryResolver`，与 FFmpeg.AutoGen 9.0 绑定精确配套 = libavcodec 主版本 63）：
   应用数据目录已下载库 → 系统库（Linux 探测 `libavcodec.so.63`——其它主版本 ABI 不配套会崩，宁缺毋滥；
   旧实现拼出 `libavcodec-63.dll`/裸 `dlopen("avcodec")`，Linux 上永远失败，是"背景视频没了"的根因）→
-  下载 BtbN LGPL 共享构建（SHA256 校验后解压到 `%ConfigDirectory%/ffmpeg/<rid>/`）。
+  下载 BtbN LGPL 共享构建（SHA256 校验后解压到 `%DataDirectory%/ffmpeg/<rid>/`；
+  2026-09-22 起 ffmpeg/背景/图标缓存统一从 %ConfigDirectory% 迁到 %DataDirectory%——可重建
+  缓存归数据目录，config 下的旧副本成遗留、可手动删除）。
 - **无缝循环（v2，2026-09-21）**：`SeamAnalyzer` 把头/尾各约 3s 的帧缩为 64×36 **RGB** 缩略
   （纯灰度会漏掉同亮度不同色相的跳变），按综合分搜索循环点——三通道全局平均差 + 最差分块
   （8×4 网格）均值的加权惩罚（局部动作跳变不被全局平均淹没）+ 后续 2 帧的时序连续性项

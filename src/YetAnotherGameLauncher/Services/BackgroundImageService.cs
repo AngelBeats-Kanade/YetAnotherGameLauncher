@@ -30,7 +30,9 @@ public sealed class BackgroundImageService(
     /// <summary>http 来源的磁盘缓存根目录。</summary>
     private readonly string _diskCacheRoot = diskCacheRoot ?? DefaultDiskCacheRoot;
 
-    private static string DefaultDiskCacheRoot => Path.Combine(AppPaths.ConfigDirectory, "image-cache");
+    /// <summary>缺省磁盘缓存根（internal 供路径策略直测）：数据目录下的 image-cache——
+    /// 可重建缓存归数据目录，配置目录只留不可清理物（2026-09-22 迁移，旧缓存成遗留可手删）。</summary>
+    internal static string DefaultDiskCacheRoot => Path.Combine(AppPaths.DataDirectory, "image-cache");
 
     private readonly Dictionary<string, CacheEntry> _cache = [];
 
