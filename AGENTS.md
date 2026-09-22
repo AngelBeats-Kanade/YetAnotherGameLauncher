@@ -77,6 +77,14 @@ dotnet tests/<测试工程>/bin/Debug/net10.0/<测试程序集>.dll -method "<�
   dlopen 与 Avalonia headless 平台初始化并行竞争，会让 headless 首初始化在 Compositor 构造处炸
   `InvalidOperationException`（`VideoBackdropPlayerCtsTests` 不进集合并行跑时引爆
   `BackgroundImageServiceTests`；纯 Sleep 后台任务不触发，纯逻辑类不受限）。
+- **resolver 下载缝已可注入，真实 resolver 的测试必须离线构造**（2026-09-22 修复）：
+  `FfmpegLibraryResolver(proxyManager, logger?, downloadClient?, downloadRoot?)` 两个可选缝——
+  涉真实 resolver 的测试一律传 `new HttpClient(new StubHttpHandler())` + 临时目录根（先例
+  `VideoBackdropPlayerCtsTests`/`FfmpegLibraryResolverDownloadTests`），否则无系统库/无缓存的
+  新环境 `EnsureReady` 会真实下载约 60–70MB（GitHub API 2026-09-22 实测）并写真实用户数据目录
+  （本机/CI 命中已下库属机器状态掩蔽）。**注意 DI 注册必须走显式工厂**：容器注册过 `HttpClient`
+  （全局 30s）后类型激活会把 `downloadClient` 的 null 默认劫持为容器实例（15 分钟专用超时成
+  死代码，组合根装配断言钉住）。
 - **.NET 10 起 Dispose 后的 CTS `Cancel()` 是 no-op 不抛 ODE**（变异实验实锤：对已释放实例直接
   Cancel 的"崩溃"测试击不杀）——"已释放实例悬挂"不再表现为崩溃但仍是悬挂；防御性 try/catch
   的价值是语义显式化，别假设 ODE 会替你暴露 bug（先例：FfmpegVideoBackdropPlayer._cts 摘除）。

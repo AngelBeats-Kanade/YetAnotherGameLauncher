@@ -21,18 +21,29 @@ namespace YetAnotherGameLauncher.Services;
 [ExcludeFromCodeCoverage]
 public sealed partial class FfmpegLibraryResolver(
     NetworkProxyManager proxyManager,
-    ILogger<FfmpegLibraryResolver>? logger = null)
+    ILogger<FfmpegLibraryResolver>? logger = null,
+    HttpClient? downloadClient = null,
+    string? downloadRoot = null)
 {
-    /// <summary>大文件下载专用 client：共享底层 handler（代理设置同步生效），仅放宽超时。</summary>
-    private readonly HttpClient _downloadClient = new(proxyManager.Handler)
-    {
-        Timeout = DownloadTimeout,
-    };
+    /// <summary>大文件下载专用 client：共享底层 handler（代理设置同步生效），仅放宽超时；
+    /// 可注入（测试注入 stub client 实现离线，杜绝新环境真实下载约 60–70MB 的回退）。
+    /// 注入方自理超时（不注入即 15 分钟专用超时；测试快路径用 client 默认超时即可）。</summary>
+    private readonly HttpClient _downloadClient = downloadClient
+        ?? new HttpClient(proxyManager.Handler)
+        {
+            Timeout = DownloadTimeout,
+        };
 
-    /// <summary>下载源：与 FFmpeg.AutoGen 9.0.x 绑定配套的 FFmpeg 9.0 LGPL 共享构建（双平台）。</summary>
-    private const string BtbnBaseUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download";
+    /// <summary>下载/解压目标根目录（实例缝）：默认 <see cref="DefaultDownloadRoot"/>，
+    /// 测试注入临时目录以保证不写真实用户数据目录。</summary>
+    private readonly string _downloadRoot = downloadRoot ?? DefaultDownloadRoot;
 
-    /// <summary>下载大文件（约 50MB）不能复用全局 30 秒超时的 HttpClient：专用慢速超时。</summary>
+    /// <summary>下载源：与 FFmpeg.AutoGen 9.0.x 绑定配套的 FFmpeg 9.0 LGPL 共享构建（双平台）；
+    /// internal 供测试从同一事实源构造 stub 映射 URL，不在测试里复制字符串。</summary>
+    internal const string BtbnBaseUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download";
+
+    /// <summary>下载大文件（linux tar.xz 约 59MB / win zip 约 72MB，GitHub API 2026-09-22 实测）
+    /// 不能复用全局 30 秒超时的 HttpClient：专用慢速超时。</summary>
     private static readonly TimeSpan DownloadTimeout = TimeSpan.FromMinutes(15);
 
     // 解析状态（_resolveState）：0=未尝试（下载失败后停留于此，允许下次重试；字段默认值即此态）/
@@ -47,8 +58,9 @@ public sealed partial class FfmpegLibraryResolver(
     /// <summary>解析器单例：必须在 ffmpeg 类型首次触碰前注入，目录随后设置。</summary>
     private DirectoryFunctionResolver? _sharedResolver;
 
-    /// <summary>下载源：按平台给出 BtbN 资产文件名与校验行；非 Win/Linux 返回 null（无下载支持）。</summary>
-    private static (string Asset, string Pattern)? BtbnAsset =>
+    /// <summary>下载源：按平台给出 BtbN 资产文件名与校验行；非 Win/Linux 返回 null（无下载支持）。
+    /// internal 供测试从同一事实源取资产名构造 stub 映射。</summary>
+    internal static (string Asset, string Pattern)? BtbnAsset =>
         OperatingSystem.IsWindows()
             ? ("ffmpeg-n9.0-latest-win64-lgpl-shared-9.0.zip", @"([0-9a-f]{64})[ \t]+\*?ffmpeg-n9\.0-latest-win64-lgpl-shared-9\.0\.zip")
             : OperatingSystem.IsLinux()
@@ -82,7 +94,7 @@ public sealed partial class FfmpegLibraryResolver(
         DynamicallyLoadedBindings.FunctionResolver = _sharedResolver;
 
         // ① 已下载目录命中（自己校验过的完整库目录）
-        var dir = LocateLibraryDir(DownloadRoot);
+        var dir = LocateLibraryDir(_downloadRoot);
         if (dir is not null && TryBind(dir))
         {
             return true;
@@ -106,7 +118,7 @@ public sealed partial class FfmpegLibraryResolver(
         try
         {
             DownloadAndExtract(cancellationToken).GetAwaiter().GetResult();
-            dir = LocateLibraryDir(DownloadRoot);
+            dir = LocateLibraryDir(_downloadRoot);
             return dir is not null && TryBind(dir);
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException
@@ -156,11 +168,12 @@ public sealed partial class FfmpegLibraryResolver(
     /// <summary>绑定所需的 libavcodec 主版本号（Linux 的 so 版本号，与 <see cref="BoundAvcodecFile"/> 同步改）。</summary>
     private const int BoundLibavMajor = 63;
 
-    /// <summary>下载 BtbN 资产（SHA256 校验）并解压到应用数据目录。</summary>
-    private async Task DownloadAndExtract(CancellationToken cancellationToken)
+    /// <summary>下载 BtbN 资产（SHA256 校验）并解压到注入的根目录；internal 供离线直测
+    /// （经注入的 stub client 与临时根目录，checksums 拉取/校验段可确定性覆盖）。</summary>
+    internal async Task DownloadAndExtract(CancellationToken cancellationToken)
     {
         var (asset, checksumPattern) = BtbnAsset!.Value;
-        Directory.CreateDirectory(DownloadRoot);
+        Directory.CreateDirectory(_downloadRoot);
 
         var expected = await FetchExpectedSha256Async(asset, checksumPattern, cancellationToken).ConfigureAwait(false);
         var tempFile = Path.Combine(Path.GetTempPath(), $"yagl-ffmpeg-{Guid.NewGuid():N}{Path.GetExtension(asset)}");
@@ -178,8 +191,8 @@ public sealed partial class FfmpegLibraryResolver(
             }
 
             await VerifySha256(tempFile, expected, cancellationToken).ConfigureAwait(false);
-            ExtractArchive(tempFile, DownloadRoot);
-            logger?.LogInformation("FFmpeg libraries installed to {Directory}", DownloadRoot);
+            ExtractArchive(tempFile, _downloadRoot);
+            logger?.LogInformation("FFmpeg libraries installed to {Directory}", _downloadRoot);
         }
         finally
         {
@@ -265,9 +278,10 @@ public sealed partial class FfmpegLibraryResolver(
         }
     }
 
-    /// <summary>首运下载/解压目标根目录（按 RID 分目录，双平台互不干扰；internal 供路径策略直测）：
-    /// 数据目录下的 ffmpeg——可重建大体积二进制归数据目录（2026-09-22 迁移，config 下旧库成遗留可手删）。</summary>
-    internal static string DownloadRoot
+    /// <summary>首运下载/解压目标根目录的默认值（按 RID 分目录，双平台互不干扰；internal 供路径策略直测）：
+    /// 数据目录下的 ffmpeg——可重建大体积二进制归数据目录（2026-09-22 迁移，config 下旧库成遗留可手删）。
+    /// 实例侧经构造参数 <c>downloadRoot</c> 注入覆盖（测试用），生产不传即用本默认。</summary>
+    internal static string DefaultDownloadRoot
     {
         get
         {

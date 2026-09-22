@@ -156,8 +156,14 @@ public partial class App : Application
 
         // 背景视频（FFmpeg 解码；原生库缺失时自动降级静态海报）。
         // 播放器按游戏独占（transient）：游戏间切换各自暂停保活互不干扰；
-        // 原生库准备仍由单例 resolver 共享（每实例重复下载/探测是浪费）
-        services.AddSingleton<FfmpegLibraryResolver>();
+        // 原生库准备仍由单例 resolver 共享（每实例重复下载/探测是浪费）。
+        // 显式工厂：容器注册过 HttpClient（全局 30 秒）——类型激活会把可选参数 downloadClient
+        // 的 null 默认劫持为容器实例，resolver 的 15 分钟专用超时成死代码（2026-09-22 独立审计
+        // 实锤；组合根装配断言钉住，见 FfmpegLibraryResolverDownloadTests）；C# 层调用让两个
+        // 可选缝真正落到默认值。代理仍共享：默认分支自建 client 时用 proxyManager.Handler
+        services.AddSingleton(sp => new FfmpegLibraryResolver(
+            sp.GetRequiredService<NetworkProxyManager>(),
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger<FfmpegLibraryResolver>()));
         services.AddTransient<IVideoBackdropPlayer, FfmpegVideoBackdropPlayer>();
         services.AddSingleton(sp => new Func<IVideoBackdropPlayer>(
             () => sp.GetRequiredService<IVideoBackdropPlayer>()));
