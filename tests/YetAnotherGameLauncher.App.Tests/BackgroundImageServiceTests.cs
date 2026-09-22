@@ -86,9 +86,11 @@ public sealed class BackgroundImageServiceTests
     public async Task LoadAsync_HttpSource_ReturnsImageAndCaches()
     {
         _ = HeadlessSession.Instance;
+        using var dir = new TempDir();
         var handler = new StubHttpHandler();
         handler.Map("https://cdn.example/bg.png", Png);
-        var service = new BackgroundImageService(new HttpClient(handler));
+        // http 成功路径会写磁盘缓存：不注入临时根会写真机用户目录（2026-09-22 评审实锤遗留）
+        var service = new BackgroundImageService(new HttpClient(handler), diskCacheRoot: dir.FilePath("image-cache"));
 
         IImage? first = null, second = null;
         await HeadlessSession.Instance.Dispatch(() =>
