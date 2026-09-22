@@ -1,5 +1,6 @@
 using System.Text;
 using Xunit;
+using YetAnotherGameLauncher.Core;
 using YetAnotherGameLauncher.TestSupport;
 
 namespace YetAnotherGameLauncher.Channels.Kuro.Tests;
@@ -16,6 +17,17 @@ public class KuroGachaServiceTests : IDisposable
         new(new HttpClient(_handler), _tempDir.FilePath("gacha"));
 
     public void Dispose() => _tempDir.Dispose();
+
+    [Fact]
+    public void CacheDirectory_LivesUnderDataDirectory_NotConfigDirectory()
+    {
+        // 2026-09-22 路径策略：唤取记录缓存（可重建）归数据目录，与背景/图标/ffmpeg 缓存同批迁移；
+        // 配置目录只留 games.json 等不可清理物
+        var service = new KuroGachaService(new HttpClient(_handler));
+        Assert.Equal(Path.Combine(AppPaths.DataDirectory, "gacha"), service.CacheDirectory);
+        Assert.False(service.CacheDirectory.StartsWith(
+            AppPaths.ConfigDirectory + Path.DirectorySeparatorChar, StringComparison.Ordinal));
+    }
 
     private const string SampleUrl = "https://aki-gm-resources.aki-game.com/aki/gacha/index.html" +
         "#/record?svr_id=76xx&player_id=100000002&lang=zh-Hans&gacha_id=xx&gacha_type=1" +

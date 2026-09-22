@@ -39,8 +39,9 @@ public sealed partial class KuroGachaService(HttpClient httpClient, string? cach
     /// <summary>缓存文件名（按游戏）。</summary>
     private static string CacheFileName => "wuthering-waves.json";
 
-    /// <summary>缓存目录（默认应用数据目录下 gacha/；测试注入临时目录）。</summary>
-    private string CacheDirectory => cacheDirectory ?? Path.Combine(AppPaths.ConfigDirectory, "gacha");
+    /// <summary>缓存目录（internal 供路径策略直测；测试注入临时目录）：数据目录下的 gacha/——
+    /// 可重建缓存归数据目录（2026-09-22 迁移，与背景/图标/ffmpeg 同批；config 下旧缓存成遗留可手删）。</summary>
+    internal string CacheDirectory => cacheDirectory ?? Path.Combine(AppPaths.DataDirectory, "gacha");
 
     /// <summary>唤取记录页地址特征（出现在 Client.log 的行内）。</summary>
     [GeneratedRegex(@"https?://aki-gm-resources\.[^\s""`'/]+\.com/aki/gacha/index\.html[^\s""`']*")]

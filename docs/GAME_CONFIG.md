@@ -221,9 +221,10 @@ Steam Runtime 容器与 Proton，发行版三选一），由启动器自动生�
 | `*.yagl-bak` | 差分替换的备份文件（成功即删，仅失败恢复时短暂存在） |
 
 安装目录之外，启动器在**数据目录**（Linux `~/.local/share/yagl`，Windows `%LOCALAPPDATA%\yagl`）
-存放可重建缓存与工具数据（2026-09-22 起 ffmpeg/背景缓存从配置目录迁入，配置目录只留
-`games.json` 等不可清理物；旧位置的 `ffmpeg/`、`backdrops/`、`image-cache/` 成遗留、可手动删除）：
+存放可重建缓存与工具数据（2026-09-22 起 ffmpeg/背景/图标/唤取缓存从配置目录迁入，配置目录只留
+`games.json` 等不可清理物；旧位置的 `ffmpeg/`、`backdrops/`、`image-cache/`、`gacha/` 成遗留、
+可手动删除）：
 `ffmpeg/<rid>/`（FFmpeg 原生库，缺失自动重下）、`backdrops/<游戏id>/`（背景视频/首帧图缓存）、
-`image-cache/`（http 图标缓存）、`prefixes/<游戏id>/`（Wine prefix，见上文）。
+`image-cache/`（http 图标缓存）、`gacha/`（鸣潮唤取记录合并缓存）、`prefixes/<游戏id>/`（Wine prefix，见上文）。
 
 清理游离文件时，`Saved/` 存档目录、`.yagl/`、`launcherDownloadConfig.json` 与 `compatdata/`（旧版推荐配置的 Proton prefix 位置，内有注册表/着色器缓存/用户数据）永远保留。清理枚举不穿过目录符号链接/junction（链接目标在安装树之外也绝不会被删），无权限读取的子目录会被静默跳过。
