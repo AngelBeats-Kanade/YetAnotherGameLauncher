@@ -75,6 +75,11 @@ public class FfmpegLibraryResolverEnsureReadyTests : IDisposable
         File.WriteAllBytes(Path.Combine(libDir, "libavcodec.so.63"), "junk-not-an-elf"u8.ToArray());
         var resolver = CreateResolver(stub, root);
 
+        // 前置：夹具目录必须可定位。全量套件中本测试曾出现一次"落穿形状"的 flake
+        // （requests=1，机制未定位）——若再发，先看此断言：dir 定位失败会走②③，
+        // 把"目录没了"误报成"落穿没修"
+        Assert.NotNull(FfmpegLibraryResolver.LocateLibraryDir(root));
+
         var thrown = Record.Exception(() => resolver.EnsureReady(CancellationToken.None));
 
         Assert.Null(thrown); // EnsureReady 全失败路径内部消化，不得向调用方抛出
