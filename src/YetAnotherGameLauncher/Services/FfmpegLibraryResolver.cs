@@ -23,7 +23,8 @@ public sealed partial class FfmpegLibraryResolver(
     NetworkProxyManager proxyManager,
     ILogger<FfmpegLibraryResolver>? logger = null,
     HttpClient? downloadClient = null,
-    string? downloadRoot = null)
+    string? downloadRoot = null,
+    Func<bool>? systemLibraryProbe = null)
 {
     /// <summary>大文件下载专用 client：共享底层 handler（代理设置同步生效），仅放宽超时；
     /// 可注入（测试注入 stub client 实现离线，杜绝新环境真实下载约 60–70MB 的回退）。
@@ -37,6 +38,14 @@ public sealed partial class FfmpegLibraryResolver(
     /// <summary>下载/解压目标根目录（实例缝）：默认 <see cref="DefaultDownloadRoot"/>，
     /// 测试注入临时目录以保证不写真实用户数据目录。</summary>
     private readonly string _downloadRoot = downloadRoot ?? DefaultDownloadRoot;
+
+    /// <summary>系统库探测缝（可注入）：测试注入恒 false 消除"机器装没装配套 FFmpeg"的分支差异，
+    /// 两平台 CI 确定性走下载路径；生产不注入即真实探测。</summary>
+    private readonly Func<bool> _systemLibraryProbe = systemLibraryProbe ?? SystemLibraryPresent;
+
+    /// <summary>单飞门：首运解析全同步（内部 GetResult），Monitor 保证并发调用方（多路 transient
+    /// 播放器同帧起播）串行进入——否则首运下载分钟级窗口内重复下载 60–70MB/竞态解压同一目录。</summary>
+    private readonly object _ensureGate = new();
 
     /// <summary>下载源：与 FFmpeg.AutoGen 9.0.x 绑定配套的 FFmpeg 9.0 LGPL 共享构建（双平台）；
     /// internal 供测试从同一事实源构造 stub 映射 URL，不在测试里复制字符串。</summary>
@@ -88,12 +97,35 @@ public sealed partial class FfmpegLibraryResolver(
             return false;
         }
 
+        lock (_ensureGate)
+        {
+            // 双检：等锁期间另一调用方可能已完成解析（成败都不要再走一遍）
+            state = Volatile.Read(ref _resolveState);
+            if (state == ResolveReady)
+            {
+                return true;
+            }
+
+            if (state == ResolveFailedPermanently)
+            {
+                return false;
+            }
+
+            return EnsureReadyCore(cancellationToken);
+        }
+    }
+
+    /// <summary>解析主体（调用方须持 <see cref="_ensureGate"/> 且状态为未尝试）。</summary>
+    private bool EnsureReadyCore(CancellationToken cancellationToken)
+    {
         // ffmpeg 类型的首次触碰（含读 LibraryVersionMap）会以"当时的 FunctionResolver"完成一次性绑定，
         // 因此解析器必须最先注入（共享实例、目录后置），此后才能触碰 ffmpeg 的任何成员
         _sharedResolver = new DirectoryFunctionResolver();
         DynamicallyLoadedBindings.FunctionResolver = _sharedResolver;
 
-        // ① 已下载目录命中（自己校验过的完整库目录）
+        // ① 已下载目录命中（自己校验过的完整库目录）。TryBind 失败即整体失败：
+        // 绑定尝试已把一次性初始化烧掉（TryBind 内锁死状态），落穿②③（系统探测/整包下载）
+        // 全都无法挽回，只会白付 60–70MB 流量——2026-09-24 实测修复落穿
         var dir = LocateLibraryDir(_downloadRoot);
         if (dir is not null && TryBind(dir))
         {
@@ -101,7 +133,7 @@ public sealed partial class FfmpegLibraryResolver(
         }
 
         // ② 系统已装与绑定精确同版本的 FFmpeg：文件名预检（不触碰 ffmpeg 类型），命中即零下载
-        if (SystemLibraryPresent())
+        if (_systemLibraryProbe())
         {
             logger?.LogInformation("Using system-installed FFmpeg libraries");
             return TryBind(null);
@@ -378,13 +410,10 @@ public sealed partial class FfmpegLibraryResolver(
             {
                 if (OperatingSystem.IsLinux())
                 {
-                    // 发行版布局：lib<名>.so.<主版本>（精确配套）→ lib<名>.so（-dev 符号链接，
-                    // 指向已装同系列版本）。裸 dlopen("avcodec") 在 Linux 永远失败——
-                    // 既无 lib 前缀也无版本号，这是旧实现系统库探测失效的另一半原因。
-                    // 主版本必须逐库精确（avutil=61 ≠ avcodec=63），统一 63 在精确匹配
-                    // 系统上 avutil 必败且烧掉一次性绑定（2026-09-24 实测 soname 修复）
-                    if (NativeLibrary.TryLoad($"lib{libraryName}.so.{LibraryFileMajor(libraryName)}", out handle)
-                        || NativeLibrary.TryLoad($"lib{libraryName}.so", out handle))
+                    // 发行版布局：lib<名>.so.<主版本>（精确配套）。无版本 lib<名>.so 符号链接绝不回退：
+                    // 它指向发行版当前系列（2026-09-24 本机实测 →.so.62，绑定要 63），av_version_info
+                    // 恰好 ABI 稳定让 TryBind 假成功，首个结构体调用处即崩——宁缺毋滥
+                    if (NativeLibrary.TryLoad($"lib{libraryName}.so.{LibraryFileMajor(libraryName)}", out handle))
                     {
                         _loaded[libraryName] = handle;
                         return handle;

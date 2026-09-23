@@ -105,11 +105,6 @@ public class FfmpegLibraryResolverDownloadTests : IDisposable
         Assert.Single(stub.Requests);
     }
 
-    /// <summary>Linux 侧微型 tar.xz 归档夹具（tar 条目 ffmpeg-n9.0/lib/libavcodec.so.63，内容 "fake-lib"）：
-    /// 测试侧无 xz 压缩器（SharpCompress 只读、System.Formats.Tar 不压缩），预生成后嵌入。</summary>
-    private const string TarXzFixtureBase64 =
-        "/Td6WFoAAATm1rRGBMCtAYBQIQEWAAAAAAAAADVExI3gJ/8ApV0AM2Gw4GZuYgT1HRA0i3CBI9gMjj4N/MOOKJTdoFNC+3wF9Y/Zme49V3kU1x47/7hEseBpKLUEfxnU8l/U8++CsxbQmN2hMLg6KeOnsA7h8Ge39BxwbvyEqD6+ND7P14RHjDfwSXt1scFQ/nbAO/RgWLcFLb8twimNbG40/n1N6C70hWdKXTbXSMJAA7239PH++KNbZOnWY8du5dlEZiQSVcbtYtYAAAAAADJzoQeA/WrvAAHJAYBQAACaKjdJscRn+wIAAAAABFla";
-
     [Fact]
     public async Task VerifiedAsset_ExtractsIntoInjectedRoot()
     {
@@ -117,7 +112,7 @@ public class FfmpegLibraryResolverDownloadTests : IDisposable
         // 目标（落回真实用户数据目录默认根）此前全套测试存活；缓存/日志等其余使用点由
         // CS9113 编译防线与本断言的 LocateLibraryDir 部分共同守护
         var stub = new StubHttpHandler();
-        var (archiveBytes, entryPath) = BuildFixtureArchive();
+        var (archiveBytes, entryPath) = TestFfmpegArchive.Create();
         var assetName = FfmpegLibraryResolver.BtbnAsset!.Value.Asset;
         var declared = Convert.ToHexString(SHA256.HashData(archiveBytes)).ToLowerInvariant();
         stub.Map(ChecksumsUrl, $"{declared}  *{assetName}\n");
@@ -129,27 +124,5 @@ public class FfmpegLibraryResolverDownloadTests : IDisposable
 
         Assert.True(File.Exists(Path.Combine(root, entryPath)));
         Assert.NotNull(FfmpegLibraryResolver.LocateLibraryDir(root));
-    }
-
-    /// <summary>构造与平台资产格式配套的微型归档：Windows（zip 资产）测试内现造 zip；
-    /// Linux（tar.xz 资产）用预生成夹具（macOS 等平台无 BtbnAsset，本测试类不覆盖）。</summary>
-    private static (byte[] Archive, string EntryPath) BuildFixtureArchive()
-    {
-        const string entryPath = "ffmpeg-n9.0/lib/libavcodec.so.63";
-        if (OperatingSystem.IsWindows())
-        {
-            using var ms = new MemoryStream();
-            using (var zip = new System.IO.Compression.ZipArchive(
-                ms, System.IO.Compression.ZipArchiveMode.Create))
-            {
-                var entry = zip.CreateEntry(entryPath);
-                using var writer = new StreamWriter(entry.Open());
-                writer.Write("fake-lib");
-            }
-
-            return (ms.ToArray(), entryPath);
-        }
-
-        return (Convert.FromBase64String(TarXzFixtureBase64), entryPath);
     }
 }
