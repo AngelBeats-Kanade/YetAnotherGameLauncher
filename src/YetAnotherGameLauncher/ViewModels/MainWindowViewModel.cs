@@ -144,6 +144,15 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private object? _currentPage;
 
+    /// <summary>应用名常量：窗口 Title 的回退值与游戏页标题的后缀。</summary>
+    public const string AppTitle = "YetAnotherGameLauncher";
+
+    /// <summary>窗口标题：游戏页为「游戏名 · 应用名」，其余页为应用名。
+    /// 语言切换经 OnLanguageChanged 重建 CurrentPage 时本属性随之刷新（DisplayName 随文化变化）。</summary>
+    public string WindowTitle => CurrentPage is GameItemViewModel game
+        ? $"{game.DisplayName} · {AppTitle}"
+        : AppTitle;
+
     /// <summary>导航方向：false=前进（新页自右滑入），true=后退（自左滑入），驱动页面切换动画。</summary>
     [ObservableProperty]
     private bool _isNavBack;
@@ -233,6 +242,7 @@ public partial class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsSettingsNavActive));
         OnPropertyChanged(nameof(IsAboutNavActive));
         OnPropertyChanged(nameof(GameNavSelection));
+        OnPropertyChanged(nameof(WindowTitle));
     }
 
     /// <summary>登记一个刚被暂停保活的游戏页并执行上限淘汰：最旧的保活会话被全停清场

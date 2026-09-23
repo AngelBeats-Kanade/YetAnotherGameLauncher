@@ -8,7 +8,7 @@
         mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="720"
         x:Class="YetAnotherGameLauncher.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Title="YetAnotherGameLauncher"
+        Title="{Binding WindowTitle}"
         Icon="avares://YetAnotherGameLauncher/Assets/app-icon.ico"
         Width="1464" Height="720" MinWidth="920" MinHeight="620"
         ExtendClientAreaToDecorationsHint="True"
@@ -756,10 +756,18 @@
 
                                     <Grid RowDefinitions="*,Auto" Margin="16,36,16,14">
 
-                                        <!-- 顶部信息簇（方案 A，左对齐）：确认条 → chips 行 → 标题上墙。
-                                             左缩进 12 = 距内容卡左缘 28px（对齐预览标题位） -->
+                                        <!-- 顶部信息簇（方案 A，左对齐）：标题行 → 确认条 → chips 行。
+                                             左缩进 12 = 距内容卡左缘 28px（对齐预览标题位）；
+                                             标题行系 2026-09-23 评审 P1-1 恢复（轻量单行，区别于已删的 30px 标题墙），
+                                             28px 在顶部纱带内、压白海报走大字线（WCAG 3:1） -->
                                         <StackPanel Grid.Row="0" VerticalAlignment="Top" HorizontalAlignment="Left"
                                                     Margin="12,10,0,0" Spacing="14">
+                                            <!-- 游戏名：详情页身份主锚点（评审 P1-1"识别而非回忆"） -->
+                                            <TextBlock Text="{Binding DisplayName}"
+                                                       FontSize="28" FontWeight="SemiBold"
+                                                       MaxWidth="640" HorizontalAlignment="Left"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Foreground="{DynamicResource AppOnArtworkBrush}"/>
                                             <!-- 校验修复确认条（包式渠道无逐文件清单：修复=整包重下覆盖安装，需确认）；
                                                  无 BoxShadow：真机 HDR 路径会把模糊阴影呈成硬边矩形板（同 toast-card） -->
                                             <Border HorizontalAlignment="Left"
@@ -828,6 +836,57 @@
                                                     </StackPanel>
                                                 </Border>
                                             </WrapPanel>
+
+                                            <!-- 未安装空态引导卡（评审 P1-2：空态要设计、禁用钮说明原因）：
+                                                 用现有数据（渠道/最新版本/服务器/安装目录）组装，
+                                                 与确认条同款玻璃卡；已安装即隐藏 -->
+                                            <Border x:Name="EmptyStateCard"
+                                                    HorizontalAlignment="Left" MaxWidth="480"
+                                                    Padding="16,12" CornerRadius="12"
+                                                    Background="{DynamicResource AppOnArtworkCard}"
+                                                    BorderBrush="{DynamicResource AppOnArtworkCardBorder}"
+                                                    BorderThickness="1"
+                                                    IsVisible="{Binding !IsInstalled}">
+                                                <StackPanel Spacing="8">
+                                                    <TextBlock Text="{Binding Loc[detail_emptyTitle]}"
+                                                               FontSize="15" FontWeight="SemiBold"
+                                                               Foreground="{DynamicResource AppOnArtworkBrush}"/>
+                                                    <TextBlock Text="{Binding Loc[detail_emptyHint]}"
+                                                               FontSize="12.5" TextWrapping="Wrap"
+                                                               Foreground="{DynamicResource AppOnArtworkSecondary}"/>
+                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding Loc[game_info_channel]}"
+                                                                   Classes="dock-caption" LineHeight="22" VerticalAlignment="Center"/>
+                                                        <TextBlock Grid.Column="1" Text="{Binding ChannelDisplayName}"
+                                                                   FontSize="12.5" LineHeight="22" VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource AppOnArtworkBrush}"/>
+                                                    </Grid>
+                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                                                        <TextBlock Text="{Binding Loc[version_label_latest]}"
+                                                                   Classes="dock-caption" LineHeight="22" VerticalAlignment="Center"/>
+                                                        <TextBlock Grid.Column="1" Text="{Binding VersionChipNumber}"
+                                                                   FontSize="12.5" LineHeight="22" VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource AppOnArtworkBrush}"/>
+                                                    </Grid>
+                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                                                        <TextBlock Text="{Binding Loc[game_server]}"
+                                                                   Classes="dock-caption" LineHeight="22" VerticalAlignment="Center"/>
+                                                        <TextBlock Grid.Column="1" Text="{Binding ServerCountText}"
+                                                                   FontSize="12.5" LineHeight="22" VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource AppOnArtworkBrush}"/>
+                                                    </Grid>
+                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                                                        <TextBlock Text="{Binding Loc[game_info_installDir]}"
+                                                                   Classes="dock-caption" LineHeight="22" VerticalAlignment="Center"/>
+                                                        <TextBlock Grid.Column="1" Text="{Binding InstallDirPath}"
+                                                                   FontSize="12.5" LineHeight="22"
+                                                                   TextTrimming="CharacterEllipsis"
+                                                                   ToolTip.Tip="{Binding InstallDirPath}"
+                                                                   VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource AppOnArtworkBrush}"/>
+                                                    </Grid>
+                                                </StackPanel>
+                                            </Border>
                                         </StackPanel>
 
                                         <!-- 底部操作坞（通栏玻璃条）：左列渠道/目录信息（busy 时变进度条），

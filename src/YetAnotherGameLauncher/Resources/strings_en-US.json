@@ -148,6 +148,8 @@
   "verify_confirm_yes": "Reinstall",
   "verify_confirm_no": "Cancel",
   "status_upToDate": "Up to date",
+  "detail_emptyTitle": "Not installed yet",
+  "detail_emptyHint": "Use Install below to download the game; launch becomes available once it finishes.",
   "theme_dark": "Dark",
   "theme_light": "Light",
   "theme_system": "Follow System",

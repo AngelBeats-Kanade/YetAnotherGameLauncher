@@ -89,8 +89,9 @@
                         Content="{Binding Loc[game_applyPredownload]}"
                         Classes="pressable glass-onart"
                         Padding="20,11" VerticalAlignment="Center"/>
+                <!-- 未安装时隐藏（评审 P1-2：禁用钮常驻改隐藏，安装钮已是主 CTA）；busy 安装中同步隐藏 -->
                 <Button Classes="pressable" Command="{Binding LaunchCommand}"
-                        IsEnabled="{Binding CanLaunch}"
+                        IsVisible="{Binding CanLaunch}"
                         Classes.glass-onart="{Binding !CanLaunch}"
                         Classes.accent-onart="{Binding CanLaunch}"
                         Padding="30,12">

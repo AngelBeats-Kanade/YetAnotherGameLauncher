@@ -148,6 +148,8 @@
   "verify_confirm_yes": "确认重装",
   "verify_confirm_no": "取消",
   "status_upToDate": "已是最新版本",
+  "detail_emptyTitle": "尚未安装",
+  "detail_emptyHint": "点击下方「安装游戏」下载到本机；完成后即可在此启动。",
   "theme_dark": "暗色",
   "theme_light": "亮色",
   "theme_system": "跟随系统",

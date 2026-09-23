@@ -1,4 +1,3 @@
-using System.Windows.Input;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
@@ -41,13 +40,8 @@ public class DetailPageHeadlessTests : IDisposable
             window.Show();
             window.UpdateLayout();
 
-            // 真实场景：夹具游戏未安装 → 启动按钮 glass-onart + 禁用（用户报告的黑字状态）
-            var launch = FindGlassOnArtButton(window, _ctx.Vm.Games[0].LaunchCommand);
-            var launchPresenter = TemplatePresenter(launch);
-            Assert.False(launch.IsEnabled);
-            Assert.Equal(ArtworkColor(window, "AppOnArtworkSecondary"), PresenterColor(launchPresenter));
-
-            // 探针按钮无绑定干扰：正常态浅色字 → 禁用态切次级浅色 → 恢复 → 悬停仍浅色
+            // P1-2 起未安装时启动钮整体隐藏（模板不实例化），禁用态浅色前景的回归
+            // 改由探针按钮承载（样式四态相同）；可见性语义归 DetailPageIdentityTests
             var probe = new Button { Classes = { "glass-onart" }, Width = 80, Height = 36 };
             ((Panel)window.Content!).Children.Add(probe);
             window.UpdateLayout();
@@ -175,13 +169,14 @@ public class DetailPageHeadlessTests : IDisposable
             window.UpdateLayout();
 
             // 坞底恒为深色玻璃：值列若继承主题前景（亮色 = 近黑）会黑字叠黑底（judge 02 实锤）。
-            // 与 GlassOnArtButton_KeepsLightForeground 同根因，此断言防"清理冗余 Foreground"式回归
+            // 与 GlassOnArtButton_KeepsLightForeground 同根因，此断言防"清理冗余 Foreground"式回归。
+            // P1-2 后未安装态另有空态引导卡展示同名字段（同样的浅色前景），一并纳入断言
             var valueTexts = window.GetVisualDescendants().OfType<TextBlock>()
                 .Where(t => t.Text == _ctx.Vm.Games[0].ChannelDisplayName
                             || t.Text == _ctx.Vm.Games[0].ServerCountText
                             || t.Text == _ctx.Vm.Games[0].InstallDirPath)
                 .ToList();
-            Assert.Equal(3, valueTexts.Count);
+            Assert.True(valueTexts.Count >= 3, $"坞/空态卡值列文本数不足：{valueTexts.Count}");
             foreach (var value in valueTexts)
             {
                 Assert.Equal(ArtworkColor(window, "AppOnArtworkBrush"),
@@ -227,11 +222,6 @@ public class DetailPageHeadlessTests : IDisposable
             window.Close();
         }, CancellationToken.None);
     }
-
-    /// <summary>按命令找到详情页操作行里的玻璃按钮（预下载/应用预下载/启动都可能带 glass-onart）。</summary>
-    private static Button FindGlassOnArtButton(MainWindow window, ICommand command) =>
-        window.GetVisualDescendants().OfType<Button>()
-            .First(b => b.Classes.Contains("glass-onart") && ReferenceEquals(b.Command, command));
 
     /// <summary>取按钮模板里的内容呈现器（Fluent 与 App 状态样式的共同作用点）。</summary>
     private static ContentPresenter TemplatePresenter(Button button) =>
