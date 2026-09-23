@@ -96,7 +96,7 @@ public class DetailPageHeadlessTests : IDisposable
             window.UpdateLayout();
             Assert.Null(card.Background);
             var page = window.GetVisualDescendants().OfType<Border>().First(b => b.Classes.Contains("page"));
-            Assert.Equal(new Thickness(34, 48, 34, 24), page.Margin);
+            Assert.Equal(new Thickness(32, 48, 32, 24), page.Margin); // 2026-09-23 刻度审计：34→32 对齐 4pt 网格
 
             // 返回详情页：同板
             _ctx.Vm.ShowGamesCommand.Execute(null);

@@ -16,9 +16,9 @@
                           Fill="{DynamicResource AppErrorText}" Stretch="Uniform"
                           Width="21" VerticalAlignment="Center"/>
                     <TextBlock Text="{Binding Loc[launch_error_title]}"
-                               FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                               FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/>
                 </StackPanel>
-                <TextBlock Text="{Binding LaunchError.Message}" FontSize="13.5"
+                <TextBlock Text="{Binding LaunchError.Message}" FontSize="13"
                            TextWrapping="Wrap" LineHeight="20"/>
                 <!-- 主次跟随 CanRetry 对调（评审 P1-4）：可重试时恢复动作是主操作、关闭退居次级；
                      不可重试时关闭是唯一主操作。Classes 条件绑定互斥，任一时刻恰有一个命中 -->
@@ -47,7 +47,7 @@
                           IsExpanded="{Binding LaunchError.DetailsExpanded, Mode=TwoWay}"
                           Background="Transparent">
                     <Expander.Header>
-                        <TextBlock Text="{Binding Loc[launch_error_details]}" FontSize="12.5"
+                        <TextBlock Text="{Binding Loc[launch_error_details]}" FontSize="13"
                                    Foreground="{DynamicResource AppTextSecondary}"/>
                     </Expander.Header>
                     <SelectableTextBlock Text="{Binding LaunchError.Detail}"

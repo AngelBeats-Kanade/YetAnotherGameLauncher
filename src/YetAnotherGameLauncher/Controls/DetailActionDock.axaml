@@ -13,38 +13,38 @@
             <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="4"
                         IsVisible="{Binding !IsBusy}" Margin="0,0,24,0"
                         ClipToBounds="True">
-                <!-- 信息行与设置页"游戏信息卡"同构：标签弱化 caption、数值 12.5px 主前景。
+                <!-- 信息行与设置页"游戏信息卡"同构：标签弱化 caption、数值 13px 主前景。
                      服务器数量此前挂在行尾且与截断的渠道名脱节（位置/层级都不立），独立成行。
-                     行距 22 = 预览 1.75 倍行高（12.5px 值列 × 1.75 ≈ 22） -->
+                     行距 22 = 13px 值列 × 1.7 倍行高（≥1.4 可读线） -->
                 <!-- 值列必须显式插画上前景：坞底恒为深色玻璃，继承主题前景会在亮色主题变黑字（judge 02 实锤） -->
-                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14"
+                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16"
                       RowDefinitions="Auto,Auto,Auto" RowSpacing="0">
                     <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding Loc[game_info_channel]}"
                                Classes="dock-caption" LineHeight="22" VerticalAlignment="Center"/>
                     <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding ChannelDisplayName}"
-                               FontSize="12.5" LineHeight="22" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                               FontSize="13" LineHeight="22" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                                Foreground="{DynamicResource AppOnArtworkBrush}"/>
                     <TextBlock Grid.Row="1" Grid.Column="0" Text="{Binding Loc[game_server]}"
                                Classes="dock-caption" LineHeight="22" VerticalAlignment="Center"/>
                     <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ServerCountText}"
-                               FontSize="12.5" LineHeight="22" VerticalAlignment="Center"
+                               FontSize="13" LineHeight="22" VerticalAlignment="Center"
                                Foreground="{DynamicResource AppOnArtworkBrush}"/>
                     <TextBlock Grid.Row="2" Grid.Column="0" Text="{Binding Loc[game_info_installDir]}"
                                Classes="dock-caption" LineHeight="22" VerticalAlignment="Center"/>
                     <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding InstallDirPath}"
-                               FontSize="12.5" LineHeight="22" TextTrimming="CharacterEllipsis"
+                               FontSize="13" LineHeight="22" TextTrimming="CharacterEllipsis"
                                ToolTip.Tip="{Binding InstallDirPath}" VerticalAlignment="Center"
                                Foreground="{DynamicResource AppOnArtworkBrush}"/>
                 </Grid>
             </StackPanel>
             <!-- busy 时信息列让位给进度（不再弹独立进度卡，页面不跳动） -->
-            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="7"
+            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="8"
                         IsVisible="{Binding IsBusy}" Margin="0,0,24,0">
                 <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Grid.Column="0" Text="{Binding ProgressText}" FontSize="12.5"
+                    <TextBlock Grid.Column="0" Text="{Binding ProgressText}" FontSize="13"
                                Foreground="{DynamicResource AppOnArtworkSecondary}"/>
                     <TextBlock Grid.Column="1" Text="{Binding ProgressPercent, StringFormat={}{0:0}%}"
-                               FontSize="12.5" FontWeight="SemiBold"
+                               FontSize="13" FontWeight="SemiBold"
                                Foreground="{DynamicResource AppOnArtworkBrush}"/>
                 </Grid>
                 <ProgressBar Maximum="100" Value="{Binding ProgressPercent}" Height="6"/>
@@ -78,24 +78,24 @@
                         Command="{Binding InstallOrUpdateCommand}"
                         Content="{Binding InstallButtonText}"
                         FontSize="15"
-                        Padding="26,11" VerticalAlignment="Center"/>
+                        Padding="28,12" VerticalAlignment="Center"/>
                 <Button Command="{Binding PredownloadCommand}"
                         IsVisible="{Binding PredownloadAvailable}"
                         Content="{Binding Loc[game_predownload]}"
                         Classes="pressable predownload-onart"
-                        Padding="20,11" VerticalAlignment="Center"/>
+                        Padding="20,12" VerticalAlignment="Center"/>
                 <Button Command="{Binding ApplyPredownloadCommand}"
                         IsVisible="{Binding HasStagedPredownload}"
                         Content="{Binding Loc[game_applyPredownload]}"
                         Classes="pressable glass-onart"
-                        Padding="20,11" VerticalAlignment="Center"/>
+                        Padding="20,12" VerticalAlignment="Center"/>
                 <!-- 未安装时隐藏（评审 P1-2：禁用钮常驻改隐藏，安装钮已是主 CTA）；busy 安装中同步隐藏 -->
                 <Button Classes="pressable" Command="{Binding LaunchCommand}"
                         IsVisible="{Binding CanLaunch}"
                         Classes.glass-onart="{Binding !CanLaunch}"
                         Classes.accent-onart="{Binding CanLaunch}"
-                        Padding="30,12">
-                    <StackPanel Orientation="Horizontal" Spacing="9">
+                        Padding="32,12">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
                         <Path Data="{StaticResource PlayIconGeo}"
                               Fill="{Binding $parent[Button].Foreground}"
                               Stretch="Uniform" Width="14"/>

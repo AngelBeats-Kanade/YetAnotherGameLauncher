@@ -7,17 +7,17 @@
          绑定契约不变（DataContext = AboutViewModel，页面切换动画经 .page 类继续命中） -->
     <Border Classes="page">
         <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-            <StackPanel MaxWidth="720" HorizontalAlignment="Stretch" Spacing="18">
+            <StackPanel MaxWidth="720" HorizontalAlignment="Stretch" Spacing="16">
 
                 <TextBlock Text="{Binding Loc[about_title]}" FontSize="28" FontWeight="Bold" Margin="0,4,0,4"/>
 
                 <Border Classes="card">
-                    <StackPanel Orientation="Horizontal" Spacing="18">
+                    <StackPanel Orientation="Horizontal" Spacing="16">
                         <Image Width="60" Height="60"
                                Source="avares://YetAnotherGameLauncher/Assets/app-icon.png"/>
                         <StackPanel VerticalAlignment="Center" Spacing="4">
                             <TextBlock Text="YetAnotherGameLauncher" FontSize="20" FontWeight="SemiBold"/>
-                            <TextBlock Text="{Binding Loc[about_description]}" FontSize="12.5"
+                            <TextBlock Text="{Binding Loc[about_description]}" FontSize="13"
                                        Foreground="{DynamicResource AppTextSecondary}" TextWrapping="Wrap"/>
                         </StackPanel>
                     </StackPanel>
@@ -26,20 +26,20 @@
                 <Border Classes="card">
                     <!-- 标签列 110px：与游戏设置页信息卡同规格（评审 P2-10，原 90px 三处各自为政） -->
                     <StackPanel Spacing="8">
-                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
                             <TextBlock Grid.Column="0" Text="{Binding Loc[about_version]}" Classes="card-caption" Width="110"/>
-                            <TextBlock Grid.Column="1" Text="{Binding AppVersion}" FontSize="13.5"/>
+                            <TextBlock Grid.Column="1" Text="{Binding AppVersion}" FontSize="13"/>
                         </Grid>
-                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
                             <TextBlock Grid.Column="0" Text="{Binding Loc[about_runtime]}" Classes="card-caption" Width="110"/>
-                            <TextBlock Grid.Column="1" Text="{Binding RuntimeVersion}" FontSize="13.5"/>
+                            <TextBlock Grid.Column="1" Text="{Binding RuntimeVersion}" FontSize="13"/>
                         </Grid>
-                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
                             <TextBlock Grid.Column="0" Text="{Binding Loc[about_configFile]}" Classes="card-caption" Width="110"/>
-                            <TextBlock Grid.Column="1" Text="{Binding ConfigFilePath}" FontSize="13.5"
+                            <TextBlock Grid.Column="1" Text="{Binding ConfigFilePath}" FontSize="13"
                                        TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding ConfigFilePath}"/>
                         </Grid>
-                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
                             <TextBlock Grid.Column="0" Text="{Binding Loc[about_projectHome]}" Classes="card-caption" Width="110"/>
                             <Button Grid.Column="1" Classes="btn-sm pressable glass" HorizontalAlignment="Left"
                                     Content="{x:Static vm:AboutViewModel.ProjectHomeUrl}"
@@ -54,7 +54,7 @@
                         <ItemsControl ItemsSource="{Binding ThirdParty}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid ColumnDefinitions="*,Auto" Margin="0,1">
+                                    <Grid ColumnDefinitions="*,Auto" Margin="0,2">
                                         <TextBlock Text="{Binding Name}" FontSize="13"/>
                                         <TextBlock Grid.Column="1" Text="{Binding License}" Classes="card-caption"/>
                                     </Grid>

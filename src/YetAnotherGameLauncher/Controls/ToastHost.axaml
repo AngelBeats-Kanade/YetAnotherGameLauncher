@@ -18,7 +18,7 @@
                 <Border Classes="toast-card"
                         Classes.toast-success="{Binding IsSuccess}"
                         Classes.toast-warning="{Binding IsWarning}">
-                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
                         <Ellipse Grid.Column="0" Classes="toast-dot"
                                  Width="9" Height="9" VerticalAlignment="Center"/>
                         <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">

@@ -9,7 +9,7 @@
         <ScrollViewer HorizontalScrollBarVisibility="Disabled">
             <StackPanel MaxWidth="760" HorizontalAlignment="Stretch" Spacing="16">
 
-                <StackPanel Orientation="Horizontal" Spacing="14" Margin="0,4,0,4">
+                <StackPanel Orientation="Horizontal" Spacing="16" Margin="0,4,0,4">
                     <TextBlock Text="{Binding Loc[gacha_title]}" FontSize="28" FontWeight="Bold"
                                VerticalAlignment="Center"/>
                     <TextBlock Text="{Binding DisplayName}" FontSize="18"
@@ -20,7 +20,7 @@
                 <!-- 拉取与筛选 -->
                 <Border Classes="card" Padding="16,12">
                     <Grid ColumnDefinitions="*,Auto,Auto">
-                        <TextBlock Text="{Binding StatusText}" FontSize="12.5" TextWrapping="Wrap"
+                        <TextBlock Text="{Binding StatusText}" FontSize="13" TextWrapping="Wrap"
                                    Foreground="{DynamicResource AppTextSecondary}"
                                    VerticalAlignment="Center"/>
                         <ComboBox Grid.Column="1" MinWidth="170" Margin="0,0,8,0"
@@ -35,20 +35,20 @@
                         <Button Grid.Column="2" Classes="pressable glass-onart"
                                 Command="{Binding RefreshCommand}"
                                 Content="{Binding Loc[gacha_refresh]}"
-                                Padding="18,8" VerticalAlignment="Center"/>
+                                Padding="16,8" VerticalAlignment="Center"/>
                     </Grid>
                 </Border>
 
                 <!-- 统计卡行 -->
-                <Grid ColumnDefinitions="*,*,*,*" Margin="0,2,0,2">
-                    <Border Classes="card" Margin="0,0,8,0" Padding="14,10">
+                <Grid ColumnDefinitions="*,*,*,*" Margin="0,4,0,4">
+                    <Border Classes="card" Margin="0,0,8,0" Padding="16,8">
                         <StackPanel>
                             <TextBlock Text="{Binding Loc[gacha_stat_total]}" FontSize="12"
                                        Foreground="{DynamicResource AppTextSecondary}"/>
                             <TextBlock Text="{Binding TotalCount}" FontSize="24" FontWeight="Bold"/>
                         </StackPanel>
                     </Border>
-                    <Border Grid.Column="1" Classes="card" Margin="0,0,8,0" Padding="14,10">
+                    <Border Grid.Column="1" Classes="card" Margin="0,0,8,0" Padding="16,8">
                         <StackPanel>
                             <TextBlock Text="{Binding Loc[gacha_stat_fiveStar]}" FontSize="12"
                                        Foreground="{DynamicResource AppTextSecondary}"/>
@@ -56,7 +56,7 @@
                                        Foreground="{DynamicResource AppGachaRare5}"/>
                         </StackPanel>
                     </Border>
-                    <Border Grid.Column="2" Classes="card" Margin="0,0,8,0" Padding="14,10">
+                    <Border Grid.Column="2" Classes="card" Margin="0,0,8,0" Padding="16,8">
                         <StackPanel>
                             <TextBlock Text="{Binding Loc[gacha_stat_fourStar]}" FontSize="12"
                                        Foreground="{DynamicResource AppTextSecondary}"/>
@@ -64,7 +64,7 @@
                                        Foreground="{DynamicResource AppGachaRare4}"/>
                         </StackPanel>
                     </Border>
-                    <Border Grid.Column="3" Classes="card" Padding="14,10">
+                    <Border Grid.Column="3" Classes="card" Padding="16,8">
                         <StackPanel>
                             <TextBlock Text="{Binding Loc[gacha_stat_sinceFiveStar]}" FontSize="12"
                                        Foreground="{DynamicResource AppTextSecondary}"/>
@@ -78,7 +78,7 @@
                     <ItemsControl ItemsSource="{Binding Records}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:GachaRecordView">
-                                <Grid ColumnDefinitions="Auto,*,Auto" Margin="10,7">
+                                <Grid ColumnDefinitions="Auto,*,Auto" Margin="12,8">
                                     <TextBlock Text="{Binding QualityLevel}" Width="28" FontWeight="Bold"
                                                Classes.gacha-rare5="{Binding Rare5}"
                                                Classes.gacha-rare4="{Binding Rare4}"/>

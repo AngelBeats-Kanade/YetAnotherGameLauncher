@@ -9,7 +9,7 @@
          （ProxyCard 供截图测试滚动定位） -->
     <Border Classes="page">
         <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-            <StackPanel MaxWidth="720" HorizontalAlignment="Stretch" Spacing="18">
+            <StackPanel MaxWidth="720" HorizontalAlignment="Stretch" Spacing="16">
 
                 <TextBlock Text="{Binding Loc[settings_title]}" FontSize="28" FontWeight="Bold" Margin="0,4,0,4"/>
 
@@ -75,9 +75,9 @@
                         <TextBlock Text="{Binding Loc[settings_downloads]}" FontSize="15" FontWeight="SemiBold"/>
                         <TextBlock Text="{Binding Loc[settings_installRoot]}" Classes="card-caption"/>
                         <!-- inline 浏览钮：与游戏设置页位置卡同款布局（评审 P2-5：同语义同布局，原为堆叠） -->
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                             <TextBox Grid.Column="0" x:Name="InstallRootBox" Text="{Binding InstallRootDraft}"
-                                     Padding="10,7"/>
+                                     Padding="12,8"/>
                             <Button Grid.Column="1" Content="{Binding Loc[settings_installRootBrowse]}"
                                     Command="{Binding BrowseInstallRootCommand}"
                                     Classes="pressable btn-sm"/>
@@ -107,7 +107,7 @@
                                       OnContent="{Binding Loc[settings_autostart_on]}"
                                       OffContent="{Binding Loc[settings_autostart_off]}"
                                       IsChecked="{Binding IsAutostart, Mode=OneWay}"
-                                      Command="{Binding ToggleAutostartCommand}" Margin="0,6,0,0"/>
+                                      Command="{Binding ToggleAutostartCommand}" Margin="0,8,0,0"/>
                         <TextBlock Classes="save-msg"
                                    Text="{Binding AutostartSave.Message}"
                                    IsVisible="{Binding AutostartSave.HasMessage}"
@@ -127,7 +127,7 @@
                             <RadioButton GroupName="proxy" x:Name="ProxyManualRadio"
                                          Content="{Binding Loc[settings_proxy_method_manual]}"
                                          IsChecked="{Binding ProxyManual}"/>
-                            <TextBox x:Name="ProxyAddressBox" Margin="22,2,0,0"
+                            <TextBox x:Name="ProxyAddressBox" Margin="24,4,0,0"
                                      PlaceholderText="{Binding Loc[settings_proxyAddress]}"
                                      Text="{Binding ProxyAddressDraft}"
                                      IsEnabled="{Binding IsProxyAddressEnabled}"/>
@@ -137,7 +137,7 @@
                         <StackPanel Orientation="Horizontal" Spacing="12">
                             <Button Classes="pressable glass" Command="{Binding SaveProxyCommand}"
                                     Content="{Binding Loc[settings_proxySave]}"
-                                    Padding="18,8"/>
+                                    Padding="16,8"/>
                             <TextBlock Text="{Binding ProxySave.Message}" FontSize="12"
                                        VerticalAlignment="Center"
                                        IsVisible="{Binding ProxySave.HasMessage}"
@@ -150,7 +150,7 @@
                 <Border Classes="card">
                     <StackPanel Spacing="8">
                         <TextBlock Text="{Binding Loc[settings_configFile]}" FontSize="15" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding ConfigFilePath}" FontSize="12.5"
+                        <TextBlock Text="{Binding ConfigFilePath}" FontSize="13"
                                    Foreground="{DynamicResource AppTextSecondary}"
                                    TextWrapping="Wrap"/>
                         <TextBlock Text="{Binding Loc[settings_configFileHint]}" Classes="card-caption"/>

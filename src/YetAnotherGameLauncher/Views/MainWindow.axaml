@@ -21,7 +21,7 @@
         <!-- 侧栏列表项：圆角、悬停/选中为弱化强调（左内边距给选中指示点留位，图标不贴点） -->
         <Style Selector="ListBoxItem">
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-            <Setter Property="Padding" Value="14,8"/>
+            <Setter Property="Padding" Value="16,8"/>
             <Setter Property="CornerRadius" Value="10"/>
             <Setter Property="Margin" Value="0,2"/>
         </Style>
@@ -79,7 +79,7 @@
 
         <!-- 常用按钮规格：小号操作钮与返回钮 -->
         <Style Selector="Button.btn-sm">
-            <Setter Property="Padding" Value="18,8"/>
+            <Setter Property="Padding" Value="16,8"/>
         </Style>
         <Style Selector="Button.back-btn">
             <Setter Property="Padding" Value="20,9"/>
@@ -185,7 +185,7 @@
         <!-- 危险确认按钮（错误卡语境，评审 P1-3）：红字红描边幽灵钮 + 悬停淡红染——
              与 danger-onart 同语义，但底透出错误卡面（AppErrorCardBackground），前景走主题化 AppErrorText -->
         <Style Selector="Button.danger-card">
-            <Setter Property="Padding" Value="22,8"/>
+            <Setter Property="Padding" Value="24,8"/>
             <Setter Property="MinHeight" Value="34"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="CornerRadius" Value="10"/>
@@ -291,7 +291,7 @@
             <Setter Property="BorderBrush" Value="{DynamicResource AppOnArtworkCardBorder}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="14"/>
-            <Setter Property="Padding" Value="14,7"/>
+            <Setter Property="Padding" Value="16,8"/>
         </Style>
 
         <!-- 唤取记录稀有度：五星金 / 四星紫（成对令牌，对比度门禁 ThemeTokenContrastTests 管辖） -->
@@ -305,7 +305,7 @@
         <!-- 图标按钮 -->
         <Style Selector="Button.icon-btn">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Padding" Value="9"/>
+            <Setter Property="Padding" Value="8"/>
             <Setter Property="CornerRadius" Value="9"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
@@ -349,7 +349,7 @@
         </Style>
         <Style Selector="Border.game-sidebar.collapsed Button.icon-btn">
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
-            <Setter Property="Padding" Value="9"/>
+            <Setter Property="Padding" Value="8"/>
         </Style>
 
         <!-- 页面切换：Store 式横滑过渡（前进自右滑入、后退自左滑入，配淡入）；
@@ -357,7 +357,7 @@
 
         <!-- 设置类页面（设置/关于/游戏设置）的统一页边距（顶部避开 46px 标题色带） -->
         <Style Selector="Border.page">
-            <Setter Property="Margin" Value="34,48,34,24"/>
+            <Setter Property="Margin" Value="32,48,32,24"/>
         </Style>
         <Style Selector="ContentControl.nav-forward :is(Control).page">
             <Style.Animations>
@@ -467,7 +467,7 @@
             <Setter Property="FontWeight" Value="SemiBold"/>
         </Style>
         <Style Selector="Border.toast-card TextBlock.toast-message">
-            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="FontSize" Value="13"/>
             <Setter Property="Foreground" Value="{DynamicResource AppTextSecondary}"/>
             <Setter Property="LineHeight" Value="18"/>
         </Style>
@@ -514,7 +514,7 @@
         <Style Selector="Button.launch-error-primary">
             <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
             <Setter Property="Foreground" Value="#FFFFFF"/>
-            <Setter Property="Padding" Value="22,8"/>
+            <Setter Property="Padding" Value="24,8"/>
             <Setter Property="CornerRadius" Value="10"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="MinHeight" Value="34"/>
@@ -573,8 +573,8 @@
                             <Image Width="38" Height="38"
                                    Source="avares://YetAnotherGameLauncher/Assets/app-icon.png"/>
                             <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" Spacing="0">
-                                <TextBlock Text="YetAnother" FontSize="19" FontWeight="Bold" Opacity="0.85"/>
-                                <TextBlock Text="Game Launcher" FontSize="19" FontWeight="Bold"
+                                <TextBlock Text="YetAnother" FontSize="20" FontWeight="Bold" Opacity="0.85"/>
+                                <TextBlock Text="Game Launcher" FontSize="20" FontWeight="Bold"
                                            Foreground="{DynamicResource AppAccentBrush}"/>
                             </StackPanel>
                             <Button Grid.Column="2" Classes="icon-btn pressable" Command="{Binding ToggleSidebarCommand}"
@@ -596,7 +596,7 @@
                     </StackPanel>
 
                     <!-- 计数与状态提示（收起时隐藏） -->
-                    <StackPanel DockPanel.Dock="Top" IsVisible="{Binding IsSidebarExpanded}" Margin="6,12,4,0" Spacing="3">
+                    <StackPanel DockPanel.Dock="Top" IsVisible="{Binding IsSidebarExpanded}" Margin="6,12,4,0" Spacing="4">
                         <TextBlock Text="{Binding GameCountText}" FontSize="12"
                                    Foreground="{DynamicResource AppTextSecondary}"/>
                         <TextBlock Text="{Binding StatusMessage}" FontSize="12" TextWrapping="Wrap"
@@ -606,11 +606,11 @@
                     </StackPanel>
 
                     <!-- 底部：设置 / 关于（x:Name 供选中指示点定位） -->
-                    <StackPanel DockPanel.Dock="Bottom" Spacing="4" Margin="0,10,0,0">
+                    <StackPanel DockPanel.Dock="Bottom" Spacing="4" Margin="0,12,0,0">
                         <Button x:Name="SettingsNavButton" Classes="icon-btn pressable nav-item" Command="{Binding ShowSettingsCommand}"
                                 Classes.selected="{Binding IsSettingsNavActive}"
                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                Padding="14,8"
+                                Padding="16,8"
                                 ToolTip.Tip="{Binding Loc[common_settings]}">
                             <StackPanel Orientation="Horizontal" Spacing="12">
                                 <Path Data="{StaticResource GearIconGeo}"
@@ -618,14 +618,14 @@
                                       Stretch="Uniform" Width="18" Height="18"
                                       HorizontalAlignment="Left"/>
                                 <TextBlock Text="{Binding Loc[common_settings]}"
-                                           FontSize="13.5" VerticalAlignment="Center"
+                                           FontSize="13" VerticalAlignment="Center"
                                            IsVisible="{Binding IsSidebarExpanded}"/>
                             </StackPanel>
                         </Button>
                         <Button x:Name="AboutNavButton" Classes="icon-btn pressable nav-item" Command="{Binding ShowAboutCommand}"
                                 Classes.selected="{Binding IsAboutNavActive}"
                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                Padding="14,8"
+                                Padding="16,8"
                                 ToolTip.Tip="{Binding Loc[common_about]}">
                             <StackPanel Orientation="Horizontal" Spacing="12">
                                 <Path Data="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"
@@ -633,7 +633,7 @@
                                       Stretch="Uniform" Width="18" Height="18"
                                       HorizontalAlignment="Left"/>
                                 <TextBlock Text="{Binding Loc[common_about]}"
-                                           FontSize="13.5" VerticalAlignment="Center"
+                                           FontSize="13" VerticalAlignment="Center"
                                            IsVisible="{Binding IsSidebarExpanded}"/>
                             </StackPanel>
                         </Button>
@@ -644,7 +644,7 @@
                              ItemsSource="{Binding Games}"
                              SelectedItem="{Binding GameNavSelection}"
                              Classes.nav-inactive="{Binding !IsGameNavActive}"
-                             Background="Transparent" BorderThickness="0" Margin="0,14,0,0">
+                             Background="Transparent" BorderThickness="0" Margin="0,16,0,0">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:GameItemViewModel">
                                         <Grid ColumnDefinitions="Auto,*,Auto"
@@ -654,17 +654,17 @@
                                         <Panel>
                                             <Image Source="{Binding GameIcon}" Stretch="UniformToFill"
                                                    IsVisible="{Binding HasGameIcon}"/>
-                                            <TextBlock Text="{Binding IconText}" FontSize="17" FontWeight="SemiBold"
+                                            <TextBlock Text="{Binding IconText}" FontSize="18" FontWeight="SemiBold"
                                                        Foreground="White"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center"
                                                        IsVisible="{Binding !HasGameIcon}"/>
                                         </Panel>
                                     </Border>
-                                    <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" Spacing="1"
+                                    <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" Spacing="2"
                                                 IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsSidebarExpanded}">
-                                        <TextBlock Text="{Binding DisplayName}" FontSize="14.5"
+                                        <TextBlock Text="{Binding DisplayName}" FontSize="14"
                                                    TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Text="{Binding SidebarStatusText}" FontSize="11.5"
+                                        <TextBlock Text="{Binding SidebarStatusText}" FontSize="12"
                                                    Foreground="{DynamicResource AppTextSecondary}"
                                                    TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>
@@ -755,14 +755,14 @@
                                     <Border Height="150" VerticalAlignment="Top" IsHitTestVisible="False"
                                             Background="{DynamicResource AppOnArtworkScrimBrush}"/>
 
-                                    <Grid RowDefinitions="*,Auto" Margin="16,36,16,14">
+                                    <Grid RowDefinitions="*,Auto" Margin="16,36,16,16">
 
                                         <!-- 顶部信息簇（方案 A，左对齐）：标题行 → 确认条 → chips 行。
                                              左缩进 12 = 距内容卡左缘 28px（对齐预览标题位）；
                                              标题行系 2026-09-23 评审 P1-1 恢复（轻量单行，区别于已删的 30px 标题墙），
                                              28px 在顶部纱带内、压白海报走大字线（WCAG 3:1） -->
                                         <StackPanel Grid.Row="0" VerticalAlignment="Top" HorizontalAlignment="Left"
-                                                    Margin="12,10,0,0" Spacing="14">
+                                                    Margin="12,12,0,0" Spacing="16">
                                             <!-- 游戏名：详情页身份主锚点（评审 P1-1"识别而非回忆"） -->
                                             <TextBlock Text="{Binding DisplayName}"
                                                        FontSize="28" FontWeight="SemiBold"
@@ -777,9 +777,9 @@
                                                     BorderBrush="{DynamicResource AppOnArtworkCardBorder}"
                                                     BorderThickness="1"
                                                     IsVisible="{Binding ShowRepairConfirm}">
-                                                <StackPanel Orientation="Horizontal" Spacing="14">
+                                                <StackPanel Orientation="Horizontal" Spacing="16">
                                                     <TextBlock Text="{Binding RepairConfirmText}" MaxWidth="430"
-                                                               TextWrapping="Wrap" FontSize="12.5"
+                                                               TextWrapping="Wrap" FontSize="13"
                                                                VerticalAlignment="Center"
                                                                Foreground="{DynamicResource AppOnArtworkBrush}"/>
                                                      <Button Classes="btn-sm pressable danger-onart"
@@ -796,7 +796,7 @@
                                                  WrapPanel 限宽 640：长状态文案挤不下时后续 chip 换行而非裁剪/
                                                  溢出内容卡（水平 StackPanel 只会原样溢出，窄窗口下被裁）；
                                                  StatusText 另有 MaxWidth=430 换行，双保险 -->
-                                            <WrapPanel Orientation="Horizontal" ItemSpacing="10" LineSpacing="10"
+                                            <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8"
                                                        MaxWidth="640">
                                                 <Border Classes="onart-chip" VerticalAlignment="Center">
                                                     <StackPanel Orientation="Horizontal" Spacing="8">
@@ -810,16 +810,16 @@
                                                                    Foreground="{DynamicResource AppOnArtworkBrush}"/>
                                                     </StackPanel>
                                                 </Border>
-                                                <Border Padding="10,3" CornerRadius="14" VerticalAlignment="Center"
+                                                <Border Padding="12,4" CornerRadius="14" VerticalAlignment="Center"
                                                         Background="{DynamicResource AppPredownloadBadge}"
                                                         IsVisible="{Binding HasStagedPredownload}">
                                                     <TextBlock Text="{Binding Loc[game_stagedBadge]}" FontSize="12"
                                                                Foreground="{DynamicResource AppPredownloadBadgeText}"/>
                                                 </Border>
                                                 <!-- 版本 chip：前导 + 金色号码（+ 迁移中段 + 金色目标号码），独立胶囊 -->
-                                                <Border Padding="11,5" CornerRadius="14" VerticalAlignment="Center"
+                                                <Border Padding="12,4" CornerRadius="14" VerticalAlignment="Center"
                                                         Background="{DynamicResource AppVersionChipBackground}">
-                                                    <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                                                    <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                                                         <TextBlock Text="{Binding VersionChipLead}" FontSize="13"
                                                                    VerticalAlignment="Center"
                                                                    Foreground="{DynamicResource AppVersionChipText}"/>
@@ -853,34 +853,34 @@
                                                                FontSize="15" FontWeight="SemiBold"
                                                                Foreground="{DynamicResource AppOnArtworkBrush}"/>
                                                     <TextBlock Text="{Binding Loc[detail_emptyHint]}"
-                                                               FontSize="12.5" TextWrapping="Wrap"
+                                                               FontSize="13" TextWrapping="Wrap"
                                                                Foreground="{DynamicResource AppOnArtworkSecondary}"/>
-                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
                                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding Loc[game_info_channel]}"
                                                                    Classes="dock-caption" LineHeight="22" VerticalAlignment="Center"/>
                                                         <TextBlock Grid.Column="1" Text="{Binding ChannelDisplayName}"
-                                                                   FontSize="12.5" LineHeight="22" VerticalAlignment="Center"
+                                                                   FontSize="13" LineHeight="22" VerticalAlignment="Center"
                                                                    Foreground="{DynamicResource AppOnArtworkBrush}"/>
                                                     </Grid>
-                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
                                                         <TextBlock Text="{Binding Loc[version_label_latest]}"
                                                                    Classes="dock-caption" LineHeight="22" VerticalAlignment="Center"/>
                                                         <TextBlock Grid.Column="1" Text="{Binding VersionChipNumber}"
-                                                                   FontSize="12.5" LineHeight="22" VerticalAlignment="Center"
+                                                                   FontSize="13" LineHeight="22" VerticalAlignment="Center"
                                                                    Foreground="{DynamicResource AppOnArtworkBrush}"/>
                                                     </Grid>
-                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
                                                         <TextBlock Text="{Binding Loc[game_server]}"
                                                                    Classes="dock-caption" LineHeight="22" VerticalAlignment="Center"/>
                                                         <TextBlock Grid.Column="1" Text="{Binding ServerCountText}"
-                                                                   FontSize="12.5" LineHeight="22" VerticalAlignment="Center"
+                                                                   FontSize="13" LineHeight="22" VerticalAlignment="Center"
                                                                    Foreground="{DynamicResource AppOnArtworkBrush}"/>
                                                     </Grid>
-                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
                                                         <TextBlock Text="{Binding Loc[game_info_installDir]}"
                                                                    Classes="dock-caption" LineHeight="22" VerticalAlignment="Center"/>
                                                         <TextBlock Grid.Column="1" Text="{Binding InstallDirPath}"
-                                                                   FontSize="12.5" LineHeight="22"
+                                                                   FontSize="13" LineHeight="22"
                                                                    TextTrimming="CharacterEllipsis"
                                                                    ToolTip.Tip="{Binding InstallDirPath}"
                                                                    VerticalAlignment="Center"
@@ -972,9 +972,9 @@
                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
                 <StackPanel Spacing="0">
-                    <TextBlock Text="YetAnother" FontSize="21" FontWeight="Bold" Opacity="0.85"
+                    <TextBlock Text="YetAnother" FontSize="20" FontWeight="Bold" Opacity="0.85"
                                HorizontalAlignment="Center"/>
-                    <TextBlock Text="Game Launcher" FontSize="21" FontWeight="Bold"
+                    <TextBlock Text="Game Launcher" FontSize="20" FontWeight="Bold"
                                Foreground="{DynamicResource AppAccentBrush}" HorizontalAlignment="Center"/>
                 </StackPanel>
                 <!-- 不定进度条：轨道常驻弱化，高亮滑块由代码后置自泵驱动（Transform 不能 x:Name，运行时挂） -->
@@ -984,7 +984,7 @@
                     <Border x:Name="SplashPulseBar" Width="48" Height="4" CornerRadius="2"
                             HorizontalAlignment="Left" Background="{DynamicResource AppAccentBrush}"/>
                 </Grid>
-                <TextBlock Text="{Binding Loc[splash_loading]}" FontSize="12.5"
+                <TextBlock Text="{Binding Loc[splash_loading]}" FontSize="13"
                            Foreground="{DynamicResource AppTextSecondary}" HorizontalAlignment="Center"/>
             </StackPanel>
         </Panel>
