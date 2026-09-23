@@ -129,8 +129,15 @@ public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger =
                 ? rsps[0]
                 : throw new UpdateException("GRYPHLINE batch_proxy response is empty.");
 
-            gameResponse = first.GetProperty("get_latest_game_rsp").Deserialize<GameVersionResponse>(GryphlineProtocol.JsonOptions)
-                           ?? throw new UpdateException("GRYPHLINE get_latest_game_rsp is empty.");
+            // 包裹键缺失/元素非对象时 GetProperty 会抛 KeyNotFoundException/InvalidOperationException，
+            // 不属于 JsonException、会穿出上层离线兜底的 catch 过滤器（EndfieldBackdropResolver 同纪律：
+            // 协议逆向、错误响应可能不带目标键，必须折算成 UpdateException）
+            gameResponse = first.ValueKind == JsonValueKind.Object
+                           && first.TryGetProperty("get_latest_game_rsp", out var rspElement)
+                           && rspElement.ValueKind == JsonValueKind.Object
+                ? rspElement.Deserialize<GameVersionResponse>(GryphlineProtocol.JsonOptions)
+                    ?? throw new UpdateException("GRYPHLINE get_latest_game_rsp is empty.")
+                : throw new UpdateException("GRYPHLINE get_latest_game_rsp is missing or not an object.");
         }
         catch (JsonException ex)
         {

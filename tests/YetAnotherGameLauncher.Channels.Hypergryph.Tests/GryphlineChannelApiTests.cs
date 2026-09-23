@@ -264,4 +264,27 @@ public class GryphlineChannelApiVersionGuardTests
         await Assert.ThrowsAsync<YetAnotherGameLauncher.Core.Abstractions.UpdateException>(
             () => api.GetVersionInfoAsync(Server()));
     }
+
+    [Theory]
+    [InlineData("""{ "kind": "get_latest_game" }""", "missing key")]
+    [InlineData("""["oops"]""", "non-object element")]
+    public async Task GetVersionInfo_RspEnvelopeMalformed_ThrowsUpdateExceptionNotRawKeyError(string rspElementJson, string _)
+    {
+        // 回归（2026-09-24 批扫描）：响应包裹键缺失/元素非对象时 GetProperty 抛
+        // KeyNotFoundException/InvalidOperationException，不被本类 catch (JsonException) 覆盖、
+        // 穿出 RefreshAsync 的离线兜底过滤器（其 catch 只认 UpdateException 等网络族）——
+        // 与 EndfieldBackdropResolver 的"全程 TryGetProperty/数组检查，不抛键缺失异常"同纪律，
+        // 协议错误形态必须折算成 UpdateException
+        _handler.Map(BatchProxyUrl, $$"""
+            {
+              "proxy_rsps": [ {{rspElementJson}} ]
+            }
+            """);
+        var api = new GryphlineChannelApi(new HttpClient(_handler));
+
+        var exception = await Assert.ThrowsAnyAsync<Exception>(
+            () => api.GetVersionInfoAsync(Server()));
+
+        Assert.IsType<UpdateException>(exception);
+    }
 }
