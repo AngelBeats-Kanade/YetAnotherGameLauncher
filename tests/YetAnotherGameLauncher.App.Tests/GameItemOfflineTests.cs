@@ -1,4 +1,5 @@
 using Xunit;
+using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
 
@@ -88,6 +89,24 @@ public class GameItemOfflineTests : IDisposable
         Assert.False(endfield.IsInstalled);
         Assert.True(endfield.CanLaunch);
         Assert.Equal("未安装", endfield.VersionChipLead); // 未登记：离线 chip 走"未安装"而非最新版
+    }
+
+    [Fact]
+    public async Task RefreshAsync_DownloadException_ShowsOfflineFallback_NotEscaping()
+    {
+        // HttpFileDownloader 重试耗尽后抛 DownloadException（直接继承 Exception，非 HttpRequestException），
+        // 这是鸣潮渠道网络失败的真实异常形态（GetVersionInfoAsync → FetchTextAsync → downloader.DownloadFileAsync
+        // → throw lastError）——离线兜底必须同样生效，异常不得穿出 RefreshAsync
+        //（方法注释自述"任何异常都不允许穿出"，此前过滤器漏掉该类型即违背）
+        _ctx.Kuro.VersionInfoError = new DownloadException("下载失败（HttpFileDownloader 重试耗尽形态）");
+        await _ctx.Vm.InitializeAsync();
+        var wuwa = _ctx.Vm.Games[0];
+
+        await wuwa.RefreshAsync();
+
+        Assert.Equal("无法连接服务器，版本信息不可用", wuwa.StatusText);
+        Assert.False(wuwa.HasUpdate);
+        Assert.False(wuwa.PredownloadAvailable);
     }
 
     [Fact]

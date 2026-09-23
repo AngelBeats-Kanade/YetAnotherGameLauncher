@@ -308,7 +308,7 @@ public partial class GameItemViewModel(
             StatusText = "";
         }
         catch (Exception ex) when (ex is UpdateException or HttpRequestException
-            or TaskCanceledException or OperationCanceledException)
+            or TaskCanceledException or OperationCanceledException or DownloadException)
         {
             if (generation != _refreshGeneration)
             {
