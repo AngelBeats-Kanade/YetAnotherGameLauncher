@@ -664,7 +664,7 @@
                                                 IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsSidebarExpanded}">
                                         <TextBlock Text="{Binding DisplayName}" FontSize="14.5"
                                                    TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Text="{Binding StatusText}" FontSize="11.5"
+                                        <TextBlock Text="{Binding SidebarStatusText}" FontSize="11.5"
                                                    Foreground="{DynamicResource AppTextSecondary}"
                                                    TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>

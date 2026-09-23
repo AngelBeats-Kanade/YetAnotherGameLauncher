@@ -114,6 +114,20 @@ public partial class GameItemViewModel(
     /// <summary>状态栏提示（连接失败/未安装/可更新等）。</summary>
     [ObservableProperty] private string _statusText = "";
 
+    /// <summary>侧栏状态行文案：有 Short 变体的状态用短文案（EN 长文案在侧栏槽位会截断成残句，评审 P2-11）。</summary>
+    [ObservableProperty] private string _sidebarStatusText = "";
+
+    /// <summary>侧栏短文案覆盖：仅刷新状态机中带 Short 变体的持久状态设置（消费一次即清空，
+    /// 其余瞬态文案自然回退全文）；现役 Short 键 status_detectedShort（zh/en strings_*.json）。</summary>
+    private string? _sidebarShortOverride;
+
+    partial void OnStatusTextChanged(string value)
+    {
+        var sidebar = _sidebarShortOverride ?? value;
+        _sidebarShortOverride = null;
+        SidebarStatusText = sidebar;
+    }
+
     // 版本 chip 分段（方案 A："本地 x → 最新 y"，金色数字由 XAML 按段渲染）。
     // 空 Mid/Target 表示单段展示（仅前导 + 号码）；四段均在 RefreshAsync/离线分支随状态重算。
     /// <summary>版本 chip 前导文案（"本地"/"最新版本"/离线"未安装"）。</summary>
@@ -351,6 +365,11 @@ public partial class GameItemViewModel(
                 ? Loc["status_hasUpdate"]
                 : PredownloadAvailable ? Loc["status_predownload"] : Loc["status_upToDate"];
         RaiseStatusToast(newStatus);
+        // 侧栏短变体（评审 P2-11）：status_detected/notInstalled 的 EN(zh) 全文案在侧栏槽位
+        // 过长/可更短，用 Short 键；其余状态无 Short 变体，保持全文
+        _sidebarShortOverride = newStatus == Loc["status_detected"] ? Loc["status_detectedShort"]
+            : newStatus == Loc["status_notInstalled"] ? Loc["status_notInstalledShort"]
+            : null;
         StatusText = newStatus;
 
         OnPropertyChanged(nameof(InstallButtonText));

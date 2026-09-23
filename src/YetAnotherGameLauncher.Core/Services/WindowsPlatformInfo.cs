@@ -20,4 +20,8 @@ public sealed class WindowsPlatformInfo : IPlatformInfo
     /// <inheritdoc/>
     public void OpenDirectoryInFileManager(string path) =>
         Process.Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = false });
+
+    /// <inheritdoc/>
+    public void OpenInBrowser(string url) =>
+        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); // shell 关联解析默认浏览器
 }

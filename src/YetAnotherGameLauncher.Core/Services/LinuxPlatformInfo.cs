@@ -63,6 +63,10 @@ public sealed class LinuxPlatformInfo : IPlatformInfo
     public void OpenDirectoryInFileManager(string path) =>
         Process.Start(new ProcessStartInfo("xdg-open", path) { UseShellExecute = false });
 
+    /// <inheritdoc/>
+    public void OpenInBrowser(string url) =>
+        Process.Start(new ProcessStartInfo("xdg-open", url) { UseShellExecute = false });
+
     /// <summary>把 sysfs 的 PCI vendor id（"0x1002"）映射为厂商；无法解析或未知厂商返回 null。</summary>
     private static GpuVendor? TryMapVendorId(string? text)
     {

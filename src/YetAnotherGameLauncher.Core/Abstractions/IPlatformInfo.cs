@@ -21,4 +21,7 @@ public interface IPlatformInfo
 
     /// <summary>用系统的文件管理器打开目录（Windows explorer / macOS open / Linux xdg-open）。</summary>
     void OpenDirectoryInFileManager(string path);
+
+    /// <summary>用系统默认浏览器打开 URL（Windows shell 关联 / Linux xdg-open）。</summary>
+    void OpenInBrowser(string url);
 }

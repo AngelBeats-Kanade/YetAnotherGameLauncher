@@ -1,6 +1,7 @@
 {
   "about_configFile": "Config File",
   "about_description": "A clean local game launcher: multi-server download, update and preload; light/dark themes.",
+  "about_projectHome": "Project homepage",
   "about_runtime": "Runtime",
   "about_thirdParty": "Third-party Components",
   "about_title": "About",
@@ -138,6 +139,7 @@
   "status_notInstalled": "Not installed",
   "status_registerFailed": "Failed to register version: {0}",
   "status_detected": "Existing game files detected, ready to launch",
+  "status_detectedShort": "Ready to launch",
   "status_notInstalledShort": "Not installed",
   "status_predownload": "Pre-download available",
   "verify_ok": "Verification passed — all files intact",

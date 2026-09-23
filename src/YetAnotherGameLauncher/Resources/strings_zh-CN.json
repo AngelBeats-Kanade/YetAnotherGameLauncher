@@ -1,6 +1,7 @@
 {
   "about_configFile": "配置文件",
   "about_description": "一个简洁的本地游戏启动器：多服务器下载、更新与预下载，亮暗主题跟随系统。",
+  "about_projectHome": "项目主页",
   "about_runtime": "运行时",
   "about_thirdParty": "第三方组件",
   "about_title": "关于",
@@ -138,6 +139,7 @@
   "status_notInstalled": "尚未安装",
   "status_registerFailed": "版本登记失败：{0}",
   "status_detected": "检测到游戏文件，可直接启动",
+  "status_detectedShort": "检测到游戏文件",
   "status_notInstalledShort": "未安装",
   "status_predownload": "可预下载新版本",
   "verify_ok": "校验完成，全部文件完整",

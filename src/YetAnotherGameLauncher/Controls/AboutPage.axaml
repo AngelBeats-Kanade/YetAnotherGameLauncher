@@ -24,19 +24,26 @@
                 </Border>
 
                 <Border Classes="card">
+                    <!-- 标签列 110px：与游戏设置页信息卡同规格（评审 P2-10，原 90px 三处各自为政） -->
                     <StackPanel Spacing="8">
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
-                            <TextBlock Grid.Column="0" Text="{Binding Loc[about_version]}" Classes="card-caption" Width="90"/>
+                            <TextBlock Grid.Column="0" Text="{Binding Loc[about_version]}" Classes="card-caption" Width="110"/>
                             <TextBlock Grid.Column="1" Text="{Binding AppVersion}" FontSize="13.5"/>
                         </Grid>
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
-                            <TextBlock Grid.Column="0" Text="{Binding Loc[about_runtime]}" Classes="card-caption" Width="90"/>
+                            <TextBlock Grid.Column="0" Text="{Binding Loc[about_runtime]}" Classes="card-caption" Width="110"/>
                             <TextBlock Grid.Column="1" Text="{Binding RuntimeVersion}" FontSize="13.5"/>
                         </Grid>
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
-                            <TextBlock Grid.Column="0" Text="{Binding Loc[about_configFile]}" Classes="card-caption" Width="90"/>
+                            <TextBlock Grid.Column="0" Text="{Binding Loc[about_configFile]}" Classes="card-caption" Width="110"/>
                             <TextBlock Grid.Column="1" Text="{Binding ConfigFilePath}" FontSize="13.5"
                                        TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding ConfigFilePath}"/>
+                        </Grid>
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                            <TextBlock Grid.Column="0" Text="{Binding Loc[about_projectHome]}" Classes="card-caption" Width="110"/>
+                            <Button Grid.Column="1" Classes="btn-sm pressable glass" HorizontalAlignment="Left"
+                                    Content="{x:Static vm:AboutViewModel.ProjectHomeUrl}"
+                                    Command="{Binding OpenProjectHomeCommand}"/>
                         </Grid>
                     </StackPanel>
                 </Border>

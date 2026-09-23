@@ -343,9 +343,15 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>右上角轻提示集合（瞬态信息：版本检测结果/检测到游戏、服务器切换/启动设置实际变更）；容量 3，过载丢弃最旧。</summary>
     public ObservableCollection<ToastItem> Toasts { get; } = [];
 
-    /// <summary>弹出轻提示（UI 线程调用；toast 不排队等待，超容量直接丢最旧——状态胶囊承载全量状态）。</summary>
+    /// <summary>弹出轻提示（UI 线程调用；toast 不排队等待，超容量直接丢最旧——状态胶囊承载全量状态）。
+    /// 启动失败覆盖层在场时挂起新 toast（评审 P3-13：瞬态消息不得压过模态错误）。</summary>
     public void ShowToast(string title, string message, ToastKind kind)
     {
+        if (CurrentPage is GameItemViewModel game && game.HasLaunchError)
+        {
+            return;
+        }
+
         const int MaxToasts = 3;
         while (Toasts.Count >= MaxToasts)
         {
@@ -1557,4 +1563,11 @@ public sealed partial class AboutViewModel(MainWindowViewModel owner) : ViewMode
     /// <summary>返回游戏页（转发主窗口命令）。</summary>
     [RelayCommand]
     private void ShowGames() => owner.ShowGamesCommand.Execute(null);
+
+    /// <summary>项目主页（评审 P3-15：README 有仓库地址而 UI 无出口）。</summary>
+    public const string ProjectHomeUrl = "https://github.com/AngelBeats-Kanade/YetAnotherGameLauncher";
+
+    /// <summary>打开项目主页（经平台缝调系统浏览器；测试注入假平台记录调用）。</summary>
+    [RelayCommand]
+    private void OpenProjectHome() => owner.Platform.OpenInBrowser(ProjectHomeUrl);
 }
