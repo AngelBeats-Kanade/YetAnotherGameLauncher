@@ -267,6 +267,94 @@ public sealed class BackgroundImageServiceTests
     }
 
     [Fact]
+    public async Task LoadAsync_Http_Timeout_ReturnsNull()
+    {
+        // 请求超时（HttpClient.Timeout / 连接超时 → TaskCanceledException 且外部 token 未取消）
+        // 与 HttpRequestException 同属瞬时网络失败，必须同样按"装饰性资源失败"静默回退，
+        // 而不是逃出服务契约（LoadAppBackgroundAsync 是弃元调用，逃逸即未观察任务异常）
+        _ = HeadlessSession.Instance;
+        var handler = new StubHttpHandler { TimeoutFirstN = 1 };
+        var service = new BackgroundImageService(new HttpClient(handler));
+
+        IImage? image = null;
+        Exception? escaped = null;
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            try
+            {
+                image = RunToCompletion(() => service.LoadAsync("https://cdn.example/slow.png"));
+            }
+            catch (Exception ex)
+            {
+                escaped = ex;
+            }
+        }, CancellationToken.None);
+
+        Assert.Null(escaped); // 红落此断言：超时异常逃出服务契约，类型见失败消息
+        Assert.Null(image);
+    }
+
+    [Fact]
+    public async Task LoadAsync_MalformedAvaresSource_ReturnsNull()
+    {
+        // 畸形 avares URI（截断成 "avares://" 的配置手误）在 new Uri 处抛 UriFormatException，
+        // 与缺资产（FileNotFoundException，已覆盖）不同，不在原过滤器内——逃逸即破坏"来源无效回退 null"
+        _ = HeadlessSession.Instance;
+        var service = new BackgroundImageService(new HttpClient(new StubHttpHandler()));
+
+        IImage? image = null;
+        Exception? escaped = null;
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            try
+            {
+                image = RunToCompletion(() => service.LoadAsync("avares://"));
+            }
+            catch (Exception ex)
+            {
+                escaped = ex;
+            }
+        }, CancellationToken.None);
+
+        Assert.Null(escaped); // 红落此断言：逃逸类型见失败消息
+        Assert.Null(image);
+    }
+
+    [Fact]
+    public async Task LoadAsync_LocalFile_ReadDenied_ReturnsNull()
+    {
+        // 本地文件无读权限（UnauthorizedAccessException）与不存在同属"来源不可用"。
+        // POSIX 权限位可确定性构造；Windows 侧 ACL 拒读无法跨平台等价布置，由本腿独占覆盖
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("UnauthorizedAccessException 注入依赖 POSIX 权限位，Windows 无法确定性构造");
+        }
+
+        var service = new BackgroundImageService(new HttpClient(new StubHttpHandler()));
+        using var dir = new TempDir();
+        var path = dir.FilePath("denied.png");
+        File.WriteAllBytes(path, [0x89]);
+        if (OperatingSystem.IsLinux())
+        {
+            File.SetUnixFileMode(path, UnixFileMode.None);
+        }
+
+        Exception? escaped = null;
+        IImage? image = null;
+        try
+        {
+            image = await service.LoadAsync(path, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            escaped = ex;
+        }
+
+        Assert.Null(escaped); // 拒读异常不得逃出服务契约
+        Assert.Null(image);
+    }
+
+    [Fact]
     public async Task LoadAsync_EmptySource_ReturnsNull()
     {
         var service = new BackgroundImageService(new HttpClient(new StubHttpHandler()));

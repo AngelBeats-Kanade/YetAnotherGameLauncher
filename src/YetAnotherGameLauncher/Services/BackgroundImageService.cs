@@ -78,13 +78,19 @@ public sealed class BackgroundImageService(
             var bytes = await FetchAsync(source, bypassDiskCache, cancellationToken);
             return new Bitmap(new MemoryStream(bytes));
         }
-        catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException or ArgumentException)
+        catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException or ArgumentException
+            or FormatException or UnauthorizedAccessException
+            || (ex is TaskCanceledException && !cancellationToken.IsCancellationRequested))
         {
             // 解码/下载失败时坏字节可能已作为缓存落盘（如 CDN 返回 200 + HTML 错误页）：
             // 删除毒化条目让下次加载回落网络重下，否则磁盘命中路径会永久卡死在坏字节上
             TryInvalidateDiskCache(source);
 
-            // 静默回退：背景图是纯装饰
+            // 静默回退：背景图是纯装饰。
+            // 防线补齐（2026-09-24 实测三腿逃逸）：FormatException=畸形 avares URI（"avares://" 在
+            // new Uri 处抛 UriFormatException）；UnauthorizedAccessException=本地文件拒读；
+            // TaskCanceledException=HttpClient 超时（连接/响应头超时抛 TCE 且调用方 token 未取消）——
+            // 调用方主动取消（token 已触发）仍照常传播，不吞协作取消
             return null;
         }
     }
