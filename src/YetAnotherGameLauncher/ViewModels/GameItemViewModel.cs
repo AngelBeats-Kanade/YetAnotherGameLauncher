@@ -114,19 +114,12 @@ public partial class GameItemViewModel(
     /// <summary>状态栏提示（连接失败/未安装/可更新等）。</summary>
     [ObservableProperty] private string _statusText = "";
 
-    /// <summary>侧栏状态行文案：有 Short 变体的状态用短文案（EN 长文案在侧栏槽位会截断成残句，评审 P2-11）。</summary>
+    /// <summary>侧栏状态行文案：有 Short 变体的状态用短文案（EN 长文案在侧栏槽位会截断成残句，评审 P2-11）。
+    /// 状态机处显式赋值短变体，其余瞬态赋值点经 OnStatusTextChanged 同步全文——
+    /// 不用"滞留覆盖"式机制：同值赋值不触发通知会让覆盖滞留到下一个无关状态（修复轮 review）。</summary>
     [ObservableProperty] private string _sidebarStatusText = "";
 
-    /// <summary>侧栏短文案覆盖：仅刷新状态机中带 Short 变体的持久状态设置（消费一次即清空，
-    /// 其余瞬态文案自然回退全文）；现役 Short 键 status_detectedShort（zh/en strings_*.json）。</summary>
-    private string? _sidebarShortOverride;
-
-    partial void OnStatusTextChanged(string value)
-    {
-        var sidebar = _sidebarShortOverride ?? value;
-        _sidebarShortOverride = null;
-        SidebarStatusText = sidebar;
-    }
+    partial void OnStatusTextChanged(string value) => SidebarStatusText = value;
 
     // 版本 chip 分段（方案 A："本地 x → 最新 y"，金色数字由 XAML 按段渲染）。
     // 空 Mid/Target 表示单段展示（仅前导 + 号码）；四段均在 RefreshAsync/离线分支随状态重算。
@@ -143,8 +136,15 @@ public partial class GameItemViewModel(
     /// <summary>是否满足启动条件（游戏可执行文件存在——无论是否由启动器安装登记）。</summary>
     [ObservableProperty] private bool _canLaunch;
 
+    /// <summary>是否显示未安装空态引导卡：未登记且主程序不存在。
+    /// detected 态（文件在、可直接启动）不显示——安装引导与启动主钮同屏会自相矛盾（修复轮 review）。</summary>
+    public bool ShowEmptyState => !IsInstalled && !CanLaunch;
+
+    partial void OnIsInstalledChanged(bool value) => OnPropertyChanged(nameof(ShowEmptyState));
+
     partial void OnCanLaunchChanged(bool value)
     {
+        OnPropertyChanged(nameof(ShowEmptyState));
         OnPropertyChanged(nameof(HasGachaEntry));
         OnPropertyChanged(nameof(InstallButtonText)); // 文案随"检测到游戏"状态翻转（安装 ↔ 校验修复）
         OnPropertyChanged(nameof(InstallIsPrimary));
@@ -366,11 +366,13 @@ public partial class GameItemViewModel(
                 : PredownloadAvailable ? Loc["status_predownload"] : Loc["status_upToDate"];
         RaiseStatusToast(newStatus);
         // 侧栏短变体（评审 P2-11）：status_detected/notInstalled 的 EN(zh) 全文案在侧栏槽位
-        // 过长/可更短，用 Short 键；其余状态无 Short 变体，保持全文
-        _sidebarShortOverride = newStatus == Loc["status_detected"] ? Loc["status_detectedShort"]
+        // 过长/可更短，用 Short 键；其余状态无 Short 变体，保持全文。
+        // 显式赋值而非"覆盖滞留"机制——同值赋值不触发通知会滞留覆盖（修复轮 review）
+        var sidebarStatus = newStatus == Loc["status_detected"] ? Loc["status_detectedShort"]
             : newStatus == Loc["status_notInstalled"] ? Loc["status_notInstalledShort"]
-            : null;
+            : newStatus;
         StatusText = newStatus;
+        SidebarStatusText = sidebarStatus;
 
         OnPropertyChanged(nameof(InstallButtonText));
         OnPropertyChanged(nameof(InstallIsPrimary));

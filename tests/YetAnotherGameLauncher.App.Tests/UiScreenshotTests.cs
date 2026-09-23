@@ -312,6 +312,18 @@ public class UiScreenshotTests
             window.UpdateLayout();
             Capture("10-launch-error-overlay-dark.png");
 
+            // CanRetry=true 的覆盖层（修复轮 review：主次对调后"重试"升主钮的形态从未被视觉验收）。
+            // UmuRuntimeMissing 的真实夹具需要"盘上有 Proton 但缺 Steam Runtime"，过重——
+            // 视觉验收只关心视图层：直接注入 CanRetry=true 的错误 VM
+            wuwa.LaunchError = new LaunchErrorViewModel(
+                "Steam Runtime（steamrt）尚未安装。请在启动设置里检查兼容层组件，或启用自动下载。",
+                "detail", null,
+                platform: new FakePlatformInfo(isLinux: true), canRetry: true);
+            window.UpdateLayout();
+            Capture("10b-launch-error-retry-dark.png");
+            wuwa.LaunchError = null; // 还原，避免影响后续 11/14 的画面状态
+            window.UpdateLayout();
+
             // 启动设置页：Linux 启动卡（umu 启动 + Proton 发行版下拉 + 组件状态卡），滚动到完整可见
             ctx.Vm.ShowGameSettingsCommand.Execute(null);
             window.UpdateLayout();

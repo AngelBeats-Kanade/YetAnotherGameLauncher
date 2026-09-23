@@ -202,12 +202,12 @@
             <Setter Property="Foreground" Value="{DynamicResource AppErrorText}"/>
         </Style>
         <Style Selector="Button.danger-card:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="#1AFF8A7A"/>
+            <Setter Property="Background" Value="{DynamicResource AppDangerWashHover}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource AppErrorText}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppErrorText}"/>
         </Style>
         <Style Selector="Button.danger-card:pressed /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="#33FF8A7A"/>
+            <Setter Property="Background" Value="{DynamicResource AppDangerWashPressed}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource AppErrorText}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppErrorText}"/>
         </Style>
@@ -847,7 +847,7 @@
                                                     Background="{DynamicResource AppOnArtworkCard}"
                                                     BorderBrush="{DynamicResource AppOnArtworkCardBorder}"
                                                     BorderThickness="1"
-                                                    IsVisible="{Binding !IsInstalled}">
+                                                    IsVisible="{Binding ShowEmptyState}">
                                                 <StackPanel Spacing="8">
                                                     <TextBlock Text="{Binding Loc[detail_emptyTitle]}"
                                                                FontSize="15" FontWeight="SemiBold"

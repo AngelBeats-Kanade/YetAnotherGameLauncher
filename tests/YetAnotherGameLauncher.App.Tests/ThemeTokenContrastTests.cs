@@ -105,6 +105,23 @@ public class ThemeTokenContrastTests
     }
 
     [Fact]
+    public async Task DangerCard_Washes_KeepErrorTextContrast()
+    {
+        // danger-card 悬停/按下的淡红染（主题无关洗色令牌）叠在主题化错误卡上：
+        // 按下染曾为 4.53:1（余量极薄），加深前洗色并在此钉住两种主题的两个状态
+        var light = await ResolveAsync(ThemeVariant.Light, "AppErrorText", "AppErrorCardBackground", "AppDangerWashHover", "AppDangerWashPressed");
+        var dark = await ResolveAsync(ThemeVariant.Dark, "AppErrorText", "AppErrorCardBackground", "AppDangerWashHover", "AppDangerWashPressed");
+
+        var lightCard = Composite(PosterWhite, light["AppErrorCardBackground"]);
+        var darkCard = Composite(DarkBackdropLightest, dark["AppErrorCardBackground"]);
+
+        AssertContrast("danger-card 红字×悬停洗色×亮卡", light["AppErrorText"], Composite(lightCard, light["AppDangerWashHover"]));
+        AssertContrast("danger-card 红字×按下洗色×亮卡", light["AppErrorText"], Composite(lightCard, light["AppDangerWashPressed"]));
+        AssertContrast("danger-card 红字×悬停洗色×暗卡", dark["AppErrorText"], Composite(darkCard, dark["AppDangerWashHover"]));
+        AssertContrast("danger-card 红字×按下洗色×暗卡", dark["AppErrorText"], Composite(darkCard, dark["AppDangerWashPressed"]));
+    }
+
+    [Fact]
     public async Task ErrorText_OnErrorCard_MeetsContrast_InBothThemes()
     {
         // 钉住既有达标值（评审 §3 #10 口径）：错误卡近实心，最坏背景同上

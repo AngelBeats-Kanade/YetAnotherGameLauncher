@@ -18,6 +18,9 @@ public sealed class FakePlatformInfo(
     /// <summary>OpenInBrowser 收到的 URL（按调用顺序），供断言。</summary>
     public List<string> OpenedUrls { get; } = [];
 
+    /// <summary>置 true 时 OpenInBrowser 抛出异常，模拟 xdg-open 缺失/无默认浏览器等失败。</summary>
+    public bool ThrowOnOpenInBrowser { get; set; }
+
     /// <summary>是否按 Linux 平台处理（决定兼容层 UI、Proton 推荐与 XDG 行为）。</summary>
     public bool IsLinux => isLinux;
 
@@ -53,5 +56,12 @@ public sealed class FakePlatformInfo(
     public void OpenDirectoryInFileManager(string path) => OpenedPaths.Add(path);
 
     /// <summary>记录打开 URL 请求，不触达真实浏览器。</summary>
-    public void OpenInBrowser(string url) => OpenedUrls.Add(url);
+    public void OpenInBrowser(string url)
+    {
+        OpenedUrls.Add(url);
+        if (ThrowOnOpenInBrowser)
+        {
+            throw new InvalidOperationException("模拟：找不到默认浏览器（xdg-open）");
+        }
+    }
 }

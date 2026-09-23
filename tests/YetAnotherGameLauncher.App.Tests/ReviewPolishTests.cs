@@ -54,6 +54,40 @@ public class ReviewPolishTests : IDisposable
     }
 
     [Fact]
+    public async Task SidebarStatus_RepeatRefresh_DoesNotLeakShortOverride_IntoTransientStatus()
+    {
+        // 复现（修复轮 code review）：detected 态二次刷新时 StatusText 同值不触发通知，
+        // 短文案覆盖滞留；随后的瞬态状态（如启动失败）会错误消费滞留的短文案
+        await _ctx.Vm.InitializeAsync();
+        var wuwa = _ctx.Vm.Games[0];
+        var exePath = Path.Combine(
+            wuwa.InstallDirPath, "Client", "Binaries", "Win64", "Client-Win64-Shipping.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(exePath)!);
+        File.WriteAllBytes(exePath, "MZ"u8.ToArray());
+        await wuwa.RefreshAsync();
+        await wuwa.RefreshAsync(); // 二次刷新：状态同值
+
+        var transient = _ctx.Vm.Loc.Format("status_launchFailed", "示例原因");
+        wuwa.StatusText = transient;
+
+        Assert.Equal(transient, wuwa.SidebarStatusText);
+    }
+
+    [Fact]
+    public async Task AboutPage_ProjectHome_OpenFailure_ShowsWarningToast()
+    {
+        await _ctx.Vm.InitializeAsync();
+        _ctx.Vm.ShowAboutCommand.Execute(null);
+        var about = Assert.IsType<AboutViewModel>(_ctx.Vm.CurrentPage);
+        _platform.ThrowOnOpenInBrowser = true;
+
+        about.OpenProjectHomeCommand.Execute(null);
+
+        var toast = Assert.Single(_ctx.Vm.Toasts);
+        Assert.Equal(ToastKind.Warning, toast.Kind);
+    }
+
+    [Fact]
     public async Task ShowToast_Suppressed_WhileLaunchErrorOverlayIsUp()
     {
         await _ctx.Vm.InitializeAsync();

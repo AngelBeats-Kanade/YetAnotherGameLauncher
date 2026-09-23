@@ -124,6 +124,41 @@ public class DetailPageIdentityTests : IDisposable
     }
 
     [Fact]
+    public async Task DetailPage_DetectedState_HidesEmptyStateCard_AndShowsLaunchButton()
+    {
+        // 复现（修复轮 code review）：detected 态（文件在、未登记）可直接启动，
+        // 空态引导卡"尚未安装，请安装"与状态 chip/启动主钮同屏自相矛盾——卡片必须隐藏
+        await _ctx.Vm.InitializeAsync();
+        var wuwa = _ctx.Vm.Games[0];
+        var exePath = Path.Combine(
+            wuwa.InstallDirPath, "Client", "Binaries", "Win64", "Client-Win64-Shipping.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(exePath)!);
+        File.WriteAllBytes(exePath, "MZ"u8.ToArray());
+        await wuwa.RefreshAsync();
+        Assert.True(wuwa.CanLaunch && !wuwa.IsInstalled); // 前置：确为 detected 态
+
+        var cardVisible = true;
+        var launchVisible = false;
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            window.Show();
+            window.UpdateLayout();
+
+            var card = window.GetVisualDescendants().OfType<Border>()
+                .FirstOrDefault(b => b.Name == "EmptyStateCard");
+            cardVisible = card?.IsVisible == true;
+            var launch = window.GetVisualDescendants().OfType<Button>()
+                .First(b => ReferenceEquals(b.Command, wuwa.LaunchCommand));
+            launchVisible = launch.IsVisible;
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.False(cardVisible, "detected 态显示安装引导卡：与状态 chip「可直接启动」同屏矛盾");
+        Assert.True(launchVisible, "detected 态启动钮应可见");
+    }
+
+    [Fact]
     public async Task DetailPage_Installed_HidesEmptyStateCard_AndShowsLaunchButton()
     {
         _ctx.Kuro.VersionInfo = new ChannelVersionInfo { LatestVersion = "3.6.0" };

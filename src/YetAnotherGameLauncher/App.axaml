@@ -110,6 +110,10 @@
             <SolidColorBrush x:Key="AppOnArtworkTertiary" Color="#B6BCCB"/>
             <!-- 危险确认钮文字（评审 P1-3）：详情页恒为暗底，红字亮暗主题同值（与 AppErrorText 暗值一致） -->
             <SolidColorBrush x:Key="AppOnArtworkErrorBrush" Color="#FF8A7A"/>
+            <!-- danger-card 悬停/按下的淡红洗色（叠加在主题化错误卡上）：
+                 由对比度门禁钉住两主题两状态 ≥4.5:1（按下染曾 #33 仅 4.53:1，加深前余量） -->
+            <SolidColorBrush x:Key="AppDangerWashHover" Color="#1AFF8A7A"/>
+            <SolidColorBrush x:Key="AppDangerWashPressed" Color="#24FF8A7A"/>
             <!-- 近实心暗卡（95%）：danger-onart 的底——普通 70% 暗卡透白海报会让红字掉到 2.6:1 -->
             <SolidColorBrush x:Key="AppOnArtworkCardStrong" Color="#F2202029"/>
             <!-- 操作坞专属底色（方案 A rgba(13,16,26,.78)）：比通用插画卡更深更稳，通栏玻璃条用 -->

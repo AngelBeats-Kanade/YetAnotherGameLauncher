@@ -1567,7 +1567,18 @@ public sealed partial class AboutViewModel(MainWindowViewModel owner) : ViewMode
     /// <summary>项目主页（评审 P3-15：README 有仓库地址而 UI 无出口）。</summary>
     public const string ProjectHomeUrl = "https://github.com/AngelBeats-Kanade/YetAnotherGameLauncher";
 
-    /// <summary>打开项目主页（经平台缝调系统浏览器；测试注入假平台记录调用）。</summary>
+    /// <summary>打开项目主页（经平台缝调系统浏览器；测试注入假平台记录调用）。
+    /// 打开失败（无默认浏览器等）不沿命令链冒泡，弹警告轻提示。</summary>
     [RelayCommand]
-    private void OpenProjectHome() => owner.Platform.OpenInBrowser(ProjectHomeUrl);
+    private void OpenProjectHome()
+    {
+        try
+        {
+            owner.Platform.OpenInBrowser(ProjectHomeUrl);
+        }
+        catch (Exception ex)
+        {
+            owner.ShowToast(Loc["about_title"], Loc.Format("about_openHomeFailed", ex.Message), ToastKind.Warning);
+        }
+    }
 }

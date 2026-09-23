@@ -2,6 +2,7 @@
   "about_configFile": "配置文件",
   "about_description": "一个简洁的本地游戏启动器：多服务器下载、更新与预下载，亮暗主题跟随系统。",
   "about_projectHome": "项目主页",
+  "about_openHomeFailed": "项目主页打开失败：{0}",
   "about_runtime": "运行时",
   "about_thirdParty": "第三方组件",
   "about_title": "关于",

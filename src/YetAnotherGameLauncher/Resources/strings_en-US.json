@@ -2,6 +2,7 @@
   "about_configFile": "Config File",
   "about_description": "A clean local game launcher: multi-server download, update and preload; light/dark themes.",
   "about_projectHome": "Project homepage",
+  "about_openHomeFailed": "Failed to open project homepage: {0}",
   "about_runtime": "Runtime",
   "about_thirdParty": "Third-party Components",
   "about_title": "About",
