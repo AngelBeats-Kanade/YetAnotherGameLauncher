@@ -53,7 +53,7 @@
                             <TextBlock Text="{Binding Loc[gacha_stat_fiveStar]}" FontSize="12"
                                        Foreground="{DynamicResource AppTextSecondary}"/>
                             <TextBlock Text="{Binding FiveStarCount}" FontSize="24" FontWeight="Bold"
-                                       Foreground="Goldenrod"/>
+                                       Foreground="{DynamicResource AppGachaRare5}"/>
                         </StackPanel>
                     </Border>
                     <Border Grid.Column="2" Classes="card" Margin="0,0,8,0" Padding="14,10">
@@ -61,7 +61,7 @@
                             <TextBlock Text="{Binding Loc[gacha_stat_fourStar]}" FontSize="12"
                                        Foreground="{DynamicResource AppTextSecondary}"/>
                             <TextBlock Text="{Binding FourStarCount}" FontSize="24" FontWeight="Bold"
-                                       Foreground="MediumPurple"/>
+                                       Foreground="{DynamicResource AppGachaRare4}"/>
                         </StackPanel>
                     </Border>
                     <Border Grid.Column="3" Classes="card" Padding="14,10">

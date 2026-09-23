@@ -8,8 +8,9 @@
         <ResourceDictionary>
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">
-                    <SolidColorBrush x:Key="AppAccentBrush" Color="#2E7CF6"/>
-                    <SolidColorBrush x:Key="AppAccentHoverBrush" Color="#1E66D6"/>
+                    <!-- accent 已按对比度门禁（ThemeTokenContrastTests）压暗：白字 ≥4.5:1；hover 再压一档 -->
+                    <SolidColorBrush x:Key="AppAccentBrush" Color="#1E66D6"/>
+                    <SolidColorBrush x:Key="AppAccentHoverBrush" Color="#1650AE"/>
                     <SolidColorBrush x:Key="AppSidebarBackground" Color="#E2EDEFF3"/>
                     <SolidColorBrush x:Key="AppSidebarHover" Color="#B4FFFFFF"/>
                     <SolidColorBrush x:Key="AppSidebarSelected" Color="#C8D8E4FB"/>
@@ -21,11 +22,14 @@
                     <!-- 启动失败覆盖层：压暗内容区的纱罩 + 不透明错误卡（保证长文本可读） -->
                     <SolidColorBrush x:Key="AppOverlayScrimBrush" Color="#40232B3A"/>
                     <SolidColorBrush x:Key="AppErrorCardBackground" Color="#FCFFFFFF"/>
-                    <!-- 详情页版本号贴片：自带对比底面，压在任何插画上都可读 -->
-                    <SolidColorBrush x:Key="AppVersionChipBackground" Color="#C7FFFFFF"/>
+                    <!-- 详情页版本号贴片：自带对比底面，压在任何插画上都可读（90% 白：暗海报上仍近白） -->
+                    <SolidColorBrush x:Key="AppVersionChipBackground" Color="#E6FFFFFF"/>
                     <SolidColorBrush x:Key="AppVersionChipText" Color="#2A2F36"/>
-                    <!-- 版本号金色强调（方案 A）：亮底用深金保证对比度，与暗色 #FFC861 成对 -->
-                    <SolidColorBrush x:Key="AppVersionChipAccent" Color="#A96E10"/>
+                    <!-- 版本号金色强调：亮底用深金保证对比度（门禁 ≥4.5:1），与暗色 #FFC861 成对 -->
+                    <SolidColorBrush x:Key="AppVersionChipAccent" Color="#8A5A0C"/>
+                    <!-- 唤取稀有度（成对令牌，评审 P2-8 收编）：五星金 / 四星紫，门禁 ≥4.5:1 -->
+                    <SolidColorBrush x:Key="AppGachaRare5" Color="#8A5A0C"/>
+                    <SolidColorBrush x:Key="AppGachaRare4" Color="#6B3FA0"/>
                     <!-- 轻提示卡片底色：近乎实心（预览规范 .94+），压在视频/插画上文字不吃背景干扰 -->
                     <SolidColorBrush x:Key="AppToastBackground" Color="#F2FFFFFF"/>
                     <!-- 应用自有背景（设置/关于/侧栏底色）：浅色 = 淡雾蓝渐变 + 柔和光晕 -->
@@ -35,8 +39,8 @@
                         <GradientStop Color="#EBEEF6" Offset="1"/>
                     </LinearGradientBrush>
                     <RadialGradientBrush x:Key="AppBackdropGlowBrush" Center="82%,18%" RadiusX="0.55" RadiusY="0.5">
-                        <GradientStop Color="#5A2E7CF6" Offset="0"/>
-                        <GradientStop Color="#002E7CF6" Offset="1"/>
+                        <GradientStop Color="#5A1E66D6" Offset="0"/>
+                        <GradientStop Color="#001E66D6" Offset="1"/>
                     </RadialGradientBrush>
                     <RadialGradientBrush x:Key="AppBackdropGlowWarmBrush" Center="12%,88%" RadiusX="0.5" RadiusY="0.45">
                         <GradientStop Color="#47F0A64A" Offset="0"/>
@@ -44,9 +48,10 @@
                     </RadialGradientBrush>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
-                    <!-- accent #3D7DFF 与 hover 取自方案 A「沉浸影院」设计令牌（2026-09 采纳） -->
-                    <SolidColorBrush x:Key="AppAccentBrush" Color="#3D7DFF"/>
-                    <SolidColorBrush x:Key="AppAccentHoverBrush" Color="#2E68E0"/>
+                    <!-- accent 已按对比度门禁（ThemeTokenContrastTests）压暗：白字 ≥4.5:1（2026-09-23 起，
+                         原方案 A #3D7DFF 只有 3.77:1）；hover 再压一档 -->
+                    <SolidColorBrush x:Key="AppAccentBrush" Color="#2E68E0"/>
+                    <SolidColorBrush x:Key="AppAccentHoverBrush" Color="#2454B3"/>
                     <SolidColorBrush x:Key="AppSidebarBackground" Color="#D9191920"/>
                     <SolidColorBrush x:Key="AppSidebarHover" Color="#5C2E2E38"/>
                     <SolidColorBrush x:Key="AppSidebarSelected" Color="#99304978"/>
@@ -57,10 +62,14 @@
                     <SolidColorBrush x:Key="AppStatusOk" Color="#3FB950"/>
                     <SolidColorBrush x:Key="AppOverlayScrimBrush" Color="#74000000"/>
                     <SolidColorBrush x:Key="AppErrorCardBackground" Color="#F2202937"/>
-                    <SolidColorBrush x:Key="AppVersionChipBackground" Color="#99000000"/>
+                    <!-- 详情页版本号贴片：70% 黑压白海报仍达门禁（60% 时金色只有 3.74:1） -->
+                    <SolidColorBrush x:Key="AppVersionChipBackground" Color="#B3000000"/>
                     <SolidColorBrush x:Key="AppVersionChipText" Color="#EEF1F6"/>
                     <!-- 版本号金色强调（方案 A .chip b #FFC861）：仅用于版本号数字段 -->
                     <SolidColorBrush x:Key="AppVersionChipAccent" Color="#FFC861"/>
+                    <!-- 唤取稀有度（成对令牌，评审 P2-8 收编）：五星金 / 四星紫，门禁 ≥4.5:1 -->
+                    <SolidColorBrush x:Key="AppGachaRare5" Color="#FFC861"/>
+                    <SolidColorBrush x:Key="AppGachaRare4" Color="#A48BDF"/>
                     <!-- 轻提示卡片底色：近实心深板岩（方案 A toast rgba(22,25,36,.94)） -->
                     <SolidColorBrush x:Key="AppToastBackground" Color="#F0161924"/>
                     <!-- 应用自有背景：深空蓝黑渐变 + 蓝橙光晕（呼应应用图标） -->
@@ -70,8 +79,8 @@
                         <GradientStop Color="#0D1019" Offset="1"/>
                     </LinearGradientBrush>
                     <RadialGradientBrush x:Key="AppBackdropGlowBrush" Center="82%,18%" RadiusX="0.55" RadiusY="0.5">
-                        <GradientStop Color="#404C8DFF" Offset="0"/>
-                        <GradientStop Color="#004C8DFF" Offset="1"/>
+                        <GradientStop Color="#402E68E0" Offset="0"/>
+                        <GradientStop Color="#002E68E0" Offset="1"/>
                     </RadialGradientBrush>
                     <RadialGradientBrush x:Key="AppBackdropGlowWarmBrush" Center="12%,88%" RadiusX="0.5" RadiusY="0.45">
                         <GradientStop Color="#33E8930C" Offset="0"/>
@@ -81,6 +90,8 @@
             </ResourceDictionary.ThemeDictionaries>
             <!-- 主题无关的资源 -->
             <SolidColorBrush x:Key="AppPredownloadBadge" Color="#E8930C"/>
+            <!-- 已暂存徽章文字：琥珀底上的深棕字（原白字仅 2.44:1，评审 §3 #4） -->
+            <SolidColorBrush x:Key="AppPredownloadBadgeText" Color="#33210A"/>
             <!-- 图标几何（侧栏/详情页操作坞共用；UserControl 内 StaticResource 经逻辑树解析到 App 级可见） -->
             <!-- 齿轮图标（侧栏设置入口与详情页游戏设置入口共用） -->
             <StreamGeometry x:Key="GearIconGeo">M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z</StreamGeometry>
@@ -94,8 +105,9 @@
             <SolidColorBrush x:Key="AppOnArtworkSecondary" Color="#C9CED8"/>
             <SolidColorBrush x:Key="AppOnArtworkCard" Color="#B3202029"/>
             <SolidColorBrush x:Key="AppOnArtworkCardHover" Color="#D9323040"/>
-            <!-- 操作坞三级弱化标签（方案 A .info i #8F95A6）：比次色再暗一档，撑起标签/值层级 -->
-            <SolidColorBrush x:Key="AppOnArtworkTertiary" Color="#8F95A6"/>
+            <!-- 操作坞三级弱化标签：比次色再暗一档，撑起标签/值层级；已按门禁提亮
+                 （原 #8F95A6 压白海报只有 3.24:1） -->
+            <SolidColorBrush x:Key="AppOnArtworkTertiary" Color="#B6BCCB"/>
             <!-- 操作坞专属底色（方案 A rgba(13,16,26,.78)）：比通用插画卡更深更稳，通栏玻璃条用 -->
             <SolidColorBrush x:Key="AppOnArtworkDockBrush" Color="#C70D101A"/>
             <!-- 插画上卡片描边（方案 A rgba(255,255,255,.09)）：操作坞/玻璃件的 1px 轮廓 -->

@@ -212,8 +212,8 @@
             <Setter Property="Padding" Value="18,12"/>
         </Style>
         <Style Selector="TextBlock.dock-caption">
-            <!-- 方案 A .info i：11px 三级弱化标签，比值列暗两档撑起层级 -->
-            <Setter Property="FontSize" Value="11"/>
+            <!-- 方案 A .info i：12px 三级弱化标签，比值列暗一档撑起层级（11px 过小，评审 P2-7） -->
+            <Setter Property="FontSize" Value="12"/>
             <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkTertiary}"/>
         </Style>
 
@@ -226,12 +226,12 @@
             <Setter Property="Padding" Value="14,7"/>
         </Style>
 
-        <!-- 唤取记录稀有度：五星金 / 四星紫 -->
+        <!-- 唤取记录稀有度：五星金 / 四星紫（成对令牌，对比度门禁 ThemeTokenContrastTests 管辖） -->
         <Style Selector="TextBlock.gacha-rare5">
-            <Setter Property="Foreground" Value="Goldenrod"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppGachaRare5}"/>
         </Style>
         <Style Selector="TextBlock.gacha-rare4">
-            <Setter Property="Foreground" Value="MediumPurple"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppGachaRare4}"/>
         </Style>
 
         <!-- 图标按钮 -->
@@ -618,7 +618,7 @@
                             Background="{DynamicResource AppAccentBrush}"
                             IsHitTestVisible="False" IsVisible="False"
                             RenderTransformOrigin="0,0"
-                            BoxShadow="0 0 8 #593D7DFF">
+                            BoxShadow="0 0 8 #592E68E0">
                         <Border.RenderTransform>
                             <!-- 子顺序即语义：先 Scale 后 Translate（原点 0,0）→ 视觉区间 [TranslateY, TranslateY+Height×ScaleY]；
                                  若反过来写，平移量会被缩放系数压缩（指示点首个版本错位的根因）。
@@ -736,7 +736,8 @@
                                                 <Border Padding="10,3" CornerRadius="14" VerticalAlignment="Center"
                                                         Background="{DynamicResource AppPredownloadBadge}"
                                                         IsVisible="{Binding HasStagedPredownload}">
-                                                    <TextBlock Text="{Binding Loc[game_stagedBadge]}" FontSize="12" Foreground="White"/>
+                                                    <TextBlock Text="{Binding Loc[game_stagedBadge]}" FontSize="12"
+                                                               Foreground="{DynamicResource AppPredownloadBadgeText}"/>
                                                 </Border>
                                                 <!-- 版本 chip：前导 + 金色号码（+ 迁移中段 + 金色目标号码），独立胶囊 -->
                                                 <Border Padding="11,5" CornerRadius="14" VerticalAlignment="Center"

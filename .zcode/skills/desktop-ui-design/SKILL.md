@@ -32,7 +32,8 @@ description: Use when designing or polishing any desktop app UI (layout, spacing
 - 语义令牌而非裸色：`AppBackdropBaseBrush`（亮/暗渐变背景）+ `AppBackdropGlowBrush`（光晕），
   由 `Controls/AppBackdrop` 渲染，设置页自定义背景图叠加其上；`AppSidebarBackground` / `AppCardBackground` /
   `AppTextSecondary` / `AppAccentBrush` / `AppErrorText` / `AppPredownloadBadge`。
-- 强调色只有一个（本项目蓝 `#2E7CF6` 亮 / `#4C8DFF` 暗），用于主按钮、选中态、图标底。
+- 强调色只有一个（本项目蓝 `#1E66D6` 亮 / `#2E68E0` 暗，2026-09-23 经对比度门禁
+  `ThemeTokenContrastTests` 压暗：按钮白字 ≥4.5:1），用于主按钮、选中态、图标底。
 - **暗色主题**：背景为深空蓝黑渐变（`AppBackdropBaseBrush`：`#0C0F1D → #131A2E → #0D1019`）；
   侧栏 `#191920`（alpha D9）、卡片 `#202029`（alpha A6）；强调色略提亮降饱和；
   正文走 FluentTheme 默认前景，插画上正文用 `AppOnArtworkBrush`（`#F2F4F8`），辅助 `#A2A2AB`；禁止大段 `#FFF` 文字。

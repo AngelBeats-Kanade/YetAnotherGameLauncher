@@ -422,6 +422,81 @@ public class UiScreenshotTests
         File.WriteAllBytes(Path.Combine(outDir, "15-proton-update-confirm-dark.png"), png!);
     }
 
+    /// <summary>
+    /// 唤取记录页的视觉自检（评审 P3-12：17 张截图唯一缺页——恰是曾经唯一含非令牌颜色的页面）：
+    /// 缓存播种五星/四星/三星记录 → 统计卡金色数字 + 列表行稀有度着色，暗/亮两张。
+    /// 缓存形状抄 GachaPageWiringTests（camelCase，构造期载缓存）。
+    /// </summary>
+    [Fact]
+    public async Task Export_GachaPage_ForReview()
+    {
+        var outDir = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "..", "artifacts", "ui-review"));
+        Directory.CreateDirectory(outDir);
+
+        using var ctx = VmFactory.Build();
+        var cacheDir = ctx.TempDir.FilePath("gacha-cache");
+        Directory.CreateDirectory(cacheDir);
+        await File.WriteAllTextAsync(Path.Combine(cacheDir, "wuthering-waves.json"), """
+            { "records": [
+                { "time": "2026-09-01 12:00:00", "name": "维里奈", "qualityLevel": 5, "poolType": 1 },
+                { "time": "2026-08-28 21:47:03", "name": "今汐",   "qualityLevel": 5, "poolType": 1 },
+                { "time": "2026-08-27 09:15:44", "name": "秧秧",   "qualityLevel": 4, "poolType": 1 },
+                { "time": "2026-08-25 18:02:10", "name": "莫特斐", "qualityLevel": 4, "poolType": 1 },
+                { "time": "2026-08-21 23:59:59", "name": "白莲",   "qualityLevel": 4, "poolType": 1 },
+                { "time": "2026-08-20 10:00:00", "name": "游弋蝶", "qualityLevel": 3, "poolType": 1 }
+            ] }
+            """);
+
+        ctx.Kuro.VersionInfo = new ChannelVersionInfo { LatestVersion = "3.6.0" };
+
+        var captured = new List<(string Name, byte[]? Png)>();
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            RunToCompletion(() => ctx.Vm.InitializeAsync());
+            var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
+            window.NavIndicatorAnimationEnabled = false;
+            window.Show();
+
+            void Capture(string name)
+            {
+                Thread.Sleep(150);
+                Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+                var frame = window.CaptureRenderedFrame();
+                if (frame is null)
+                {
+                    captured.Add((name, null));
+                    return;
+                }
+
+                using var ms = new MemoryStream();
+                frame.Save(ms, new PngBitmapEncoderOptions());
+                captured.Add((name, ms.ToArray()));
+            }
+
+            ctx.Vm.ShowGachaCommand.Execute(ctx.Vm.Games[0]);
+            window.UpdateLayout();
+            Capture("17-gacha-page-dark.png");
+
+            var light = ctx.Vm.ThemeModes.First(t => t.Mode == ThemeMode.Light);
+            ctx.Vm.SelectedTheme = light;
+            window.UpdateLayout();
+            Capture("18-gacha-page-light.png");
+
+            window.Close();
+        }, CancellationToken.None);
+
+        var gacha = Assert.IsType<GachaViewModel>(ctx.Vm.CurrentPage);
+        Assert.Equal(6, gacha.Records.Count);
+        Assert.NotEmpty(captured);
+        Assert.All(captured, c => Assert.True(c.Png is not null && c.Png.Length > 0, $"截图 {c.Name} 抓帧失败"));
+        foreach (var (name, png) in captured)
+        {
+            File.WriteAllBytes(Path.Combine(outDir, name), png!);
+        }
+    }
+
     [Fact]
     public async Task Export_BootSplash_ForReview()
     {
