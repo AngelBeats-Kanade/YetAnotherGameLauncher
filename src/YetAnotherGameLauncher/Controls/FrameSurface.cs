@@ -23,34 +23,28 @@ public class FrameSurface : Control
         set => SetValue(PlayerProperty, value);
     }
 
-    /// <summary>播放器切换时重挂帧通知订阅。</summary>
+    /// <summary>是否已挂接视觉树（订阅只在挂接期间存在，脱树即完全退订）。</summary>
+    private bool _attachedToVisualTree;
+
+    /// <summary>当前持有帧通知订阅的播放器（订阅去重基准）。</summary>
+    private IVideoBackdropPlayer? _subscribedPlayer;
+
+    /// <summary>播放器切换时把订阅对齐到当前值（仅挂接期间持有订阅）。</summary>
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
         if (change.Property == PlayerProperty)
         {
-            if (change.OldValue is IVideoBackdropPlayer oldPlayer)
-            {
-                oldPlayer.FrameUpdated -= OnFrameUpdated;
-            }
-
-            if (change.NewValue is IVideoBackdropPlayer newPlayer)
-            {
-                newPlayer.FrameUpdated += OnFrameUpdated;
-            }
-
+            SyncFrameSubscription();
             InvalidateVisual();
         }
     }
 
-    /// <summary>控件从视觉树移除时退订，避免持有已销毁控件的引用。</summary>
+    /// <summary>控件从视觉树移除时完全退订，避免持有已销毁控件的引用。</summary>
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
-        if (Player is { } player)
-        {
-            player.FrameUpdated -= OnFrameUpdated;
-        }
-
+        _attachedToVisualTree = false;
+        SyncFrameSubscription();
         base.OnDetachedFromVisualTree(e);
     }
 
@@ -59,13 +53,30 @@ public class FrameSurface : Control
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
-        if (Player is { } player)
+        _attachedToVisualTree = true;
+        SyncFrameSubscription();
+        if (Player?.Frame is not null)
+        {
+            InvalidateVisual();
+        }
+    }
+
+    /// <summary>把帧通知订阅对齐到（挂接状态 × 当前 Player）的组合；幂等——生产时序是
+    /// DataTemplate 实例化先经绑定推值 Player 再挂树，属性变更/挂树/脱树任意交错下
+    /// 订阅数至多为 1，脱树后为 0（否则脱树的渲染面会被保活中的播放器事件滞留）。</summary>
+    private void SyncFrameSubscription()
+    {
+        if (_subscribedPlayer is { } subscribed)
+        {
+            subscribed.FrameUpdated -= OnFrameUpdated;
+            _subscribedPlayer = null;
+        }
+
+        var player = _attachedToVisualTree ? Player : null;
+        if (player is not null)
         {
             player.FrameUpdated += OnFrameUpdated;
-            if (player.Frame is not null)
-            {
-                InvalidateVisual();
-            }
+            _subscribedPlayer = player;
         }
     }
 
