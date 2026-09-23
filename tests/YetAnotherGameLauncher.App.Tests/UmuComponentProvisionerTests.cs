@@ -202,6 +202,36 @@ public sealed class UmuComponentProvisionerTests : IDisposable
         Assert.True(string.IsNullOrEmpty(asset.Url)); // 调用方按"无适配资产"报错，不得下载反向架构
     }
 
+    [Theory]
+    [InlineData("""{"assets": [ {"browser_download_url": "https://x/x"}, {"name": "GE-Proton11-6.tar.gz", "browser_download_url": "https://x/ok"} ]}""")]
+    [InlineData("""{"assets": [ {"name": 42, "browser_download_url": "https://x/x"}, {"name": "GE-Proton11-6.tar.gz", "browser_download_url": "https://x/ok"} ]}""")]
+    [InlineData("""{"assets": [ {"name": "GE-Proton11-6.tar.gz"}, {"name": "GE-Proton11-6.tar.gz", "browser_download_url": "https://x/ok"} ]}""")]
+    [InlineData("""{"assets": [ "stray", {"name": "GE-Proton11-6.tar.gz", "browser_download_url": "https://x/ok"} ]}""")]
+    public void SelectTarAsset_MalformedAssetElement_SkippedInsteadOfThrowing(string releaseJson)
+    {
+        // 畸形资产元素（缺 name/browser_download_url 键、键非字符串、元素非对象）不得抛原始
+        // KeyNotFoundException/InvalidOperationException——两者都不是 JsonException，会穿出
+        // 调用点的解析 catch，把 ProtonDownloadFailed 降级成 Unknown（丢失重试/改选本机 Proton）。
+        var release = JsonDocument.Parse(releaseJson).RootElement;
+
+        var ex = Record.Exception(() => UmuComponentProvisioner.SelectTarAsset(release, "GE-Proton", "-x86_64"));
+
+        Assert.Null(ex);
+        Assert.Equal("GE-Proton11-6.tar.gz",
+            UmuComponentProvisioner.SelectTarAsset(release, "GE-Proton", "-x86_64").Name);
+    }
+
+    [Fact]
+    public void SelectTarAsset_AllElementsMalformed_ReturnsEmpty()
+    {
+        // 全部元素畸形时按"无适配资产"返回默认值，由调用方抛结构化异常
+        var release = JsonDocument.Parse("""{"assets": [ {"name": 42}, "stray" ]}""").RootElement;
+
+        var asset = UmuComponentProvisioner.SelectTarAsset(release, "GE-Proton", "-x86_64");
+
+        Assert.True(string.IsNullOrEmpty(asset.Url));
+    }
+
     [Fact]
     public async Task EnsureProtonAsync_GECodename_DualAssets_DownloadsHostArchAsset()
     {

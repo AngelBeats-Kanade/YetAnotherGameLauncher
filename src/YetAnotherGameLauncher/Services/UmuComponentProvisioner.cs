@@ -573,9 +573,13 @@ public sealed class UmuComponentProvisioner(
         }
 
         var candidates = assets.EnumerateArray()
+            // 畸形元素（非对象/键缺失/键非字符串）按"无此资产"跳过——GetProperty/GetString 的原始
+            // KeyNotFoundException/InvalidOperationException 不是 JsonException，会穿出调用点
+            // 的解析 catch，把 ProtonDownloadFailed 降级成 Unknown（丢失重试/改选本机 Proton）
             .Select(a => (
-                Name: a.GetProperty("name").GetString() ?? "",
-                Url: a.GetProperty("browser_download_url").GetString() ?? ""))
+                Name: AssetStringOrNull(a, "name") ?? "",
+                Url: AssetStringOrNull(a, "browser_download_url") ?? ""))
+            .Where(a => a.Name.Length > 0 && a.Url.Length > 0)
             .Where(a => (a.Name.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)
                             || a.Name.EndsWith(".tar.xz", StringComparison.OrdinalIgnoreCase))
                         && (requiredPrefix is null
@@ -601,6 +605,14 @@ public sealed class UmuComponentProvisioner(
         // 无架构后缀的资产（UMU-Proton 单架构发布形态）对任何主机可用
         return candidates.FirstOrDefault(a => AssetArchSuffix(AssetStem(a.Name)) is null);
     }
+
+    /// <summary>资产元素的安全字段读取：元素非对象或键缺失/非字符串时返回 null（调用方按无此资产跳过）。</summary>
+    private static string? AssetStringOrNull(JsonElement asset, string propertyName) =>
+        asset.ValueKind == JsonValueKind.Object
+        && asset.TryGetProperty(propertyName, out var value)
+        && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
 
     /// <summary>资产名去 .tar.gz/.tar.xz 扩展后的主体（架构后缀判断的基准）。</summary>
     private static string AssetStem(string assetName) =>
