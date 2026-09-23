@@ -127,9 +127,9 @@ public sealed partial class FfmpegLibraryResolver(
         // 绑定尝试已把一次性初始化烧掉（TryBind 内锁死状态），落穿②③（系统探测/整包下载）
         // 全都无法挽回，只会白付 60–70MB 流量——2026-09-24 实测修复落穿
         var dir = LocateLibraryDir(_downloadRoot);
-        if (dir is not null && TryBind(dir))
+        if (dir is not null)
         {
-            return true;
+            return TryBind(dir);
         }
 
         // ② 系统已装与绑定精确同版本的 FFmpeg：文件名预检（不触碰 ffmpeg 类型），命中即零下载
