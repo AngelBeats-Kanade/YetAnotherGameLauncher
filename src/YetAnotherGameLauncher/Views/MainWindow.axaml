@@ -150,6 +150,74 @@
             <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkSecondary}"/>
         </Style>
 
+        <!-- 危险确认按钮（插画上语境，评审 P1-3）：红字 + 红描边 + 近实心暗底，不用红底大按钮——
+             破坏性操作（覆盖重装）不得与建设性主操作共用 accent 实心样式。
+             四态下沉 presenter（同 accent-onart 规则）；底必须近实心，否则透白海报红字不达门禁 -->
+        <Style Selector="Button.danger-onart">
+            <Setter Property="Background" Value="{DynamicResource AppOnArtworkCardStrong}"/>
+            <Setter Property="BorderBrush" Value="#8CFF8A7A"/>
+            <Setter Property="BorderThickness" Value="1.5"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkErrorBrush}"/>
+        </Style>
+        <Style Selector="Button.danger-onart /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppOnArtworkCardStrong}"/>
+            <Setter Property="BorderBrush" Value="#8CFF8A7A"/>
+            <Setter Property="BorderThickness" Value="1.5"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkErrorBrush}"/>
+        </Style>
+        <Style Selector="Button.danger-onart:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppOnArtworkCardStrong}"/>
+            <Setter Property="BorderBrush" Value="#FFFF8A7A"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkErrorBrush}"/>
+        </Style>
+        <Style Selector="Button.danger-onart:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#FF202029"/>
+            <Setter Property="BorderBrush" Value="#FFFF8A7A"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkErrorBrush}"/>
+        </Style>
+        <Style Selector="Button.danger-onart:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkSecondary}"/>
+        </Style>
+
+        <!-- 危险确认按钮（错误卡语境，评审 P1-3）：红字红描边幽灵钮 + 悬停淡红染——
+             与 danger-onart 同语义，但底透出错误卡面（AppErrorCardBackground），前景走主题化 AppErrorText -->
+        <Style Selector="Button.danger-card">
+            <Setter Property="Padding" Value="22,8"/>
+            <Setter Property="MinHeight" Value="34"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppErrorText}"/>
+            <Setter Property="BorderThickness" Value="1.5"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppErrorText}"/>
+        </Style>
+        <Style Selector="Button.danger-card /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppErrorText}"/>
+            <Setter Property="BorderThickness" Value="1.5"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppErrorText}"/>
+        </Style>
+        <Style Selector="Button.danger-card:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#1AFF8A7A"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppErrorText}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppErrorText}"/>
+        </Style>
+        <Style Selector="Button.danger-card:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#33FF8A7A"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppErrorText}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppErrorText}"/>
+        </Style>
+        <Style Selector="Button.danger-card:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppErrorText}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppErrorText}"/>
+            <Setter Property="Opacity" Value="0.4"/>
+        </Style>
+
         <!-- 预下载专用按钮：琥珀描边（AppPredownloadBadge 语义色，与已暂存徽章同源），
              悬停染琥珀底——预下载窗口期内"弹出"提示，又不与启动/安装的实心 accent 抢主 CTA。
              四态同样下沉 presenter 层（同 glass-onart 规则） -->
@@ -705,10 +773,10 @@
                                                                TextWrapping="Wrap" FontSize="12.5"
                                                                VerticalAlignment="Center"
                                                                Foreground="{DynamicResource AppOnArtworkBrush}"/>
-                                                    <Button Classes="btn-sm pressable accent-onart"
-                                                            Content="{Binding Loc[verify_confirm_yes]}"
-                                                            Command="{Binding ConfirmRepairCommand}"
-                                                            VerticalAlignment="Center"/>
+                                                     <Button Classes="btn-sm pressable danger-onart"
+                                                             Content="{Binding Loc[verify_confirm_yes]}"
+                                                             Command="{Binding ConfirmRepairCommand}"
+                                                             VerticalAlignment="Center"/>
                                                     <Button Classes="btn-sm pressable glass-onart"
                                                             Content="{Binding Loc[verify_confirm_no]}"
                                                             Command="{Binding CancelRepairCommand}"

@@ -108,6 +108,10 @@
             <!-- 操作坞三级弱化标签：比次色再暗一档，撑起标签/值层级；已按门禁提亮
                  （原 #8F95A6 压白海报只有 3.24:1） -->
             <SolidColorBrush x:Key="AppOnArtworkTertiary" Color="#B6BCCB"/>
+            <!-- 危险确认钮文字（评审 P1-3）：详情页恒为暗底，红字亮暗主题同值（与 AppErrorText 暗值一致） -->
+            <SolidColorBrush x:Key="AppOnArtworkErrorBrush" Color="#FF8A7A"/>
+            <!-- 近实心暗卡（95%）：danger-onart 的底——普通 70% 暗卡透白海报会让红字掉到 2.6:1 -->
+            <SolidColorBrush x:Key="AppOnArtworkCardStrong" Color="#F2202029"/>
             <!-- 操作坞专属底色（方案 A rgba(13,16,26,.78)）：比通用插画卡更深更稳，通栏玻璃条用 -->
             <SolidColorBrush x:Key="AppOnArtworkDockBrush" Color="#C70D101A"/>
             <!-- 插画上卡片描边（方案 A rgba(255,255,255,.09)）：操作坞/玻璃件的 1px 轮廓 -->

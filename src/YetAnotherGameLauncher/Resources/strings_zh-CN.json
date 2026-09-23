@@ -63,7 +63,7 @@
   "launch_proton_update_title": "发现 Proton 新版本",
   "launch_proton_update_confirm": "是否更新到 {0}？更新完成后将删除旧版本（{1}）。",
   "launch_proton_update_running_hint": "若有游戏正在运行，请先退出再更新，否则可能中断游戏。",
-  "launch_proton_update_confirm_yes": "更新",
+  "launch_proton_update_confirm_yes": "删除旧版并更新",
   "launch_proton_update_cancel": "取消",
   "launch_proton_updated": "已更新到 {0}，旧版本已清理。",
   "launch_protonFlavor": "Proton 发行版",

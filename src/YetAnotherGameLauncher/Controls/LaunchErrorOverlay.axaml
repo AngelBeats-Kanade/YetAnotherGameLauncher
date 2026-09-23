@@ -20,7 +20,10 @@
                 </StackPanel>
                 <TextBlock Text="{Binding LaunchError.Message}" FontSize="13.5"
                            TextWrapping="Wrap" LineHeight="20"/>
-                <Button Classes="launch-error-secondary"
+                <!-- 主次跟随 CanRetry 对调（评审 P1-4）：可重试时恢复动作是主操作、关闭退居次级；
+                     不可重试时关闭是唯一主操作。Classes 条件绑定互斥，任一时刻恰有一个命中 -->
+                <Button Classes.launch-error-primary="{Binding LaunchError.CanRetry}"
+                        Classes.launch-error-secondary="{Binding !LaunchError.CanRetry}"
                         Command="{Binding LaunchError.RetryCommand}"
                         IsVisible="{Binding LaunchError.CanRetry}"
                         HorizontalAlignment="Left">
@@ -57,7 +60,8 @@
                             Command="{Binding LaunchError.OpenLogDirectoryCommand}"
                             IsVisible="{Binding LaunchError.HasLogPath}"
                             Content="{Binding Loc[launch_error_open_log]}"/>
-                    <Button Classes="launch-error-primary"
+                    <Button Classes.launch-error-primary="{Binding !LaunchError.CanRetry}"
+                            Classes.launch-error-secondary="{Binding LaunchError.CanRetry}"
                             Command="{Binding LaunchError.DismissCommand}"
                             Content="{Binding Loc[launch_error_close]}"/>
                 </StackPanel>

@@ -197,7 +197,7 @@
                             <Button Classes="launch-error-secondary"
                                     Command="{Binding LaunchSettings.CancelProtonUpdateCommand}"
                                     Content="{Binding Loc[launch_proton_update_cancel]}"/>
-                            <Button Classes="launch-error-primary"
+                            <Button Classes="danger-card"
                                     Command="{Binding LaunchSettings.ConfirmProtonUpdateCommand}"
                                     IsEnabled="{Binding !LaunchSettings.IsProtonUpdateInProgress}"
                                     Content="{Binding Loc[launch_proton_update_confirm_yes]}"/>

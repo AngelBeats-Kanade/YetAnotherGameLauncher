@@ -94,6 +94,17 @@ public class ThemeTokenContrastTests
     }
 
     [Fact]
+    public async Task DangerButtons_RedText_MeetsContrast_OnArtworkSurface()
+    {
+        // 危险确认钮（danger-onart）压详情页插画：底为近实心暗卡（AppOnArtworkCardStrong），
+        // 红字为主题无关 AppOnArtworkErrorBrush；错误卡语境（danger-card）由 ErrorText fact 钉住
+        var tokens = await ResolveAsync(ThemeVariant.Light, "AppOnArtworkErrorBrush", "AppOnArtworkCardStrong");
+
+        AssertContrast("danger-onart 红字×白海报", tokens["AppOnArtworkErrorBrush"], Composite(PosterWhite, tokens["AppOnArtworkCardStrong"]));
+        AssertContrast("danger-onart 红字×暗海报", tokens["AppOnArtworkErrorBrush"], Composite(DarkBackdropLightest, tokens["AppOnArtworkCardStrong"]));
+    }
+
+    [Fact]
     public async Task ErrorText_OnErrorCard_MeetsContrast_InBothThemes()
     {
         // 钉住既有达标值（评审 §3 #10 口径）：错误卡近实心，最坏背景同上

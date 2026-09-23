@@ -63,7 +63,7 @@
   "launch_proton_update_title": "Proton update available",
   "launch_proton_update_confirm": "Update to {0}? The old version ({1}) will be removed after the update.",
   "launch_proton_update_running_hint": "If any game is running, exit it before updating, otherwise it may be interrupted.",
-  "launch_proton_update_confirm_yes": "Update",
+  "launch_proton_update_confirm_yes": "Replace old & update",
   "launch_proton_update_cancel": "Cancel",
   "launch_proton_updated": "Updated to {0}; the old version has been removed.",
   "launch_protonFlavor": "Proton flavor",
