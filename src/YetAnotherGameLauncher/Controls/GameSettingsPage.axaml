@@ -58,10 +58,12 @@
                                         Classes="pressable btn-sm"/>
                             </Grid>
                             <TextBlock Text="{Binding Loc[launch_executableHint]}" Classes="card-caption"/>
+                            <!-- Wrap：槽内直显 ex.Message 等长文案，NoWrap 会横向溢出裁切 -->
                             <TextBlock Classes="save-msg"
                                        Text="{Binding LaunchSettings.Save.Message}"
                                        IsVisible="{Binding LaunchSettings.Save.HasMessage}"
-                                       Classes.failed="{Binding LaunchSettings.Save.Failed}"/>
+                                       Classes.failed="{Binding LaunchSettings.Save.Failed}"
+                                       TextWrapping="Wrap"/>
                         </StackPanel>
                     </Border>
 
@@ -107,6 +109,13 @@
                                                 IsEnabled="{Binding LaunchSettings.CanCheckProtonUpdate}"
                                                 HorizontalAlignment="Left"/>
                                     </StackPanel>
+                                    <!-- 两按钮的结果/进度提示：专属 UmuFeedback 槽渲染在启动卡内，
+                                        不与位置卡的 Save 槽混用（曾致反馈显示到位置卡，2026-09-23 修复） -->
+                                    <TextBlock Classes="save-msg"
+                                               Text="{Binding LaunchSettings.UmuFeedback.Message}"
+                                               IsVisible="{Binding LaunchSettings.UmuFeedback.HasMessage}"
+                                               Classes.failed="{Binding LaunchSettings.UmuFeedback.Failed}"
+                                               TextWrapping="Wrap"/>
                                 </StackPanel>
                             </StackPanel>
                             <TextBlock Text="{Binding Loc[launch_windowsDefaultHint]}"

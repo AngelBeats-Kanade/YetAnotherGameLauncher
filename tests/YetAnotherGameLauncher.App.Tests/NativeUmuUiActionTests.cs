@@ -60,6 +60,9 @@ public sealed class NativeUmuUiActionTests : IDisposable
 
         public (string Variant, string Name)? ResolveRequiredRuntime(string protonRequest) => ResolvedRuntime;
 
+        /// <summary>FetchLatestProtonTagAsync 注入异常（null = 正常返回 LatestTag）。</summary>
+        public Exception? FetchTagError { get; set; }
+
         // ProtonReady 旗标 = "已装在默认路径"；Ensure/Update 后 FindInstalledProton 必须能找到
         public string? FindInstalledProton(string protonRequest) =>
             InstalledProtonPath ?? (ProtonReady ? "/tmp/GE-Proton" : null);
@@ -68,7 +71,9 @@ public sealed class NativeUmuUiActionTests : IDisposable
         {
             FetchTagCalls++;
             LastTagRequest = protonRequest;
-            return Task.FromResult(LatestTag);
+            return FetchTagError is not null
+                ? Task.FromException<string>(FetchTagError)
+                : Task.FromResult(LatestTag);
         }
 
         public Task<string> UpdateProtonAsync(
@@ -123,6 +128,10 @@ public sealed class NativeUmuUiActionTests : IDisposable
         Assert.True(provisioner.ProtonReady);
         Assert.True(provisioner.RuntimeReady);
         Assert.Contains("就绪", settings.NativeUmuStatusText, StringComparison.Ordinal);
+        // 组件反馈必须落启动卡专属槽（曾误写 Save 槽显示到位置卡，2026-09-23 修复）
+        Assert.Contains("就绪", settings.UmuFeedback.Message, StringComparison.Ordinal);
+        Assert.False(settings.UmuFeedback.Failed);
+        Assert.Equal("", settings.Save.Message);
     }
 
     [Fact]
@@ -207,7 +216,10 @@ public sealed class NativeUmuUiActionTests : IDisposable
         Assert.False(settings.ShowProtonUpdateConfirm);
         Assert.Equal(ProtonUpdateCheckState.Idle, settings.ProtonUpdateState);
         Assert.Null(settings.PendingProtonUpdateTag);
-        Assert.Contains("GE-Proton11-7", settings.Save.Message, StringComparison.Ordinal);
+        // 反馈落启动卡专属槽，位置卡 Save 槽保持空白（曾显示到位置卡，2026-09-23 修复）
+        Assert.Contains("GE-Proton11-7", settings.UmuFeedback.Message, StringComparison.Ordinal);
+        Assert.False(settings.UmuFeedback.Failed);
+        Assert.Equal("", settings.Save.Message);
     }
 
     [Fact]
@@ -227,7 +239,31 @@ public sealed class NativeUmuUiActionTests : IDisposable
 
         Assert.False(settings.ShowProtonUpdateConfirm);
         Assert.Equal(ProtonUpdateCheckState.Idle, settings.ProtonUpdateState);
-        Assert.Contains("GE-Proton11-6", settings.Save.Message, StringComparison.Ordinal);
+        // "已是最新"同落启动卡专属槽（曾显示到位置卡，2026-09-23 修复）
+        Assert.Contains("GE-Proton11-6", settings.UmuFeedback.Message, StringComparison.Ordinal);
+        Assert.Equal("", settings.Save.Message);
+    }
+
+    [Fact]
+    public async Task LaunchSettings_CheckProtonUpdate_Failure_LandsInUmuFeedback()
+    {
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        var provisioner = new FakeProvisioner
+        {
+            InstalledProtonPath = "/compat/GE-Proton11-6",
+            FetchTagError = new InvalidOperationException("网络不可达"),
+        };
+
+        var settings = NewLinuxNativeUmuSettings(game.Game, game.InstallDirPath, provisioner);
+
+        await settings.CheckProtonUpdateCommand.ExecuteAsync(null);
+
+        Assert.Equal(ProtonUpdateCheckState.Idle, settings.ProtonUpdateState);
+        Assert.True(settings.UmuFeedback.Failed);
+        Assert.Contains("网络不可达", settings.UmuFeedback.Message, StringComparison.Ordinal);
+        // 失败反馈同样不得回流位置卡的 Save 槽
+        Assert.Equal("", settings.Save.Message);
     }
 
     [Fact]

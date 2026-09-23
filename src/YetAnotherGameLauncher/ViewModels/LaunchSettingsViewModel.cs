@@ -278,7 +278,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             : _umuProvisioner.FindInstalledProton(protonRequest) is not null;
     }
 
-    /// <summary>检查/下载原生 umu 兼容组件（Proton + Steam Runtime）；结果写入保存消息槽。</summary>
+    /// <summary>检查/下载原生 umu 兼容组件（Proton + Steam Runtime）；结果写入 UmuFeedback 消息槽（启动卡）。</summary>
     [RelayCommand]
     private async Task PrepareUmuComponentsAsync(CancellationToken cancellationToken)
     {
@@ -289,13 +289,13 @@ public partial class LaunchSettingsViewModel : ViewModelBase
 
         IsPreparingUmuComponents = true;
         OnPropertyChanged(nameof(CanPrepareUmuComponents));
-        Save.Clear();
+        UmuFeedback.Clear();
         try
         {
             var progress = new Progress<string>(msg =>
             {
-                Save.Clear();
-                Save.SetSuccess(msg);
+                UmuFeedback.Clear();
+                UmuFeedback.SetSuccess(msg);
             });
             var proton = await _umuProvisioner
                 .EnsureProtonAsync(ResolveNativeProtonRequest(), progress, cancellationToken);
@@ -304,8 +304,8 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 _umuProvisioner.ResolveRequiredRuntime(ResolveNativeProtonRequest()) ?? FallbackRuntime;
             await _umuProvisioner
                 .EnsureRuntimeAsync(runtimeVariant, runtimeName, progress, cancellationToken);
-            Save.Clear();
-            Save.SetSuccess(_loc["launch_native_components_ready"]);
+            UmuFeedback.Clear();
+            UmuFeedback.SetSuccess(_loc["launch_native_components_ready"]);
             RefreshNativeUmuStatus();
         }
         catch (OperationCanceledException)
@@ -313,7 +313,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            Save.SetFailure(ex.Message);
+            UmuFeedback.SetFailure(ex.Message);
             RefreshNativeUmuStatus();
         }
         finally
@@ -382,7 +382,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         }
 
         ProtonUpdateState = ProtonUpdateCheckState.Checking;
-        Save.Clear();
+        UmuFeedback.Clear();
         try
         {
             var tag = await _umuProvisioner
@@ -392,7 +392,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             if (localName is not null && !IsUpstreamNewer(localName, tag))
             {
                 ProtonUpdateState = ProtonUpdateCheckState.Idle;
-                Save.SetSuccess(_loc.Format("launch_proton_up_to_date", localName));
+                UmuFeedback.SetSuccess(_loc.Format("launch_proton_up_to_date", localName));
                 return;
             }
 
@@ -415,7 +415,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         catch (Exception ex)
         {
             ProtonUpdateState = ProtonUpdateCheckState.Idle;
-            Save.SetFailure(ex.Message);
+            UmuFeedback.SetFailure(ex.Message);
         }
     }
 
@@ -430,21 +430,21 @@ public partial class LaunchSettingsViewModel : ViewModelBase
 
         ProtonUpdateState = ProtonUpdateCheckState.Updating;
         ShowProtonUpdateConfirm = false;
-        Save.Clear();
+        UmuFeedback.Clear();
         try
         {
             var progress = new Progress<string>(msg =>
             {
-                Save.Clear();
-                Save.SetSuccess(msg);
+                UmuFeedback.Clear();
+                UmuFeedback.SetSuccess(msg);
             });
             var newPath = await _umuProvisioner
                 .UpdateProtonAsync(SelectedProtonRequest, progress, cancellationToken);
             var newName = LocalProtonName(newPath) ?? newPath;
             PendingProtonUpdateTag = null;
             ProtonUpdateState = ProtonUpdateCheckState.Idle;
-            Save.Clear();
-            Save.SetSuccess(_loc.Format("launch_proton_updated", newName));
+            UmuFeedback.Clear();
+            UmuFeedback.SetSuccess(_loc.Format("launch_proton_updated", newName));
             RefreshNativeUmuStatus();
         }
         catch (OperationCanceledException)
@@ -456,7 +456,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            Save.SetFailure(ex.Message);
+            UmuFeedback.SetFailure(ex.Message);
             ProtonUpdateState = ProtonUpdateCheckState.UpdateAvailable;
             RefreshNativeUmuStatus();
         }
@@ -669,6 +669,10 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     /// <summary>保存结果提示（显示在游戏设置页位置卡内）。</summary>
     [ObservableProperty]
     private SaveMessageSlot _save = new();
+
+    /// <summary>组件准备与 Proton 更新的结果提示（显示在启动卡 umu 面板内；与位置卡保存流程的 Save 槽互不混用）。</summary>
+    [ObservableProperty]
+    private SaveMessageSlot _umuFeedback = new();
 
     /// <summary>
     /// 弹系统目录选择对话框选游戏安装目录：选中即写入草稿并保存（替代原"保存"按钮），取消则不动草稿。

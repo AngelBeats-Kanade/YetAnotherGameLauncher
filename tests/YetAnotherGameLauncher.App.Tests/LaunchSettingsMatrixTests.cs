@@ -114,7 +114,7 @@ public class LaunchSettingsMatrixTests : IDisposable
     }
 
     [Fact]
-    public async Task PrepareUmuComponents_Failure_ShowsFailureInSaveSlot()
+    public async Task PrepareUmuComponents_Failure_ShowsFailureInUmuFeedbackSlot()
     {
         await _ctx.Vm.InitializeAsync();
         var provisioner = new ScriptedProvisioner
@@ -125,8 +125,10 @@ public class LaunchSettingsMatrixTests : IDisposable
 
         await settings.PrepareUmuComponentsCommand.ExecuteAsync(null);
 
-        Assert.True(settings.Save.Failed);
-        Assert.Contains("防火墙", settings.Save.Message, StringComparison.Ordinal);
+        // 失败反馈落启动卡专属 UmuFeedback 槽（曾误写位置卡 Save 槽，2026-09-23 修复）
+        Assert.True(settings.UmuFeedback.Failed);
+        Assert.Contains("防火墙", settings.UmuFeedback.Message, StringComparison.Ordinal);
+        Assert.Equal("", settings.Save.Message);
     }
 
     [Fact]
@@ -185,8 +187,9 @@ public class LaunchSettingsMatrixTests : IDisposable
 
         await settings.ConfirmProtonUpdateCommand.ExecuteAsync(null);
 
-        Assert.True(settings.Save.Failed);
-        Assert.Contains("代理拦截", settings.Save.Message, StringComparison.Ordinal);
+        // 失败反馈落启动卡专属 UmuFeedback 槽（曾误写位置卡 Save 槽，2026-09-23 修复）
+        Assert.True(settings.UmuFeedback.Failed);
+        Assert.Contains("代理拦截", settings.UmuFeedback.Message, StringComparison.Ordinal);
         Assert.Equal(ProtonUpdateCheckState.UpdateAvailable, settings.ProtonUpdateState);
         Assert.False(settings.ShowProtonUpdateConfirm); // 确认覆盖层已收起
     }
@@ -204,7 +207,7 @@ public class LaunchSettingsMatrixTests : IDisposable
         await settings.CheckProtonUpdateCommand.ExecuteAsync(null);
         await settings.ConfirmProtonUpdateCommand.ExecuteAsync(null);
 
-        Assert.False(settings.Save.HasMessage);
+        Assert.False(settings.UmuFeedback.HasMessage);
         Assert.Equal(ProtonUpdateCheckState.UpdateAvailable, settings.ProtonUpdateState);
         Assert.Equal("GE-Proton11-7", settings.PendingProtonUpdateTag); // 新版信息保留
     }
