@@ -647,7 +647,8 @@
                              Background="Transparent" BorderThickness="0" Margin="0,14,0,0">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:GameItemViewModel">
-                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <Grid ColumnDefinitions="Auto,*,Auto"
+                                              ToolTip.Tip="{Binding DisplayName}">
                                     <Border Width="38" Height="38" CornerRadius="10" ClipToBounds="True"
                                             Background="{DynamicResource AppAccentBrush}">
                                         <Panel>

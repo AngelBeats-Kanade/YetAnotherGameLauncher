@@ -74,17 +74,19 @@
                     <StackPanel Spacing="8">
                         <TextBlock Text="{Binding Loc[settings_downloads]}" FontSize="15" FontWeight="SemiBold"/>
                         <TextBlock Text="{Binding Loc[settings_installRoot]}" Classes="card-caption"/>
-                        <TextBox x:Name="InstallRootBox" Text="{Binding InstallRootDraft}"/>
-                        <TextBlock Text="{Binding Loc[settings_installRootEdit]}" Classes="card-caption"/>
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <Button Content="{Binding Loc[settings_installRootBrowse]}"
+                        <!-- inline 浏览钮：与游戏设置页位置卡同款布局（评审 P2-5：同语义同布局，原为堆叠） -->
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                            <TextBox Grid.Column="0" x:Name="InstallRootBox" Text="{Binding InstallRootDraft}"
+                                     Padding="10,7"/>
+                            <Button Grid.Column="1" Content="{Binding Loc[settings_installRootBrowse]}"
                                     Command="{Binding BrowseInstallRootCommand}"
                                     Classes="pressable btn-sm"/>
-                            <TextBlock Classes="save-msg" VerticalAlignment="Center"
-                                       Text="{Binding InstallRootSave.Message}"
-                                       IsVisible="{Binding InstallRootSave.HasMessage}"
-                                       Classes.failed="{Binding InstallRootSave.Failed}"/>
-                        </StackPanel>
+                        </Grid>
+                        <TextBlock Text="{Binding Loc[settings_installRootEdit]}" Classes="card-caption"/>
+                        <TextBlock Classes="save-msg" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                   Text="{Binding InstallRootSave.Message}"
+                                   IsVisible="{Binding InstallRootSave.HasMessage}"
+                                   Classes.failed="{Binding InstallRootSave.Failed}"/>
                         <StackPanel Spacing="4" Margin="0,8,0,0">
                             <TextBlock Text="{Binding Loc[settings_downloadLimit]}" Classes="card-caption"/>
                             <StackPanel Orientation="Horizontal" Spacing="10">

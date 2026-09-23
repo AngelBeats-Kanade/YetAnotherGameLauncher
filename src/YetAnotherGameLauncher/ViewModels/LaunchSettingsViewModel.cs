@@ -187,6 +187,67 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     [ObservableProperty]
     private string _executableDraft;
 
+    /// <summary>启动设置草稿是否有未保存变更（评审 P2-5：保存钮随变更点亮，给草稿态可见性）。
+    /// 判定与 SaveAsyncCore 的逐字段快照对比同源；五个草稿字段变化与保存/回滚后重算。</summary>
+    [ObservableProperty]
+    private bool _isDirty;
+
+    /// <summary>重算脏标记：任一草稿字段与已保存值不一致即 true（环境变量解析失败也视为有变更，
+    /// 由保存流程给出具体错误提示）。</summary>
+    private void RecomputeDirty()
+    {
+        var installDir = InstallDirDraft.Trim();
+        if (!string.Equals(installDir, _owner.InstallDirPath, StringComparison.Ordinal))
+        {
+            IsDirty = true;
+            return;
+        }
+
+        var executable = NormalizeDirectoryPath(ExecutableDraft.Trim());
+        if (!string.Equals(executable, _game.Executable, StringComparison.Ordinal))
+        {
+            IsDirty = true;
+            return;
+        }
+
+        if (!string.Equals(CommandTemplate.Trim(), _game.Launch.CommandTemplate, StringComparison.Ordinal))
+        {
+            IsDirty = true;
+            return;
+        }
+
+        // 与保存规则一致：空白工作目录归一为 {installDir} 后再比较
+        var effectiveWorkingDirectory = string.IsNullOrWhiteSpace(WorkingDirectory) ? "{installDir}" : WorkingDirectory.Trim();
+        if (!string.Equals(effectiveWorkingDirectory, _game.Launch.WorkingDirectory, StringComparison.Ordinal))
+        {
+            IsDirty = true;
+            return;
+        }
+
+        if (!TryParseEnvironment(EnvironmentText, out var environment, out _))
+        {
+            IsDirty = true;
+            return;
+        }
+
+        IsDirty = EnvironmentDiffKeys(environment, _game.Launch.Environment).Count > 0;
+    }
+
+    /// <summary>草稿字段变化统一重算脏标记。</summary>
+    partial void OnInstallDirDraftChanged(string value) => RecomputeDirty();
+
+    /// <summary>草稿字段变化统一重算脏标记。</summary>
+    partial void OnExecutableDraftChanged(string value) => RecomputeDirty();
+
+    /// <summary>草稿字段变化统一重算脏标记。</summary>
+    partial void OnCommandTemplateChanged(string value) => RecomputeDirty();
+
+    /// <summary>草稿字段变化统一重算脏标记。</summary>
+    partial void OnWorkingDirectoryChanged(string value) => RecomputeDirty();
+
+    /// <summary>草稿字段变化统一重算脏标记。</summary>
+    partial void OnEnvironmentTextChanged(string value) => RecomputeDirty();
+
     /// <summary>当前系统是否为 Linux（决定是否显示兼容层选择；平台信息注入，测试可控）。</summary>
     public bool IsLinux => _platform.IsLinux;
 
@@ -832,17 +893,20 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             }
 
             Save.SetSuccess(_loc["launch_saved"]);
+            RecomputeDirty(); // 落盘后草稿与已保存值一致，保存钮熄灭
             RaiseChangedToast(installDirChanged, executableChanged, templateChanged, workingDirectoryChanged, environmentDiff);
         }
         catch (OperationCanceledException)
         {
             // 取消同样回滚保持内存与磁盘一致；取消语义照常向上传播（不弹失败提示）
             RestoreOriginalGame();
+            RecomputeDirty();
             throw;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             RestoreOriginalGame();
+            RecomputeDirty();
             Save.SetFailure(_loc.Format("message_saveFailed", ex.Message));
         }
     }

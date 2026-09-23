@@ -70,7 +70,7 @@ Currently supported games:
 | Proxy settings | Follow system / direct / manual |
 | Auto-start on boot | Windows registry / Linux XDG autostart |
 | Native Wayland | On Linux with a Wayland session (`WAYLAND_DISPLAY`), the experimental Avalonia 12.1 native Wayland backend is used: fractional scaling comes straight from the compositor (no Xft.dpi patch needed); set `YAGL_FORCE_XWAYLAND=1` to fall back to X11/XWayland (that path keeps EGL-first rendering and automatic DPI sync) |
-| Launch settings | A dedicated game settings sub-page (gear icon on the detail page): location / launch mode / launch arguments, saved back to the config file; a toast appears when settings actually change (listing changed fields; nothing pops when nothing changed or validation failed), server switching also toasts |
+| Launch settings | A dedicated game settings sub-page (gear icon on the detail page): location / launch mode / launch arguments, with a save button that lights up on changes and saves back to the config file; a toast appears when settings actually change (listing changed fields; nothing pops when nothing changed or validation failed), server switching also toasts |
 | Visual storage paths | Change the install root in settings; each game's install directory can be changed individually in the game settings page "location" section, effective immediately on save |
 | Official icons | Official app icons for Wuthering Waves/Endfield (bundled by default as `avares://YetAnotherGameLauncher/Assets/game-icons/*.jpg`; the `icon` field still accepts URLs/local paths, URL icons get a disk cache and fall back to the initial letter on failure) |
 | Architecture | Layered: `Core` (domain) → `Channels.*` (vendor channels) → `App` (Avalonia UI), everything depends on abstractions |
@@ -198,7 +198,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### Running tests (835 tests, measured 2026-09-23)
+### Running tests (839 tests, measured 2026-09-23)
 
 ```bash
 # Run the 4 test projects' compiled binaries directly (on Windows you can run the .exe;
