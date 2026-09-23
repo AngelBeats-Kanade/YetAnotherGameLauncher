@@ -165,8 +165,24 @@ public sealed partial class FfmpegLibraryResolver(
     /// <summary>绑定（FFmpeg.AutoGen 9.0.x ↔ FFmpeg 9.0）所需的 avcodec 文件名（Windows 形态）。</summary>
     private const string BoundAvcodecFile = "avcodec-63.dll";
 
-    /// <summary>绑定所需的 libavcodec 主版本号（Linux 的 so 版本号，与 <see cref="BoundAvcodecFile"/> 同步改）。</summary>
+    /// <summary>绑定所需的 libavcodec 主版本号（Linux 的 so 版本号，与 <see cref="BoundAvcodecFile"/> 同步改；
+    /// 其它库的主版本经 <see cref="LibraryFileMajor"/> 逐库精确，不得复用本值）。</summary>
     private const int BoundLibavMajor = 63;
+
+    /// <summary>
+    /// 绑定版本（FFmpeg 9.0）各库的系统文件主版本号（2026-09-24 实测 BtbN LGPL shared 构建 soname：
+    /// avutil=61、avfilter=12、swresample=7、swscale=10；avcodec/avformat/avdevice=63）。
+    /// 各库主版本互不相同，探测/加载文件名必须逐库精确——avcodec 的 63 复用到其它库即必败
+    /// （libavutil.so.61 ≠ .so.63，Windows 同理只有 avutil-61.dll）；未收录库名回退 avcodec 主版本。
+    /// </summary>
+    internal static int LibraryFileMajor(string libraryName) => libraryName switch
+    {
+        "avutil" => 61,
+        "avfilter" => 12,
+        "swresample" => 7,
+        "swscale" => 10,
+        _ => BoundLibavMajor,
+    };
 
     /// <summary>下载 BtbN 资产（SHA256 校验）并解压到注入的根目录；internal 供离线直测
     /// （经注入的 stub client 与临时根目录，checksums 拉取/校验段可确定性覆盖）。</summary>
@@ -364,9 +380,21 @@ public sealed partial class FfmpegLibraryResolver(
                 {
                     // 发行版布局：lib<名>.so.<主版本>（精确配套）→ lib<名>.so（-dev 符号链接，
                     // 指向已装同系列版本）。裸 dlopen("avcodec") 在 Linux 永远失败——
-                    // 既无 lib 前缀也无版本号，这是旧实现系统库探测失效的另一半原因
-                    if (NativeLibrary.TryLoad($"lib{libraryName}.so.{BoundLibavMajor}", out handle)
+                    // 既无 lib 前缀也无版本号，这是旧实现系统库探测失效的另一半原因。
+                    // 主版本必须逐库精确（avutil=61 ≠ avcodec=63），统一 63 在精确匹配
+                    // 系统上 avutil 必败且烧掉一次性绑定（2026-09-24 实测 soname 修复）
+                    if (NativeLibrary.TryLoad($"lib{libraryName}.so.{LibraryFileMajor(libraryName)}", out handle)
                         || NativeLibrary.TryLoad($"lib{libraryName}.so", out handle))
+                    {
+                        _loaded[libraryName] = handle;
+                        return handle;
+                    }
+                }
+                else if (OperatingSystem.IsWindows())
+                {
+                    // Windows 系统库带主版本（avutil-61.dll）：裸名 avutil 永远解析不到版本化 DLL，
+                    // 精确匹配系统上同样会在 avcodec 预检命中后于 avutil 处必败（与 Linux 同根因）
+                    if (NativeLibrary.TryLoad($"{libraryName}-{LibraryFileMajor(libraryName)}.dll", out handle))
                     {
                         _loaded[libraryName] = handle;
                         return handle;
