@@ -155,25 +155,41 @@ sealed class Program
     /// 关闭 stdout，排在它后面的 WaitForExit(timeout) 永远执行不到——超时保护形同死代码，
     /// 子进程挂起会把启动卡死在 Main。超时即 Kill 并返回 null。
     /// </summary>
-    private static string? ReadOutputWithTimeout(Process process, int timeoutMilliseconds)
+    internal static string? ReadOutputWithTimeout(Process process, int timeoutMilliseconds)
     {
         var read = process.StandardOutput.ReadToEndAsync();
-        if (!read.Wait(timeoutMilliseconds))
+        try
         {
-            try
+            if (!read.Wait(timeoutMilliseconds))
             {
-                process.Kill();
+                KillProcessQuietly(process);
+                return null;
             }
-            catch (InvalidOperationException)
-            {
-                // 已退出
-            }
-
+        }
+        catch (AggregateException)
+        {
+            // 读任务故障（如 stdout 管道断裂）：.NET 10 实测 AggregateException 直接继承
+            // Exception 而非 SystemException，不在此接住就会穿出调用点的 catch (SystemException)
+            // 炸掉启动——按"子进程不可用"与超时同路径处理
+            KillProcessQuietly(process);
             return null;
         }
 
         process.WaitForExit(timeoutMilliseconds);
         return read.Result;
+    }
+
+    /// <summary>超时/故障路径终结子进程；Kill 前已退出的竞态静默放过。</summary>
+    private static void KillProcessQuietly(Process process)
+    {
+        try
+        {
+            process.Kill();
+        }
+        catch (InvalidOperationException)
+        {
+            // 已退出
+        }
     }
 
     // Avalonia configuration, don't remove; also used by visual designer.
