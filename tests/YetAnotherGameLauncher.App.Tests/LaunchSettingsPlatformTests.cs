@@ -91,6 +91,38 @@ public class LaunchSettingsPlatformTests : IDisposable
         Assert.DoesNotContain("PROTONPATH=DW-Proton", launchSettings.EnvironmentText, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task ProtonFlavorChange_InstantSaveSuccess_ResetsDirtyFlag()
+    {
+        // 发行版"选择即保存"成功落盘后，草稿与已保存值重新一致，IsDirty 必须复位——
+        // 否则"保存启动设置"钮在无未保存变更的状态下错误常亮
+        //（对照整卡保存三条退出路径的 RecomputeDirty，即时保存是漏掉的第四个状态迁移点）。
+        // Linux 首运推荐链写草稿即算脏（本就待用户保存，设计如此），
+        // 故先整卡保存一次让初始态干净，再验证发行版即时保存
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        var launchSettings = new LaunchSettingsViewModel(
+            game.Game, game.InstallDirPath, _ctx.CatalogService, game.Loc, game,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            protonVersions: ["GE-Proton10-9"]);
+
+        await launchSettings.SaveCommand.ExecuteAsync(null);
+        Assert.False(launchSettings.IsDirty);
+
+        launchSettings.SelectedProtonFlavor = "GE-Proton";
+
+        // 即时保存是 fire-and-forget（临时目录上常同步完成）：以落盘完成
+        //（games.json 出现新代号）为完成信号再断言复位
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline
+            && !File.ReadAllText(_ctx.ConfigPath).Contains("GE-Proton", StringComparison.Ordinal))
+        {
+            await Task.Delay(25);
+        }
+
+        Assert.False(launchSettings.IsDirty);
+    }
+
     [Theory]
     [InlineData("/opt/protons/dwproton-11.0-12", "DW-Proton")]
     [InlineData("GE-Proton10-9", "GE-Proton")]

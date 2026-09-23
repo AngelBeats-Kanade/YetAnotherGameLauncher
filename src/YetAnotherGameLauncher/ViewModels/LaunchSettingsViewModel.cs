@@ -618,12 +618,17 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             try
             {
                 await _catalogService.SaveAsync(CancellationToken.None);
+                // 即时保存也是一次落盘：保存后草稿与已保存值重新一致，脏标记必须复位——
+                // 否则"保存启动设置"钮在无未保存变更时错误常亮（对照整卡保存三条退出路径的
+                // RecomputeDirty；草稿里若还有其余未保存字段，这里按实际比对保持脏态）
+                RecomputeDirty();
                 // 变更恰好只有 PROTONPATH：沿用整卡保存的轻提示管线，按"Proton 发行版"汇报
                 RaiseChangedToast(false, false, false, false, ["PROTONPATH"]);
             }
             catch (Exception)
             {
                 _game.Launch = originalLaunch; // 失败回滚，内存与磁盘保持一致（对照整卡 SaveAsync 的快照纪律）
+                RecomputeDirty();
             }
         }
         finally
