@@ -120,6 +120,27 @@ const MUTATIONS = [
     dll: 'tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll',
     method: 'YetAnotherGameLauncher.AppTests.GameItemRefreshRaceTests.Update_ResultFromOldServer_DoesNotOverwriteNewServerStatus',
   },
+  {
+    // 2026-09-24 review 扩容：tar 链接目标的 ".." 穿越判定失效必须红（F11 守卫）
+    id: 'M17-tar-link-target-escape',
+    file: 'src/YetAnotherGameLauncher/Services/UmuComponentProvisioner.cs',
+    find: "|| normalizedLink.Split('/').Contains(\"..\")",
+    replace: '|| false /* MUTATION */',
+    project: 'tests/YetAnotherGameLauncher.App.Tests/YetAnotherGameLauncher.App.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll',
+    method: 'YetAnotherGameLauncher.AppTests.UmuComponentProvisionerTests.ExtractTarArchive_EscapingLinkTargets_AreSkipped',
+  },
+  {
+    // 2026-09-24 review 扩容：目录预载依赖序破坏必须红（P0 守卫——avcodec 先于 swresample
+    // 驻留正是真机 avformat DT_NEEDED 解析必败的形态，2026-09-24 readelf 实测）
+    id: 'M18-dependency-order-swap',
+    file: 'src/YetAnotherGameLauncher/Services/FfmpegLibraryResolver.cs',
+    find: '["avutil", "swresample", "swscale", "avcodec", "avformat", "avfilter", "avdevice"]',
+    replace: '["avutil", "avcodec", "swresample", "swscale", "avformat", "avfilter", "avdevice"] /* MUTATION */',
+    project: 'tests/YetAnotherGameLauncher.App.Tests/YetAnotherGameLauncher.App.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll',
+    method: 'YetAnotherGameLauncher.AppTests.FfmpegLibraryMajorTests.LibraryDependencyOrder_SatisfiesBtbnRuntimeDeps',
+  },
 ];
 
 function run(cmd, args) {
