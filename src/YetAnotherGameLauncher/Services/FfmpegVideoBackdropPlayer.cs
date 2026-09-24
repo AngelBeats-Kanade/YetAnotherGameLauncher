@@ -65,6 +65,30 @@ public sealed class FfmpegVideoBackdropPlayer(
     /// <summary>循环回卷的淡化层：上一循环的末帧位图，随新循环逐帧淡出后释放。</summary>
     private WriteableBitmap? _fadeFrame;
 
+    /// <summary>退役帧位图（含退役时刻，<see cref="_gate"/> 守护）：延迟释放——
+    /// 合成器渲染线程可能仍持有上一次已画位图的在途引用，而 <c>IBitmapImpl</c> 仅
+    /// <c>IDisposable</c>、无引用计数保证（2026-09-24 核对 Avalonia master
+    /// src/Avalonia.Base/Platform/IBitmapImpl.cs），立即释放有 use-after-free 面。
+    /// 每循环回卷/尺寸重建/全清各退役一张（4K 上限约 33MB/张，2026-09-24 前从不释放，
+    /// 14s 循环片的泄漏速率约 140MB/分钟）。</summary>
+    private readonly List<(WriteableBitmap Bitmap, long RetiredAt)> _retiredFrames = [];
+
+    /// <summary>退役宽限期：超过才真正释放（PresentFrame 每帧定时冲刷、Stop 终末冲刷）。
+    /// internal 供测试缩短；改小前先评估合成器帧延迟余量。</summary>
+    internal static TimeSpan RetireGrace { get; set; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>测试缝：帧位图工厂（null = 生产构造）。测试注入计数工厂断言创建/释放配平。</summary>
+    internal Func<PixelSize, WriteableBitmap>? FrameBitmapFactoryForTests { get; set; }
+
+    /// <summary>测试观测：成功创建的帧位图总数。</summary>
+    internal int CreatedFrameBitmapsForTests => Volatile.Read(ref _createdFrameBitmaps);
+
+    /// <summary>测试观测：已释放的帧位图总数。</summary>
+    internal int DisposedFrameBitmapsForTests => Volatile.Read(ref _disposedFrameBitmaps);
+
+    private int _createdFrameBitmaps;
+    private int _disposedFrameBitmaps;
+
     /// <summary>淡化层当前不透明度。</summary>
     private double _fadeOpacity;
 
@@ -1171,6 +1195,7 @@ public sealed class FfmpegVideoBackdropPlayer(
             _fadeOpacity = Math.Max(0, _fadeOpacity - _fadeStep);
             if (_fadeOpacity <= 0)
             {
+                RetireFrame(_fadeFrame); // 淡化归零：末帧位图退役（宽限后释放，防在途渲染引用）
                 _fadeFrame = null;
             }
         }
@@ -1247,6 +1272,7 @@ public sealed class FfmpegVideoBackdropPlayer(
         }
 
         AdvanceLoopCrossfade();
+        FlushRetiredFrames(); // 解码节拍顺带冲刷过期退役位图（列表空时零开销）
 
         // 代际收尾复查（锁外，仅丢弃不缓存）：过门后的 PTS 等待/sws/拷贝窗口内若发生 Stop/换代，
         // 此帧不投递通知即被丢弃——旧画面无从"复活"。清帧由 Stop 的 ClearFrame 在 _gate 锁内完成，
@@ -1270,17 +1296,89 @@ public sealed class FfmpegVideoBackdropPlayer(
                 return existing;
             }
 
-            try
+            var bitmap = CreateFrameBitmap(width, height);
+            if (bitmap is null)
             {
-                _frame = new WriteableBitmap(
+                return null;
+            }
+
+            RetireFrame(_frame); // 尺寸重建：旧位图退役（宽限后释放）
+            _frame = bitmap;
+            return bitmap;
+        }
+    }
+
+    /// <summary>EnsureFrame 的测试入口（真实门内路径，不经解码管线）。</summary>
+    internal WriteableBitmap? EnsureFrameForTests(int width, int height) => EnsureFrame(width, height);
+
+    /// <summary>创建帧位图（生产构造/测试工厂统一入口）；失败返回 null 且不计数。</summary>
+    private WriteableBitmap? CreateFrameBitmap(int width, int height)
+    {
+        try
+        {
+            var bitmap = FrameBitmapFactoryForTests?.Invoke(new PixelSize(width, height))
+                ?? new WriteableBitmap(
                     new PixelSize(width, height), new Vector(96, 96),
                     PixelFormats.Bgra8888, AlphaFormat.Opaque);
-                return _frame;
+            Volatile.Write(ref _createdFrameBitmaps, _createdFrameBitmaps + 1);
+            return bitmap;
+        }
+        catch (Exception ex)
+        {
+            logger?.LogInformation(ex, "Cannot create frame bitmap");
+            return null;
+        }
+    }
+
+    /// <summary>位图退役入队（调用方须持 <see cref="_gate"/>）：宽限期后由
+    /// <see cref="FlushRetiredFrames"/> 释放。null 直接忽略。</summary>
+    private void RetireFrame(WriteableBitmap? bitmap)
+    {
+        if (bitmap is not null)
+        {
+            _retiredFrames.Add((bitmap, Environment.TickCount64));
+        }
+    }
+
+    /// <summary>释放超过 <see cref="RetireGrace"/> 的退役位图（解码节拍每帧调用，列表空时零开销）；
+    /// <paramref name="force"/> 无视宽限全部释放（终末冲刷用）。</summary>
+    internal void FlushRetiredFrames(bool force = false)
+    {
+        List<WriteableBitmap>? doomed = null;
+        lock (_gate)
+        {
+            if (_retiredFrames.Count == 0)
+            {
+                return;
+            }
+
+            var now = Environment.TickCount64;
+            for (var i = _retiredFrames.Count - 1; i >= 0; i--)
+            {
+                if (force || now - _retiredFrames[i].RetiredAt >= RetireGrace.TotalMilliseconds)
+                {
+                    (doomed ??= []).Add(_retiredFrames[i].Bitmap);
+                    _retiredFrames.RemoveAt(i);
+                }
+            }
+        }
+
+        // Dispose 在 _gate 外执行：位图释放可能触碰平台内部锁，不与帧路径互锁
+        if (doomed is null)
+        {
+            return;
+        }
+
+        foreach (var bitmap in doomed)
+        {
+            try
+            {
+                bitmap.Dispose();
+                Volatile.Write(ref _disposedFrameBitmaps, _disposedFrameBitmaps + 1);
             }
             catch (Exception ex)
             {
-                logger?.LogInformation(ex, "Cannot create frame bitmap");
-                return null;
+                logger?.LogInformation(ex, "Frame bitmap dispose failed");
             }
         }
     }
@@ -1290,12 +1388,28 @@ public sealed class FfmpegVideoBackdropPlayer(
     {
         lock (_gate)
         {
+            RetireFrame(_frame);
+            RetireFrame(_fadeFrame);
             _frame = null;
             _fadeFrame = null;
             _fadeOpacity = 0;
         }
 
         NotifyFrame();
+
+        // 终末冲刷：会话结束后不再有解码节拍驱动 FlushRetiredFrames，宽限期到点由后台任务收尾
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(RetireGrace + TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+                FlushRetiredFrames(force: true);
+            }
+            catch (Exception)
+            {
+                // 播放器已释放等边界：退役位图随进程回收，终末冲刷是尽力而为
+            }
+        });
     }
 
     /// <summary>在 UI 线程触发帧就绪通知（渲染控件据此重绘）。</summary>
