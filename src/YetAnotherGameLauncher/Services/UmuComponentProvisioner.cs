@@ -32,7 +32,7 @@ public sealed class UmuComponentProvisioner(
 {
     /// <summary>本地化文案（F12，2026-09-24 迁移）：进度/错误消息经 strings_*.json 双语成对；
     /// 不注入即默认 zh-CN（与旧字面量等值），既有测试断言不受影响。</summary>
-    private readonly ILocalizationService loc = loc ?? new LocalizationService();
+    private readonly ILocalizationService _loc = loc ?? new LocalizationService();
     /// <summary>主机（或测试注入）架构；资产过滤与 ELF 兜底校验的判定基准。</summary>
     private Architecture HostArchitecture => hostArchitecture ?? RuntimeInformation.ProcessArchitecture;
     /// <summary>GE-Proton 最新 release 的 GitHub API。</summary>
@@ -134,7 +134,7 @@ public sealed class UmuComponentProvisioner(
         }
 
         // 缺失才下载：代号走 latest，具体版本名只下该 tag
-        progress?.Report(loc.Format("umu_progress_prepareProton", protonRequest));
+        progress?.Report(_loc.Format("umu_progress_prepareProton", protonRequest));
         if (IsCodename(protonRequest))
         {
             return await DownloadLatestProtonAsync(protonRequest, progress, cancellationToken)
@@ -218,7 +218,7 @@ public sealed class UmuComponentProvisioner(
             return;
         }
 
-        progress?.Report(loc.Format("umu_progress_downloadRuntime", runtimeVariant));
+        progress?.Report(_loc.Format("umu_progress_downloadRuntime", runtimeVariant));
         await DownloadRuntimeAsync(runtimeVariant, runtimeName, progress, cancellationToken)
             .ConfigureAwait(false);
     }
@@ -247,13 +247,13 @@ public sealed class UmuComponentProvisioner(
 
             throw new LaunchException(
                 LaunchFailureKind.ProtonDownloadFailed,
-                loc["umu_err_noTagName"]);
+                _loc["umu_err_noTagName"]);
         }
         catch (JsonException ex)
         {
             throw new LaunchException(
                 LaunchFailureKind.ProtonDownloadFailed,
-                loc.Format("umu_err_releaseParse", ex.Message),
+                _loc.Format("umu_err_releaseParse", ex.Message),
                 ex);
         }
     }
@@ -278,9 +278,9 @@ public sealed class UmuComponentProvisioner(
         var flavor = MatchFlavor(protonRequest)
             ?? throw new LaunchException(
                 LaunchFailureKind.ProtonDownloadFailed,
-                loc.Format("umu_err_unsupportedCodename", protonRequest));
+                _loc.Format("umu_err_unsupportedCodename", protonRequest));
 
-        progress?.Report(loc.Format("umu_progress_downloadLatest", protonRequest));
+        progress?.Report(_loc.Format("umu_progress_downloadLatest", protonRequest));
         var newPath = await DownloadLatestProtonAsync(protonRequest, progress, cancellationToken)
             .ConfigureAwait(false);
         PruneOtherProtonVersions(newPath, flavor.LocalPrefix);
@@ -426,7 +426,7 @@ public sealed class UmuComponentProvisioner(
             {
                 throw new LaunchException(
                     LaunchFailureKind.ProtonDownloadFailed,
-                    loc.Format("umu_err_tagReleaseNotFound", tagName));
+                    _loc.Format("umu_err_tagReleaseNotFound", tagName));
             }
 
             response.EnsureSuccessStatusCode();
@@ -444,7 +444,7 @@ public sealed class UmuComponentProvisioner(
         {
             throw new LaunchException(
                 LaunchFailureKind.ProtonDownloadFailed,
-                loc.Format("umu_err_tagVersionFetch", tagName, ex.Message),
+                _loc.Format("umu_err_tagVersionFetch", tagName, ex.Message),
                 ex);
         }
 
@@ -457,7 +457,7 @@ public sealed class UmuComponentProvisioner(
             {
                 throw new LaunchException(
                     LaunchFailureKind.ProtonDownloadFailed,
-                    loc.Format("umu_err_tagNoArchAsset", tagName));
+                    _loc.Format("umu_err_tagNoArchAsset", tagName));
             }
         }
         catch (LaunchException)
@@ -468,11 +468,11 @@ public sealed class UmuComponentProvisioner(
         {
             throw new LaunchException(
                 LaunchFailureKind.ProtonDownloadFailed,
-                loc.Format("umu_err_tagReleaseParse", tagName, ex.Message),
+                _loc.Format("umu_err_tagReleaseParse", tagName, ex.Message),
                 ex);
         }
 
-        progress?.Report(loc.Format("umu_progress_downloadAsset", asset.Name));
+        progress?.Report(_loc.Format("umu_progress_downloadAsset", asset.Name));
         var (targetDir, tarPath) = ResolveProtonInstallPaths(asset.Name);
         return await InstallProtonAssetAsync(asset, targetDir, tarPath, tagName, cancellationToken);
     }
@@ -494,18 +494,18 @@ public sealed class UmuComponentProvisioner(
             if (string.IsNullOrEmpty(asset.Url))
             {
                 throw new UpdateException(
-                    loc.Format("umu_err_noArchAsset", flavor.AssetPrefix));
+                    _loc.Format("umu_err_noArchAsset", flavor.AssetPrefix));
             }
         }
         catch (JsonException ex)
         {
             throw new LaunchException(
                 LaunchFailureKind.ProtonDownloadFailed,
-                loc.Format("umu_err_releaseParse", ex.Message),
+                _loc.Format("umu_err_releaseParse", ex.Message),
                 ex);
         }
 
-        progress?.Report(loc.Format("umu_progress_downloadAsset", asset.Name));
+        progress?.Report(_loc.Format("umu_progress_downloadAsset", asset.Name));
         var (targetDir, tarPath) = ResolveProtonInstallPaths(asset.Name);
         return await InstallProtonAssetAsync(asset, targetDir, tarPath, tagName: null, cancellationToken);
     }
@@ -518,7 +518,7 @@ public sealed class UmuComponentProvisioner(
         var flavor = MatchFlavor(protonRequest)
             ?? throw new LaunchException(
                 LaunchFailureKind.ProtonDownloadFailed,
-                loc.Format("umu_err_unsupportedCodename", protonRequest));
+                _loc.Format("umu_err_unsupportedCodename", protonRequest));
 
         try
         {
@@ -537,7 +537,7 @@ public sealed class UmuComponentProvisioner(
         {
             throw new LaunchException(
                 LaunchFailureKind.ProtonDownloadFailed,
-                loc.Format("umu_err_versionFetchNetwork", ex.Message),
+                _loc.Format("umu_err_versionFetchNetwork", ex.Message),
                 ex);
         }
     }
@@ -655,7 +655,7 @@ public sealed class UmuComponentProvisioner(
         {
             throw new LaunchException(
                 LaunchFailureKind.ProtonDownloadFailed,
-                loc.Format("umu_err_untrustedAssetName", assetName));
+                _loc.Format("umu_err_untrustedAssetName", assetName));
         }
 
         var compatRoot = UmuPaths.SteamCompatRoot(dataHome);
@@ -721,7 +721,7 @@ public sealed class UmuComponentProvisioner(
                 {
                     throw new LaunchException(
                         LaunchFailureKind.ProtonDownloadFailed,
-                        loc.Format("umu_err_packageIncomplete", asset.Name));
+                        _loc.Format("umu_err_packageIncomplete", asset.Name));
                 }
 
                 // 兜底校验：无架构后缀的资产也可能装错架构（wineserver 的 ELF e_machine 对照主机）
@@ -731,7 +731,7 @@ public sealed class UmuComponentProvisioner(
                     TryDeleteDirectory(targetDir);
                     throw new LaunchException(
                         LaunchFailureKind.ProtonDownloadFailed,
-                        loc.Format("umu_err_archMismatch", asset.Name, ArchDisplayName(machine.Value)));
+                        _loc.Format("umu_err_archMismatch", asset.Name, ArchDisplayName(machine.Value)));
                 }
 
                 TryChmod(Path.Combine(targetDir, "proton"));
@@ -758,7 +758,7 @@ public sealed class UmuComponentProvisioner(
                 // 漏掉会让 VM 收到 Unknown，丢失重试按钮与本机 Proton 下拉的修复 UI
                 throw new LaunchException(
                     LaunchFailureKind.ProtonDownloadFailed,
-                    loc.Format("umu_err_protonDownload", ex.Message),
+                    _loc.Format("umu_err_protonDownload", ex.Message),
                     ex);
             }
             finally
@@ -795,7 +795,7 @@ public sealed class UmuComponentProvisioner(
                 {
                     throw new LaunchException(
                         LaunchFailureKind.UmuRuntimeDownloadFailed,
-                        loc["umu_err_runtimeVersionEmpty"]);
+                        _loc["umu_err_runtimeVersionEmpty"]);
                 }
 
                 var baseUrl = $"{RuntimeHost}{images}/{version}";
@@ -806,7 +806,7 @@ public sealed class UmuComponentProvisioner(
                 var cache = UmuPaths.CacheRoot(cacheHome);
                 Directory.CreateDirectory(cache);
                 archivePath = Path.Combine(cache, $"{archive}.{buildId}");
-                progress?.Report(loc.Format("umu_progress_downloadRuntimeVersion", version));
+                progress?.Report(_loc.Format("umu_progress_downloadRuntimeVersion", version));
 
                 await downloader.DownloadFileAsync(
                     new DownloadRequest($"{baseUrl}/{archive}", archivePath, ExpectedSize: null, ExpectedMd5: null),
@@ -824,7 +824,7 @@ public sealed class UmuComponentProvisioner(
                 // 版本号拉取等直连请求抛 HttpRequestException——用户取消不在此分类（下方 rethrow）
                 throw new LaunchException(
                     LaunchFailureKind.UmuRuntimeDownloadFailed,
-                    loc.Format("umu_err_runtimeDownload", ex.Message),
+                    _loc.Format("umu_err_runtimeDownload", ex.Message),
                     ex);
             }
             catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
@@ -834,7 +834,7 @@ public sealed class UmuComponentProvisioner(
                 // 启动路径则落 Unknown 类目（2026-09-20 复审修复）
                 throw new LaunchException(
                     LaunchFailureKind.UmuRuntimeDownloadFailed,
-                    loc.Format("umu_err_runtimeDownloadTimeout", ex.Message),
+                    _loc.Format("umu_err_runtimeDownloadTimeout", ex.Message),
                     ex);
             }
         }
@@ -867,7 +867,7 @@ public sealed class UmuComponentProvisioner(
             var top = Directory.EnumerateDirectories(staging).FirstOrDefault()
                       ?? throw new LaunchException(
                           LaunchFailureKind.UmuRuntimeDownloadFailed,
-                          loc["umu_err_runtimeNoTopDir"]);
+                          _loc["umu_err_runtimeNoTopDir"]);
             if (Directory.Exists(installRoot))
             {
                 Directory.Delete(installRoot, recursive: true);
@@ -905,7 +905,7 @@ public sealed class UmuComponentProvisioner(
         {
             throw new LaunchException(
                 LaunchFailureKind.UmuRuntimeDownloadFailed,
-                loc.Format("umu_err_runtimeExtract", ex.Message),
+                _loc.Format("umu_err_runtimeExtract", ex.Message),
                 ex);
         }
         finally
@@ -1185,7 +1185,7 @@ public sealed class UmuComponentProvisioner(
         {
             throw new LaunchException(
                 LaunchFailureKind.UmuRuntimeDownloadFailed,
-                loc.Format("umu_err_runtimeShaMismatch", expected, actual));
+                _loc.Format("umu_err_runtimeShaMismatch", expected, actual));
         }
     }
 

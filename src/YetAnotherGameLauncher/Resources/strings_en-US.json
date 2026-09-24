@@ -194,8 +194,7 @@
   "settings_proxySave": "Save",
   "settings_proxySaved": "Proxy settings saved and applied instantly",
   "settings_proxyInvalid": "Manual proxy requires a valid http(s)://host:port address",
-  "settings_proxyHint": "Applies to version checks, downloads, backdrops and convene history; changes take effect immediately after save."
-,
+  "settings_proxyHint": "Applies to version checks, downloads, backdrops and convene history; changes take effect immediately after save.",
   "umu_progress_prepareProton": "Preparing Proton ({0})…",
   "umu_progress_downloadRuntime": "Downloading Steam Runtime ({0})…",
   "umu_progress_downloadLatest": "Downloading latest {0}…",

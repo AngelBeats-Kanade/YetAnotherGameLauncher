@@ -194,8 +194,7 @@
   "settings_proxySave": "保存",
   "settings_proxySaved": "代理设置已保存并即时生效",
   "settings_proxyInvalid": "手动代理需要合法的 http(s)://host:port 地址",
-  "settings_proxyHint": "代理作用于版本查询、下载与背景/唤取记录等全部网络请求；修改保存后立即生效。"
-,
+  "settings_proxyHint": "代理作用于版本查询、下载与背景/唤取记录等全部网络请求；修改保存后立即生效。",
   "umu_progress_prepareProton": "正在准备 Proton（{0}）…",
   "umu_progress_downloadRuntime": "正在下载 Steam Runtime（{0}）…",
   "umu_progress_downloadLatest": "正在下载 {0} 最新版本…",
