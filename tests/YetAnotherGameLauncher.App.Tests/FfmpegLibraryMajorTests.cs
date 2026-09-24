@@ -31,4 +31,28 @@ public class FfmpegLibraryMajorTests
         // 未收录库名回退 avcodec 主版本（与旧行为一致，仅作最后兜底）
         Assert.Equal(63, FfmpegLibraryResolver.LibraryFileMajor("postproc-unknown"));
     }
+
+    [Fact]
+    public void LibraryDependencyOrder_SatisfiesBtbnRuntimeDeps()
+    {
+        // readelf 实测（2026-09-24，本机 BtbN n9.0 下载目录）：库间 DT_NEEDED 只有同伴 soname 且无
+        // RUNPATH——glibc 不会到被加载库自己的目录找依赖，依赖必须先 dlopen 驻留。此测试钉住
+        // 预载序必须满足的依赖约束（位置 = 预载序中的索引）：漏改/乱序会在此红，而不是在真机上
+        // 以"avformat_open_input 抛 NotSupportedException stub"的形态回归（2026-09-24 P0 教训）
+        var order = FfmpegLibraryResolver.LibraryDependencyOrder;
+        int IndexOf(string name) => Array.IndexOf(order, name);
+
+        Assert.Equal(7, order.Distinct().Count()); // 七库齐全且无重复
+        // avutil 无同伴依赖，必须最先；swresample/swscale 只依赖 avutil
+        Assert.True(IndexOf("avutil") < IndexOf("swresample"));
+        Assert.True(IndexOf("avutil") < IndexOf("swscale"));
+        // libavcodec NEEDED libswresample.so.7 + libavutil.so.61（readelf 实测）
+        Assert.True(IndexOf("swresample") < IndexOf("avcodec"));
+        Assert.True(IndexOf("avutil") < IndexOf("avcodec"));
+        // libavformat NEEDED libavcodec.so.63 + libavutil.so.61（readelf 实测）
+        Assert.True(IndexOf("avcodec") < IndexOf("avformat"));
+        // avfilter/avdevice 在最末（依赖 avcodec/avformat/swscale 全家）
+        Assert.True(IndexOf("avcodec") < IndexOf("avfilter"));
+        Assert.True(IndexOf("avformat") < IndexOf("avdevice"));
+    }
 }

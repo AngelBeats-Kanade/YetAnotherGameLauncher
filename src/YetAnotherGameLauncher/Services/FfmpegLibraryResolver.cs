@@ -170,7 +170,16 @@ public sealed partial class FfmpegLibraryResolver(
         _sharedResolver!.SetDirectory(directory);
         try
         {
+            // 就绪判定必须覆盖播放器实际用到的每个库（avutil/avcodec/avformat/swresample/swscale）。
+            // 只探 av_version_info 会把"其余库全没加载"误判成就绪——avutil 无同伴依赖总能独立加载、
+            // av_version_info 恰好 ABI 稳定，故障被推迟到起播时以 NotSupportedException stub 爆出
+            // （2026-09-24 本机实锤：EnsureReady True + avformat_open_input 抛 stub）。不探
+            // avfilter/avdevice：播放器不用它们，最小系统安装可能缺件而误伤可用环境
             _ = av_version_info();
+            _ = avcodec_version();
+            _ = avformat_version();
+            _ = swresample_version();
+            _ = swscale_version();
             Volatile.Write(ref _resolveState, ResolveReady);
             logger?.LogInformation("FFmpeg libraries ready ({Source})", directory ?? "system");
             return true;
@@ -272,7 +281,8 @@ public sealed partial class FfmpegLibraryResolver(
         }
     }
 
-    /// <summary>按扩展名解压（zip 用内置实现，tar.xz 用 SharpCompress），拒绝路径穿越条目。</summary>
+    /// <summary>按扩展名解压（zip 用内置实现，tar.xz 用 SharpCompress），拒绝路径穿越条目；
+    /// tar 符号链接条目还原为真符号链接（BtbN 的短名 soname 即此形态）。</summary>
     internal static void ExtractArchive(string archivePath, string targetDir)
     {
         if (archivePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
@@ -301,9 +311,43 @@ public sealed partial class FfmpegLibraryResolver(
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+
+            // 符号链接条目：BtbN tar 里短名 soname（libavcodec.so.63）是指向真实文件（.63.1.102）
+            // 的符号链接，WriteEntryTo 会把它摊平成 0 字节普通文件（2026-09-24 实锤：本机下载目录
+            // 14 个短名全 0 字节，短名永远加载失败）。仅允许同目录裸文件名目标——带分隔符/绝对路径/
+            // ".." 的目标即逃逸，与条目沙箱同一拒绝语义
+            var linkTarget = reader.Entry.LinkTarget;
+            if (!string.IsNullOrEmpty(linkTarget))
+            {
+                if (linkTarget.Contains('/') || linkTarget.Contains('\\') || Path.IsPathRooted(linkTarget)
+                    || linkTarget is ".." or ".")
+                {
+                    throw new IOException($"Refusing symlink with escaping target: {reader.Entry.Key} -> {linkTarget}");
+                }
+
+                if (Directory.Exists(fullPath))
+                {
+                    throw new IOException($"Symlink path occupied by a directory: {reader.Entry.Key}");
+                }
+
+                File.Delete(fullPath); // 清掉旧解压产物（含修复前摊平的 0 字节文件），幂等重解压
+                File.CreateSymbolicLink(fullPath, linkTarget);
+                continue;
+            }
+
             reader.WriteEntryTo(fullPath);
         }
     }
+
+    /// <summary>
+    /// 目录预载的依赖序（readelf 实测 BtbN n9.0 构建，2026-09-24）：各库 DT_NEEDED 只有同伴
+    /// soname（libavformat 需要 libavcodec.so.63、libavcodec 需要 libswresample.so.7/libavutil.so.61），
+    /// 且这些库**没有 RUNPATH**——glibc 不会到被加载库自己的目录找依赖，只能靠"依赖先 dlopen、
+    /// 按 soname 驻留"逐级满足；按 AutoGen 请求序（avformat 可能先于 avcodec）加载即必败。
+    /// internal 供依赖序回归测试钉住相对位置（avutil 最先、avcodec 先于 avformat 等）。
+    /// </summary>
+    internal static readonly string[] LibraryDependencyOrder =
+        ["avutil", "swresample", "swscale", "avcodec", "avformat", "avfilter", "avdevice"];
 
     /// <summary>递归查找目录里 avcodec 库文件所在目录；找不到返回 null。</summary>
     internal static string? LocateLibraryDir(string? root)
@@ -349,6 +393,9 @@ public sealed partial class FfmpegLibraryResolver(
 
         private string? _directory;
 
+        /// <summary>目录预载是否已执行（见 <see cref="PreloadDirectoryLibraries"/>，每实例一次）。</summary>
+        private bool _directoryPreloaded;
+
         /// <summary>设置库目录（null = 仅系统默认搜索）。</summary>
         public void SetDirectory(string? directory) => _directory = directory;
 
@@ -370,40 +417,28 @@ public sealed partial class FfmpegLibraryResolver(
         }
 
         /// <summary>按库名加载：AutoGen 传裸名（avcodec），Windows 实际文件带主版本（avcodec-63.dll）；
-        /// 先目录内裸名文件，再目录内版本文件（按前缀枚举，不依赖绑定版本表），最后系统默认搜索；
-        /// 失败句柄也缓存避免反复尝试。</summary>
+        /// 目录模式下先按依赖序预载（见 <see cref="PreloadDirectoryLibraries"/>），再目录内裸名/版本化文件，
+        /// 最后系统默认搜索；失败句柄也缓存避免反复尝试。</summary>
         private IntPtr GetOrLoadLibrary(string libraryName)
         {
-            if (_loaded.TryGetValue(libraryName, out var cached))
+            if (_loaded.TryGetValue(libraryName, out var cached) && cached != IntPtr.Zero)
             {
                 return cached;
             }
 
             var handle = IntPtr.Zero;
-            var directory = _directory;
-            if (directory is not null)
+            if (_directory is not null)
             {
-                var bare = OperatingSystem.IsWindows() ? libraryName + ".dll" : libraryName;
-                var barePath = Path.Combine(directory, bare);
-                if (File.Exists(barePath) && NativeLibrary.TryLoad(barePath, out handle))
+                if (!_directoryPreloaded)
                 {
-                    _loaded[libraryName] = handle;
-                    return handle;
-                }
-
-                // 版本化文件名（avcodec-63.dll / libavcodec.so.63）：目录内按前缀枚举，不触碰绑定版本表
-                var versioned = Directory.EnumerateFiles(directory,
-                        (OperatingSystem.IsWindows() ? libraryName + "-" : "lib" + libraryName + ".so.") + "*")
-                    .OrderByDescending(p => p, StringComparer.Ordinal);
-                foreach (var candidate in versioned)
-                {
-                    if (NativeLibrary.TryLoad(candidate, out handle))
+                    PreloadDirectoryLibraries();
+                    if (_loaded.TryGetValue(libraryName, out var preloaded) && preloaded != IntPtr.Zero)
                     {
-                        break;
+                        return preloaded;
                     }
-
-                    handle = IntPtr.Zero;
                 }
+
+                handle = TryLoadFromDirectory(libraryName); // 表外库名/预载失败的幂等重试
             }
 
             if (handle == IntPtr.Zero)
@@ -435,6 +470,51 @@ public sealed partial class FfmpegLibraryResolver(
 
             _loaded[libraryName] = handle;
             return handle;
+        }
+
+        /// <summary>首入目录时按 <see cref="LibraryDependencyOrder"/> 预载全部库（失败也缓存零句柄）：
+        /// 目录内版本化文件互相以 soname 依赖且无 RUNPATH，glibc 只认"已驻留对象 + 系统搜索路径"，
+        /// 依赖不先驻留则 avformat/avcodec 这类后位库 dlopen 必败（2026-09-24 本机实锤：
+        /// 只加载出 libavutil，avformat_open_input 落到 AutoGen throw-stub 抛 NotSupportedException）。</summary>
+        private void PreloadDirectoryLibraries()
+        {
+            _directoryPreloaded = true;
+            foreach (var name in LibraryDependencyOrder)
+            {
+                if (_loaded.TryGetValue(name, out var cached) && cached != IntPtr.Zero)
+                {
+                    continue;
+                }
+
+                _loaded[name] = TryLoadFromDirectory(name);
+            }
+        }
+
+        /// <summary>目录内加载：先裸名文件（Windows 加 .dll），再版本化文件按前缀枚举（序号大的优先），
+        /// 不触碰绑定版本表；失败返回零句柄（系统回退交给调用方）。</summary>
+        private IntPtr TryLoadFromDirectory(string libraryName)
+        {
+            var directory = _directory!;
+            var bare = OperatingSystem.IsWindows() ? libraryName + ".dll" : libraryName;
+            var barePath = Path.Combine(directory, bare);
+            if (File.Exists(barePath) && NativeLibrary.TryLoad(barePath, out var handle))
+            {
+                return handle;
+            }
+
+            // 版本化文件名（avcodec-63.dll / libavcodec.so.63）：目录内按前缀枚举，不依赖绑定版本表
+            var versioned = Directory.EnumerateFiles(directory,
+                    (OperatingSystem.IsWindows() ? libraryName + "-" : "lib" + libraryName + ".so.") + "*")
+                .OrderByDescending(p => p, StringComparer.Ordinal);
+            foreach (var candidate in versioned)
+            {
+                if (NativeLibrary.TryLoad(candidate, out handle))
+                {
+                    return handle;
+                }
+            }
+
+            return IntPtr.Zero;
         }
     }
 }
