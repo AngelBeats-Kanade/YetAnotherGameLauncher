@@ -9,6 +9,11 @@ namespace YetAnotherGameLauncher.AppTests;
 /// 预加载在途时任何导航/刷新（版本未变、不重载资产）都会递增代际把预加载结果误杀，
 /// 图标/背景丢失直到版本/区域再变；另需保住原始目标：快切语言时旧区域背景不得"后到先赢"。
 /// 现用专用 _assetLoadGeneration：仅更新的资产加载可作废在途结果。
+/// 2026-09-24 重设计：前版 StaleRegionResult 用例的原绿是双巧合——①resolver 判
+/// StartsWith("zh") 而 RegionForLanguage 实产 "cn"/"global"（zh 分支死代码，两轮都解析 en）；
+/// ②StubHttpHandler 的 ReleaseFirstRequest 是死代码（门键被 Remove，放行从未生效），旧加载
+/// 永远挂在图标请求上不再前进。门控修复（StubHttpHandlerGateTests）+ 真实区域分流后，
+/// 本用例把旧加载真实地钉在 poster 写入窗口（:508 复核之后、写入段之前的代际盲区）。
 /// </summary>
 [Collection("sequential")]
 public class GameItemAssetGenerationTests : IDisposable
@@ -65,31 +70,47 @@ public class GameItemAssetGenerationTests : IDisposable
     public async Task AssetLoad_StaleRegionResult_DoesNotLandAfterNewerLoad()
     {
         // 原始目标的守卫：快切语言时先发（旧区域）的加载后完成，不得覆盖新一轮加载的结果。
-        // 挂起点选 http 图标（解析器之前）：背景服务对同游戏的解析按信号量串行，
-        // 挂在解析器上会让新一轮加载死锁在后面，构不成"新先旧后"的交错
-        var videoEn = _ctx.TempDir.FilePath("video-en.mp4");
-        var videoZh = _ctx.TempDir.FilePath("video-zh.mp4");
-        await File.WriteAllTextAsync(videoEn, "fake");
-        await File.WriteAllTextAsync(videoZh, "fake");
-        var iconUrl = "https://cdn.example.com/icon.png";
-        _ctx.BackgroundHandler.Map(iconUrl, new byte[] { 1, 2, 3 });
-        var iconGate = _ctx.BackgroundHandler.GateFirstRequest(iconUrl);
+        // 构造（2026-09-24 重设计，前版原绿是双巧合——见类头注释）：
+        // - 视频直链不映射（404）→ 背景服务下载失败走"直链穿透"，两轮解析都把 http 直链
+        //   交回 VM——旧加载因此恰好挂在 **VM 海报 LoadAsync（poster 窗口）**，即 :508 复核
+        //   之后、写入段（BackgroundImage/_videoPath/StartVideoAsync）之前的代际盲区；
+        //   挂在服务内部（如视频下载）不行：背景服务对同游戏解析按信号量串行，会把
+        //   新一轮加载死锁在后面，构不成"新先旧后"的交错
+        // - 区域分流用真实产出值（RegionForLanguage → "cn"/"global"，前版判 StartsWith("zh")
+        //   是永不命中的死分支）；StubHttpHandler 首请求门控经本批修复后放行真实生效
+        var videoEn = "https://cdn.example.com/video-en.mp4";
+        var videoZh = "https://cdn.example.com/video-zh.mp4";
+        var posterEn = "https://cdn.example.com/poster-en.png";
+        var posterZh = "https://cdn.example.com/poster-zh.png";
+        _ctx.BackgroundHandler.Map(posterEn, new byte[] { 1, 2, 3 });
+        _ctx.BackgroundHandler.Map(posterZh, new byte[] { 4, 5, 6 });
+        _ = _ctx.BackgroundHandler.GateFirstRequest(posterZh);
         var resolvedRegions = new List<string>();
         _ctx.KuroBackdrop.AsyncRequestResolver = request =>
         {
             resolvedRegions.Add(request.Region);
+            var cn = request.Region == "cn";
             return Task.FromResult<BackdropSource?>(new BackdropSource(
-                request.Region.StartsWith("zh", StringComparison.Ordinal) ? videoZh : videoEn, BackdropKind.Video));
+                cn ? videoZh : videoEn, BackdropKind.Video, cn ? posterZh : posterEn));
         };
 
         await _ctx.Vm.InitializeAsync();
         var game = _ctx.Vm.Games[0];
-        game.Game.Icon = iconUrl; // http 图标：刷新链路的图标加载走可挂起的处理器
         game.SetDetailActive(true);
-        await game.RefreshAsync(); // 旧区域加载：图标请求挂起（解析未到）
+        await game.RefreshAsync(); // 旧区域加载（cn）：视频 404 穿透 → 挂在海报请求上
+
+        // 在途可见性（round-4 教训）：轮询 handler 确认旧加载确实到达 poster 窗口再切换语言，
+        // 否则"旧加载未到挂起点就换代"的竞态会让断言对无门代码假绿
+        var pinned = false;
+        for (var i = 0; i < 500 && !pinned; i++)
+        {
+            await Task.Delay(10);
+            pinned = _ctx.BackgroundHandler.Requests.Any(r => r.RequestUri!.ToString() == posterZh);
+        }
+        Assert.True(pinned, $"旧区域加载应已挂起在海报请求上; resolved=[{string.Join(",", resolvedRegions)}]");
 
         _ctx.Vm.Loc.SetLanguage("en-US");
-        await game.RefreshAsync(); // 新区域加载：图标直通 → en 视频起播
+        await game.RefreshAsync(); // 新区域加载（global）：海报直通 → en 视频起播
 
         var enPlayed = false;
         for (var i = 0; i < 500 && !enPlayed; i++)
@@ -98,13 +119,21 @@ public class GameItemAssetGenerationTests : IDisposable
             enPlayed = Player.PlayedPaths.Contains(videoEn);
         }
 
-        // 放行旧区域的图标请求：旧加载继续走到解析（zh 视频）——
-        // 必须被代际门丢弃，不得再起播/覆盖（无门变异会让 zh 视频落到最后）
-        _ctx.BackgroundHandler.ReleaseFirstRequest(iconUrl);
+        // 放行旧区域的海报请求：旧加载继续走到写入段——必须被代际门丢弃，
+        // 不得覆盖海报/不得以旧区域视频路径起播（无门变异会让 zh 视频落到最后）
+        _ctx.BackgroundHandler.ReleaseFirstRequest(posterZh);
         await Task.Delay(300);
 
         Assert.True(enPlayed, $"新区域加载应已起播 en 视频; played=[{string.Join(",", Player.PlayedPaths)}] resolved=[{string.Join(",", resolvedRegions)}] culture={_ctx.Vm.Loc.EffectiveCulture}");
         Assert.Equal(videoEn, Player.PlayedPaths[^1]);
-        Assert.DoesNotContain(videoZh, Player.PlayedPaths[..^1]);
+        Assert.DoesNotContain(videoZh, Player.PlayedPaths);
     }
+
+    // 静态图窗口（else 分支）的代际门没有独立红绿用例——**已声明的盲区**（DEVELOPMENT.md §3.6）：
+    // 无法经现有服务层把旧加载钉在 VM 的静态图 LoadAsync 上——GameBackdropService 会先自己
+    // 下载静态图（TryDownloadAsync 对 Image/Video 一视同仁）再把本地路径交回 VM；挂住服务内
+    // 下载则让同游戏的新一轮 ResolveAsync 死锁在 per-game semaphore 后面（本用例早期构造实锤，
+    // enLanded 永假）；"服务下载失败→直链穿透"路径上门的首个 claim 又必被服务侧请求消耗，
+    // VM 的请求永远第二个到。静态门与 poster 门同型同修（LoadAssetsCoreAsync else 分支），
+    // 红绿由同构的 poster 窗口用例（上方）代为验证。
 }

@@ -512,6 +512,14 @@ public partial class GameItemViewModel(
             if (backdrop?.Kind == BackdropKind.Video && backdrop.Source is { } videoPath)
             {
                 var poster = await backgroundImageService.LoadAsync(backdrop.PosterSource, cancellationToken);
+                if (generation != _assetLoadGeneration)
+                {
+                    // poster 窗口（2026-09-24 补）：背景解析返回时还是当代、海报加载窗口内被新区域
+                    // 加载换代——此后的写入（BackgroundImage/_videoPath/StartVideoAsync）全部放弃，
+                    // 否则旧区域结果"后到先赢"覆盖新一轮（测试把旧加载钉在海报请求上实证过）
+                    return;
+                }
+
                 BackgroundImage = poster;
                 HasBackgroundImage = poster is not null;
                 _videoPath = videoPath;
@@ -528,10 +536,17 @@ public partial class GameItemViewModel(
             else
             {
                 // 非视频类背景（静态图/解析失败）：清停自己的会话并回退静态图——
-                // 播放器按游戏独占，后台资产加载触发的清停不会波及其他游戏页
+                // 播放器按游戏独占，后台资产加载触发的清停不会波及其他游戏页。
+                // 静态图加载同样有换代窗口：清停/写入必须挪到加载完成后复核代际再执行——
+                // 过代加载不得停掉新一代已起播的视频会话（StopVideo 先于 await 的旧序遗留）
+                var image = await backgroundImageService.LoadAsync(backdrop?.Source, cancellationToken);
+                if (generation != _assetLoadGeneration)
+                {
+                    return;
+                }
+
                 StopVideo();
                 _videoPath = null;
-                var image = await backgroundImageService.LoadAsync(backdrop?.Source, cancellationToken);
                 BackgroundImage = image;
                 HasBackgroundImage = image is not null;
             }
