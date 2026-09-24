@@ -38,7 +38,9 @@ public sealed class StubHttpHandler : HttpMessageHandler
     }
 
     /// <summary>让发往该 URL 的第一个请求挂起，直到 <see cref="ReleaseFirstRequest"/>；
-    /// 后续请求直通。竞态测试用它把调用链钉在真实 await 点上构造确定性交错。</summary>
+    /// 后续请求直通。竞态测试用它把调用链钉在真实 await 点上构造确定性交错。
+    /// 同一 URL 重复调用会覆盖旧门（旧等待者失去放行路径而永挂）——现无此用法，
+    /// 新用例须保证每个 URL 只门一次（N4，2026-09-24 review 立项）。</summary>
     public Task GateFirstRequest(string url)
     {
         var gate = new FirstRequestGate();

@@ -121,6 +121,10 @@ public class GameItemAssetGenerationTests : IDisposable
 
         // 放行旧区域的海报请求：旧加载继续走到写入段——必须被代际门丢弃，
         // 不得覆盖海报/不得以旧区域视频路径起播（无门变异会让 zh 视频落到最后）
+        // 判别力耦合声明（M1，2026-09-24 变异实验实锤）：本用例的"放行后落地"前提是
+        // StubHttpHandler 门控放行真实生效（StubHttpHandlerGateTests 守卫）——放行失效的旧
+        // 死代码形态下旧加载永挂、zh 永不落地，本用例会空洞变绿。两测试互为前置守卫，
+        // 改动任一需对照另一个的判别力
         _ctx.BackgroundHandler.ReleaseFirstRequest(posterZh);
         await Task.Delay(300);
 
