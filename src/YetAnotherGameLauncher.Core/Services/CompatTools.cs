@@ -74,7 +74,21 @@ public static class CompatTools
                 continue;
             }
 
-            foreach (var dir in Directory.EnumerateDirectories(root))
+            IEnumerable<string> directories;
+            try
+            {
+                // 物化（ToList）：EnumerateDirectories 惰性求值，异常会漏到 foreach 处抛出
+                directories = Directory.EnumerateDirectories(root).ToList();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // 根目录不可读（权限/IO 故障）按"无此根"跳过：调用方之一是 LaunchSettingsViewModel
+                // 构造器（无兜底），扫描异常会把设置页整个炸掉（VM-F5，2026-09-24——降级纪律
+                // 对齐 CreateLaunchError：装饰性能力缺失不得拖垮承载它的页面）
+                continue;
+            }
+
+            foreach (var dir in directories)
             {
                 var name = Path.GetFileName(dir);
                 // 自定义工具目录取目录名；Steam 自带运行时仅取 Proton* 目录

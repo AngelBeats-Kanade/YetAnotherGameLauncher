@@ -860,7 +860,10 @@ public partial class GameItemViewModel(
     }
 
     /// <summary>改用本机 Proton：写入 PROTONPATH 环境并落盘，然后重新启动。
-    /// async void 兜底同上；版本已不存在时给 toast 反馈而非无声返回（2026-09-20 复审）。</summary>
+    /// async void 兜底同上；版本已不存在时给 toast 反馈而非无声返回（2026-09-20 复审）。
+    /// 读改写 + 落盘持 LaunchSettings 的保存串行门（VM-F4，2026-09-24）：与发行版即时保存/
+    /// 整卡保存同型交错下，不持门的后完成者会吃掉先完成者的修改（导航互斥使并发窗口极窄，
+    /// 但 fire-and-forget 保存与覆盖层操作没有导航互斥保护）。</summary>
     private async void OnLaunchErrorLocalProtonSelected(object? sender, string protonVersion)
     {
         try
@@ -872,14 +875,22 @@ public partial class GameItemViewModel(
                 return;
             }
 
-            Game.Launch.Environment["PROTONPATH"] = path;
+            await LaunchSettings.LaunchSaveGate.WaitAsync();
             try
             {
-                await catalogService.SaveAsync();
+                Game.Launch.Environment["PROTONPATH"] = path;
+                try
+                {
+                    await catalogService.SaveAsync();
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or UpdateException)
+                {
+                    // 保存失败不阻断本次启动：内存中已生效
+                }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or UpdateException)
+            finally
             {
-                // 保存失败不阻断本次启动：内存中已生效
+                LaunchSettings.LaunchSaveGate.Release();
             }
 
             LaunchError = null;

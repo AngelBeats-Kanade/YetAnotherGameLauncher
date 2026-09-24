@@ -596,8 +596,13 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     /// 写入消息槽；此处兜底捕获防未观察任务异常。</summary>
     /// <summary>启动设置保存串行门：发行版"选择即保存"（fire-and-forget）与整卡"保存启动设置"
     /// 都做"_game.Launch 读改写 + 落盘"，交错时后完成的回滚会把先完成的修改吃掉——
-    /// 两条路径全程互斥（持门期间无嵌套获取，无死锁面）（2026-09-20 复审修复）。</summary>
+    /// 两条路径全程互斥（持门期间无嵌套获取，无死锁面）（2026-09-20 复审修复）。
+    /// 第三条同型路径是 GameItemViewModel.OnLaunchErrorLocalProtonSelected（错误覆盖层
+    /// "改用本机 Proton"），经 <see cref="LaunchSaveGate"/> 同门串行（VM-F4，2026-09-24）。</summary>
     private readonly SemaphoreSlim _launchSaveGate = new(1, 1);
+
+    /// <summary>保存串行门（internal 供 GameItemViewModel 的同型读写路径共用；外部持门段内禁止再触发本 VM 的保存）。</summary>
+    internal SemaphoreSlim LaunchSaveGate => _launchSaveGate;
 
     private async Task SaveSelectedFlavorAsync()
     {

@@ -60,3 +60,54 @@ public class NumericSortKeyLongSegmentTests
             string.CompareOrdinal(CompatTools.NumericSortKey("a-1234567"), CompatTools.NumericSortKey("a-999999")) > 0);
     }
 }
+
+/// <summary>
+/// Proton 版本扫描的降级纪律（VM-F5，2026-09-24）：FindProtonVersions 是
+/// LaunchSettingsViewModel 构造器路径（无兜底），根目录不可读（权限/IO 故障）曾把
+/// UnauthorizedAccessException 直接抛进构造器炸掉整个设置页——与 CreateLaunchError
+/// 的降级纪律矛盾。不可读的根按"无此根"跳过。
+/// </summary>
+public class CompatToolsScanDegradationTests : IDisposable
+{
+    private readonly TempDir _home = new();
+
+    public void Dispose()
+    {
+        RestoreRootPermissions();
+        _home.Dispose();
+    }
+
+    /// <summary>被测根目录（.steam/steam/compatibilitytools.d，ProtonRoots 首选根）。</summary>
+    private string PrimaryRoot => _home.FilePath(".steam", "steam", "compatibilitytools.d");
+
+    private void RestoreRootPermissions()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return; // CA1416：SetUnixFileMode 仅 Unix；Windows 路径上无权限可恢复
+        }
+
+        File.SetUnixFileMode(PrimaryRoot,
+        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+        | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+    }
+
+    [Fact]
+    public void FindProtonVersions_UnreadableRoot_SkipsInsteadOfThrowing()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("chmod 语义仅 Linux（且 root 豁免 DAC，红绿以非 root 本机为准）");
+            return; // CA1416：其后代码仅 Linux 可达
+        }
+
+        Directory.CreateDirectory(PrimaryRoot);
+        File.WriteAllText(Path.Combine(PrimaryRoot, "GE-Proton99-99"), string.Empty);
+        File.SetUnixFileMode(PrimaryRoot, UnixFileMode.None); // 拒绝包括所有者的一切访问
+
+        // 红（修复前实测）：EnumerateDirectories 抛 UnauthorizedAccessException 穿出
+        var thrown = Record.Exception(() => CompatTools.FindProtonVersions(_home.Path));
+
+        Assert.Null(thrown);
+    }
+}
