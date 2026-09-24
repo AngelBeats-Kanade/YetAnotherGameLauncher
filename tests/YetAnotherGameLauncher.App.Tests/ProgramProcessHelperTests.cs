@@ -37,4 +37,38 @@ public class ProgramProcessHelperTests
             process.Kill();
         }
     }
+
+    [Fact]
+    public void WriteLineAndWaitForExit_Timeout_KillsHangingProcess()
+    {
+        // MergeXResource 的超时防御契约：WaitForExit 超时后不得把挂死子进程留成孤儿——
+        // .NET 的 Process.Dispose 不杀子进程，using 离开作用域后进程继续存活（X 连接楔死的
+        // xrdb 可能 indefinite）。同文件 ReadOutputWithTimeout 超时路径有 Kill，防御必须对称。
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("仅 Linux：用 sleep 构造关闭 stdin 也不退出的悬挂进程（本函数族只在 Linux 启动路径执行）");
+        }
+
+        using var process = Process.Start(new ProcessStartInfo("sleep", "30")
+        {
+            UseShellExecute = false,
+            RedirectStandardInput = true,
+        });
+        Assert.NotNull(process);
+
+        Program.WriteLineAndWaitForExit(process, "Xft.dpi: 96", 100);
+
+        // Kill 是信号投递，进程真正退出有微小窗口——有界轮询确认终局
+        var deadline = DateTime.UtcNow.AddSeconds(2);
+        while (!process.HasExited && DateTime.UtcNow < deadline)
+        {
+            Thread.Sleep(20);
+        }
+
+        Assert.True(process.HasExited, "WaitForExit 超时后子进程必须已被终止，而不是留成孤儿");
+        if (!process.HasExited)
+        {
+            process.Kill();
+        }
+    }
 }

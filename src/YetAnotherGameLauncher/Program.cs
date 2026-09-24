@@ -110,13 +110,23 @@ sealed class Program
                 return;
             }
 
-            process.StandardInput.WriteLine(line);
-            process.StandardInput.Close();
-            process.WaitForExit(1500);
+            WriteLineAndWaitForExit(process, line, 1500);
         }
         catch (SystemException)
         {
             // xrdb 缺失或写入失败：按默认 DPI 运行
+        }
+    }
+
+    /// <summary>向子进程 stdin 写一行并关闭，限时等待退出；超时即 Kill（与 ReadOutputWithTimeout
+    /// 的超时防御对称）——Process.Dispose 不杀子进程，否则挂死的 xrdb 会留成孤儿。</summary>
+    internal static void WriteLineAndWaitForExit(Process process, string line, int timeoutMilliseconds)
+    {
+        process.StandardInput.WriteLine(line);
+        process.StandardInput.Close();
+        if (!process.WaitForExit(timeoutMilliseconds))
+        {
+            KillProcessQuietly(process);
         }
     }
 
