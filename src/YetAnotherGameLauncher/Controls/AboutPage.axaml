@@ -41,9 +41,12 @@
                         </Grid>
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
                             <TextBlock Grid.Column="0" Text="{Binding Loc[about_projectHome]}" Classes="card-caption" Width="110"/>
+                            <!-- 短文案按钮 + ToolTip 完整地址：整串 URL 当按钮文字在信息卡里过宽过重 -->
                             <Button Grid.Column="1" Classes="btn-sm pressable glass" HorizontalAlignment="Left"
-                                    Content="{x:Static vm:AboutViewModel.ProjectHomeUrl}"
-                                    Command="{Binding OpenProjectHomeCommand}"/>
+                                    FontSize="13"
+                                    Content="{Binding Loc[about_openHome]}"
+                                    Command="{Binding OpenProjectHomeCommand}"
+                                    ToolTip.Tip="{x:Static vm:AboutViewModel.ProjectHomeUrl}"/>
                         </Grid>
                     </StackPanel>
                 </Border>

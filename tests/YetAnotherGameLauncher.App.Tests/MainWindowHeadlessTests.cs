@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.VisualTree;
 using Xunit;
 using YetAnotherGameLauncher.AppTests;
+using YetAnotherGameLauncher.ViewModels;
 using YetAnotherGameLauncher.Views;
 
 namespace YetAnotherGameLauncher.UiTests;
@@ -87,6 +88,29 @@ public class MainWindowHeadlessTests : IDisposable
             Assert.Contains("关于", texts);
             Assert.Contains("YetAnotherGameLauncher", texts);
             Assert.Contains("第三方组件", texts);
+            window.Close();
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task AboutPage_ProjectHomeButton_ShowsShortLabel_WithFullUrlInTooltip()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            window.Show();
+            _ctx.Vm.ShowAboutCommand.Execute(null);
+            window.UpdateLayout();
+
+            // 项目主页出口：短文案按钮，完整 URL 收进 ToolTip——整串 URL 当按钮文字
+            // 在信息卡里过宽过重（2026-09-25 修复）
+            var about = Assert.IsType<AboutViewModel>(_ctx.Vm.CurrentPage);
+            var home = window.GetVisualDescendants().OfType<Button>()
+                .Single(b => Equals(b.Command, about.OpenProjectHomeCommand));
+            Assert.Equal(about.Loc["about_openHome"], home.Content);
+            Assert.Equal(AboutViewModel.ProjectHomeUrl, ToolTip.GetTip(home));
             window.Close();
         }, CancellationToken.None);
     }

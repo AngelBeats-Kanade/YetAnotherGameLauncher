@@ -317,7 +317,13 @@
             <Setter Property="Background" Value="{DynamicResource AppSidebarHover}"/>
         </Style>
 
-        <!-- 设置/关于导航项：当前页对应的入口与游戏列表同色高亮 -->
+        <!-- 设置/关于导航项：当前页对应的入口与游戏列表同色高亮。
+             展开态内边距/左对齐必须走样式而非按钮本地值——本地值优先级压过下方收缩覆盖，
+             收缩态图标居中从未生效过（2026-09-25 实锤修复） -->
+        <Style Selector="Button.nav-item">
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+        </Style>
         <Style Selector="Button.nav-item.selected /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AppSidebarSelected}"/>
         </Style>
@@ -343,7 +349,7 @@
             </Style>
         </Style>
 
-        <!-- 侧栏收起态：条目图标居中 -->
+        <!-- 侧栏收起态：条目与导航钮图标居中（选择器在本文件后部，压过上面的展开态基样式） -->
         <Style Selector="Border.game-sidebar.collapsed ListBoxItem">
             <Setter Property="Padding" Value="3"/>
         </Style>
@@ -609,8 +615,7 @@
                     <StackPanel DockPanel.Dock="Bottom" Spacing="4" Margin="0,12,0,0">
                         <Button x:Name="SettingsNavButton" Classes="icon-btn pressable nav-item" Command="{Binding ShowSettingsCommand}"
                                 Classes.selected="{Binding IsSettingsNavActive}"
-                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                Padding="16,8"
+                                HorizontalAlignment="Stretch"
                                 ToolTip.Tip="{Binding Loc[common_settings]}">
                             <StackPanel Orientation="Horizontal" Spacing="12">
                                 <Path Data="{StaticResource GearIconGeo}"
@@ -624,8 +629,7 @@
                         </Button>
                         <Button x:Name="AboutNavButton" Classes="icon-btn pressable nav-item" Command="{Binding ShowAboutCommand}"
                                 Classes.selected="{Binding IsAboutNavActive}"
-                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                Padding="16,8"
+                                HorizontalAlignment="Stretch"
                                 ToolTip.Tip="{Binding Loc[common_about]}">
                             <StackPanel Orientation="Horizontal" Spacing="12">
                                 <Path Data="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"
@@ -679,7 +683,7 @@
                     </ListBox>
                     </DockPanel>
 
-            <!-- 侧栏选中指示点：展开态静息于选中项内部左缘（收起态贴侧栏左缘），选中项变更时
+            <!-- 侧栏选中指示点：展开态静息于选中项内部左缘（收起态贴项背景左缘外侧），选中项变更时
                  沿行进方向变长一倍 → 快速跳到新项 → 收缩落位（编舞在代码后置，X 由 MoveNavIndicator 直接定位） -->
             <Border x:Name="NavIndicator"
                     Width="5" CornerRadius="2.5"
@@ -735,8 +739,16 @@
 
                                     <!-- 无插画回退：固定深色渐变底 + 官方图标水印。
                                          空态设计（desktop-ui-design §5）：官方未投放背景/缓存缺失时，
-                                         详情页仍是"这个游戏"的页面而非黑屏；图标缺失时优雅降级为纯渐变 -->
-                                    <Grid IsVisible="{Binding !HasBackgroundImage}">
+                                         详情页仍是"这个游戏"的页面而非黑屏；图标缺失时优雅降级为纯渐变。
+                                         可见性必须同时看「无海报」「无视频」：本层在 z 序上位于视频层之上，
+                                         只看海报会让"海报缺失但视频在播"被整面不透明渐变盖住（2026-09-25 修复） -->
+                                    <Grid x:Name="ArtworkFallback">
+                                        <Grid.IsVisible>
+                                            <MultiBinding Converter="{x:Static conv:BoolConverters.And}">
+                                                <Binding Path="!HasBackgroundImage"/>
+                                                <Binding Path="!HasBackgroundVideo"/>
+                                            </MultiBinding>
+                                        </Grid.IsVisible>
                                         <Border>
                                             <Border.Background>
                                                 <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
@@ -751,21 +763,27 @@
                                                Margin="0,0,56,72" Opacity="0.13"/>
                                     </Grid>
 
-                                    <!-- 顶部渐变纱带（方案 A .ch）：chips 与标题的可读底，全出血、不拦交互 -->
-                                    <Border Height="150" VerticalAlignment="Top" IsHitTestVisible="False"
-                                            Background="{DynamicResource AppOnArtworkScrimBrush}"/>
+                                    <!-- 顶部渐变纱带（方案 A .ch）：chips 与标题的可读底，全出血、不拦交互。
+                                         比例高 30%：官方背景左上角烧录的 Logo 字（终末地亮帧实测，1464 窗口
+                                         视口 y≈56-167）随 UniformToFill 缩放随窗口等比增长，固定高度
+                                         在高窗口盖不住 Logo 下半，2026-09-25 由 150 固定改为 30% 比例 -->
+                                    <Grid RowDefinitions="30*,70*" IsHitTestVisible="False">
+                                        <Border Grid.Row="0" Background="{DynamicResource AppOnArtworkScrimBrush}"
+                                                IsHitTestVisible="False"/>
+                                    </Grid>
 
                                     <Grid RowDefinitions="*,Auto" Margin="16,36,16,16">
 
                                         <!-- 顶部信息簇（方案 A，左对齐）：标题行 → 确认条 → chips 行。
                                              左缩进 12 = 距内容卡左缘 28px（对齐预览标题位）；
                                              标题行系 2026-09-23 评审 P1-1 恢复（轻量单行，区别于已删的 30px 标题墙），
-                                             28px 在顶部纱带内、压白海报走大字线（WCAG 3:1） -->
+                                             2026-09-25 提到 32px：28px 在整幅背景画面上偏小（用户实测反馈，
+                                             鸣潮右下大立绘/官方大字 Logo 对照下尤其明显）；压白海报走大字线 -->
                                         <StackPanel Grid.Row="0" VerticalAlignment="Top" HorizontalAlignment="Left"
                                                     Margin="12,12,0,0" Spacing="16">
                                             <!-- 游戏名：详情页身份主锚点（评审 P1-1"识别而非回忆"） -->
                                             <TextBlock Text="{Binding DisplayName}"
-                                                       FontSize="28" FontWeight="SemiBold"
+                                                       FontSize="32" FontWeight="SemiBold"
                                                        MaxWidth="640" HorizontalAlignment="Left"
                                                        TextTrimming="CharacterEllipsis"
                                                        Foreground="{DynamicResource AppOnArtworkBrush}"/>

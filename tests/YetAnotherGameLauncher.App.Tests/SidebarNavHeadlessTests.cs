@@ -277,8 +277,56 @@ public class SidebarNavHeadlessTests : IDisposable
             Assert.Equal(row.Bounds.Height - 8, indicator.Height, 1);
             Assert.True(indicator.Height < expandedHeight);
             Assert.Equal(RowCenterY(row, overlay), RenderedCenterY(window, indicator), 1);
-            // 收起态例外：行内被图标占满，指示点退回贴侧栏左缘（不进项内）
-            Assert.Equal(3, window.IndicatorLeft, 1);
+            // 收起态：行内被图标占满，指示点退到项背景左缘外侧（点右缘与项左缘留 2px 间隙），
+            // 必须跟随目标项几何——贴窗口边的旧形态与项背景脱开，观感"悬空"（2026-09-25 修复）
+            var rowLeft = row.TranslatePoint(new Point(0, 0), overlay)!.Value.X;
+            Assert.Equal(rowLeft - indicator.Width - 2, window.IndicatorLeft, 1);
+            window.Close();
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task NavIndicator_CollapsedCentersIcons_AndAnchorsDotToNavButton()
+    {
+        await _ctx.Vm.InitializeAsync();
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            window.NavIndicatorAnimationEnabled = false;
+            window.Show();
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+
+            _ctx.Vm.ToggleSidebarCommand.Execute(null);
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+
+            var indicator = window.FindControl<Border>("NavIndicator")!;
+            var overlay = (Panel)indicator.Parent!;
+
+            // 收起态所有图标居中于侧栏中线：游戏行内边距 3、导航钮内边距 8。
+            // 中线取 VM 逻辑宽度（headless 下宽度过渡冻结在展开值，overlay 实时宽度不可用；
+            // 左锚定几何不受冻结影响）。导航钮本地 Padding 压制收缩覆盖的旧形态已移除
+            var sidebarMidline = _ctx.Vm.SidebarWidth / 2.0;
+            var row = window.GetVisualDescendants().OfType<ListBoxItem>().First();
+            var rowIcon = row.GetVisualDescendants().OfType<Border>()
+                .First(b => Math.Abs(b.Bounds.Width - 38) < 0.5 && Math.Abs(b.Bounds.Height - 38) < 0.5);
+            Assert.Equal(sidebarMidline, rowIcon.TranslatePoint(new Point(19, 19), overlay)!.Value.X, 1);
+
+            // 设置入口：图标在按钮内水平居中（旧形态本地 Left 对齐→图标偏左），
+            // 指示点对齐按钮中心 Y、贴按钮左缘外侧（与游戏行同一条几何规则）
+            _ctx.Vm.ShowSettingsCommand.Execute(null);
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+            var settings = window.FindControl<Button>("SettingsNavButton")!;
+            var settingsIcon = settings.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>().First();
+            var iconCenterInButton = settingsIcon.TranslatePoint(new Point(9, 9), settings)!.Value.X;
+            // 布局取整会把居中结果偏 0.5px（宽度 44/45 抖动），断言用 ±0.75 容差
+            Assert.InRange(iconCenterInButton, settings.Bounds.Width / 2 - 0.75, settings.Bounds.Width / 2 + 0.75);
+            Assert.Equal(ButtonCenterY(settings, overlay), RenderedCenterY(window, indicator), 1);
+            var buttonLeft = settings.TranslatePoint(new Point(0, 0), overlay)!.Value.X;
+            Assert.Equal(buttonLeft - indicator.Width - 2, window.IndicatorLeft, 1);
             window.Close();
         }, CancellationToken.None);
     }

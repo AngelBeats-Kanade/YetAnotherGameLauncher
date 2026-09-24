@@ -4,10 +4,13 @@ using Avalonia.Controls.Presenters;
 using Avalonia.Headless;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Xunit;
 using YetAnotherGameLauncher.AppTests;
+using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Views;
 
 namespace YetAnotherGameLauncher.UiTests;
@@ -148,10 +151,119 @@ public class DetailPageHeadlessTests : IDisposable
             var texts = page.GetVisualDescendants().OfType<TextBlock>().ToList();
             Assert.Contains(texts, t => t.Text == _ctx.Vm.Games[0].VersionChipLead);
             Assert.Contains(texts, t => t.Text == _ctx.Vm.Games[0].VersionChipNumber);
-            // 顶部纱带：全出血渐变底，不拦交互
+            // 顶部纱带：全出血渐变底，不拦交互；比例高 30%（官方烧录 Logo 区随 UniformToFill
+            // 缩放随窗口等比增长，固定高度在高窗口盖不住——2026-09-25 由 150 固定改比例）
             var scrim = page.GetVisualDescendants().OfType<Border>()
                 .First(b => ReferenceEquals(b.Background, window.FindResource("AppOnArtworkScrimBrush")));
             Assert.False(scrim.IsHitTestVisible);
+            Assert.InRange(scrim.Bounds.Height, page.Bounds.Height * 0.3 - 1, page.Bounds.Height * 0.3 + 1);
+            window.Close();
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task GameDetailPage_Scrim_DimsArtworkBehindTitleCluster()
+    {
+        // 纱带的职责是压暗标题/chips 身后的插画（含官方背景烧录的 Logo 字）：
+        // 平色亮背景上同列采样，带内点必须显著暗于带外点（像素级守卫，先例 ProtonUpdateConfirm）。
+        // resolver 必须在 InitializeAsync 前种好：版本缓存命中后的复刷不再发射资产加载
+        // （LoadAssetsCoreAsync 还是 fire-and-forget），后种缝永远等不到背景（StartupAssetPreloadTests 同款）
+        var bgPath = _ctx.TempDir.FilePath("kr_game_cache", "animate_bg", "h1", "flat.jpg");
+
+        var inBand = -1.0;
+        var belowBand = -1.0;
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(bgPath)!);
+            using (var rtb = new RenderTargetBitmap(new PixelSize(960, 640)))
+            {
+                using (var dc = rtb.CreateDrawingContext())
+                {
+                    dc.FillRectangle(new SolidColorBrush(Color.FromRgb(0xC8, 0xC8, 0xC8)), new Rect(0, 0, 960, 640));
+                }
+
+                rtb.Save(bgPath, new PngBitmapEncoderOptions());
+            }
+
+            _ctx.KuroBackdrop.Resolver = _ => new BackdropSource(bgPath, BackdropKind.Image);
+
+            var init = _ctx.Vm.InitializeAsync();
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+            while (!init.IsCompleted && DateTime.UtcNow < deadline)
+            {
+                Dispatcher.UIThread.RunJobs();
+                Thread.Sleep(1);
+            }
+
+            Assert.True(init.IsCompleted, "InitializeAsync 30s 未完成（RunJobs 泵停摆）");
+
+            // LoadAssetsCoreAsync fire-and-forget：有界轮询背景落地（HasBackgroundImage 由加载完成后置位）
+            deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            while (!_ctx.Vm.Games[0].HasBackgroundImage && DateTime.UtcNow < deadline)
+            {
+                Dispatcher.UIThread.RunJobs();
+                Thread.Sleep(10);
+            }
+
+            Assert.True(_ctx.Vm.Games[0].HasBackgroundImage, "夹具前置失败：平色背景未就绪（海报渲染不了，纱带探针会量到深色底层）");
+
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            window.Show();
+            window.UpdateLayout();
+
+            int LuminanceAt(int x, int y)
+            {
+                Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+                using var probe = window.CaptureRenderedFrame();
+                Assert.NotNull(probe);
+                using var fb = probe.Lock();
+                var addr = fb.Address + (y * fb.RowBytes) + (x * 4);
+                return System.Runtime.InteropServices.Marshal.ReadByte(addr)
+                    + System.Runtime.InteropServices.Marshal.ReadByte(addr + 1)
+                    + System.Runtime.InteropServices.Marshal.ReadByte(addr + 2);
+            }
+
+            // x=600：右移避开左上文字簇；y=80 带内（约 0.67 不透明度）、y=450 带外纯背景。
+            // 先按截图测试同款等待真实时钟再推渲染计时器：首拍可能还没把海报画出来
+            Thread.Sleep(150);
+            inBand = LuminanceAt(600, 80);
+            belowBand = LuminanceAt(600, 450);
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.True(inBand > 0, "带内采样点抓帧失败");
+        Assert.True(inBand < belowBand * 0.5,
+            $"纱带未显著压暗标题身后插画：inBand={inBand} belowBand={belowBand}");
+    }
+
+    [Fact]
+    public async Task GameDetailPage_ArtworkFallback_HiddenWhenVideoPlaysWithoutPoster()
+    {
+        // 海报加载失败但背景视频正常起播：不透明的无插画回退层（深色渐变+图标水印）
+        // 位于视频层之上，可见性只看「无海报」不看「无视频」会整面盖住视频（2026-09-25 修复）
+        await _ctx.Vm.InitializeAsync();
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            window.Show();
+            window.UpdateLayout();
+
+            var fallback = window.GetVisualDescendants().OfType<Grid>()
+                .First(g => g.Name == "ArtworkFallback");
+
+            // 基线：无海报无视频（夹具默认）→ 回退层可见（渐变+水印，空态设计）
+            Assert.False(_ctx.Vm.Games[0].HasBackgroundImage, "夹具前置失败：默认夹具应有海报");
+            Assert.True(fallback.IsVisible, "无海报无视频时回退层必须可见（渐变+水印空态底）");
+
+            _ctx.Vm.Games[0].HasBackgroundImage = false;
+            _ctx.Vm.Games[0].HasBackgroundVideo = true;
+            window.UpdateLayout();
+
+            Assert.False(fallback.IsVisible, "有背景视频时不得显示无插画回退层（会盖住视频）");
+            var video = window.GetVisualDescendants()
+                .OfType<YetAnotherGameLauncher.Controls.FrameSurface>().First();
+            Assert.True(video.IsVisible);
             window.Close();
         }, CancellationToken.None);
     }

@@ -70,8 +70,9 @@ public partial class MainWindow : Window
     /// <summary>展开态下指示点相对选中项左缘的内缩距离（px）：完全进入项内、不压内容。</summary>
     private const double InsideItemInsetX = 3;
 
-    /// <summary>收起态下指示点贴侧栏左缘的位置（px）。</summary>
-    private const double CollapsedEdgeX = 3;
+    /// <summary>收起态指示点与目标项左缘的间隙（px）：行内被图标占满，点贴项背景左缘外侧而非进项内。
+    /// 必须相对目标项几何定位——贴窗口边的旧形态与项背景脱开，观感"悬空"（2026-09-25 修复）。</summary>
+    private const double CollapsedOutsideGapX = 2;
 
     /// <summary>迁移动画总时长：0-45% 旧项上变长、45-55% 跳变、55-100% 新项上收缩。</summary>
     internal static readonly TimeSpan TransferDuration = TimeSpan.FromMilliseconds(420);
@@ -506,10 +507,13 @@ public partial class MainWindow : Window
             return true;
         }
 
-        // X 定位：展开态进入选中项内部左缘；收起态行内被图标占满，退回贴侧栏左缘。
+        // X 定位：展开态进入选中项内部左缘；收起态行内被图标占满，退到项背景左缘外侧
+        // （点右缘与项左缘留 CollapsedOutsideGapX）。
         // 各目标项左缘一致，X 无需参与迁移动画（仅布局校正时直接吸附）
         var expanded = (DataContext as MainWindowViewModel)?.IsSidebarExpanded ?? true;
-        var newX = expanded ? point.X + InsideItemInsetX : CollapsedEdgeX;
+        var newX = expanded
+            ? point.X + InsideItemInsetX
+            : point.X - indicator.Width - CollapsedOutsideGapX;
 
         var height = Math.Max(DotHeight, target.Bounds.Height - 8);
         var newTop = point.Y - DotHeight / 2;

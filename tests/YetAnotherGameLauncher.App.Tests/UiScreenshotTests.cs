@@ -257,7 +257,32 @@ public class UiScreenshotTests
 
         using var ctx = VmFactory.Build(
             configJson: null,
-            templateFactory: () => VmFactory.SampleConfigJson,
+            templateFactory: () => """
+                {
+                  "settings": { "installRoot": "~/yagl-test-games", "theme": "Dark", "maxParallelDownloads": 4 },
+                  "games": [
+                    {
+                      "id": "wuthering-waves",
+                      "displayName": "鸣潮",
+                      "nameLocalized": { "zh-CN": "鸣潮", "en-US": "Wuthering Waves" },
+                      "channel": "kuro",
+                      "installDir": "WutheringWaves",
+                      "executable": "Client/Binaries/Win64/Client-Win64-Shipping.exe",
+                      "icon": "https://is1-ssl.mzstatic.com/wuwa-icon.jpg",
+                      "servers": [ { "id": "cn", "name": "国服" } ]
+                    },
+                    {
+                      "id": "arknights-endfield",
+                      "displayName": "明日方舟：终末地",
+                      "nameLocalized": { "zh-CN": "明日方舟：终末地", "en-US": "Arknights: Endfield" },
+                      "channel": "hypergryph",
+                      "installDir": "ArknightsEndfield",
+                      "executable": "Endfield.exe",
+                      "servers": [ { "id": "global", "name": "国际服" } ]
+                    }
+                  ]
+                }
+                """,
             platformInfo: new FakePlatformInfo(isLinux: true),
             linuxProtonVersions: []);
         ctx.Gryphline.VersionInfo = new ChannelVersionInfo { LatestVersion = "1.2.0" };
@@ -267,6 +292,11 @@ public class UiScreenshotTests
 
         await HeadlessSession.Instance.Dispatch(() =>
         {
+            // icon 字节先于 InitializeAsync 注册（首刷即加载；Build 后才 Map 会 404 且复刷不重试）
+            var iconFile = ctx.TempDir.FilePath("game-icon.png");
+            CreateTestBackground(iconFile);
+            ctx.BackgroundHandler.Map("https://is1-ssl.mzstatic.com/wuwa-icon.jpg", File.ReadAllBytes(iconFile));
+
             RunToCompletion(() => ctx.Vm.InitializeAsync());
             var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
             window.NavIndicatorAnimationEnabled = false;
@@ -291,13 +321,18 @@ public class UiScreenshotTests
 
             var wuwa = ctx.Vm.Games[0];
 
-            // 空态（官方未投放背景 + 无缓存）：渐变 + 官方图标水印
-            var iconFile = ctx.TempDir.FilePath("game-icon.png");
-            CreateTestBackground(iconFile);
-            const string wuwaIconUrl = "https://is1-ssl.mzstatic.com/wuwa-icon.jpg";
-            ctx.BackgroundHandler.Map(wuwaIconUrl, File.ReadAllBytes(iconFile));
-            wuwa.Game.Icon = wuwaIconUrl;
-            RunToCompletion(() => wuwa.RefreshAsync());
+            // 空态（官方未投放背景 + 无缓存）：渐变 + 官方图标水印。
+            // icon 走配置模板 + 字节先注册（见上）：版本缓存建立后的复刷不再发射资产加载
+            // （RefreshAsync 仅 versionChanged/regionChanged 时发射），InitializeAsync 后再设
+            // Game.Icon 无人加载——水印因此静默缺席过（2026-09-25 judge 实锤后修夹具）
+            var iconDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            while (!wuwa.HasGameIcon && DateTime.UtcNow < iconDeadline)
+            {
+                Dispatcher.UIThread.RunJobs();
+                Thread.Sleep(10);
+            }
+
+            Assert.True(wuwa.HasGameIcon, "夹具前置失败：模板 icon 未就绪（空态水印截不出来）");
             Capture("12-detail-empty-state-dark.png");
 
             var exePath = Path.Combine(
@@ -554,6 +589,87 @@ public class UiScreenshotTests
         Assert.True(splashVisible, "启动遮蔽层未随 DataContext 点亮");
         Assert.NotNull(png);
         File.WriteAllBytes(Path.Combine(outDir, "16-boot-splash-dark.png"), png!);
+    }
+
+    /// <summary>
+    /// 终末地详情页 × 本机真实缓存海报的视觉自检（2026-09-25 纱带压暗验收）：
+    /// 官方海报左上角烧录"明日方舟 终末地"Logo 字，自绘标题压在其上——假图测不到，
+    /// 必须用真海报看纱带（240 高、顶部 0.70）能否把 Logo 压暗隐入背景。
+    /// 机器前提：本机存在真实下载缓存（CI 没有 → Skip；符合"依赖机器有 X 的测试在缺失时跳过"纪律）。
+    /// </summary>
+    [Fact]
+    public async Task Export_EndfieldRealBackdrop_ForReview()
+    {
+        var posterPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".local", "share", "yagl", "backdrops", "arknights-endfield", "poster.png");
+        if (!File.Exists(posterPath))
+        {
+            Assert.Skip($"本机无终末地真实海报缓存（{posterPath}），真海报视觉验收仅在有缓存的机器运行");
+        }
+
+        var outDir = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "..", "artifacts", "ui-review"));
+        Directory.CreateDirectory(outDir);
+
+        using var ctx = VmFactory.Build();
+        ctx.Gryphline.VersionInfo = new ChannelVersionInfo { LatestVersion = "2.0.0" };
+        var backdropReady = false;
+        byte[]? png = null;
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            // resolver 必须在 InitializeAsync 前种好：版本缓存命中后的复刷不再发射资产加载
+            ctx.GryphlineBackdrop.Resolver = _ => new YetAnotherGameLauncher.Core.Abstractions.BackdropSource(
+                posterPath, YetAnotherGameLauncher.Core.Abstractions.BackdropKind.Image);
+
+            RunToCompletion(() => ctx.Vm.InitializeAsync());
+            ctx.Vm.SelectedGame = ctx.Vm.Games[1]; // 终末地
+
+            // LoadAssetsCoreAsync fire-and-forget：有界轮询背景落地
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            while (!ctx.Vm.Games[1].HasBackgroundImage && DateTime.UtcNow < deadline)
+            {
+                Dispatcher.UIThread.RunJobs();
+                Thread.Sleep(10);
+            }
+
+            backdropReady = ctx.Vm.Games[1].HasBackgroundImage;
+
+            // detected 态（主程序在盘未登记）：空态引导卡隐藏、状态 chips 显示——
+            // 与用户报告重叠时的画面同态（空态卡会遮住 Logo 区干扰验收）
+            var endfieldExe = Path.Combine(ctx.Vm.Games[1].InstallDirPath, "Endfield.exe");
+            Directory.CreateDirectory(Path.GetDirectoryName(endfieldExe)!);
+            File.WriteAllBytes(endfieldExe, "MZ"u8.ToArray());
+            var refresh = ctx.Vm.Games[1].RefreshAsync();
+            deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+            while (!refresh.IsCompleted && DateTime.UtcNow < deadline)
+            {
+                Dispatcher.UIThread.RunJobs();
+                Thread.Sleep(10);
+            }
+
+            var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
+            window.NavIndicatorAnimationEnabled = false;
+            window.Show();
+            window.UpdateLayout();
+
+            Thread.Sleep(150);
+            Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+            var frame = window.CaptureRenderedFrame();
+            if (frame is not null)
+            {
+                using var ms = new MemoryStream();
+                frame.Save(ms, new PngBitmapEncoderOptions());
+                png = ms.ToArray();
+            }
+
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.True(backdropReady, "夹具前置失败：真实海报未就绪");
+        Assert.NotNull(png);
+        File.WriteAllBytes(Path.Combine(outDir, "19-endfield-real-backdrop-dark.png"), png!);
     }
 
     /// <summary>更新确认截图的组件准备器替身：本地 11-6、上游 11-7 → 必然弹更新确认。</summary>
