@@ -44,7 +44,11 @@ public sealed partial class FfmpegLibraryResolver(
     private readonly Func<bool> _systemLibraryProbe = systemLibraryProbe ?? SystemLibraryPresent;
 
     /// <summary>单飞门：首运解析全同步（内部 GetResult），Monitor 保证并发调用方（多路 transient
-    /// 播放器同帧起播）串行进入——否则首运下载分钟级窗口内重复下载 60–70MB/竞态解压同一目录。</summary>
+    /// 播放器同帧起播）串行进入——否则首运下载分钟级窗口内重复下载 60–70MB/竞态解压同一目录。
+    /// 语义声明（M2，2026-09-24 review 立项）：Monitor 等待不可取消——下载窗口内并发进入的
+    /// 调用方在锁上泊车至全程结束（≤15 分钟下载超时），期间其 cancellationToken 不被观察
+    /// （Stop 只取消令牌、不解锁 Monitor）。解码线程为后台线程、UI 不受阻，属已接受权衡；
+    /// 如需可取消，改为 Monitor.Wait 轮询 + token 检查的等待循环。</summary>
     private readonly object _ensureGate = new();
 
     /// <summary>下载源：与 FFmpeg.AutoGen 9.0.x 绑定配套的 FFmpeg 9.0 LGPL 共享构建（双平台）；
@@ -115,6 +119,10 @@ public sealed partial class FfmpegLibraryResolver(
         }
     }
 
+    /// <summary>测试观测：库全链解析（目录→系统）的执行次数。负缓存生效时恒等于
+    /// <see cref="LibraryDependencyOrder"/> 的库数（每库至多一次）；零句柄被反复重扫则更多。</summary>
+    internal int DirectoryResolutionAttemptsForTests => _sharedResolver?.ResolutionAttempts ?? -1;
+
     /// <summary>解析主体（调用方须持 <see cref="_ensureGate"/> 且状态为未尝试）。</summary>
     private bool EnsureReadyCore(CancellationToken cancellationToken)
     {
@@ -170,7 +178,9 @@ public sealed partial class FfmpegLibraryResolver(
         _sharedResolver!.SetDirectory(directory);
         try
         {
-            // 就绪判定必须覆盖播放器实际用到的每个库（avutil/avcodec/avformat/swresample/swscale）。
+            // 就绪判定必须覆盖真实调用面（N5 校正 2026-09-24）：avutil/swscale/avcodec/avformat 为
+            // 播放器直调（调用家族 av_*/sws_*/avcodec_*/avformat_* grep 实测）；swresample 无直调
+            // 但是 libavcodec 的 DT_NEEDED 传递依赖（readelf 实测）——不探则残缺 avcodec 照样过探针。
             // 只探 av_version_info 会把"其余库全没加载"误判成就绪——avutil 无同伴依赖总能独立加载、
             // av_version_info 恰好 ABI 稳定，故障被推迟到起播时以 NotSupportedException stub 爆出
             // （2026-09-24 本机实锤：EnsureReady True + avformat_open_input 抛 stub）。不探
@@ -287,6 +297,10 @@ public sealed partial class FfmpegLibraryResolver(
     {
         if (archivePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
         {
+            // 未处理 zip 符号链接条目——2026-09-24 实测 BtbN win64 lgpl-shared zip 全部 238 条目
+            // 均为实体文件（ExternalAttributes 高 16 位无 0xA1FF 链接编码；运行时 DLL 在 bin/ 下
+            // 为数十 MB 实体）。若上游改为链接形态，Windows 侧会复刻 tar 摊平 bug，届时需在此补
+            // ExternalAttributes 解析（.NET ZipArchive 不直接暴露链接目标，需自定义位解析）
             ZipFile.ExtractToDirectory(archivePath, targetDir, overwriteFiles: true);
             return;
         }
@@ -391,10 +405,20 @@ public sealed partial class FfmpegLibraryResolver(
     {
         private readonly Dictionary<string, IntPtr> _loaded = [];
 
+        /// <summary>守护 <see cref="_loaded"/> 与预载标志：多个 transient 播放器的解码线程会并发
+        /// 触发同一共享解析器实例的函数解析（M4，2026-09-24 review 立项——此前无锁并发访问普通
+        /// Dictionary 属预存竞态）。锁为叶子级（持锁期间只做 dlopen/目录枚举，不与外层锁交互），
+        /// 无死锁面；AutoGen 对每个函数只解析一次，锁竞争可忽略。并发竞态无确定性红测试（时序
+        /// 依赖），按 VM-F4 同款"修复 + 声明"处理，不设专项竞态用例。</summary>
+        private readonly object _gate = new();
+
         private string? _directory;
 
         /// <summary>目录预载是否已执行（见 <see cref="PreloadDirectoryLibraries"/>，每实例一次）。</summary>
         private bool _directoryPreloaded;
+
+        /// <summary>全链解析执行次数（测试观测经外层 <see cref="FfmpegLibraryResolver.DirectoryResolutionAttemptsForTests"/>）。</summary>
+        internal int ResolutionAttempts;
 
         /// <summary>设置库目录（null = 仅系统默认搜索）。</summary>
         public void SetDirectory(string? directory) => _directory = directory;
@@ -416,82 +440,86 @@ public sealed partial class FfmpegLibraryResolver(
             return (T)(object)null!;
         }
 
-        /// <summary>按库名加载：AutoGen 传裸名（avcodec），Windows 实际文件带主版本（avcodec-63.dll）；
-        /// 目录模式下先按依赖序预载（见 <see cref="PreloadDirectoryLibraries"/>），再目录内裸名/版本化文件，
-        /// 最后系统默认搜索；失败句柄也缓存避免反复尝试。</summary>
+        /// <summary>按库名取句柄：负缓存直读（零句柄 = 全链已搜过且不可得，同样缓存——恢复
+        /// "失败句柄也缓存避免反复尝试"的旧纪律，M3）；首入目录先按依赖序预载，表外库名再做
+        /// 全链解析并缓存。必须持 <see cref="_gate"/>。</summary>
         private IntPtr GetOrLoadLibrary(string libraryName)
         {
-            if (_loaded.TryGetValue(libraryName, out var cached) && cached != IntPtr.Zero)
+            lock (_gate)
             {
-                return cached;
-            }
+                if (_loaded.TryGetValue(libraryName, out var cached))
+                {
+                    return cached;
+                }
 
-            var handle = IntPtr.Zero;
-            if (_directory is not null)
-            {
-                if (!_directoryPreloaded)
+                if (!_directoryPreloaded && _directory is not null)
                 {
                     PreloadDirectoryLibraries();
-                    if (_loaded.TryGetValue(libraryName, out var preloaded) && preloaded != IntPtr.Zero)
+                    if (_loaded.TryGetValue(libraryName, out var preloaded))
                     {
                         return preloaded;
                     }
                 }
 
-                handle = TryLoadFromDirectory(libraryName); // 表外库名/预载失败的幂等重试
+                var handle = ResolveLibrary(libraryName);
+                _loaded[libraryName] = handle;
+                return handle;
             }
-
-            if (handle == IntPtr.Zero)
-            {
-                if (OperatingSystem.IsLinux())
-                {
-                    // 发行版布局：lib<名>.so.<主版本>（精确配套）。无版本 lib<名>.so 符号链接绝不回退：
-                    // 它指向发行版当前系列（2026-09-24 本机实测 →.so.62，绑定要 63），av_version_info
-                    // 恰好 ABI 稳定让 TryBind 假成功，首个结构体调用处即崩——宁缺毋滥
-                    if (NativeLibrary.TryLoad($"lib{libraryName}.so.{LibraryFileMajor(libraryName)}", out handle))
-                    {
-                        _loaded[libraryName] = handle;
-                        return handle;
-                    }
-                }
-                else if (OperatingSystem.IsWindows())
-                {
-                    // Windows 系统库带主版本（avutil-61.dll）：裸名 avutil 永远解析不到版本化 DLL，
-                    // 精确匹配系统上同样会在 avcodec 预检命中后于 avutil 处必败（与 Linux 同根因）
-                    if (NativeLibrary.TryLoad($"{libraryName}-{LibraryFileMajor(libraryName)}.dll", out handle))
-                    {
-                        _loaded[libraryName] = handle;
-                        return handle;
-                    }
-                }
-
-                NativeLibrary.TryLoad(libraryName, out handle);
-            }
-
-            _loaded[libraryName] = handle;
-            return handle;
         }
 
-        /// <summary>首入目录时按 <see cref="LibraryDependencyOrder"/> 预载全部库（失败也缓存零句柄）：
+        /// <summary>首入目录时按 <see cref="LibraryDependencyOrder"/> 预载全部库（调用方须持 <see cref="_gate"/>）：
         /// 目录内版本化文件互相以 soname 依赖且无 RUNPATH，glibc 只认"已驻留对象 + 系统搜索路径"，
         /// 依赖不先驻留则 avformat/avcodec 这类后位库 dlopen 必败（2026-09-24 本机实锤：
-        /// 只加载出 libavutil，avformat_open_input 落到 AutoGen throw-stub 抛 NotSupportedException）。</summary>
+        /// 只加载出 libavutil，avformat_open_input 落到 AutoGen throw-stub 抛 NotSupportedException）。
+        /// 预载经 <see cref="ResolveLibrary"/> 全链解析——结果（含零句柄）即终态，此后不再重扫。</summary>
         private void PreloadDirectoryLibraries()
         {
             _directoryPreloaded = true;
             foreach (var name in LibraryDependencyOrder)
             {
-                if (_loaded.TryGetValue(name, out var cached) && cached != IntPtr.Zero)
+                if (!_loaded.ContainsKey(name))
                 {
-                    continue;
+                    _loaded[name] = ResolveLibrary(name);
                 }
-
-                _loaded[name] = TryLoadFromDirectory(name);
             }
         }
 
+        /// <summary>单库全链解析：目录内（裸名→版本化枚举）→ 系统精确主版本 → 系统裸名；
+        /// 结果含零句柄（全链不可得，交由调用方负缓存）。必须持 <see cref="_gate"/>。</summary>
+        private IntPtr ResolveLibrary(string libraryName)
+        {
+            ResolutionAttempts++;
+            if (_directory is not null && TryLoadFromDirectory(libraryName) is { } fromDir && fromDir != IntPtr.Zero)
+            {
+                return fromDir;
+            }
+
+            if (OperatingSystem.IsLinux())
+            {
+                // 发行版布局：lib<名>.so.<主版本>（精确配套）。无版本 lib<名>.so 符号链接绝不回退：
+                // 它指向发行版当前系列（2026-09-24 本机实测 →.so.62，绑定要 63），av_version_info
+                // 恰好 ABI 稳定让 TryBind 假成功，首个结构体调用处即崩——宁缺毋滥
+                if (NativeLibrary.TryLoad($"lib{libraryName}.so.{LibraryFileMajor(libraryName)}", out var handle))
+                {
+                    return handle;
+                }
+            }
+            else if (OperatingSystem.IsWindows())
+            {
+                // Windows 系统库带主版本（avutil-61.dll）：裸名 avutil 永远解析不到版本化 DLL，
+                // 精确匹配系统上同样会在 avcodec 预检命中后于 avutil 处必败（与 Linux 同根因）
+                if (NativeLibrary.TryLoad($"{libraryName}-{LibraryFileMajor(libraryName)}.dll", out var handle))
+                {
+                    return handle;
+                }
+            }
+
+            NativeLibrary.TryLoad(libraryName, out var fallback);
+            return fallback;
+        }
+
         /// <summary>目录内加载：先裸名文件（Windows 加 .dll），再版本化文件按前缀枚举（序号大的优先），
-        /// 不触碰绑定版本表；失败返回零句柄（系统回退交给调用方）。</summary>
+        /// 不触碰绑定版本表；失败返回零句柄（系统回退交给 <see cref="ResolveLibrary"/>）。必须持 <see cref="_gate"/>。</summary>
         private IntPtr TryLoadFromDirectory(string libraryName)
         {
             var directory = _directory!;

@@ -40,6 +40,29 @@ public class FfmpegLibraryResolverEnsureReadyTests : IDisposable
         systemLibraryProbe: () => false);
 
     [Fact]
+    public void EnsureReady_MissingLibraries_ResolveEachLibraryAtMostOnce()
+    {
+        // M3+M4 负缓存回归（2026-09-24 review 立项）：目录残缺（只含垃圾 avcodec）时，每个库的
+        // 全链解析（目录→系统精确版本→系统裸名）必须恰好执行一次——失败句柄同样缓存（恢复
+        // "失败句柄也缓存避免反复尝试"的旧纪律），此后就绪探测一律命中缓存不再重扫。
+        // 红实证（2026-09-24）：旧形态计数=1——预载只扫目录不计系统回退、首个探测失败即中止
+        // TryBind，"每库恰一次全链解析"的不变量在旧结构里根本不存在
+        var stub = new StubHttpHandler();
+        var root = _tempDir.FilePath("root-negcache");
+        var libDir = Path.Combine(root, "ffmpeg-n9.0", "lib");
+        Directory.CreateDirectory(libDir);
+        File.WriteAllBytes(Path.Combine(libDir, "libavcodec.so.63"), "junk-not-an-elf"u8.ToArray());
+        var resolver = CreateResolver(stub, root);
+
+        // 绑定必败（垃圾库 + 系统探测恒 false）：状态烧毁不重试，首个探测即触发预载与计数
+        Assert.False(resolver.EnsureReady(CancellationToken.None));
+
+        Assert.Equal(
+            FfmpegLibraryResolver.LibraryDependencyOrder.Length,
+            resolver.DirectoryResolutionAttemptsForTests);
+    }
+
+    [Fact]
     public void EnsureReady_JunkDownloadedDir_DoesNotBindThroughMismatchedSystemLibrary()
     {
         // 系统回退纪律（宁缺毋滥）：目录内垃圾库 + 系统只有无版本 .so 符号链接（指向其它大版本）
