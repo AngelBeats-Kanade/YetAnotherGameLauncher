@@ -432,6 +432,93 @@ public sealed class UmuComponentProvisionerTests : IDisposable
         Assert.Equal(string.Empty, UmuComponentProvisioner.ParseSha256For("deadbeef  a.tar.xz\n", "b.tar.xz"));
     }
 
+    [Fact]
+    public async Task EnsureRuntimeAsync_VerifyFails_ArchiveNotLeftInCache()
+    {
+        // F8（2026-09-24）：首段（版本→下载→SHA 校验）失败时数百 MB 归档滞留缓存目录——
+        // 清理 finally 挂在第二段（解压）上，而校验失败的 LaunchException 从第一段直接穿透。
+        // 用户放弃重试即永久垃圾；重试虽可自愈（同 buildId 路径覆写），不该依赖用户行为
+        const string version = "0.20260101.1";
+        var baseUri = $"{UmuComponentProvisioner.RuntimeHost}/sniper/images/{version}";
+        _http.Map($"{UmuComponentProvisioner.RuntimeHost}/sniper/images/latest-public-beta.txt", version);
+        _http.Map($"{baseUri}/BUILD_ID.txt", "build-12345");
+        // 完整格式但故意错误的 SHA：下载必成功、校验必失败——归档文件已落盘的形态
+        _http.Map($"{baseUri}/SHA256SUMS",
+            "1111111111111111111111111111111111111111111111111111111111111111  SteamLinuxRuntime_sniper.tar.xz\n");
+        _downloader.Serve($"{baseUri}/SteamLinuxRuntime_sniper.tar.xz", "corrupt-archive-bytes"u8.ToArray());
+
+        var ex = await Assert.ThrowsAsync<LaunchException>(
+            () => _provisioner.EnsureRuntimeAsync("sniper", "sniper"));
+
+        Assert.Equal(LaunchFailureKind.UmuRuntimeDownloadFailed, ex.Kind);
+        Assert.Contains("校验失败", ex.Message);
+        // 红证据（修复前实测）：失败后缓存目录仍留着归档文件
+        Assert.Empty(Directory.GetFiles(_tempDir.Path, "*.tar.xz*", SearchOption.AllDirectories));
+    }
+
+    [Theory]
+    [InlineData("/abs/evil")]        // Unix 绝对路径（旧防线已覆盖）
+    [InlineData("../evil")]          // 相对逃逸（旧防线已覆盖）
+    [InlineData("C:/evil")]          // Windows 盘符（F11：旧 StartsWith('/') 放行）
+    [InlineData("C:\\evil")]         // Windows 盘符反斜杠形态
+    [InlineData("//server/share/x")] // UNC 归一形态
+    [InlineData("dir/../../evil")]   // 多级 ".." 段
+    public void ExtractTarArchive_EscapingLinkTargets_AreSkipped(string linkName)
+    {
+        // F11 红绿：链接目标的穿越判定按跨平台口径（Linux 解包也拒 Windows 根形态——
+        // 该 tar 可能随后在 Windows 主机解出，写穿防御不能依赖当前平台）
+        var archive = Path.Combine(_tempDir.Path, "links.tar");
+        using (var stream = File.Create(archive))
+        using (var writer = new TarWriter(stream))
+        {
+            writer.WriteEntry(new PaxTarEntry(TarEntryType.SymbolicLink, "payload/link")
+            {
+                LinkName = linkName,
+                Mode = UnixFileMode.UserRead | UnixFileMode.UserWrite,
+            });
+        }
+
+        var extractDir = Path.Combine(_tempDir.Path, "out");
+        UmuComponentProvisioner.ExtractTarArchive(archive, extractDir);
+
+        // 逃逸目标的链接条目必须被跳过（旧代码对盘符/UNC 形态实际创建了链接）
+        Assert.False(File.Exists(Path.Combine(extractDir, "payload/link")),
+            $"逃逸链接目标 {linkName} 不应落盘");
+    }
+
+    [Theory]
+    [InlineData("target.txt", false)]        // 同目录裸文件名：正常链接
+    [InlineData("sub/target.txt", false)]    // 目录内相对目标：正常链接
+    [InlineData("/abs/evil", true)]
+    [InlineData("C:/evil", true)]
+    [InlineData("C:\\evil", true)]
+    [InlineData("//server/share/x", true)]
+    [InlineData("..", true)]
+    [InlineData("a/../b", true)]
+    public void IsEscapingLinkTarget_ClassifiesCrossPlatformRootForms(string link, bool expected)
+    {
+        Assert.Equal(expected, UmuComponentProvisioner.IsEscapingLinkTarget(link));
+    }
+
+    [Fact]
+    public async Task UnsupportedCodename_EnglishUser_GetsEnglishMessage()
+    {
+        // F12（2026-09-24 迁移）：进度/错误文案曾硬编码中文直达启动失败覆盖层与设置卡
+        // （CreateLaunchError(ex.Message)），en-US 用户看到中文。迁移后按 Loc 双语成对；
+        // 迁移前本用例的断言红（消息为「不支持的 Proton 代号…」中文原文）
+        var loc = new LocalizationService();
+        loc.SetLanguage("en-US");
+        var provisioner = new UmuComponentProvisioner(
+            new HttpClient(_http), _downloader, dataHome: _tempDir.Path, cacheHome: _tempDir.Path, loc: loc);
+
+        var ex = await Assert.ThrowsAsync<LaunchException>(() => provisioner.UpdateProtonAsync("not-a-codename"));
+
+        Assert.Equal(LaunchFailureKind.ProtonDownloadFailed, ex.Kind);
+        // UpdateProtonAsync 对未知参数走"按 tag 下载"路径：断言英文文案且零 CJK
+        Assert.Contains("No release found for Proton version", ex.Message);
+        Assert.DoesNotMatch("[一-龥]", ex.Message);
+    }
+
     // ==== 2026-09-22 测试审计补齐：按 tag 下载、默认代号回退、latest 解析容错 ====
     // （覆盖率证据：DownloadProtonByTagAsync 此前整方法未覆盖，空请求/畸形 release 分支同批缺口）
 

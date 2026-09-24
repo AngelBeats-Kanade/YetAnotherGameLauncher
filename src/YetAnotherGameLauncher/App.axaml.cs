@@ -172,7 +172,8 @@ public partial class App : Application
         services.AddSingleton<IUmuComponentProvisioner>(sp => new UmuComponentProvisioner(
             sp.GetRequiredService<HttpClient>(),
             sp.GetRequiredService<IDownloader>(),
-            sp.GetRequiredService<ILoggerFactory>().CreateLogger<UmuComponentProvisioner>()));
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger<UmuComponentProvisioner>(),
+            loc: sp.GetRequiredService<ILocalizationService>()));
         services.AddSingleton(sp => new NativeUmuLauncher(
             sp.GetRequiredService<IProcessRunner>(),
             sp.GetRequiredService<IUmuComponentProvisioner>(),

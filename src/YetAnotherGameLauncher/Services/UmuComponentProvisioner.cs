@@ -27,8 +27,12 @@ public sealed class UmuComponentProvisioner(
     ILogger? logger = null,
     string? dataHome = null,
     string? cacheHome = null,
-    Architecture? hostArchitecture = null) : IUmuComponentProvisioner
+    Architecture? hostArchitecture = null,
+    ILocalizationService? loc = null) : IUmuComponentProvisioner
 {
+    /// <summary>本地化文案（F12，2026-09-24 迁移）：进度/错误消息经 strings_*.json 双语成对；
+    /// 不注入即默认 zh-CN（与旧字面量等值），既有测试断言不受影响。</summary>
+    private readonly ILocalizationService loc = loc ?? new LocalizationService();
     /// <summary>主机（或测试注入）架构；资产过滤与 ELF 兜底校验的判定基准。</summary>
     private Architecture HostArchitecture => hostArchitecture ?? RuntimeInformation.ProcessArchitecture;
     /// <summary>GE-Proton 最新 release 的 GitHub API。</summary>
@@ -130,7 +134,7 @@ public sealed class UmuComponentProvisioner(
         }
 
         // 缺失才下载：代号走 latest，具体版本名只下该 tag
-        progress?.Report($"正在准备 Proton（{protonRequest}）…");
+        progress?.Report(loc.Format("umu_progress_prepareProton", protonRequest));
         if (IsCodename(protonRequest))
         {
             return await DownloadLatestProtonAsync(protonRequest, progress, cancellationToken)
@@ -214,7 +218,7 @@ public sealed class UmuComponentProvisioner(
             return;
         }
 
-        progress?.Report($"正在下载 Steam Runtime（{runtimeVariant}）…");
+        progress?.Report(loc.Format("umu_progress_downloadRuntime", runtimeVariant));
         await DownloadRuntimeAsync(runtimeVariant, runtimeName, progress, cancellationToken)
             .ConfigureAwait(false);
     }
@@ -243,13 +247,13 @@ public sealed class UmuComponentProvisioner(
 
             throw new LaunchException(
                 LaunchFailureKind.ProtonDownloadFailed,
-                "Proton 版本信息里缺少可用的 tag_name。");
+                loc["umu_err_noTagName"]);
         }
         catch (JsonException ex)
         {
             throw new LaunchException(
                 LaunchFailureKind.ProtonDownloadFailed,
-                $"Proton 版本信息解析失败：{ex.Message}",
+                loc.Format("umu_err_releaseParse", ex.Message),
                 ex);
         }
     }
@@ -274,9 +278,9 @@ public sealed class UmuComponentProvisioner(
         var flavor = MatchFlavor(protonRequest)
             ?? throw new LaunchException(
                 LaunchFailureKind.ProtonDownloadFailed,
-                $"不支持的 Proton 代号「{protonRequest}」（可用：DW-Proton / GE-Proton / UMU-Proton）。");
+                loc.Format("umu_err_unsupportedCodename", protonRequest));
 
-        progress?.Report($"正在下载 {protonRequest} 最新版本…");
+        progress?.Report(loc.Format("umu_progress_downloadLatest", protonRequest));
         var newPath = await DownloadLatestProtonAsync(protonRequest, progress, cancellationToken)
             .ConfigureAwait(false);
         PruneOtherProtonVersions(newPath, flavor.LocalPrefix);
@@ -422,7 +426,7 @@ public sealed class UmuComponentProvisioner(
             {
                 throw new LaunchException(
                     LaunchFailureKind.ProtonDownloadFailed,
-                    $"找不到 Proton 版本「{tagName}」的 release。请改用代号（DW-Proton/GE-Proton/UMU-Proton）或本机已装版本。");
+                    loc.Format("umu_err_tagReleaseNotFound", tagName));
             }
 
             response.EnsureSuccessStatusCode();
@@ -440,7 +444,7 @@ public sealed class UmuComponentProvisioner(
         {
             throw new LaunchException(
                 LaunchFailureKind.ProtonDownloadFailed,
-                $"无法获取 Proton {tagName} 的版本信息：{ex.Message}",
+                loc.Format("umu_err_tagVersionFetch", tagName, ex.Message),
                 ex);
         }
 
@@ -453,7 +457,7 @@ public sealed class UmuComponentProvisioner(
             {
                 throw new LaunchException(
                     LaunchFailureKind.ProtonDownloadFailed,
-                    $"Proton {tagName} 的 release 里没有适配本机架构的 .tar.gz/.tar.xz 资产。");
+                    loc.Format("umu_err_tagNoArchAsset", tagName));
             }
         }
         catch (LaunchException)
@@ -464,11 +468,11 @@ public sealed class UmuComponentProvisioner(
         {
             throw new LaunchException(
                 LaunchFailureKind.ProtonDownloadFailed,
-                $"Proton {tagName} 版本信息解析失败：{ex.Message}",
+                loc.Format("umu_err_tagReleaseParse", tagName, ex.Message),
                 ex);
         }
 
-        progress?.Report($"正在下载 {asset.Name}…");
+        progress?.Report(loc.Format("umu_progress_downloadAsset", asset.Name));
         var (targetDir, tarPath) = ResolveProtonInstallPaths(asset.Name);
         return await InstallProtonAssetAsync(asset, targetDir, tarPath, tagName, cancellationToken);
     }
@@ -490,18 +494,18 @@ public sealed class UmuComponentProvisioner(
             if (string.IsNullOrEmpty(asset.Url))
             {
                 throw new UpdateException(
-                    $"Proton release 里没有匹配 {flavor.AssetPrefix}* 且适配本机架构的 .tar.gz/.tar.xz 资产。");
+                    loc.Format("umu_err_noArchAsset", flavor.AssetPrefix));
             }
         }
         catch (JsonException ex)
         {
             throw new LaunchException(
                 LaunchFailureKind.ProtonDownloadFailed,
-                $"Proton 版本信息解析失败：{ex.Message}",
+                loc.Format("umu_err_releaseParse", ex.Message),
                 ex);
         }
 
-        progress?.Report($"正在下载 {asset.Name}…");
+        progress?.Report(loc.Format("umu_progress_downloadAsset", asset.Name));
         var (targetDir, tarPath) = ResolveProtonInstallPaths(asset.Name);
         return await InstallProtonAssetAsync(asset, targetDir, tarPath, tagName: null, cancellationToken);
     }
@@ -514,7 +518,7 @@ public sealed class UmuComponentProvisioner(
         var flavor = MatchFlavor(protonRequest)
             ?? throw new LaunchException(
                 LaunchFailureKind.ProtonDownloadFailed,
-                $"不支持的 Proton 代号「{protonRequest}」（可用：DW-Proton / GE-Proton / UMU-Proton）。");
+                loc.Format("umu_err_unsupportedCodename", protonRequest));
 
         try
         {
@@ -533,7 +537,7 @@ public sealed class UmuComponentProvisioner(
         {
             throw new LaunchException(
                 LaunchFailureKind.ProtonDownloadFailed,
-                $"无法获取 Proton 版本信息（请检查网络或代理）：{ex.Message}",
+                loc.Format("umu_err_versionFetchNetwork", ex.Message),
                 ex);
         }
     }
@@ -651,7 +655,7 @@ public sealed class UmuComponentProvisioner(
         {
             throw new LaunchException(
                 LaunchFailureKind.ProtonDownloadFailed,
-                $"发布资产名不可信（含路径分隔符或非法字符）：{assetName}");
+                loc.Format("umu_err_untrustedAssetName", assetName));
         }
 
         var compatRoot = UmuPaths.SteamCompatRoot(dataHome);
@@ -717,7 +721,7 @@ public sealed class UmuComponentProvisioner(
                 {
                     throw new LaunchException(
                         LaunchFailureKind.ProtonDownloadFailed,
-                        $"Proton 包「{asset.Name}」解压后缺少 proton 或 toolmanifest.vdf。");
+                        loc.Format("umu_err_packageIncomplete", asset.Name));
                 }
 
                 // 兜底校验：无架构后缀的资产也可能装错架构（wineserver 的 ELF e_machine 对照主机）
@@ -727,7 +731,7 @@ public sealed class UmuComponentProvisioner(
                     TryDeleteDirectory(targetDir);
                     throw new LaunchException(
                         LaunchFailureKind.ProtonDownloadFailed,
-                        $"Proton 包「{asset.Name}」是 {ArchDisplayName(machine.Value)} 架构，与本机不符，已中止安装并清理。");
+                        loc.Format("umu_err_archMismatch", asset.Name, ArchDisplayName(machine.Value)));
                 }
 
                 TryChmod(Path.Combine(targetDir, "proton"));
@@ -754,7 +758,7 @@ public sealed class UmuComponentProvisioner(
                 // 漏掉会让 VM 收到 Unknown，丢失重试按钮与本机 Proton 下拉的修复 UI
                 throw new LaunchException(
                     LaunchFailureKind.ProtonDownloadFailed,
-                    $"Proton 下载或解压失败：{ex.Message}",
+                    loc.Format("umu_err_protonDownload", ex.Message),
                     ex);
             }
             finally
@@ -778,58 +782,73 @@ public sealed class UmuComponentProvisioner(
 
         var images = SteamRuntimeCatalog.ImagesPathPrefix(info);
         var archive = SteamRuntimeCatalog.ArchiveFileName(info);
-        string archivePath;
+        string? archivePath = null;
         try
         {
-            // 版本号/SHA256SUMS/BUILD_ID 的裸 HttpRequestException 与下载器的 DownloadException
-            // 统一转 UmuRuntimeDownloadFailed：漏网的会在 VM 落 Unknown，丢失重试修复 UI
-            var version = (await FetchTextAsync(
-                $"{RuntimeHost}{images}/latest-public-beta.txt", cancellationToken).ConfigureAwait(false)).Trim();
-            if (version.Length == 0)
+            try
             {
+                // 版本号/SHA256SUMS/BUILD_ID 的裸 HttpRequestException 与下载器的 DownloadException
+                // 统一转 UmuRuntimeDownloadFailed：漏网的会在 VM 落 Unknown，丢失重试修复 UI
+                var version = (await FetchTextAsync(
+                    $"{RuntimeHost}{images}/latest-public-beta.txt", cancellationToken).ConfigureAwait(false)).Trim();
+                if (version.Length == 0)
+                {
+                    throw new LaunchException(
+                        LaunchFailureKind.UmuRuntimeDownloadFailed,
+                        loc["umu_err_runtimeVersionEmpty"]);
+                }
+
+                var baseUrl = $"{RuntimeHost}{images}/{version}";
+                var sums = await FetchTextAsync($"{baseUrl}/SHA256SUMS", cancellationToken).ConfigureAwait(false);
+                var expectedSha = ParseSha256For(sums, archive);
+                var buildId = (await FetchTextAsync($"{baseUrl}/BUILD_ID.txt", cancellationToken).ConfigureAwait(false)).Trim();
+
+                var cache = UmuPaths.CacheRoot(cacheHome);
+                Directory.CreateDirectory(cache);
+                archivePath = Path.Combine(cache, $"{archive}.{buildId}");
+                progress?.Report(loc.Format("umu_progress_downloadRuntimeVersion", version));
+
+                await downloader.DownloadFileAsync(
+                    new DownloadRequest($"{baseUrl}/{archive}", archivePath, ExpectedSize: null, ExpectedMd5: null),
+                    null,
+                    cancellationToken).ConfigureAwait(false);
+
+                if (!string.IsNullOrEmpty(expectedSha))
+                {
+                    await VerifySha256Async(archivePath, expectedSha, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex) when (ex is DownloadException or HttpRequestException)
+            {
+                // 下载器网络重试耗尽抛 DownloadException（含校验失败的 DownloadVerificationException）；
+                // 版本号拉取等直连请求抛 HttpRequestException——用户取消不在此分类（下方 rethrow）
                 throw new LaunchException(
                     LaunchFailureKind.UmuRuntimeDownloadFailed,
-                    "无法解析 Steam Runtime 版本号（latest-public-beta.txt 为空）。");
+                    loc.Format("umu_err_runtimeDownload", ex.Message),
+                    ex);
             }
-
-            var baseUrl = $"{RuntimeHost}{images}/{version}";
-            var sums = await FetchTextAsync($"{baseUrl}/SHA256SUMS", cancellationToken).ConfigureAwait(false);
-            var expectedSha = ParseSha256For(sums, archive);
-            var buildId = (await FetchTextAsync($"{baseUrl}/BUILD_ID.txt", cancellationToken).ConfigureAwait(false)).Trim();
-
-            var cache = UmuPaths.CacheRoot(cacheHome);
-            Directory.CreateDirectory(cache);
-            archivePath = Path.Combine(cache, $"{archive}.{buildId}");
-            progress?.Report($"正在下载 Steam Runtime {version}…");
-
-            await downloader.DownloadFileAsync(
-                new DownloadRequest($"{baseUrl}/{archive}", archivePath, ExpectedSize: null, ExpectedMd5: null),
-                null,
-                cancellationToken).ConfigureAwait(false);
-
-            if (!string.IsNullOrEmpty(expectedSha))
+            catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
             {
-                await VerifySha256Async(archivePath, expectedSha, cancellationToken).ConfigureAwait(false);
+                // 直连版本号/SHA256SUMS 的连接或响应头超时（token 未取消的 TCE）——与 Proton 下载同款
+                // 语义：超时必须按可重试失败分类，裸 OCE 上抛会被设置页的取消豁免静默吞、
+                // 启动路径则落 Unknown 类目（2026-09-20 复审修复）
+                throw new LaunchException(
+                    LaunchFailureKind.UmuRuntimeDownloadFailed,
+                    loc.Format("umu_err_runtimeDownloadTimeout", ex.Message),
+                    ex);
             }
         }
-        catch (Exception ex) when (ex is DownloadException or HttpRequestException)
+        catch (Exception)
         {
-            // 下载器网络重试耗尽抛 DownloadException（含校验失败的 DownloadVerificationException）；
-            // 版本号拉取等直连请求抛 HttpRequestException——用户取消不在此分类（下方 rethrow）
-            throw new LaunchException(
-                LaunchFailureKind.UmuRuntimeDownloadFailed,
-                $"Steam Runtime 下载失败：{ex.Message}",
-                ex);
-        }
-        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
-        {
-            // 直连版本号/SHA256SUMS 的连接或响应头超时（token 未取消的 TCE）——与 Proton 下载同款
-            // 语义：超时必须按可重试失败分类，裸 OCE 上抛会被设置页的取消豁免静默吞、
-            // 启动路径则落 Unknown 类目（2026-09-20 复审修复）
-            throw new LaunchException(
-                LaunchFailureKind.UmuRuntimeDownloadFailed,
-                $"Steam Runtime 下载失败（超时）：{ex.Message}",
-                ex);
+            // 首段任何失败（含 SHA 校验的 LaunchException 与上面的两类转换结果）：归档/半成品
+            // 不得滞留缓存——第二段的清理 finally 挂在解压段上，首段异常直接穿透它（F8，
+            // 2026-09-24 前数百 MB 垃圾留到用户手动清理；重试虽覆写同路径，不该依赖用户行为）
+            if (!string.IsNullOrEmpty(archivePath))
+            {
+                TryDelete(archivePath);
+            }
+
+            throw;
         }
 
         var installRoot = UmuPaths.RuntimeDirectory(variant, dataHome);
@@ -848,7 +867,7 @@ public sealed class UmuComponentProvisioner(
             var top = Directory.EnumerateDirectories(staging).FirstOrDefault()
                       ?? throw new LaunchException(
                           LaunchFailureKind.UmuRuntimeDownloadFailed,
-                          "Steam Runtime 包内没有顶层目录。");
+                          loc["umu_err_runtimeNoTopDir"]);
             if (Directory.Exists(installRoot))
             {
                 Directory.Delete(installRoot, recursive: true);
@@ -886,7 +905,7 @@ public sealed class UmuComponentProvisioner(
         {
             throw new LaunchException(
                 LaunchFailureKind.UmuRuntimeDownloadFailed,
-                $"Steam Runtime 解压或落位失败：{ex.Message}",
+                loc.Format("umu_err_runtimeExtract", ex.Message),
                 ex);
         }
         finally
@@ -937,9 +956,11 @@ public sealed class UmuComponentProvisioner(
                 case TarEntryType.SymbolicLink:
                 case TarEntryType.HardLink:
                     var link = entry.LinkName.Replace('\\', '/');
-                    // 链接目标与条目名同等校验：绝对路径或 ".." 目标的链接可把后续普通文件
-                    // 条目经链接写穿到目标目录外（同上游包被篡改时的纵深防御）
-                    if (link.StartsWith('/') || link.Split('/').Contains(".."))
+                    // 链接目标与条目名同等校验：绝对路径（跨平台口径含 Windows 盘符/UNC 形态——
+                    // Linux 上 StartsWith('/') 挡不住 "C:/evil"，而该 tar 可能随后在 Windows 解出）
+                    // 或 ".." 目标的链接可把后续普通文件条目经链接写穿到目标目录外（同上游包被
+                    // 篡改时的纵深防御）
+                    if (IsEscapingLinkTarget(link))
                     {
                         continue;
                     }
@@ -949,6 +970,16 @@ public sealed class UmuComponentProvisioner(
             }
         }
     }
+
+    /// <summary>tar 链接目标的穿越判定（纯函数，internal 供直测）：绝对路径（含 Windows
+    /// 盘符 <c>C:/…</c> 与 UNC <c>//server/…</c> 形态，按跨平台口径而非当前主机）或含 ".." 段
+    /// 即逃逸。F11（2026-09-24）：旧实现只挡 StartsWith('/')，盘符/UNC 目标在 Linux 上放行。</summary>
+    internal static bool IsEscapingLinkTarget(string normalizedLink) =>
+        normalizedLink.Length > 0 && normalizedLink[0] == '/'
+        || (normalizedLink.Length >= 2
+            && char.IsAsciiLetter(normalizedLink[0])
+            && normalizedLink[1] == ':')
+        || normalizedLink.Split('/').Contains("..");
 
     /// <summary>按魔数选择解压流：gzip → GZipStream，xz → XZStream，其余按未压缩 tar 原样透传。</summary>
     private static Stream OpenDecompressedStream(FileStream raw)
@@ -1147,14 +1178,14 @@ public sealed class UmuComponentProvisioner(
     }
 
     /// <summary>校验下载的 Steam Runtime 包 SHA256，不符抛 LaunchException（启动失败覆盖层展示）。</summary>
-    private static async Task VerifySha256Async(string path, string expected, CancellationToken cancellationToken)
+    private async Task VerifySha256Async(string path, string expected, CancellationToken cancellationToken)
     {
         var actual = await Hashing.Sha256HexAsync(path, cancellationToken).ConfigureAwait(false);
         if (!string.Equals(actual, expected.Trim().ToLowerInvariant(), StringComparison.Ordinal))
         {
             throw new LaunchException(
                 LaunchFailureKind.UmuRuntimeDownloadFailed,
-                $"Steam Runtime 校验失败：期望 SHA256 {expected}，实际 {actual}。");
+                loc.Format("umu_err_runtimeShaMismatch", expected, actual));
         }
     }
 
