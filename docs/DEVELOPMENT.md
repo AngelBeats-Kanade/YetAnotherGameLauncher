@@ -150,6 +150,8 @@ tests/
 2. **移除任何兜底/回退路径前，必须先证明主路径在真实环境实际工作**（不是"在测试里工作"）。兜底长期存在会让潜在的主路径缺陷被掩盖成"一切正常"——删兜底瞬间缺陷显形，且显形位置往往在用户侧而非 CI。核查手段按成本递进：磁盘状态检查（文件尺寸/符号链接/readelf）→ 独立进程 harness 直调 → 真机冒烟。
 3. **就绪/健康探针必须覆盖真实调用面**："探活一个函数成功"≠"整条链可用"（av_version_info 是 ABI 稳定的 avutil 函数，恰好永远最先可解析——拿它当整包就绪判据会放行残缺绑定）。写探针时枚举实际消费者的关键入口，每库至少一个。
 
+同日五轮复盘沉淀的延伸规则——守卫判别力自查、机器前提显式 Skip、修复批次假设审计、语义变更对照上一版、环境变体实验、机械操作语义抽检、无人值守待审面标注——见 AGENTS.md「复审与修复纪律」节（该节为权威定义，此处不复制）。
+
 ## 4. 测试布局要点
 
 - **共享替身**（TestSupport 项目）：`FakeDownloader`（URL→字节）、`StubHttpHandler`（可模拟 Range/瞬态故障/忽略 Range）、`FakePatchApplier`（预设输出/可失败/可损坏）、`FakeChannel`（可配置版本信息与清单）、`FakeProcessRunner`、`FakePlatformInfo`（IsLinux/NVIDIA 探测可控）、`FakeAutostartService`（启用状态可控/可编程写入失败）、`TempDir`、`TestZip`。
