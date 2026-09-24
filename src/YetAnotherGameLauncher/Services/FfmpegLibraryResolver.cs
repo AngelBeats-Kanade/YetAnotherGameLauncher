@@ -489,9 +489,13 @@ public sealed partial class FfmpegLibraryResolver(
         private IntPtr ResolveLibrary(string libraryName)
         {
             ResolutionAttempts++;
-            if (_directory is not null && TryLoadFromDirectory(libraryName) is { } fromDir && fromDir != IntPtr.Zero)
+            if (_directory is not null)
             {
-                return fromDir;
+                var fromDir = TryLoadFromDirectory(libraryName);
+                if (fromDir != IntPtr.Zero)
+                {
+                    return fromDir;
+                }
             }
 
             if (OperatingSystem.IsLinux())

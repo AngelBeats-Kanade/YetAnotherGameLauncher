@@ -42,6 +42,16 @@ public class FfmpegLibraryResolverEnsureReadyTests : IDisposable
     [Fact]
     public void EnsureReady_MissingLibraries_ResolveEachLibraryAtMostOnce()
     {
+        // 机器前提（复review R1，2026-09-24 实证）：本用例构造"目录残缺 + 系统无配套库"的缺失形态，
+        // 断言 EnsureReady 必败。注入的 systemLibraryProbe 只门分支②，管不住 resolver 内部的
+        // 系统回退——机器真实装有精确配套 FFmpeg 9（LD_LIBRARY_PATH 指向 soname 链接实测复现）
+        // 时绑定会合法成功，Assert.False 假红。同款守卫见上方 JunkDownloadedDir 用例
+        if (System.Runtime.InteropServices.NativeLibrary.TryLoad(
+                OperatingSystem.IsWindows() ? "avcodec-63.dll" : "libavcodec.so.63", out _))
+        {
+            Assert.Skip("机器装有精确配套的 FFmpeg 9 avcodec——'缺失形态'前提不成立");
+        }
+
         // M3+M4 负缓存回归（2026-09-24 review 立项）：目录残缺（只含垃圾 avcodec）时，每个库的
         // 全链解析（目录→系统精确版本→系统裸名）必须恰好执行一次——失败句柄同样缓存（恢复
         // "失败句柄也缓存避免反复尝试"的旧纪律），此后就绪探测一律命中缓存不再重扫。
