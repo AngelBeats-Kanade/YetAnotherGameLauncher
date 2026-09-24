@@ -120,9 +120,9 @@
             <SolidColorBrush x:Key="AppOnArtworkDockBrush" Color="#C70D101A"/>
             <!-- 插画上卡片描边（方案 A rgba(255,255,255,.09)）：操作坞/玻璃件的 1px 轮廓 -->
             <SolidColorBrush x:Key="AppOnArtworkCardBorder" Color="#17FFFFFF"/>
-            <!-- 详情页顶部渐变纱带（2026-09-25 加深加长：原方案 A rgba(6,9,18,.55)→透明/150 高）：
-                 官方背景左上角烧录的 Logo 字区（终末地亮帧实测视口 y≈56-167）需被压暗隐入，
-                 顶部 0.70 起步、三 stop 把有效压暗延伸到 ~170，240 高内线性淡出 -->
+            <!-- 详情页顶部渐变纱带（2026-09-25 加深加长：原方案 A rgba(6,9,18,.55)→透明）：
+                 官方背景左上角烧录的 Logo 字区（终末地亮帧实测，1464 窗口视口 y≈56-167）需被压暗隐入；
+                 顶部 0.70 起步、三 stop 渐出——本刷不含高度，高度由使用处决定（MainWindow 详情页 30% 行） -->
             <LinearGradientBrush x:Key="AppOnArtworkScrimBrush" StartPoint="0%,0%" EndPoint="0%,100%">
                 <GradientStop Color="#B3060912" Offset="0"/>
                 <GradientStop Color="#8C060912" Offset="0.45"/>

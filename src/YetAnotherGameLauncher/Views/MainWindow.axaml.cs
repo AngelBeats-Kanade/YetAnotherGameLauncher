@@ -509,7 +509,9 @@ public partial class MainWindow : Window
 
         // X 定位：展开态进入选中项内部左缘；收起态行内被图标占满，退到项背景左缘外侧
         // （点右缘与项左缘留 CollapsedOutsideGapX）。
-        // 各目标项左缘一致，X 无需参与迁移动画（仅布局校正时直接吸附）
+        // 展开与收起两态都相对目标项左缘（游戏行与导航钮左缘一致系 DockPanel/底部
+        // StackPanel 同为 12 的边距巧合，非结构不变量——改侧栏边距时两态同受影响）。
+        // X 无需参与迁移动画（仅布局校正时直接吸附）
         var expanded = (DataContext as MainWindowViewModel)?.IsSidebarExpanded ?? true;
         var newX = expanded
             ? point.X + InsideItemInsetX

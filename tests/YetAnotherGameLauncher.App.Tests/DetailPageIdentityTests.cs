@@ -50,15 +50,15 @@ public class DetailPageIdentityTests : IDisposable
             title = page.GetVisualDescendants().OfType<TextBlock>()
                 .FirstOrDefault(t => t.Text == wuwa.DisplayName);
 
-            // 标题字号钉值（2026-09-25 28→32：整幅背景画面上 28 偏小，用户实测反馈）
-            Assert.Equal(32, title!.FontSize);
-
             // 标题行须位于状态 chips 上方（Row0 簇首元素）
             if (title is not null)
             {
+                // 标题字号钉值（2026-09-25 28→32：整幅背景画面上 28 偏小，用户实测反馈）
+                Assert.Equal(32, title.FontSize);
+
                 var statusText = page.GetVisualDescendants().OfType<TextBlock>()
                     .First(t => t.Text == wuwa.StatusText);
-                TitleAboveChips = title!.TranslatePoint(new Point(0, 0), page)!.Value.Y
+                TitleAboveChips = title.TranslatePoint(new Point(0, 0), page)!.Value.Y
                                   < statusText.TranslatePoint(new Point(0, 0), page)!.Value.Y;
             }
 

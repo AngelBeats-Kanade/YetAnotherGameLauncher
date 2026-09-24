@@ -255,34 +255,13 @@ public class UiScreenshotTests
             AppContext.BaseDirectory, "..", "..", "..", "..", "..", "artifacts", "ui-review"));
         Directory.CreateDirectory(outDir);
 
+        // 模板经 SampleConfigJson.Replace 定向加 icon（单一事实源，先例 ToastTests）：icon 走配置，
+        // 版本缓存建立后的复刷不再发射资产加载，InitializeAsync 后再设 Game.Icon 无人加载
         using var ctx = VmFactory.Build(
             configJson: null,
-            templateFactory: () => """
-                {
-                  "settings": { "installRoot": "~/yagl-test-games", "theme": "Dark", "maxParallelDownloads": 4 },
-                  "games": [
-                    {
-                      "id": "wuthering-waves",
-                      "displayName": "鸣潮",
-                      "nameLocalized": { "zh-CN": "鸣潮", "en-US": "Wuthering Waves" },
-                      "channel": "kuro",
-                      "installDir": "WutheringWaves",
-                      "executable": "Client/Binaries/Win64/Client-Win64-Shipping.exe",
-                      "icon": "https://is1-ssl.mzstatic.com/wuwa-icon.jpg",
-                      "servers": [ { "id": "cn", "name": "国服" } ]
-                    },
-                    {
-                      "id": "arknights-endfield",
-                      "displayName": "明日方舟：终末地",
-                      "nameLocalized": { "zh-CN": "明日方舟：终末地", "en-US": "Arknights: Endfield" },
-                      "channel": "hypergryph",
-                      "installDir": "ArknightsEndfield",
-                      "executable": "Endfield.exe",
-                      "servers": [ { "id": "global", "name": "国际服" } ]
-                    }
-                  ]
-                }
-                """,
+            templateFactory: () => VmFactory.SampleConfigJson.Replace(
+                "\"executable\": \"Client/Binaries/Win64/Client-Win64-Shipping.exe\",",
+                "\"executable\": \"Client/Binaries/Win64/Client-Win64-Shipping.exe\",\n      \"icon\": \"https://is1-ssl.mzstatic.com/wuwa-icon.jpg\","),
             platformInfo: new FakePlatformInfo(isLinux: true),
             linuxProtonVersions: []);
         ctx.Gryphline.VersionInfo = new ChannelVersionInfo { LatestVersion = "1.2.0" };
@@ -600,9 +579,9 @@ public class UiScreenshotTests
     [Fact]
     public async Task Export_EndfieldRealBackdrop_ForReview()
     {
+        // 经 AppPaths 单一事实源（尊重 XDG_DATA_HOME/平台差异），硬编码家目录会在改策略后永久 Skip
         var posterPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".local", "share", "yagl", "backdrops", "arknights-endfield", "poster.png");
+            YetAnotherGameLauncher.Core.AppPaths.DataDirectory, "backdrops", "arknights-endfield", "poster.png");
         if (!File.Exists(posterPath))
         {
             Assert.Skip($"本机无终末地真实海报缓存（{posterPath}），真海报视觉验收仅在有缓存的机器运行");

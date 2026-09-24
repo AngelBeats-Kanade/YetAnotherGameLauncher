@@ -232,6 +232,8 @@ public class DetailPageHeadlessTests : IDisposable
         }, CancellationToken.None);
 
         Assert.True(inBand > 0, "带内采样点抓帧失败");
+        // belowBand 下限钉住"海报确实渲染了"：深底（~90）会让 inBand<belowBand*0.5 失去判别力
+        Assert.True(belowBand > 400, $"带外采样点过暗，平色海报可能未渲染：belowBand={belowBand}");
         Assert.True(inBand < belowBand * 0.5,
             $"纱带未显著压暗标题身后插画：inBand={inBand} belowBand={belowBand}");
     }
@@ -253,10 +255,9 @@ public class DetailPageHeadlessTests : IDisposable
                 .First(g => g.Name == "ArtworkFallback");
 
             // 基线：无海报无视频（夹具默认）→ 回退层可见（渐变+水印，空态设计）
-            Assert.False(_ctx.Vm.Games[0].HasBackgroundImage, "夹具前置失败：默认夹具应有海报");
+            Assert.False(_ctx.Vm.Games[0].HasBackgroundImage, "夹具前置失败：默认夹具不应有海报");
             Assert.True(fallback.IsVisible, "无海报无视频时回退层必须可见（渐变+水印空态底）");
 
-            _ctx.Vm.Games[0].HasBackgroundImage = false;
             _ctx.Vm.Games[0].HasBackgroundVideo = true;
             window.UpdateLayout();
 
