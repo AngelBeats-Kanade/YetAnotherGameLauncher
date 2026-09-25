@@ -37,6 +37,7 @@ public class DetailPageIdentityTests : IDisposable
         var wuwa = _ctx.Vm.Games[0];
 
         var chipsFirst = false;
+        var statusTextY = -1.0;
         var hasDrawnTitle = true;
         await HeadlessSession.Instance.Dispatch(() =>
         {
@@ -52,13 +53,14 @@ public class DetailPageIdentityTests : IDisposable
             // chips 行是信息簇首元素（自绘标题移除后，2026-09-25 用户决定）
             var statusText = page.GetVisualDescendants().OfType<TextBlock>()
                 .First(t => t.Text == wuwa.StatusText);
-            chipsFirst = statusText.TranslatePoint(new Point(0, 0), page)!.Value.Y < 120;
+            statusTextY = statusText.TranslatePoint(new Point(0, 0), page)!.Value.Y;
+            chipsFirst = statusTextY < 120;
 
             window.Close();
         }, CancellationToken.None);
 
         Assert.False(hasDrawnTitle, "详情页不得自绘游戏名标题（官方背景自带烧录 Logo 字标，自绘与之重复打架）");
-        Assert.True(chipsFirst, "状态 chips 应落在信息簇顶部（y<120）");
+        Assert.True(chipsFirst, $"状态 chips 应落在信息簇顶部（y<120），实测 y={statusTextY}");
     }
 
     [Fact]

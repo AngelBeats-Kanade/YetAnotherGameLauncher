@@ -697,7 +697,7 @@
                     </ListBox>
                     </DockPanel>
 
-            <!-- 侧栏选中指示点：展开态静息于选中项内部左缘（收起态贴项背景左缘外侧），选中项变更时
+            <!-- 侧栏选中指示点：两态静息于选中块内部左缘（展开态内缩 3px、收起态贴块左缘），选中项变更时
                  沿行进方向变长一倍 → 快速跳到新项 → 收缩落位（编舞在代码后置，X 由 MoveNavIndicator 直接定位） -->
             <Border x:Name="NavIndicator"
                     Width="5" CornerRadius="2.5"

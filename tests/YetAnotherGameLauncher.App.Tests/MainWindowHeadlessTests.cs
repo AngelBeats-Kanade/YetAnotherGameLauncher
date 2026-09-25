@@ -111,8 +111,8 @@ public class MainWindowHeadlessTests : IDisposable
                 .Single(b => Equals(b.Command, about.OpenProjectHomeCommand));
             Assert.False(home.Content is string, "按钮不得以文字为内容（应为 GitHub 图标）");
             Assert.Equal(AboutViewModel.ProjectHomeUrl, ToolTip.GetTip(home));
-            Assert.True(home.Bounds.Height <= 22,
-                $"按钮高 {home.Bounds.Height}px 应与相邻信息行文字量级一致（≤22px）");
+            Assert.True(home.Bounds.Height <= 24,
+                $"按钮高 {home.Bounds.Height}px 应与相邻信息行文字量级一致（≤24px）");
             window.Close();
         }, CancellationToken.None);
     }

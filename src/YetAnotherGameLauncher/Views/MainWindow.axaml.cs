@@ -508,8 +508,8 @@ public partial class MainWindow : Window
             return true;
         }
 
-        // X 定位：两态都在选中块内部左缘（展开态内缩 3px、收起态 2px——块已外扩 56 居中，
-        // 图标居中于侧栏中线，点与图标天然分离）。
+        // X 定位：两态都在选中块内部左缘（展开态内缩 3px；收起态贴块左缘 0——块 44 宽、
+        // 图标盒 38 居中后左缝仅 3px，点与图标盒左缘相切叠 2px）。
         // 各目标块左缘一致系 DockPanel/底部 StackPanel 同为 12 的边距巧合，非结构不变量。
         // X 无需参与迁移动画（仅布局校正时直接吸附）
         var expanded = (DataContext as MainWindowViewModel)?.IsSidebarExpanded ?? true;

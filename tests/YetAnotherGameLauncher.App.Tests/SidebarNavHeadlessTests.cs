@@ -314,7 +314,7 @@ public class SidebarNavHeadlessTests : IDisposable
             Assert.Equal(sidebarMidline, rowIcon.TranslatePoint(new Point(19, 19), overlay)!.Value.X, 1);
 
             // 设置入口：图标在按钮内水平居中（旧形态本地 Left 对齐→图标偏左），
-            // 指示点对齐按钮中心 Y、贴按钮左缘外侧（与游戏行同一条几何规则）
+            // 指示点对齐按钮中心 Y、在选中块（按钮）内部左缘（与游戏行同一条几何规则）
             _ctx.Vm.ShowSettingsCommand.Execute(null);
             window.UpdateLayout();
             Dispatcher.UIThread.RunJobs();

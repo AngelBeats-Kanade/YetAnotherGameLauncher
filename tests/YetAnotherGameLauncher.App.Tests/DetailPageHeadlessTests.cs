@@ -223,11 +223,13 @@ public class DetailPageHeadlessTests : IDisposable
                     + System.Runtime.InteropServices.Marshal.ReadByte(addr + 2);
             }
 
-            // x=600：右移避开左上 chips 簇；y=60 带内上部（0.55 顶渐变，此处 α≈0.31）、
-            // y=450 带外纯背景。先按截图测试同款等待真实时钟再推渲染计时器：首拍可能还没把海报画出来
+            // x=680：chips 行 WrapPanel（x≈28 起、MaxWidth 640）最右到 x≈668——采样列在其右侧，
+            // 防未来长文案 chip 盖住采样点后 chip 自身暗底把守卫喂成假绿；y=60 带内上部
+            //（0.55 顶渐变，此处 α≈0.31）、y=450 带外纯背景（EmptyStateCard MaxWidth 480 够不到）。
+            // 先按截图测试同款等待真实时钟再推渲染计时器：首拍可能还没把海报画出来
             Thread.Sleep(150);
-            inBand = LuminanceAt(600, 60);
-            belowBand = LuminanceAt(600, 450);
+            inBand = LuminanceAt(680, 60);
+            belowBand = LuminanceAt(680, 450);
             window.Close();
         }, CancellationToken.None);
 
