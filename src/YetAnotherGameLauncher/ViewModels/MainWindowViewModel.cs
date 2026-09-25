@@ -1527,7 +1527,16 @@ public partial class SettingsViewModel : ViewModelBase
             return;
         }
 
-        _owner.Platform.OpenDirectoryInFileManager(directory);
+        // 打开失败（xdg-open 缺失等抛 Win32Exception）不沿命令链冒泡——全局 UnhandledException
+        // 处理器不设 Handled，裸抛即进程崩溃（F17）；照 OpenProjectHome 配方弹警告轻提示
+        try
+        {
+            _owner.Platform.OpenDirectoryInFileManager(directory);
+        }
+        catch (Exception ex)
+        {
+            _owner.ShowToast(Loc["settings_title"], Loc.Format("settings_openConfigFailed", ex.Message), ToastKind.Warning);
+        }
     }
 }
 

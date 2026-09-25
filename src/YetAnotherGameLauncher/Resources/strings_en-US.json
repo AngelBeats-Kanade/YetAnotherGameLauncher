@@ -126,6 +126,7 @@
   "settings_section_location": "Location",
   "settings_theme": "Theme",
   "settings_title": "Settings",
+  "settings_openConfigFailed": "Failed to open config folder: {0}",
   "sidebar_collapsed_expand": "Expand sidebar",
   "sidebar_expanded_collapse": "Collapse sidebar",
   "sidebar_games_count": "{0} games",

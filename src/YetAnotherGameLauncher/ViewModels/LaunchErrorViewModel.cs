@@ -87,8 +87,17 @@ public partial class LaunchErrorViewModel : ViewModelBase
         var dir = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(dir))
         {
-            // 目录里启动日志按时间命名，打开后用户定位到最新一份
-            _platform?.OpenDirectoryInFileManager(dir);
+            // 打开失败（xdg-open 缺失等抛 Win32Exception）不沿命令链冒泡——全局 UnhandledException
+            // 处理器不设 Handled，裸抛即进程崩溃（F17）。此处不弹 toast：启动失败覆盖层在场时
+            // toast 被门控丢弃（评审 P3-13，瞬态消息不得压过模态错误），静默降级即本缝的正确语义
+            try
+            {
+                _platform?.OpenDirectoryInFileManager(dir);
+            }
+            catch (Exception)
+            {
+                // 装饰性入口：打开失败不影响错误覆盖层的其余功能
+            }
         }
     }
 

@@ -185,7 +185,13 @@ sealed class Program
             return null;
         }
 
-        process.WaitForExit(timeoutMilliseconds);
+        // 返回值 false = 输出已读完但进程在限时内未退出（如 xrdb 关 stdout 后挂在 X 连接上）：
+        // Dispose 不杀子进程，必须在此 Kill，否则留成孤儿（F28，035054b 写路径同款防御）
+        if (!process.WaitForExit(timeoutMilliseconds))
+        {
+            KillProcessQuietly(process);
+        }
+
         return read.Result;
     }
 

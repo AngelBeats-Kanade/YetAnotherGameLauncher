@@ -62,6 +62,11 @@ public class VersionComparisonTests
     [InlineData("3.9.0", "3.10.0", true)]
     [InlineData("1.0.0.9", "1.0.1", true)]
     [InlineData("1.0.0", "1.0.0.1", true)]
+    // F15（artifacts/bugs.md）：System.Version 对缺失段按"更旧"比较（文档化行为），
+    // 渠道版本格式漂移（3.6 → 3.6.0）时同版本被判"有更新"——缺失段按 0 归一后应相等
+    [InlineData("3.6", "3.6.0", false)]
+    [InlineData("3.6.0", "3.6", false)]
+    [InlineData("3.5", "3.5.0", false)]
     public void IsNewer_NumericVersions(string local, string remote, bool expected)
     {
         Assert.Equal(expected, VersionComparison.IsNewer(remote, local));

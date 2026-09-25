@@ -61,11 +61,18 @@ public sealed class LinuxPlatformInfo : IPlatformInfo
 
     /// <inheritdoc/>
     public void OpenDirectoryInFileManager(string path) =>
-        Process.Start(new ProcessStartInfo("xdg-open", path) { UseShellExecute = false });
+        Process.Start(CreateXdgOpenInfo(path));
 
     /// <inheritdoc/>
     public void OpenInBrowser(string url) =>
-        Process.Start(new ProcessStartInfo("xdg-open", url) { UseShellExecute = false });
+        Process.Start(CreateXdgOpenInfo(url));
+
+    /// <summary>构造 xdg-open 调用信息（internal 供单测断言参数封装形态）。
+    /// 必须走 ArgumentList 通道（.NET 自动转义，官方推荐）：双参构造把参数原样拼进 Arguments
+    /// 按空白拆 argv，含空格的路径被拆成多个参数、"-"/"--" 开头路径被当选项（F16）；
+    /// ArgumentList 与 Arguments 两通道互斥，只能用其一。</summary>
+    internal static ProcessStartInfo CreateXdgOpenInfo(string argument) =>
+        new("xdg-open") { UseShellExecute = false, ArgumentList = { argument } };
 
     /// <summary>把 sysfs 的 PCI vendor id（"0x1002"）映射为厂商；无法解析或未知厂商返回 null。</summary>
     private static GpuVendor? TryMapVendorId(string? text)

@@ -39,6 +39,41 @@ public class ProgramProcessHelperTests
     }
 
     [Fact]
+    public void ReadOutputWithTimeout_OutputDrainedButProcessHung_KillsProcess()
+    {
+        // F28（035054b 同族残留）：子进程提前关闭 stdout（读到 EOF，读取"成功"完成）但自身挂死时，
+        // 成功路径丢弃 WaitForExit 返回值照常返回——进程留成孤儿（Dispose 不杀）。输出已到手，
+        // 限时等待仍未退出即 Kill，与超时路径防御对称
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("仅 Linux：用 sh 关闭 stdout 构造读完成但挂死的进程（本函数族只在 Linux 启动路径执行）");
+        }
+
+        using var process = Process.Start(new ProcessStartInfo("sh")
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            ArgumentList = { "-c", "exec 1>&-; sleep 30" },
+        });
+        Assert.NotNull(process);
+
+        var output = Program.ReadOutputWithTimeout(process, 1000);
+
+        Assert.NotNull(output); // stdout 已 EOF：走的是读取成功路径，而非超时路径
+        var deadline = DateTime.UtcNow.AddSeconds(2);
+        while (!process.HasExited && DateTime.UtcNow < deadline)
+        {
+            Thread.Sleep(20);
+        }
+
+        Assert.True(process.HasExited, "读取完成但进程未退出时必须 Kill，不能留成孤儿");
+        if (!process.HasExited)
+        {
+            process.Kill();
+        }
+    }
+
+    [Fact]
     public void WriteLineAndWaitForExit_Timeout_KillsHangingProcess()
     {
         // MergeXResource 的超时防御契约：WaitForExit 超时后不得把挂死子进程留成孤儿——

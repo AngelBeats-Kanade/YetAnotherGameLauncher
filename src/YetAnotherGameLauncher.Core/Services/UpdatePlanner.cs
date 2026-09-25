@@ -45,9 +45,17 @@ public static class VersionComparison
         if (Version.TryParse(remoteVersion, out var remote)
             && Version.TryParse(localVersion, out var local))
         {
-            return remote > local;
+            // System.Version 对缺失段按"更旧"参与比较（文档化行为："an unknown component is
+            // assumed to be older"）——渠道版本串段数漂移（3.6 → 3.6.0）时同版本被误判"有更新"，
+            // 正向误报重跑一次同内容更新（F15）。缺失段按 0 归一后再比，"3.6" ≡ "3.6.0"
+            return NormalizeMissingSegments(remote) > NormalizeMissingSegments(local);
         }
 
         return !string.Equals(remoteVersion, localVersion, StringComparison.Ordinal);
+
+        static Version NormalizeMissingSegments(Version version) =>
+            version.Build < 0 || version.Revision < 0
+                ? new Version(version.Major, version.Minor, Math.Max(version.Build, 0), Math.Max(version.Revision, 0))
+                : version;
     }
 }

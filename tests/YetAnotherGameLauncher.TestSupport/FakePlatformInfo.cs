@@ -21,6 +21,9 @@ public sealed class FakePlatformInfo(
     /// <summary>置 true 时 OpenInBrowser 抛出异常，模拟 xdg-open 缺失/无默认浏览器等失败。</summary>
     public bool ThrowOnOpenInBrowser { get; set; }
 
+    /// <summary>置 true 时 OpenDirectoryInFileManager 抛出异常，模拟 xdg-open 缺失等失败（F17）。</summary>
+    public bool ThrowOnOpenDirectory { get; set; }
+
     /// <summary>是否按 Linux 平台处理（决定兼容层 UI、Proton 推荐与 XDG 行为）。</summary>
     public bool IsLinux => isLinux;
 
@@ -53,7 +56,15 @@ public sealed class FakePlatformInfo(
     }
 
     /// <summary>记录打开目录请求，不触达真实文件管理器。</summary>
-    public void OpenDirectoryInFileManager(string path) => OpenedPaths.Add(path);
+    public void OpenDirectoryInFileManager(string path)
+    {
+        if (ThrowOnOpenDirectory)
+        {
+            throw new System.ComponentModel.Win32Exception("模拟：找不到 xdg-open");
+        }
+
+        OpenedPaths.Add(path);
+    }
 
     /// <summary>记录打开 URL 请求，不触达真实浏览器。</summary>
     public void OpenInBrowser(string url)

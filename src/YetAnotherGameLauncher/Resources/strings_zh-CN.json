@@ -126,6 +126,7 @@
   "settings_section_location": "位置",
   "settings_theme": "主题",
   "settings_title": "设置",
+  "settings_openConfigFailed": "打开配置文件夹失败：{0}",
   "sidebar_collapsed_expand": "展开侧栏",
   "sidebar_expanded_collapse": "收起侧栏",
   "sidebar_games_count": "{0} 款游戏",
