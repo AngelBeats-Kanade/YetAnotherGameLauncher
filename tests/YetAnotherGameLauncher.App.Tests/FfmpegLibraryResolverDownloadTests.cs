@@ -106,13 +106,13 @@ public class FfmpegLibraryResolverDownloadTests : IDisposable
     }
 
     [Fact]
-    public async Task VerifiedAsset_ExtractsIntoInjectedRoot()
+    public async Task VerifiedAsset_InstallsIntoCommittedDir_WithCompletionMarker()
     {
         // 回归（2026-09-22 独立审计）：解压落点必须走注入根目录——单独变异 ExtractArchive 的
-        // 目标（落回真实用户数据目录默认根）此前全套测试存活；缓存/日志等其余使用点由
-        // CS9113 编译防线与本断言的 LocateLibraryDir 部分共同守护
+        // 目标（落回真实用户数据目录默认根）此前全套测试存活。F26 升级断言：解压进暂存目录、
+        // 完成标记写入库目录、原子移出暂存——只有带标记的库目录才被 EnsureReady 信任
         var stub = new StubHttpHandler();
-        var (archiveBytes, entryPath) = TestFfmpegArchive.Create();
+        var (archiveBytes, _) = TestFfmpegArchive.Create();
         var assetName = FfmpegLibraryResolver.BtbnAsset!.Value.Asset;
         var declared = Convert.ToHexString(SHA256.HashData(archiveBytes)).ToLowerInvariant();
         stub.Map(ChecksumsUrl, $"{declared}  *{assetName}\n");
@@ -122,7 +122,10 @@ public class FfmpegLibraryResolverDownloadTests : IDisposable
 
         await resolver.DownloadAndExtract(CancellationToken.None);
 
-        Assert.True(File.Exists(Path.Combine(root, entryPath)));
-        Assert.NotNull(FfmpegLibraryResolver.LocateLibraryDir(root));
+        var libDir = FfmpegLibraryResolver.LocateLibraryDir(root);
+        Assert.NotNull(libDir);
+        Assert.True(File.Exists(Path.Combine(libDir!, FfmpegLibraryResolver.CompletionMarkerFileName)),
+            "完成安装的库目录必须携带完成标记");
+        Assert.DoesNotContain(".staging-", libDir); // 暂存目录已原子移出，不留半成品
     }
 }

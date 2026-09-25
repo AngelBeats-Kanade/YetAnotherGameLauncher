@@ -56,12 +56,15 @@ public class FfmpegLibraryResolverEnsureReadyTests : IDisposable
         // 全链解析（目录→系统精确版本→系统裸名）必须恰好执行一次——失败句柄同样缓存（恢复
         // "失败句柄也缓存避免反复尝试"的旧纪律），此后就绪探测一律命中缓存不再重扫。
         // 红实证（2026-09-24）：旧形态计数=1——预载只扫目录不计系统回退、首个探测失败即中止
-        // TryBind，"每库恰一次全链解析"的不变量在旧结构里根本不存在
+        // TryBind，"每库恰一次全链解析"的不变量在旧结构里根本不存在。
+        // 夹具带完成标记（F26 后无标记目录会被先删重下、到不了绑定）——本用例的主语是负缓存，
+        // 必须走"被信任的目录"路径
         var stub = new StubHttpHandler();
         var root = _tempDir.FilePath("root-negcache");
         var libDir = Path.Combine(root, "ffmpeg-n9.0", "lib");
         Directory.CreateDirectory(libDir);
         File.WriteAllBytes(Path.Combine(libDir, "libavcodec.so.63"), "junk-not-an-elf"u8.ToArray());
+        File.WriteAllText(Path.Combine(libDir, FfmpegLibraryResolver.CompletionMarkerFileName), "ok");
         var resolver = CreateResolver(stub, root);
 
         // 绑定必败（垃圾库 + 系统探测恒 false）：状态烧毁不重试，首个探测即触发预载与计数
@@ -90,6 +93,7 @@ public class FfmpegLibraryResolverEnsureReadyTests : IDisposable
         var libDir = Path.Combine(root, "ffmpeg-n9.0", "lib");
         Directory.CreateDirectory(libDir);
         File.WriteAllBytes(Path.Combine(libDir, "libavcodec.so.63"), "junk-not-an-elf"u8.ToArray());
+        File.WriteAllText(Path.Combine(libDir, FfmpegLibraryResolver.CompletionMarkerFileName), "ok"); // F26：无标记会被先删
         var resolver = CreateResolver(stub, root);
 
         var result = resolver.EnsureReady(CancellationToken.None);
@@ -98,10 +102,11 @@ public class FfmpegLibraryResolverEnsureReadyTests : IDisposable
     }
 
     [Fact]
-    public void EnsureReady_DownloadedDirBindFails_DoesNotFallThroughToDownload()
+    public void EnsureReady_MarkedDirBindFails_DoesNotFallThroughToDownload()
     {
-        // ① 命中一个"有库文件但全是垃圾字节"的下载目录：TryBind 实际尝试绑定并失败，
-        // 一次性初始化即烧。核心不变量=此后零网络（绝不落穿②③再发起下载）；
+        // ① 命中一个"带完成标记、有库文件但全是垃圾字节"的下载目录：TryBind 实际尝试绑定并失败，
+        // 一次性初始化即烧。核心不变量=此后零网络（绝不落穿②③再发起下载）——F26 后本不变量
+        // 只对**带标记**目录成立（无标记毒目录必须删除重下自愈，见 UnmarkedPoisonedDir 用例）。
         // 返回值 true/false 随机器系统库差异合法波动（.so.63 系统上目录内垃圾失败后
         // DirectoryFunctionResolver 的系统回退可成功绑定），故不断言结果、只断言零网络
         var stub = new StubHttpHandler();
@@ -109,6 +114,7 @@ public class FfmpegLibraryResolverEnsureReadyTests : IDisposable
         var libDir = Path.Combine(root, "ffmpeg-n9.0", "lib");
         Directory.CreateDirectory(libDir);
         File.WriteAllBytes(Path.Combine(libDir, "libavcodec.so.63"), "junk-not-an-elf"u8.ToArray());
+        File.WriteAllText(Path.Combine(libDir, FfmpegLibraryResolver.CompletionMarkerFileName), "ok");
         var resolver = CreateResolver(stub, root);
 
         // 前置：夹具目录必须可定位。全量套件中本测试曾出现一次"落穿形状"的 flake
@@ -120,6 +126,49 @@ public class FfmpegLibraryResolverEnsureReadyTests : IDisposable
 
         Assert.Null(thrown); // EnsureReady 全失败路径内部消化，不得向调用方抛出
         Assert.Empty(stub.Requests); // 红落此断言：落穿③时此处的 checksums 请求即证据
+        Assert.True(Directory.Exists(libDir)); // 带标记的完整目录绑定失败不删除（防无限重下）
+    }
+
+    [Fact]
+    public void EnsureReady_UnmarkedPoisonedDir_SelfHealsByDeletionAndRedownload()
+    {
+        // F26（artifacts/bugs.md）：解压中断毒化的库目录（磁盘满/进程被杀留下半套库）会让
+        // TryBind 一次性锁死，重启也不自愈——只能手删 data/ffmpeg/<rid>。修复后：无完成标记的
+        // 库目录在绑定尝试**前**删除（一次性初始化未烧），本会话即落穿②③重下自愈；带标记的
+        // 完整目录绑定失败才保留永久锁死（防不兼容环境无限重下）。机器前提同 MissingLibraries
+        if (System.Runtime.InteropServices.NativeLibrary.TryLoad(
+                OperatingSystem.IsWindows() ? "avcodec-63.dll" : "libavcodec.so.63", out _))
+        {
+            Assert.Skip("机器装有精确配套的 FFmpeg 9 avcodec——'假库绑定必败'前提不成立");
+        }
+
+        var stub = new StubHttpHandler();
+        var (archiveBytes, _) = TestFfmpegArchive.Create();
+        var assetName = FfmpegLibraryResolver.BtbnAsset!.Value.Asset;
+        var declared = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(archiveBytes)).ToLowerInvariant();
+        stub.Map(ChecksumsUrl, $"{declared}  *{assetName}\n");
+        stub.Map(AssetUrl, archiveBytes);
+        var root = _tempDir.FilePath("root-unmarked-poison");
+        var libDir = Path.Combine(root, "ffmpeg-n9.0", "lib");
+        Directory.CreateDirectory(libDir);
+        File.WriteAllBytes(Path.Combine(libDir, "libavcodec.so.63"), "junk-not-an-elf"u8.ToArray());
+        var resolver = CreateResolver(stub, root);
+
+        var result = resolver.EnsureReady(CancellationToken.None);
+
+        // 毒化目录已被删除（自愈前提）；红形态=目录原样保留、零下载（旧"绑定失败即整体失败"不变量）
+        Assert.False(Directory.Exists(libDir), "无标记毒目录必须在绑定尝试前删除");
+        Assert.Equal(2, stub.Requests.Count); // checksums + 资产各一次：落穿③重下发生了
+        var healedDir = FfmpegLibraryResolver.LocateLibraryDir(root);
+        Assert.NotNull(healedDir);
+        Assert.True(File.Exists(Path.Combine(healedDir!, FfmpegLibraryResolver.CompletionMarkerFileName)),
+            "重下的安装必须携带完成标记");
+        Assert.False(result); // 夹具是假库字节：重下后绑定仍必败（本进程内无法二次烧初始化）
+
+        // 永久锁死语义对"带标记的完整目录"保持：二次调用零新增请求（防不兼容环境无限重下）
+        resolver.EnsureReady(CancellationToken.None);
+        Assert.Equal(2, stub.Requests.Count);
     }
 
     [Fact]

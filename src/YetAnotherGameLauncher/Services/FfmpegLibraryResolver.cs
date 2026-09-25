@@ -84,6 +84,10 @@ public sealed partial class FfmpegLibraryResolver(
     [GeneratedRegex(@"^(lib)?avcodec(-\d+)?(\.so(\.\d+)*)?(\.dll)?$", RegexOptions.IgnoreCase)]
     private static partial Regex AvcodecFileRegex();
 
+    /// <summary>库目录完成标记文件名（位于 LocateLibraryDir 返回的库目录内）：EnsureReady 只信
+    /// 带标记的目录——解压中断/旧布局遗留的无标记目录一律先删再重下（F26 自愈）；internal 供测试构造夹具。</summary>
+    internal const string CompletionMarkerFileName = ".yagl-ffmpeg-complete";
+
     /// <summary>
     /// 确保解码能力就绪（必要时在后台执行首运下载）。返回 false = 本机无系统库且下载失败/不支持，
     /// 调用方保持静态海报。绑定一旦实际尝试过就不可重试（成败均锁定）；仅下载失败允许下次再试。
@@ -131,10 +135,25 @@ public sealed partial class FfmpegLibraryResolver(
         _sharedResolver = new DirectoryFunctionResolver();
         DynamicallyLoadedBindings.FunctionResolver = _sharedResolver;
 
-        // ① 已下载目录命中（自己校验过的完整库目录）。TryBind 失败即整体失败：
-        // 绑定尝试已把一次性初始化烧掉（TryBind 内锁死状态），落穿②③（系统探测/整包下载）
-        // 全都无法挽回，只会白付 60–70MB 流量——2026-09-24 实测修复落穿
+        // ① 已下载目录命中——只信带完成标记的目录：无标记 = 解压中断毒化（F26）或旧布局遗留，
+        // 在其上尝试绑定会烧掉一次性初始化并永久锁死，必须先删（本会话即可落穿②③重下自愈）；
+        // 带标记目录（SHA256 验过 + 解压完整）TryBind 失败即整体失败——完整库仍绑不上 = 环境不兼容，
+        // 重下只会无限循环（2026-09-24 实测修复落穿后的语义，毒目录防线由标记检查承接）
         var dir = LocateLibraryDir(_downloadRoot);
+        while (dir is not null && !HasCompletionMarker(dir))
+        {
+            logger?.LogInformation("Deleting incomplete FFmpeg library directory {Directory}", dir);
+            if (!FileUtilities.TryDeleteDirectory(dir))
+            {
+                logger?.LogWarning(
+                    "Cannot delete incomplete FFmpeg library directory {Directory}; skipping local libraries", dir);
+                dir = null;
+                break;
+            }
+
+            dir = LocateLibraryDir(_downloadRoot);
+        }
+
         if (dir is not null)
         {
             return TryBind(dir);
@@ -258,8 +277,28 @@ public sealed partial class FfmpegLibraryResolver(
             }
 
             await VerifySha256(tempFile, expected, cancellationToken).ConfigureAwait(false);
-            ExtractArchive(tempFile, _downloadRoot);
-            logger?.LogInformation("FFmpeg libraries installed to {Directory}", _downloadRoot);
+            // 解压进暂存目录、写完成标记、原子移入正式位——半套库永远到不了被信任的位置（F26）。
+            // 暂存必须在 _downloadRoot 下保证同卷 rename；与 ExtractArchive 的沙箱/链接还原防线协同
+            var staging = Path.Combine(_downloadRoot, $".staging-{Guid.NewGuid():N}");
+            try
+            {
+                ExtractArchive(tempFile, staging);
+                var libDir = LocateLibraryDir(staging)
+                    ?? throw new InvalidDataException("Extracted FFmpeg archive has no recognisable library directory");
+                File.WriteAllText(Path.Combine(libDir, CompletionMarkerFileName), "ok");
+                var final = Path.Combine(_downloadRoot, "installed");
+                if (Directory.Exists(final))
+                {
+                    FileUtilities.TryDeleteDirectory(final); // 残留旧安装（仅手动删除重装场景可达）
+                }
+
+                Directory.Move(staging, final);
+                logger?.LogInformation("FFmpeg libraries installed to {Directory}", final);
+            }
+            finally
+            {
+                FileUtilities.DeleteQuiet(staging); // 失败清理半成品；成功路径 staging 已不存在，幂等
+            }
         }
         finally
         {
@@ -362,6 +401,10 @@ public sealed partial class FfmpegLibraryResolver(
     /// </summary>
     internal static readonly string[] LibraryDependencyOrder =
         ["avutil", "swresample", "swscale", "avcodec", "avformat", "avfilter", "avdevice"];
+
+    /// <summary>目录是否携带完成标记（<see cref="CompletionMarkerFileName"/>）。</summary>
+    private static bool HasCompletionMarker(string libraryDir) =>
+        File.Exists(Path.Combine(libraryDir, CompletionMarkerFileName));
 
     /// <summary>递归查找目录里 avcodec 库文件所在目录；找不到返回 null。</summary>
     internal static string? LocateLibraryDir(string? root)
