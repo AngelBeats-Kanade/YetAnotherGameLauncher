@@ -172,7 +172,7 @@ public sealed class UmuArchiveExtractionTests : IDisposable
             }
             catch (UnauthorizedAccessException)
             {
-                // 前提成立：写盘/删除真的会被拒
+                // 前提成立：读确实被拒
             }
 
             var archive = WriteTarGz(writer =>

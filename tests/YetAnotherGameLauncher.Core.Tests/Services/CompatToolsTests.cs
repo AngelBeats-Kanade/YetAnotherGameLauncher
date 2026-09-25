@@ -101,6 +101,19 @@ public class CompatToolsScanDegradationTests : IDisposable
             return; // CA1416：其后代码仅 Linux 可达
         }
 
+        // root/CAP_DAC_OVERRIDE 豁免 DAC：拒读形态构造不出（同族前提探针，FileUtilitiesTests 同款）
+        var dacProbe = Path.Combine(_home.Path, "dac-probe.txt");
+        File.WriteAllText(dacProbe, "x");
+        File.SetUnixFileMode(dacProbe, UnixFileMode.None);
+        try
+        {
+            _ = File.ReadAllText(dacProbe);
+            Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），拒读形态不成立");
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+
         Directory.CreateDirectory(PrimaryRoot);
         File.WriteAllText(Path.Combine(PrimaryRoot, "GE-Proton99-99"), string.Empty);
         File.SetUnixFileMode(PrimaryRoot, UnixFileMode.None); // 拒绝包括所有者的一切访问

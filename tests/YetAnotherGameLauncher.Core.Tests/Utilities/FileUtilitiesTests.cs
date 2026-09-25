@@ -51,6 +51,19 @@ public class FileUtilitiesTests : IDisposable
         }
         else
         {
+            // root/CAP_DAC_OVERRIDE 豁免 DAC：去写权限构造不出"删不掉"形态（同族前提探针）
+            var dacProbe = Path.Combine(_tempDir.Path, "dac-probe.txt");
+            File.WriteAllText(dacProbe, "x");
+            File.SetUnixFileMode(dacProbe, UnixFileMode.None);
+            try
+            {
+                _ = File.ReadAllText(dacProbe);
+                Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），删不掉形态不成立");
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+
             File.SetUnixFileMode(inner, UnixFileMode.UserRead | UnixFileMode.UserExecute);
             try
             {
