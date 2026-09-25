@@ -421,6 +421,32 @@ public class PackageInstallerCollisionTests : IDisposable
     }
 
     [Fact]
+    public void IsArchiveIntact_ArchiveRemovedBetweenCheckAndProbe_ReportsNotIntact()
+    {
+        // 次级 suspect（第 13 轮，artifacts/bugs.md）：IsArchiveIntact 的 Exists→Length TOCTOU
+        //（F18 同型）：暂存包被并发删除/手删时裸 FNFE 穿出 ApplyPredownloadAsync 折算成 Unknown。
+        // 按"不完整"报告走重下（确定性缝注入，F18 缝同款）
+        var archivePath = _tempDir.FilePath("pkg.zip");
+        var zipBytes = TestZip.Create(("a.txt", "1"));
+        File.WriteAllBytes(archivePath, zipBytes);
+        var manifest = new GameManifest
+        {
+            Version = "1.0.0",
+            EntriesAreArchives = true,
+            Files = [new ManifestFile("pkg.zip", zipBytes.Length, "")], // size>0 → Length 探测段可达
+        };
+        PackageInstallerService.StagedArchiveRemovedBetweenCheckAndProbeForTests = File.Delete;
+        try
+        {
+            Assert.False(PackageInstallerService.IsArchiveIntact(archivePath, manifest.Files[0])); // 红落此断言：当前 FNFE 穿出
+        }
+        finally
+        {
+            PackageInstallerService.StagedArchiveRemovedBetweenCheckAndProbeForTests = null;
+        }
+    }
+
+    [Fact]
     public void DeriveMaxExtractBytes_FloorForSmallArchives_RatioForLargeOnes()
     {
         // 默认阈值双腿：小压缩包吃 1GiB 绝对下限（合法补丁包永不被误杀），大压缩包吃

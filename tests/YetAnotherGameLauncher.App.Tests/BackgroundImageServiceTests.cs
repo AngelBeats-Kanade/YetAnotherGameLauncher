@@ -104,6 +104,38 @@ public sealed class BackgroundImageServiceTests
     }
 
     [Fact]
+    public async Task LoadAsync_Http_CleansStaleTemp_ButKeepsFreshInFlightTemp()
+    {
+        // 次级 suspect（第 9 轮，artifacts/bugs.md）：写前清理同源临时文件无差别删除——并发写盘方
+        // （同源二次加载）的在途临时文件被删则对方那一轮缓存写入静默丢失。修复 = 只清理超过
+        // 1 小时的旧残留（崩溃遗留与在途写入以 mtime 阈值区分）
+        _ = HeadlessSession.Instance;
+        using var dir = new TempDir();
+        var cacheRoot = dir.FilePath("image-cache");
+        var handler = new StubHttpHandler();
+        handler.Map("https://cdn.example/stale.png", Png);
+        var service = new BackgroundImageService(new HttpClient(handler), diskCacheRoot: cacheRoot);
+
+        // 预置同源键的临时文件对：2 小时前的崩溃残留 + 并发写盘方的在途新鲜临时文件
+        //（DiskCachePath = URL 的 SHA256 大写十六进制 + 扩展名，与实现同一拼装）
+        Directory.CreateDirectory(cacheRoot);
+        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("https://cdn.example/stale.png"))) + ".png";
+        var stale = Path.Combine(cacheRoot, key + ".download-aaaa");
+        var fresh = Path.Combine(cacheRoot, key + ".download-bbbb");
+        await File.WriteAllBytesAsync(stale, [1, 2, 3]);
+        await File.WriteAllBytesAsync(fresh, [4, 5, 6]);
+        File.SetLastWriteTimeUtc(stale, DateTime.UtcNow - TimeSpan.FromHours(2));
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            RunToCompletion(() => service.LoadAsync("https://cdn.example/stale.png"));
+        }, CancellationToken.None);
+
+        Assert.False(File.Exists(stale), "崩溃残留应被清理");
+        Assert.True(File.Exists(fresh), "红落此断言：旧形态无差别删除连在途临时文件一起清");
+    }
+
+    [Fact]
     public async Task LoadAsync_Http_SecondInstance_ServedFromDiskCache()
     {
         _ = HeadlessSession.Instance;
@@ -235,11 +267,14 @@ public sealed class BackgroundImageServiceTests
         handler.Map("https://cdn.example/icon.png", Png);
         var service = new BackgroundImageService(new HttpClient(handler), diskCacheRoot: cacheRoot);
 
-        // 模拟上次崩溃在改名前遗留的临时半成品
+        // 模拟上次崩溃在改名前遗留的临时半成品。mtime 设为 2 小时前：写前清理现按"超过 1 小时
+        // 的旧残留"判定（次级 suspect 第 9 轮——新鲜临时文件可能是并发写盘方的在途文件，
+        // 无差别删除会毁掉对方那一轮写入；fresh 存活面由 CleansStaleTemp_ButKeepsFreshInFlightTemp 钉住）
         Directory.CreateDirectory(cacheRoot);
         var staleTemp = Path.Combine(cacheRoot, Convert.ToHexString(
             SHA256.HashData(Encoding.UTF8.GetBytes("https://cdn.example/icon.png"))) + ".png.download-stale");
         File.WriteAllBytes(staleTemp, [9]);
+        File.SetLastWriteTimeUtc(staleTemp, DateTime.UtcNow - TimeSpan.FromHours(2));
 
         IImage? image = null;
         var staleStillThere = true;

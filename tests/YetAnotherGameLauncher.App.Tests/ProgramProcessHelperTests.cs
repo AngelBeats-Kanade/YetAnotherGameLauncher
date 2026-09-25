@@ -106,4 +106,57 @@ public class ProgramProcessHelperTests
             process.Kill();
         }
     }
+
+    [Fact]
+    public void IsXResourceLine_ExactKeyColonPrefix_MatchesOnlySameKey()
+    {
+        // 次级 suspect（第 9 轮，artifacts/bugs.md）：裸 key 前缀匹配会放过 "Xft.dpi2:" 之类的
+        // 异键行，误判"用户已配置"而跳过自动补写。精确 "key:" 前缀判定
+        Assert.True(Program.IsXResourceLine("Xft.dpi: 96", "Xft.dpi"));
+        Assert.True(Program.IsXResourceLine("  Xft.dpi:\t120", "Xft.dpi"));
+        Assert.False(Program.IsXResourceLine("Xft.dpi2: 96", "Xft.dpi"));
+        Assert.False(Program.IsXResourceLine("Xft.dpix: 1", "Xft.dpi"));
+        Assert.False(Program.IsXResourceLine("other.key: 1", "Xft.dpi"));
+    }
+
+    [Fact]
+    public void KillProcessQuietly_LiveProcess_TerminatesIt()
+    {
+        // 钉住契约的可达形态：活进程被终结（新增的 Win32Exception/AggregateException 臂为
+        // 异常表驱动、无法确定性触发——盲区声明见实现注释）
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("仅 Linux：用 sleep 构造活进程（本函数族只在 Linux 启动路径执行）");
+        }
+
+        using var process = Process.Start(new ProcessStartInfo("sleep", "30") { UseShellExecute = false });
+        Assert.NotNull(process);
+        Program.KillProcessQuietly(process);
+
+        var deadline = DateTime.UtcNow.AddSeconds(2);
+        while (!process.HasExited && DateTime.UtcNow < deadline)
+        {
+            Thread.Sleep(20);
+        }
+
+        Assert.True(process.HasExited, "KillProcessQuietly 必须终结活进程");
+    }
+
+    [Fact]
+    public void KillProcessQuietly_AlreadyExited_NoThrow()
+    {
+        // OIE 臂：Kill 前已退出的竞态静默放过
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("仅 Linux：用 true 构造即退进程");
+        }
+
+        using var process = Process.Start(new ProcessStartInfo("true") { UseShellExecute = false });
+        Assert.NotNull(process);
+        Assert.True(process.WaitForExit(2000));
+
+        var ex = Record.Exception(() => Program.KillProcessQuietly(process));
+
+        Assert.Null(ex);
+    }
 }

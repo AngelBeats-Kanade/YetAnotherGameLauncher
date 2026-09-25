@@ -128,14 +128,35 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
     private static string StagedArchivePath(string packagesDir, ManifestFile file) =>
         Path.Combine(packagesDir, Path.GetFileName(file.Path.Replace('\\', '/')));
 
+    /// <summary>暂存包完整性 TOCTOU 确定性测试缝（生产恒 null）：Exists 通过后、实际探测前
+    /// 以暂存包路径触发——测试注入"检查与操作之间文件被外部移除"的窗口（F18 缝同款）。
+    /// 仅测试调用。</summary>
+    internal static Action<string>? StagedArchiveRemovedBetweenCheckAndProbeForTests;
+
     /// <summary>暂存包完整性：文件存在、大小与 MD5 均与清单一致。size ≤ 0 或 MD5 为空表示
     /// 渠道未提供该字段的校验信息，只按存在性视为完好（与 <see cref="HttpFileDownloader.Verify"/>
-    /// 同一语义）——否则字段缺失的暂存包恒判损坏，每次应用都整包重下（2026-09-20 复审补齐）。</summary>
-    private static bool IsArchiveIntact(string archivePath, ManifestFile file) =>
-        File.Exists(archivePath)
-        && (file.Size <= 0 || new FileInfo(archivePath).Length == file.Size)
-        && (string.IsNullOrEmpty(file.Md5)
-            || Hashing.Md5Hex(archivePath).Equals(file.Md5, StringComparison.OrdinalIgnoreCase));
+    /// 同一语义）——否则字段缺失的暂存包恒判损坏，每次应用都整包重下（2026-09-20 复审补齐）。
+    /// Exists→Length/Md5 之间暂存包被外部移除（并发删除/手删暂存）按"不完整"报告走重下，
+    /// 不让裸 FNFE 穿出折算成 Unknown（F18 同型 TOCTOU，次级 suspect 第 13 轮）。</summary>
+    internal static bool IsArchiveIntact(string archivePath, ManifestFile file)
+    {
+        if (!File.Exists(archivePath))
+        {
+            return false;
+        }
+
+        try
+        {
+            StagedArchiveRemovedBetweenCheckAndProbeForTests?.Invoke(archivePath);
+            return (file.Size <= 0 || new FileInfo(archivePath).Length == file.Size)
+                && (string.IsNullOrEmpty(file.Md5)
+                    || Hashing.Md5Hex(archivePath).Equals(file.Md5, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return false;
+        }
+    }
 
     private async Task<List<(ManifestFile File, string ArchivePath)>> DownloadPackagesAsync(
         string packagesDir,

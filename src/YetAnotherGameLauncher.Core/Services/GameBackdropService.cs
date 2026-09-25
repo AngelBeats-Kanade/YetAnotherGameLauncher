@@ -284,8 +284,10 @@ public sealed class GameBackdropService(
             var json = File.ReadAllText(path);
             return JsonSerializer.Deserialize<BackdropMeta>(json, MetaJsonOptions);
         }
-        catch (Exception ex) when (ex is IOException or JsonException)
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
+            // JsonException（损坏元数据）与 UAE（chmod 000/ACL 拒读，次级 suspect 第 9 轮）
+            // 同语义：按无缓存处理走重新获取，不得穿出 RefreshAsync 的弃元调用点静默失败
             return null;
         }
     }

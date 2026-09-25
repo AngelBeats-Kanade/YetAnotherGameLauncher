@@ -200,11 +200,23 @@ public sealed class BackgroundImageService(
             Directory.CreateDirectory(_diskCacheRoot);
             var path = DiskCachePath(source);
 
-            // 同源（同 URL）上次崩溃在 Move 前遗留的临时半成品先清掉；不同 URL 的并发写互不干扰
+            // 同源（同 URL）上次崩溃在 Move 前遗留的临时半成品清理：只删超过 1 小时的旧残留——
+            // 并发写盘方（同源二次加载）的在途临时文件是新鲜的，无差别删除会毁掉对方那一轮
+            // 缓存写入（次级 suspect 第 9 轮）；崩溃遗留与在途写入以 mtime 阈值区分
             var stalePattern = Path.GetFileName(path) + ".download-*";
+            var staleCutoff = DateTime.UtcNow - TimeSpan.FromHours(1);
             foreach (var stale in Directory.EnumerateFiles(_diskCacheRoot, stalePattern))
             {
-                File.Delete(stale);
+                try
+                {
+                    if (File.GetLastWriteTimeUtc(stale) < staleCutoff)
+                    {
+                        File.Delete(stale);
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                }
             }
 
             var tempPath = $"{path}.download-{Guid.NewGuid():N}";

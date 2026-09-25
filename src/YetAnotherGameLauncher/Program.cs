@@ -86,7 +86,7 @@ sealed class Program
             }
 
             return output.Split('\n')
-                .FirstOrDefault(line => line.TrimStart().StartsWith(key, StringComparison.Ordinal))
+                .FirstOrDefault(line => IsXResourceLine(line, key))
                 ?.Trim();
         }
         catch (SystemException)
@@ -94,6 +94,12 @@ sealed class Program
             return null;
         }
     }
+
+    /// <summary>行是否为指定键的 X 资源定义（"key: value" 形态）：以 "key:" 前缀精确判定——
+    /// 裸 key 前缀会放过 "Xft.dpi2:" 之类的异键行，误判"用户已配置"而跳过自动补写
+    /// （次级 suspect 第 9 轮）。internal 供直测。</summary>
+    internal static bool IsXResourceLine(string line, string key) =>
+        line.TrimStart().StartsWith(key + ":", StringComparison.Ordinal);
 
     /// <summary>向 X 资源数据库合并一行（session 级，重启会话后由本函数再次补写）。</summary>
     private static void MergeXResource(string line)
@@ -195,16 +201,19 @@ sealed class Program
         return read.Result;
     }
 
-    /// <summary>超时/故障路径终结子进程；Kill 前已退出的竞态静默放过。</summary>
-    private static void KillProcessQuietly(Process process)
+    /// <summary>超时/故障路径终结子进程；契约 = 尽力终结、绝不打断超时/故障路径。
+    /// Kill 前已退出的竞态（OIE）、无法终止/正在终止（Win32Exception，官方异常表，F22-2 同族）、
+    /// 子树未全终止（AggregateException——.NET 10 起不再属 SystemException，调用点的
+    /// catch (SystemException) 兜不住它，51d0c16 同根因）全部静默放过。</summary>
+    internal static void KillProcessQuietly(Process process)
     {
         try
         {
             process.Kill();
         }
-        catch (InvalidOperationException)
+        catch (Exception ex) when (ex is InvalidOperationException
+            or System.ComponentModel.Win32Exception or AggregateException)
         {
-            // 已退出
         }
     }
 
