@@ -190,7 +190,8 @@ public sealed class FfmpegVideoBackdropPlayer(
             {
                 // 自然结束（循环自愈退出/解码失败）路径不经过 Cancel：先把仍指向本 cts 的
                 // 共享引用摘掉再释放，否则 _cts 悬挂已释放实例，下一次 Stop() 对其 Cancel
-                // 抛 ObjectDisposedException（切页/切游戏的 SetDetailActive→StopVideo 即崩）。
+                // 抛 ObjectDisposedException（2026-09-26 探针仲裁，docs/PITFALLS.md §1）——
+                // 切页/切游戏的 SetDetailActive→StopVideo 触达，StopCore 的 catch(ODE) 承重。
                 // 会话标志只在仍是本代时清零：被新一代 Play 抢先后，本任务的收尾不得把
                 // 新会话标成失活（VM 续播快路径会因此误走重启）
                 Interlocked.CompareExchange(ref _cts, null, cts);
@@ -199,8 +200,8 @@ public sealed class FfmpegVideoBackdropPlayer(
                     Interlocked.Exchange(ref _sessionActive, 0);
                 }
 
-                // 自然结束路径同样先取消再释放：循环点分析/预卷后台任务持有同一令牌轮询，
-                // 不取消就继续整片解码到自然尽头（分析=软解全片，秒级 CPU 白烧）——
+                // 自然结束路径同样先取消再释放：循环点分析后台任务持同一令牌顺序软解全片
+                //（预卷任务受 PrerollFrames 上限快速收敛），不取消就白烧解码 CPU——
                 // Stop 路径已先行取消，此处对已取消源再 Cancel 是幂等 no-op
                 cts.Cancel();
                 cts.Dispose();

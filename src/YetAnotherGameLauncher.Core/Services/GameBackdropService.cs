@@ -108,10 +108,13 @@ public sealed class GameBackdropService(
             || (gameVersion is not null && string.Equals(cached.GameVersion, gameVersion, StringComparison.Ordinal)))
         && File.Exists(Path.Combine(cacheDir, cached.File));
 
-    /// <summary>从缓存元数据构建解析结果；背景文件缺失返回 null（海报缺失回退海报直链，交由加载服务处理）。</summary>
+    /// <summary>从缓存元数据构建解析结果；元数据缺 <see cref="BackdropMeta.File"/>（手改/截断）
+    /// 或背景文件缺失返回 null（海报缺失回退海报直链，交由加载服务处理）。File 判空必须在此——
+    /// ResolveCoreAsync 的缓存兜底路径绕过 <see cref="IsCacheFreshFor"/>，null 拼接会裸 ANE
+    /// 穿出服务层（2026-09-26 review 第 3 轮 F1）。</summary>
     private static ResolvedBackdrop? ResolvedFromCache(BackdropMeta meta, string cacheDir)
     {
-        if (!File.Exists(Path.Combine(cacheDir, meta.File)))
+        if (string.IsNullOrEmpty(meta.File) || !File.Exists(Path.Combine(cacheDir, meta.File)))
         {
             return null;
         }

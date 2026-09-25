@@ -151,6 +151,41 @@ public sealed class UmuArchiveExtractionTests : IDisposable
     }
 
     [Fact]
+    public void ExtractSingleTopLevel_OutdatedCleanupFailure_InstallStillSucceeds()
+    {
+        // review 第 3 轮 F4（artifacts/bugs.md）：outdated 清理 fail-soft 化（Directory.Delete →
+        // TryDeleteDirectory）的回归钉——旧代清理失败（Windows 占用/权限形态）不得让安装成功
+        // 折算成失败。Linux 确定性构造：outdated 含 chmod 000 子目录，硬删除在此抛 UAE 穿出、
+        // fail-soft 容忍为 false（残留由下轮 pre-cleanup 重试）。
+        // 正向守卫 + else Skip：CA1416 平台分析器只认 OperatingSystem.IsLinux() 直接分支
+        if (OperatingSystem.IsLinux())
+        {
+            var archive = WriteTarGz(writer =>
+            {
+                writer.WriteEntry(new UstarTarEntry(TarEntryType.Directory, "GE-Proton10-9"));
+                var file = new UstarTarEntry(TarEntryType.RegularFile, "GE-Proton10-9/proton");
+                file.DataStream = new MemoryStream("#!/bin/sh\n"u8.ToArray());
+                writer.WriteEntry(file);
+            });
+
+            var target = _temp.FilePath("compat", "GE-Proton10-9");
+            var outdated = target + ".outdated";
+            Directory.CreateDirectory(Path.Combine(outdated, "locked"));
+            File.WriteAllText(Path.Combine(outdated, "locked", "busy"), "x");
+            File.SetUnixFileMode(Path.Combine(outdated, "locked"), UnixFileMode.None);
+
+            var ex = Record.Exception(() => UmuComponentProvisioner.ExtractSingleTopLevel(archive, target));
+
+            Assert.Null(ex); // 红落此断言：硬删除形态在此抛 UnauthorizedAccessException
+            Assert.True(File.Exists(Path.Combine(target, "proton"))); // 新树完整就位
+        }
+        else
+        {
+            Assert.Skip("chmod 000 构造清理失败仅 Linux 确定性");
+        }
+    }
+
+    [Fact]
     public void ExtractTarArchive_LinkTargetEscapingDestination_IsSkipped()
     {
         // 回归：链接条目的 LinkName 曾不校验——".." 或绝对路径目标的链接可把后续普通文件
