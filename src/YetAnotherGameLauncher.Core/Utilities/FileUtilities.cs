@@ -105,9 +105,16 @@ public static class FileUtilities
         {
             // IgnoreInaccessible：子树含无 ListDirectory 权限的目录时跳过该子项（官方语义），
             // 其余照删——单不可读子目录不得打断整链（F25；path 自身不可读时枚举仍抛，
-            // 由外层 catch 兜成 false 保住 best-effort 契约）
+            // 由外层 catch 兜成 false 保住 best-effort 契约）。
+            // AttributesToSkip 必须显式归零：默认 Hidden|System 会在 Linux 上把点前缀条目
+            // （.installed.ok/.yagl-* 等，.NET 标记为 Hidden）从枚举剔除——删不净即回归
+            //（复审 R1 探针实锤：默认 1 条 vs 完整 2 条）
             foreach (var entry in Directory.EnumerateFileSystemEntries(
-                path, "*", new EnumerationOptions { IgnoreInaccessible = true }))
+                path, "*", new EnumerationOptions
+                {
+                    IgnoreInaccessible = true,
+                    AttributesToSkip = FileAttributes.None,
+                }))
             {
                 // 符号链接/junction 只删链接本身：递归会穿过链接把目标处（可能远在自管目录之外）
                 // 的真实文件删掉。先按目录链接删，失败（实为文件链接）再按文件删。

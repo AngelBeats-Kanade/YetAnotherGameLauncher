@@ -94,4 +94,22 @@ public class FileUtilitiesTests : IDisposable
             Chmod(root, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }
     }
+
+    [Fact]
+    public void TryDeleteDirectory_DotfileInTree_DeletedCompletely()
+    {
+        // 复审 R1（F25 修复的回归审查，/tmp 探针实锤）：Linux 上 .NET 给点前缀条目标记
+        // Hidden，EnumerationOptions 默认 AttributesToSkip=Hidden|System 会把 dotfile 从
+        // 枚举里剔除——含 .hidden 的目录将删不净、Directory.Delete 失败。删除语义必须与
+        // 旧无选项枚举一致（AttributesToSkip=None），点文件照删
+        var root = _temp.FilePath("with-dot");
+        Directory.CreateDirectory(root);
+        File.WriteAllText(Path.Combine(root, "keep.txt"), "x");
+        File.WriteAllText(Path.Combine(root, ".yagl-marker"), "x");
+
+        var result = FileUtilities.TryDeleteDirectory(root);
+
+        Assert.True(result);
+        Assert.False(Directory.Exists(root), "含点文件的目录必须删净（枚举不得跳过 Hidden）");
+    }
 }

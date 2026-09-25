@@ -254,19 +254,23 @@ public sealed class SystemProcessRunner(
         }
     }
 
-    /// <summary>杀整棵进程树并等其退出；竞态类失败按已退出/尽力而为处理（F22-2：官方 Kill
-    /// 文档的异常表含 Win32Exception——进程无法终止/正在终止——与 AggregateException——
-    /// 子树未全部终止；两者都不该改变调用方"超时/取消"的分类）。</summary>
+    /// <summary>杀整棵进程树并等其退出（F22-2，官方 Kill(Boolean) 异常表）：竞态类失败按
+    /// 已退出/尽力而为处理——InvalidOperationException（已退出）、Win32Exception（无法终止/
+    /// 正在终止）、AggregateException（子树未全部终止，根进程可能已死）。
+    /// 等待有界（5s）：Kill 真失败（如受保护进程拒绝终止）时不得让超时/取消路径永久挂起——
+    /// 超时后进程残留接受（比无限挂起好），调用方超时/取消分类不受影响。</summary>
     private static async Task KillProcessTreeAsync(Process process)
     {
         try
         {
             process.Kill(entireProcessTree: true);
-            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+            using var bounded = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await process.WaitForExitAsync(bounded.Token).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or AggregateException)
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception
+            or AggregateException or OperationCanceledException)
         {
-            // 进程已退出 / 无法终止（权限、正在终止）/ 子树部分未终止：尽力而为
+            // 已退出 / 无法终止（权限、正在终止）/ 子树部分未终止 / 有界等待到点：尽力而为
         }
     }
 

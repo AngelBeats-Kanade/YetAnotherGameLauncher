@@ -18,7 +18,10 @@ public sealed record ToolManifest(
     /// <summary>解析结果的 Runtime：无 appid 时为 host；appid 存在但未收录即结构化报错
     /// （F23：`FromAppId ?? Host` 曾把"未知 appid"并入"无 appid"，NativeUmuLauncher 据此跳过
     /// runtime 安装，Proton 裸跑宿主环境静默降级——诚实报错优于静默错环境，与"已知缺失
-    /// runtime"的 UmuRuntimeMissing 报错同路）。</summary>
+    /// runtime"的 UmuRuntimeMissing 报错同路）。
+    /// 消费面两处均有防线（复审核实）：NativeUmuLauncher 启动链按 Kind 给重试 UI；
+    /// UmuComponentProvisioner.ResolveRequiredRuntime 的 catch(UpdateException) 接住本异常
+    /// （LaunchException 是其子类）→ 设置页回退默认 Runtime，不崩。</summary>
     public SteamRuntimeInfo RequiredRuntime =>
         RequiredToolAppId is null
             ? SteamRuntimeCatalog.Host

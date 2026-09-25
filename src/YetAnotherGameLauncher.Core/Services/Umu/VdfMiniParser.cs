@@ -94,14 +94,21 @@ public static class VdfMiniParser
                     if (text[i] == '\\' && i + 1 < text.Length)
                     {
                         i++;
-                        // Valve KeyValues 认可转义 \n/\t/\\/\"（Source SDK KeyValues.cpp）：
-                        // \n/\t 真转义（F24）；其余未知转义丢弃反斜杠取字面字符（与 Valve 行为
-                        // 一致，D:\tools → D:tools 即 Valve 语义，不在此"修正"）
+                        // Valve 转义表（s_StringCharConversion，tier1/utlbuffer.cpp 实证）：
+                        // \n \t \v \b \r \f \a \\ \? \' \"——控制类字符全量收录；\\ \? \'
+                        // \" 落入默认分支取字面字符即为其正确解码（复审 R4 修正：此前注释
+                        // 误作"仅 n/t/\\/\""且漏 \v\b\r\f\a）。
+                        // 未知转义刻意偏离 Valve：Valve 吐 NUL 并保留后续字符，此处丢弃
+                        // 反斜杠取字面字符——NUL 进 Windows 路径/commandline 有截断语义，更险
                         sb.Append(text[i] switch
                         {
                             'n' => '\n',
                             't' => '\t',
                             'r' => '\r',
+                            'v' => '\v',
+                            'b' => '\b',
+                            'f' => '\f',
+                            'a' => '\a',
                             var ch => ch,
                         });
                         i++;

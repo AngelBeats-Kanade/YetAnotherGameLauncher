@@ -1652,6 +1652,10 @@ public sealed class FfmpegVideoBackdropPlayer(
     }
 
     /// <inheritdoc/>
+    /// <remarks>F37：StopCore 先 Set（唤醒泊车中的解码线程）、随后立即释放 gate——解码线程
+    /// 仍嵌在 WaitAny 里的微秒级窗口内，MRES 的"释放时有等待者"属官方文档未定义语义，按 M4
+    /// 惯例"修复 + 声明"接受：等待方唤醒后不再触碰 gate 的其他成员，观感上限为解码线程一次
+    /// 无害的 ObjectDisposedException（后台任务、不触 UI）。</remarks>
     public void Dispose()
     {
         StopCore();

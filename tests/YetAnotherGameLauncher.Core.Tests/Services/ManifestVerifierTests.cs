@@ -281,4 +281,35 @@ public class ManifestVerifierMissingInfoTests
             ManifestVerifier.FileRemovedBetweenCheckAndProbeForTests = null;
         }
     }
+
+    [Fact]
+    public async Task CheckFile_ParentDirectoryRemovedAfterExists_ReturnsMissingInsteadOfThrowing()
+    {
+        // 复审 R3（F18 范围扩展，官方 FileInfo.Length 异常表含 DirectoryNotFoundException）：
+        // Exists 通过后整个父目录被移除（比单文件删除更狠的 TOCTOU 形态）——同样按 Missing
+        // 报告走补下载，不得让整轮校验以裸异常中止
+        var data = new byte[] { 1, 2, 3 };
+        var manifest = new GameManifest
+        {
+            Version = "1.0.0",
+            Files = [new ManifestFile("sub/data.bin", data.Length, Hashing.Md5Hex(data))],
+        };
+
+        using var dir = new TempDir();
+        var subdir = dir.FilePath("sub");
+        Directory.CreateDirectory(subdir);
+        var file = Path.Combine(subdir, "data.bin");
+        await File.WriteAllBytesAsync(file, data);
+        ManifestVerifier.FileRemovedBetweenCheckAndProbeForTests = () => Directory.Delete(subdir, recursive: true);
+        try
+        {
+            var status = ManifestVerifier.CheckFile(file, manifest.Files[0], withMd5: true);
+
+            Assert.Equal(FileStatus.Missing, status); // 红：当前 DirectoryNotFoundException 穿出
+        }
+        finally
+        {
+            ManifestVerifier.FileRemovedBetweenCheckAndProbeForTests = null;
+        }
+    }
 }

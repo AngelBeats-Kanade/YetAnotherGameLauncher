@@ -339,4 +339,30 @@ public class PackageInstallerCollisionTests : IDisposable
 
         Assert.False(File.Exists(stale)); // 红落此断言：当前 IgnoreCase keep 把它当保留
     }
+
+    [Fact]
+    public void ExtractArchive_ExistingFileSymlinkAtTarget_RejectedInsteadOfWritingThrough()
+    {
+        // 复审 R2（F19 修复的残留面审查，/tmp 探针实锤）：目录符号链接防住后，目标处既有的
+        // 文件符号链接仍会写穿——ExtractToFile(overwrite:true) 经链接改写沙箱外的真实文件
+        //（Unix open(O_CREAT) 与 Windows CreateFile 都跟随符号链接）
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("文件符号链接创建在 Windows 需特权，仅 Linux 确定性");
+        }
+
+        var outside = _tempDir.FilePath("outside-victim.txt");
+        File.WriteAllText(outside, "victim-original");
+        var installDir = _tempDir.FilePath("install");
+        Directory.CreateDirectory(Path.Combine(installDir, "mods"));
+        File.CreateSymbolicLink(Path.Combine(installDir, "mods", "evil.txt"), outside);
+
+        var zipPath = _tempDir.FilePath("pkg.zip");
+        File.WriteAllBytes(zipPath, TestZip.Create(("mods/evil.txt", "EVIL-VIA-LINK")));
+
+        var ex = Record.Exception(() => PackageInstallerService.ExtractArchive(zipPath, installDir, "pkg.zip"));
+
+        Assert.NotNull(ex); // 红落此断言：当前静默写穿
+        Assert.Equal("victim-original", File.ReadAllText(outside)); // 沙箱外文件不得被改写
+    }
 }

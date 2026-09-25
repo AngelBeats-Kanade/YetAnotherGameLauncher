@@ -202,6 +202,13 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                 if (File.Exists(target))
                 {
+                    // 目标自身是文件符号链接同样写穿：ExtractToFile 的 open(O_CREAT) 跟随
+                    // 链接改写沙箱外的真实文件（复审 R2 /tmp 探针实锤）——命中即拒
+                    if (FileUtilities.IsReparsePoint(target))
+                    {
+                        throw new IOException($"Archive target is an existing symlink: {target}");
+                    }
+
                     // 只读属性会让 overwrite 失败（Windows），就地解除
                     File.SetAttributes(target, File.GetAttributes(target) & ~FileAttributes.ReadOnly);
                 }

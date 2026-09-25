@@ -82,8 +82,10 @@ public static class ManifestVerifier
 
             return FileStatus.Ok;
         }
-        catch (FileNotFoundException)
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
+            // FNFE = 文件被移除（FileInfo.Length）；DNFE = 父目录被移除（Hashing.Md5Hex 的
+            // File.OpenRead 对父目录缺失抛 DNFE）——同一 TOCTOU 族，均按 Missing 走补下载
             return FileStatus.Missing;
         }
     }
