@@ -28,8 +28,11 @@ public sealed class UmuComponentProvisioner(
     string? dataHome = null,
     string? cacheHome = null,
     Architecture? hostArchitecture = null,
-    ILocalizationService? loc = null) : IUmuComponentProvisioner
+    ILocalizationService? loc = null,
+    int lockAcquireTimeoutMilliseconds = 30_000) : IUmuComponentProvisioner
 {
+    /// <summary>组件锁获取超时（缝：测试注入短超时，确定性覆盖锁争用分类路径，F31）。</summary>
+    private readonly int _lockAcquireTimeoutMilliseconds = lockAcquireTimeoutMilliseconds;
     /// <summary>本地化文案（F12，2026-09-24 迁移）：进度/错误消息经 strings_*.json 双语成对；
     /// 不注入即默认 zh-CN（与旧字面量等值），既有测试断言不受影响。</summary>
     private readonly ILocalizationService _loc = loc ?? new LocalizationService();
@@ -211,16 +214,25 @@ public sealed class UmuComponentProvisioner(
         }
 
         var lockPath = UmuPaths.LockFile($"runtime-{runtimeVariant}.lock");
-        using var _ = UmuPrefix.AcquireLock(lockPath);
-
-        if (IsRuntimeReady(runtimeVariant))
+        // 锁超时的 UpdateException 同样纳入分类（F31）：可重试失败落 UmuRuntimeDownloadFailed
+        // 保留重试入口，裸抛穿到 VM catch-all 落 Unknown
+        try
         {
-            return;
-        }
+            using var _ = UmuPrefix.AcquireLock(lockPath, _lockAcquireTimeoutMilliseconds);
 
-        progress?.Report(_loc.Format("umu_progress_downloadRuntime", runtimeVariant));
-        await DownloadRuntimeAsync(runtimeVariant, runtimeName, progress, cancellationToken)
-            .ConfigureAwait(false);
+            if (IsRuntimeReady(runtimeVariant))
+            {
+                return;
+            }
+
+            progress?.Report(_loc.Format("umu_progress_downloadRuntime", runtimeVariant));
+            await DownloadRuntimeAsync(runtimeVariant, runtimeName, progress, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (UpdateException ex) when (ex is not LaunchException)
+        {
+            throw new LaunchException(LaunchFailureKind.UmuRuntimeDownloadFailed, ex.Message, ex);
+        }
     }
 
     /// <inheritdoc />
@@ -493,7 +505,10 @@ public sealed class UmuComponentProvisioner(
                 SelectLatestRelease(document.RootElement), flavor.AssetPrefix, ArchSuffixFor(HostArchitecture));
             if (string.IsNullOrEmpty(asset.Url))
             {
-                throw new UpdateException(
+                // 与 by-tag 路径（:458）同分类：UpdateException 穿出分类 catch 会落 Unknown
+                // 丢修复 UI（F29）
+                throw new LaunchException(
+                    LaunchFailureKind.ProtonDownloadFailed,
                     _loc.Format("umu_err_noArchAsset", flavor.AssetPrefix));
             }
         }
@@ -543,7 +558,7 @@ public sealed class UmuComponentProvisioner(
     }
 
     /// <summary>取"最新 release"元素：GitHub latest 为对象根原样返回；Forgejo（dawn.wine）为数组根，取首个非 draft/prerelease。</summary>
-    private static JsonElement SelectLatestRelease(JsonElement root)
+    internal static JsonElement SelectLatestRelease(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Array)
         {
@@ -552,6 +567,14 @@ public sealed class UmuComponentProvisioner(
 
         foreach (var release in root.EnumerateArray())
         {
+            // 非对象元素跳过（F30，799ef5e 同类漏网）：TryGetProperty 在 ValueKind 非 Object
+            // 时抛 InvalidOperationException（官方文档化行为），不属于 JsonException、
+            // 会穿出调用点的解析 catch
+            if (release.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
             var draft = release.TryGetProperty("draft", out var d) && d.ValueKind == JsonValueKind.True;
             var pre = release.TryGetProperty("prerelease", out var p) && p.ValueKind == JsonValueKind.True;
             if (!draft && !pre)
@@ -700,71 +723,95 @@ public sealed class UmuComponentProvisioner(
         string? tagName,
         CancellationToken cancellationToken)
     {
-        using (UmuPrefix.AcquireLock(UmuPaths.LockFile("proton.lock")))
+        // 锁超时的 UpdateException 抛点在下方分类 catch 之外（using 先于 try）——纳入分类：
+        // 锁被另一安装任务持有属可重试失败（ProtonDownloadFailed 的重试入口即正确修复），
+        // 裸抛落 Unknown 丢修复 UI（F31）。LaunchException 本身是 UpdateException 子类，
+        // 过滤器避免把内层已分类的失败再包一层
+        try
         {
-            if (IsProtonReady(targetDir) && MatchesHostArch(targetDir))
+            using (UmuPrefix.AcquireLock(
+                UmuPaths.LockFile("proton.lock"), _lockAcquireTimeoutMilliseconds))
             {
-                return Path.GetFullPath(targetDir);
+                return await InstallProtonAssetLockedAsync(asset, targetDir, tarPath, tagName, cancellationToken)
+                    .ConfigureAwait(false);
             }
+        }
+        catch (UpdateException ex) when (ex is not LaunchException)
+        {
+            throw new LaunchException(LaunchFailureKind.ProtonDownloadFailed, ex.Message, ex);
+        }
+    }
 
-            try
+    /// <summary>proton.lock 互斥下的落位流程本体（调用方已完成锁获取与 UpdateException 分类）。</summary>
+    private async Task<string> InstallProtonAssetLockedAsync(
+        (string Name, string Url) asset,
+        string targetDir,
+        string tarPath,
+        string? tagName,
+        CancellationToken cancellationToken)
+    {
+        if (IsProtonReady(targetDir) && MatchesHostArch(targetDir))
+        {
+            return Path.GetFullPath(targetDir);
+        }
+
+        try
+        {
+            await downloader.DownloadFileAsync(
+                new DownloadRequest(asset.Url, tarPath, ExpectedSize: null, ExpectedMd5: null),
+                null,
+                cancellationToken).ConfigureAwait(false);
+
+            // release 资产可能是 .tar.gz；SharpCompress 可直接读 gzip+tar
+            ExtractSingleTopLevel(tarPath, targetDir);
+
+            if (!IsProtonReady(targetDir))
             {
-                await downloader.DownloadFileAsync(
-                    new DownloadRequest(asset.Url, tarPath, ExpectedSize: null, ExpectedMd5: null),
-                    null,
-                    cancellationToken).ConfigureAwait(false);
-
-                // release 资产可能是 .tar.gz；SharpCompress 可直接读 gzip+tar
-                ExtractSingleTopLevel(tarPath, targetDir);
-
-                if (!IsProtonReady(targetDir))
-                {
-                    throw new LaunchException(
-                        LaunchFailureKind.ProtonDownloadFailed,
-                        _loc.Format("umu_err_packageIncomplete", asset.Name));
-                }
-
-                // 兜底校验：无架构后缀的资产也可能装错架构（wineserver 的 ELF e_machine 对照主机）
-                var machine = ReadWineserverElfMachine(targetDir);
-                if (machine is not null && ExpectedElfMachine is { } expected && machine != expected)
-                {
-                    TryDeleteDirectory(targetDir);
-                    throw new LaunchException(
-                        LaunchFailureKind.ProtonDownloadFailed,
-                        _loc.Format("umu_err_archMismatch", asset.Name, ArchDisplayName(machine.Value)));
-                }
-
-                TryChmod(Path.Combine(targetDir, "proton"));
-                if (tagName is null)
-                {
-                    logger?.LogInformation("Installed Proton to {Dir}", targetDir);
-                }
-                else
-                {
-                    logger?.LogInformation("Installed Proton {Tag} to {Dir}", tagName, targetDir);
-                }
-
-                return Path.GetFullPath(targetDir);
-            }
-            catch (LaunchException)
-            {
-                throw;
-            }
-            catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException
-                or ArchiveException or InvalidDataException or FormatException
-                or InvalidOperationException or DownloadException)
-            {
-                // DownloadException 必须在此分类：网络瞬断重试耗尽时下载器抛它，
-                // 漏掉会让 VM 收到 Unknown，丢失重试按钮与本机 Proton 下拉的修复 UI
                 throw new LaunchException(
                     LaunchFailureKind.ProtonDownloadFailed,
-                    _loc.Format("umu_err_protonDownload", ex.Message),
-                    ex);
+                    _loc.Format("umu_err_packageIncomplete", asset.Name));
             }
-            finally
+
+            // 兜底校验：无架构后缀的资产也可能装错架构（wineserver 的 ELF e_machine 对照主机）
+            var machine = ReadWineserverElfMachine(targetDir);
+            if (machine is not null && ExpectedElfMachine is { } expected && machine != expected)
             {
-                TryDelete(tarPath);
+                TryDeleteDirectory(targetDir);
+                throw new LaunchException(
+                    LaunchFailureKind.ProtonDownloadFailed,
+                    _loc.Format("umu_err_archMismatch", asset.Name, ArchDisplayName(machine.Value)));
             }
+
+            TryChmod(Path.Combine(targetDir, "proton"));
+            if (tagName is null)
+            {
+                logger?.LogInformation("Installed Proton to {Dir}", targetDir);
+            }
+            else
+            {
+                logger?.LogInformation("Installed Proton {Tag} to {Dir}", tagName, targetDir);
+            }
+
+            return Path.GetFullPath(targetDir);
+        }
+        catch (LaunchException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException
+            or ArchiveException or InvalidDataException or FormatException
+            or InvalidOperationException or DownloadException)
+        {
+            // DownloadException 必须在此分类：网络瞬断重试耗尽时下载器抛它，
+            // 漏掉会让 VM 收到 Unknown，丢失重试按钮与本机 Proton 下拉的修复 UI
+            throw new LaunchException(
+                LaunchFailureKind.ProtonDownloadFailed,
+                _loc.Format("umu_err_protonDownload", ex.Message),
+                ex);
+        }
+        finally
+        {
+            TryDelete(tarPath);
         }
     }
 

@@ -43,6 +43,67 @@ public sealed class UmuComponentProvisionerTests : IDisposable
             dataHome: _tempDir.Path, cacheHome: _tempDir.Path, hostArchitecture: hostArchitecture);
 
     [Fact]
+    public async Task EnsureProtonAsync_LatestNoSuitableAsset_ThrowsLaunchExceptionNotUpdateException()
+    {
+        // F29（artifacts/bugs.md）：latest 路径"无适配架构资产"抛 UpdateException 穿出分类 catch
+        // → VM catch-all Unknown，丢失重试/本机 Proton 修复 UI；by-tag 同条件抛
+        // LaunchException(ProtonDownloadFailed)，两路径必须对齐
+        ServeGitHubRelease(UmuComponentProvisioner.GeProtonReleaseApi, "GE-Proton11-6", [
+            ("GE-Proton11-6-aarch64.tar.gz", "https://github.com/x/arm"),
+        ]);
+
+        var ex = await Assert.ThrowsAnyAsync<Exception>(
+            () => _provisioner.EnsureProtonAsync("GE-Proton"));
+
+        var launch = Assert.IsType<LaunchException>(ex); // 红落此断言：当前为裸 UpdateException
+        Assert.Equal(LaunchFailureKind.ProtonDownloadFailed, launch.Kind);
+    }
+
+    [Fact]
+    public async Task EnsureProtonAsync_ProtonLockHeldByOther_ThrowsLaunchExceptionNotUpdateException()
+    {
+        // F31（artifacts/bugs.md）：proton.lock 被长时持有（另一处安装在大包下载/解包）时
+        // AcquireLock 超时抛 UpdateException，抛点在 InstallProtonAssetAsync 分类 catch 之外
+        // → Unknown 丢修复 UI。短超时注入使锁争用确定性可达
+        var held = UmuPrefix.AcquireLock(UmuPaths.LockFile("proton.lock"));
+        try
+        {
+            ServeGitHubRelease(UmuComponentProvisioner.GeProtonReleaseApi, "GE-Proton10-99", [
+                ("GE-Proton10-99.tar.gz", "https://github.com/x/GE-Proton10-99.tar.gz"),
+            ]);
+            var provisioner = new UmuComponentProvisioner(
+                new HttpClient(_http), _downloader,
+                dataHome: _tempDir.Path, cacheHome: _tempDir.Path,
+                lockAcquireTimeoutMilliseconds: 200);
+
+            var ex = await Assert.ThrowsAnyAsync<Exception>(
+                () => provisioner.EnsureProtonAsync("GE-Proton"));
+
+            var launch = Assert.IsType<LaunchException>(ex); // 红落此断言：当前为裸 UpdateException
+            Assert.Equal(LaunchFailureKind.ProtonDownloadFailed, launch.Kind);
+        }
+        finally
+        {
+            held.Dispose();
+        }
+    }
+
+    [Fact]
+    public void SelectLatestRelease_ArrayWithNonObjectElements_SkipsInsteadOfThrowing()
+    {
+        // F30（799ef5e 同类漏网）：Forgejo（dawn.wine）数组含非对象元素时 TryGetProperty 抛
+        // InvalidOperationException（官方文档：ValueKind 非 Object 即抛）——不属于
+        // JsonException、穿出调用点的解析 catch。非对象元素跳过，首个有效 release 仍被选中
+        using var document = JsonDocument.Parse("""
+            [ "oops", { "draft": false, "prerelease": false, "tag_name": "GE-Proton11-6", "assets": [] } ]
+            """);
+
+        var release = UmuComponentProvisioner.SelectLatestRelease(document.RootElement);
+
+        Assert.Equal("GE-Proton11-6", release.GetProperty("tag_name").GetString());
+    }
+
+    [Fact]
     public async Task EnsureProtonAsync_DWCodename_DownloadsForgejoLatestAndStripsArchSuffix()
     {
         // Forgejo 返回数组根；.torrent/.sha512sum 是干扰资产，必须跳过

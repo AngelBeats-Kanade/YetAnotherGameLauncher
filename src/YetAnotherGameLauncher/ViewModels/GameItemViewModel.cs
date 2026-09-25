@@ -570,8 +570,12 @@ public partial class GameItemViewModel(
         }
 
         // 续播快路径：切走时会话保活（帧缓冲仍在），直接唤醒解码——重挂的渲染面
-        // 立即画出暂停帧并恢复节拍，无需重开解码源/重新分析循环点/重付起播延迟
-        if (VideoPlayer is { IsSessionActive: true } && _videoSubscribed)
+        // 立即画出暂停帧并恢复节拍，无需重开解码源/重新分析循环点/重付起播延迟。
+        // 前提是无更新待播：泊车期间重解析（语言切换区域翻转/版本检测换背景）只写
+        // _pendingVideoPath 不停旧会话——旧会话此时仍 active+subscribed，不看 pending
+        // 的 Resume 会复活旧区域/旧版本视频并 return，新路径永不消费且会话内不自愈
+        // （F27）；有更新待播落回 StartVideoAsync（内部 StopVideo 干净换场）
+        if (VideoPlayer is { IsSessionActive: true } && _videoSubscribed && _pendingVideoPath is null)
         {
             VideoPlayer.Resume();
             return;

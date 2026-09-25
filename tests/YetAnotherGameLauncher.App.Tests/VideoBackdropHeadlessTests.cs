@@ -77,6 +77,72 @@ public class VideoBackdropHeadlessStartTests
     }
 
     [Fact]
+    public async Task SetDetailActive_WhileParkedWithReResolvedVideo_StartsNewPathNotOldSession()
+    {
+        // F27（artifacts/bugs.md）：泊车期间重解析（语言切换区域翻转/版本检测换背景）只写
+        // _pendingVideoPath 不停旧会话——续播快路径（IsSessionActive && _videoSubscribed）对
+        // 旧会话成立即 Resume 旧视频并 return，新路径永不消费，旧区域/旧版本视频整个会话复活
+        // （双游戏场景无保活淘汰、会话内不自愈）。修复后：有更新待播（pending 非空）落回
+        // StartVideoAsync（内部 StopVideo 干净换场）。
+        // 确定性构造：海报翻转作为"重解析完成"的观察信号（A 海报非空 → B 海报 null，
+        // HasBackgroundImage true→false 的同步块内 pending 必已写入）；
+        // 版本翻转保证 RefreshAsync 的版本门控放行重解析。
+        var tempDir = new TestSupport.TempDir();
+        try
+        {
+            var player = new VmFactory.FakeVideoPlayer();
+            using var ctx = VmFactory.Build(playerFactory: () => player);
+            var videoA = tempDir.FilePath("cached", "backdrop-a.mp4");
+            var videoB = tempDir.FilePath("cached", "backdrop-b.mp4");
+            Directory.CreateDirectory(Path.GetDirectoryName(videoA)!);
+            await File.WriteAllTextAsync(videoA, "fake");
+            await File.WriteAllTextAsync(videoB, "fake");
+            // 确定性构造说明：本 harness 的测试线程上 Bitmap 解码会被服务静默吞掉
+            //（渲染接口仅会话线程可用），海报可观测信号不可用；改用 resolver 调用计数
+            // 定位"重解析已发起"，配合宽裕延时等待其收尾（pending 写入在其同步尾部）。
+            // 导航激活会让预热重解析直接起播 A（_detailActive 已 true），随后显式泊车。
+            var resolverCalls = 0;
+            ctx.KuroBackdrop.Resolver = _ => { resolverCalls++; return new BackdropSource(videoA, BackdropKind.Video); };
+            await ctx.Vm.InitializeAsync();
+            var game = ctx.Vm.Games[0];
+            await WaitUntil(() => player.PlayedPaths.Count >= 1); // 预热重解析 + 导航激活起播 A
+            Assert.Equal([videoA], player.PlayedPaths);
+
+            // 泊车保活（会话存活）→ 版本翻转 + 背景换 B：重解析只写 pending 不停旧会话
+            game.SetDetailActive(false);
+            ctx.KuroBackdrop.Resolver = _ => { resolverCalls++; return new BackdropSource(videoB, BackdropKind.Video); };
+            ctx.Kuro.VersionInfo = new Core.Models.ChannelVersionInfo { LatestVersion = "2.1.0" };
+            game.ResetVersionCheckCache(); // 版本检测每启动至多一次（会话缓存）——清掉才见翻转版本
+            await game.RefreshAsync();
+            await WaitUntil(() => resolverCalls >= 2);
+            await Task.Delay(200); // 重解析收尾（pending 写入在其同步尾部）
+
+            // 重进详情页：必须起新会话播 B，而不是 Resume 旧会话（A）
+            game.SetDetailActive(true);
+
+            await WaitUntil(() => player.PlayedPaths.Count >= 2); // 红落此断言：旧代码 B 永不起播
+            Assert.Equal([videoA, videoB], player.PlayedPaths);
+            Assert.Equal(0, player.ResumeCount); // 快路径本次不得被走（有更新待播）
+        }
+        finally
+        {
+            tempDir.Dispose();
+        }
+    }
+
+    /// <summary>有界轮询至条件成立（起播经弃元后台任务 + 延迟窗口，不能同步等待）。</summary>
+    private static async Task WaitUntil(Func<bool> condition, int timeoutMilliseconds = 3000)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMilliseconds);
+        while (!condition() && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(20);
+        }
+
+        Assert.True(condition(), "有界轮询超时：条件未在期限内成立");
+    }
+
+    [Fact]
     public async Task StartVideo_DefersPastTransferWindow_AndDropsSupersededCalls()
     {
         // 2026-09-21 真机插桩实锤：切游戏时新背景视频的首帧位图分配/上传是 UI 线程重活
