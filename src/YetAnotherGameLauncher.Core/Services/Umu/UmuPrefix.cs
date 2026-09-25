@@ -162,9 +162,12 @@ public static class UmuPrefix
     }
 
     /// <summary>清除悬空符号链接（链接本身在、目标不存在）：真实目录/可用链接原样保留。
-    /// 判定必须以"链接目标的可达性"为准——.NET 10 实测（/tmp 探针）对悬空目录链接
+    /// 判定必须以"链接目标的可达性"为准——.NET 10 实测（/tmp 探针）对 Unix 悬空目录链接
     /// File.Exists 返回 true、Directory.Exists 返回 false，且 Directory.Delete 抛
-    /// DirectoryNotFoundException，移除链接本身须用 File.Delete（unlink 语义）。</summary>
+    /// DirectoryNotFoundException，Unix 侧移除链接本身须用 File.Delete（unlink 语义）。
+    /// Windows 语义相反：目录链接是 directory reparse point，File.Delete（DeleteFileW）对它报
+    /// ERROR_ACCESS_DENIED → UnauthorizedAccessException（2026-09-25 Windows CI 三用例实锤），
+    /// 须用 Directory.Delete（RemoveDirectory 只摘 reparse point 本身、不跟随目标，悬空安全）。</summary>
     private static void DeleteDanglingLink(string path)
     {
         if (!IsSymlink(path))
@@ -184,7 +187,14 @@ public static class UmuPrefix
             : Path.GetFullPath(Path.Combine(Path.GetDirectoryName(path)!, target));
         if (!Directory.Exists(resolved) && !File.Exists(resolved))
         {
-            File.Delete(path);
+            if (OperatingSystem.IsWindows())
+            {
+                Directory.Delete(path);
+            }
+            else
+            {
+                File.Delete(path);
+            }
         }
     }
 
@@ -251,8 +261,9 @@ public static class UmuPrefix
             }
             catch (DirectoryNotFoundException)
             {
-                // 悬空目录链接：Directory.Exists=false → Directory.Delete 抛 DNFE
-                //（.NET 10 /tmp 探针实测）——链接本身用 unlink 移除
+                // 悬空目录链接（仅 Unix 可达；Windows 的 Directory.Delete 直接成功）：
+                // Directory.Exists=false → Directory.Delete 抛 DNFE（.NET 10 /tmp 探针实测）
+                // ——链接本身用 unlink 移除
                 File.Delete(path);
             }
 
