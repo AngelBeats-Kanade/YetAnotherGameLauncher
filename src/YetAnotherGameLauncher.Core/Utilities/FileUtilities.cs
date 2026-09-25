@@ -51,15 +51,15 @@ public static class FileUtilities
     }
 
     /// <summary>路径是否为符号链接/junction 等重解析点；探测失败按否处理（后续删除自会再兜）。
-    /// catch 须含 FNFE：GetAttributes 对不存在的路径抛 FileNotFoundException（PackageInstaller
-    /// 解压目标检查对全新目标无条件调用本方法，FNFE 逃逸即炸正常解压）。</summary>
+    /// FNFE/DNFE 均是 IOException 子类（官方继承链，2026-09-25 探针复核），"路径不存在"天然被
+    /// IOException 臂覆盖——catch 真正防的是 UOE（权限）与竞态 IO 错误；不存在 = 非链接。</summary>
     internal static bool IsReparsePoint(string path)
     {
         try
         {
             return File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FileNotFoundException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return false;
         }
