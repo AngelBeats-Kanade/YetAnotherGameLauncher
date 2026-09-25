@@ -758,6 +758,20 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>按当前配置重建游戏列表（installRoot 变更后调用），返回未知渠道提示列表。</summary>
     private List<string> RebuildGames(GameCatalog catalog)
     {
+        // F35：旧列表的游戏图标来源若不再被新列表引用，丢弃其单例缓存条目——
+        // 缓存字典与应用同寿，换 URL 后旧条目永久强可达（finalizer 兜不住）
+        var newIconSources = catalog.Games
+            .Select(g => g.Icon)
+            .Where(i => !string.IsNullOrEmpty(i))
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var game in Games)
+        {
+            if (game.Game.Icon is { Length: > 0 } oldIcon && !newIconSources.Contains(oldIcon))
+            {
+                _backgroundImageService.Forget(oldIcon);
+            }
+        }
+
         // 旧列表整体废弃：先退订懒创建子 VM（LaunchSettings）对单例服务的事件订阅，
         // 否则旧 VM 链被单例委托钉住无法回收（2026-09-20 复审结构性消除）；
         // 播放器按游戏独占后，旧 VM 的会话（含暂停保活中的）也须一并全停释放
@@ -810,7 +824,33 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         var source = _catalogService.Catalog?.Settings.AppBackgroundImage;
         var image = await _backgroundImageService.LoadAsync(source);
+        ReplaceAppBackgroundImage(source, image);
+    }
+
+    /// <summary>F35：应用背景的当前加载来源——来源变更时丢弃单例缓存里的旧来源条目。</summary>
+    private string? _appBackgroundSource;
+
+    /// <summary>应用背景位图的宽限退役队列（F35，所有权契约见 ImageRetireQueue）。</summary>
+    private readonly ImageRetireQueue _imageRetireQueue = new();
+
+    /// <summary>替换应用背景位图（F35）：旧来源缓存条目 Forget（单例字典永久可达面）、
+    /// 旧位图交宽限退役队列（绑定解除后合成器在途引用，不立即 Dispose）。</summary>
+    private void ReplaceAppBackgroundImage(string? source, IImage? image)
+    {
+        if (!string.Equals(_appBackgroundSource, source, StringComparison.Ordinal)
+            && _appBackgroundSource is not null)
+        {
+            _backgroundImageService.Forget(_appBackgroundSource);
+        }
+
+        _appBackgroundSource = source;
+        var oldImage = AppBackgroundImage;
         AppBackgroundImage = image;
+        if (!ReferenceEquals(oldImage, image) && oldImage is not null)
+        {
+            _imageRetireQueue.Retire(oldImage);
+            _imageRetireQueue.ScheduleFlush();
+        }
     }
 
     /// <summary>
@@ -834,7 +874,8 @@ public partial class MainWindowViewModel : ViewModelBase
             return false;
         }
 
-        AppBackgroundImage = await _backgroundImageService.LoadAsync(catalog.Settings.AppBackgroundImage);
+        var image = await _backgroundImageService.LoadAsync(catalog.Settings.AppBackgroundImage);
+        ReplaceAppBackgroundImage(catalog.Settings.AppBackgroundImage, image);
         return true;
     }
 

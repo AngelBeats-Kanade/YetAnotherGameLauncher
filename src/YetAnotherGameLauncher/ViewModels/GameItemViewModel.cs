@@ -439,6 +439,22 @@ public partial class GameItemViewModel(
         }
     }
 
+    /// <summary>被替换 UI 位图的宽限退役队列（F35）：所有权契约见 ImageRetireQueue。</summary>
+    private readonly ImageRetireQueue _imageRetireQueue = new();
+
+    /// <summary>替换图像属性后调用（F35）：旧位图交宽限退役队列（不立即 Dispose——绑定解除后
+    /// 合成器可能仍有在途渲染引用），并调度延迟冲刷。</summary>
+    private void RetireReplacedImage(IImage? oldImage, IImage? newImage)
+    {
+        if (oldImage is null || ReferenceEquals(oldImage, newImage))
+        {
+            return;
+        }
+
+        _imageRetireQueue.Retire(oldImage);
+        _imageRetireQueue.ScheduleFlush();
+    }
+
     /// <summary>确保 _assetVersion 已从背景缓存元数据装载（免网络对齐磁盘缓存记录的版本）。</summary>
     private void EnsureAssetVersionLoaded()
     {
@@ -482,8 +498,10 @@ public partial class GameItemViewModel(
                 return;
             }
 
+            var oldIcon = GameIcon;
             GameIcon = icon;
             HasGameIcon = icon is not null;
+            RetireReplacedImage(oldIcon, icon);
         }
         catch (Exception)
         {
@@ -520,8 +538,10 @@ public partial class GameItemViewModel(
                     return;
                 }
 
+                var oldPoster = BackgroundImage;
                 BackgroundImage = poster;
                 HasBackgroundImage = poster is not null;
+                RetireReplacedImage(oldPoster, poster);
                 _videoPath = videoPath;
 
                 if (_detailActive)
@@ -547,8 +567,10 @@ public partial class GameItemViewModel(
 
                 StopVideo();
                 _videoPath = null;
+                var oldImage = BackgroundImage;
                 BackgroundImage = image;
                 HasBackgroundImage = image is not null;
+                RetireReplacedImage(oldImage, image);
             }
         }
         catch (Exception)

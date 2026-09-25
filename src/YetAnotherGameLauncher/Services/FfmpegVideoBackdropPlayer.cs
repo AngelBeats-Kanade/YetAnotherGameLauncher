@@ -1013,14 +1013,34 @@ public sealed class FfmpegVideoBackdropPlayer(
                 return false;
             }
 
+            if (source.Draining)
+            {
+                // drain 中：只 receive。EOF = "codec has been fully flushed"（官方文档）→ 流真正结束；
+                // EAGAIN 在 flush 后不应出现，按防御终止（不再有数据可出）
+                var drained = avcodec_receive_frame(source.CodecContext, frame);
+                if (drained < 0)
+                {
+                    return false;
+                }
+
+                return ProduceFrame(source, frame, softwareFrame, failures, out ptsSeconds);
+            }
+
             var readResult = av_read_frame(source.FormatContext, packet);
             if (readResult < 0)
             {
-                if (readResult != AVERROR_EOF)
+                if (readResult == AVERROR_EOF)
                 {
-                    failures?.Log("demuxer read error {Code}", readResult);
+                    // F34：demuxer EOF ≠ 流结束——进入解码器 drain（官方模式："It can be NULL…
+                    // it is considered a flush packet""If the decoder still has frames buffered,
+                    // it will return them after sending a flush packet"）。B 帧重排缓冲里的
+                    // 尾帧不 drain 就随 CodecContext 释放丢失（循环接缝提前 0.1-0.5s）
+                    source.Draining = true;
+                    _ = avcodec_send_packet(source.CodecContext, null);
+                    continue;
                 }
 
+                failures?.Log("demuxer read error {Code}", readResult);
                 return false;
             }
 
@@ -1057,28 +1077,40 @@ public sealed class FfmpegVideoBackdropPlayer(
             }
 
             guard?.OnFrameDecoded();
-            // 原始帧的时间戳由解码器写入；回读/转移后再读会丢失
-            var capturedPts = BestEffortPts(frame, source.TimeBase);
-            bool ok;
-            if (frame->hw_frames_ctx is not null)
-            {
-                // 硬解输出的是 GPU 帧：回读到系统内存再进统一管线（PCIe 回读开销极小）
-                ok = av_hwframe_transfer_data(softwareFrame, frame, 0) >= 0;
-                if (!ok)
-                {
-                    failures?.Log("hw frame transfer failed");
-                }
-            }
-            else
-            {
-                // 软解：把解码帧引用转移到 softwareFrame，统一后续管线
-                ok = av_frame_ref(softwareFrame, frame) == 0;
-            }
-
-            av_frame_unref(frame);
-            ptsSeconds = ok ? capturedPts : double.NaN;
-            return ok;
+            return ProduceFrame(source, frame, softwareFrame, failures, out ptsSeconds);
         }
+    }
+
+    /// <summary>把已收到的解码帧转入统一管线（pts 捕获 + 硬解回读/软解引用转移 + unref）。</summary>
+    private static unsafe bool ProduceFrame(
+        DecodeSource source,
+        AVFrame* frame,
+        AVFrame* softwareFrame,
+        DecodeFailureLog? failures,
+        out double ptsSeconds)
+    {
+        ptsSeconds = double.NaN;
+        // 原始帧的时间戳由解码器写入；回读/转移后再读会丢失
+        var capturedPts = BestEffortPts(frame, source.TimeBase);
+        bool ok;
+        if (frame->hw_frames_ctx is not null)
+        {
+            // 硬解输出的是 GPU 帧：回读到系统内存再进统一管线（PCIe 回读开销极小）
+            ok = av_hwframe_transfer_data(softwareFrame, frame, 0) >= 0;
+            if (!ok)
+            {
+                failures?.Log("hw frame transfer failed");
+            }
+        }
+        else
+        {
+            // 软解：把解码帧引用转移到 softwareFrame，统一后续管线
+            ok = av_frame_ref(softwareFrame, frame) == 0;
+        }
+
+        av_frame_unref(frame);
+        ptsSeconds = ok ? capturedPts : double.NaN;
+        return ok;
     }
 
     /// <summary>帧呈现时刻（秒）：优先 best_effort_timestamp，缺失回退 pts；无时间基或无有效值返回 NaN。</summary>
@@ -1096,6 +1128,53 @@ public sealed class FfmpegVideoBackdropPlayer(
         }
 
         return pts != AV_NOPTS_VALUE && pts >= 0 ? pts * timeBase : double.NaN;
+    }
+
+    /// <summary>F34 测试缝：顺序解码到 EOF 并返回得到的帧数（含 drain 吐出的缓冲尾帧）。
+    /// 期望帧数以 ffprobe 解码计数为基准，drain 缺失时本 helper 计数偏少（红）。</summary>
+    internal unsafe int CountDecodedFramesForTests(string videoPath)
+    {
+        DecodeSource? source = null;
+        AVPacket* packet = null;
+        AVFrame* frame = null;
+        AVFrame* softwareFrame = null;
+        try
+        {
+            source = OpenDecodeSource(videoPath, softwareOnly: true);
+            packet = av_packet_alloc();
+            frame = av_frame_alloc();
+            softwareFrame = av_frame_alloc();
+
+            var count = 0;
+            while (TryDecodeNextSoftFrame(source, packet, frame, softwareFrame, CancellationToken.None, out _))
+            {
+                count++;
+            }
+
+            return count;
+        }
+        finally
+        {
+            if (packet is not null)
+            {
+                var p = packet;
+                av_packet_free(&p);
+            }
+
+            if (frame is not null)
+            {
+                var f = frame;
+                av_frame_free(&f);
+            }
+
+            if (softwareFrame is not null)
+            {
+                var s = softwareFrame;
+                av_frame_free(&s);
+            }
+
+            source?.Dispose();
+        }
     }
 
     /// <summary>把软帧缩略成固定尺寸 RGB 图（分析用小尺寸 sws，缩略上下文按源格式缓存复用；
@@ -1344,7 +1423,8 @@ public sealed class FfmpegVideoBackdropPlayer(
     }
 
     /// <summary>释放超过 <see cref="RetireGrace"/> 的退役位图（解码节拍每帧调用，列表空时零开销）；
-    /// <paramref name="force"/> 无视宽限全部释放（终末冲刷用）。</summary>
+    /// <paramref name="force"/> 无视宽限全部释放——仅供测试确定性清理，生产路径一律走宽限检查
+    /// （终末冲刷亦然，F36）。</summary>
     internal void FlushRetiredFrames(bool force = false)
     {
         List<WriteableBitmap>? doomed = null;
@@ -1400,13 +1480,16 @@ public sealed class FfmpegVideoBackdropPlayer(
 
         NotifyFrame();
 
-        // 终末冲刷：会话结束后不再有解码节拍驱动 FlushRetiredFrames，宽限期到点由后台任务收尾
+        // 终末冲刷：会话结束后不再有解码节拍驱动 FlushRetiredFrames，宽限期到点由后台任务收尾。
+        // 不用 force：force 无视宽限，调度后 (延迟窗口内) 才退役的新一代位图会被提前释放——
+        // 正是 d81aaa5 要消灭的 use-after-free 面（F36）。宽限检查形态下，调度前退役的位图
+        // 在任务执行时 age≥grace+1s 必然释放（无泄漏保证不变），调度后退役的按自身宽限走
         _ = Task.Run(async () =>
         {
             try
             {
                 await Task.Delay(RetireGrace + TimeSpan.FromSeconds(1)).ConfigureAwait(false);
-                FlushRetiredFrames(force: true);
+                FlushRetiredFrames();
             }
             catch (Exception)
             {
@@ -1501,6 +1584,10 @@ public sealed class FfmpegVideoBackdropPlayer(
 
         /// <summary>容器时长（秒，拿不到为 0）。</summary>
         public readonly double DurationSeconds;
+
+        /// <summary>解码器 drain 中（demuxer EOF 后已发 flush 包）：后续调用只 receive 不再读包
+        /// （F34——官方收尾模式：NULL flush packet 后解码器吐出重排缓冲的尾帧，直到 AVERROR_EOF）。</summary>
+        public bool Draining;
 
         /// <summary>组装解码源。</summary>
         public DecodeSource(

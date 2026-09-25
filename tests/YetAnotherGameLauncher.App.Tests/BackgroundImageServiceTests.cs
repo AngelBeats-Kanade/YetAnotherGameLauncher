@@ -362,4 +362,31 @@ public sealed class BackgroundImageServiceTests
         Assert.Null(await service.LoadAsync(""));
         Assert.Null(await service.LoadAsync(null));
     }
+
+    [Fact]
+    public async Task Forget_RemovesCacheEntry_SoChangedSourcesDoNotPinOldPixels()
+    {
+        // F35（artifacts/bugs.md）：单例缓存字典与应用同寿——来源 URL 变更后旧条目永久强可达
+        // （finalizer 兜不住）。调用方（游戏列表重建/应用背景来源变更）在旧来源不再被引用时
+        // Forget。所有权契约：Forget 不 Dispose 位图（释放走 UI 侧宽限退役）
+        _ = HeadlessSession.Instance;
+        using var dir = new TempDir();
+        var pngPath = dir.FilePath("icon.png");
+        File.WriteAllBytes(pngPath, Png);
+        var service = new BackgroundImageService(new HttpClient(new StubHttpHandler()));
+
+        IImage? loaded = null;
+        bool cachedBefore = true, cachedAfter = true;
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            loaded = RunToCompletion(() => service.LoadAsync(pngPath));
+            cachedBefore = service.IsCachedForTests(pngPath);
+            service.Forget(pngPath);
+            cachedAfter = service.IsCachedForTests(pngPath);
+        }, CancellationToken.None);
+
+        Assert.NotNull(loaded);
+        Assert.True(cachedBefore);
+        Assert.False(cachedAfter); // 红落此断言：条目必须被移除
+    }
 }

@@ -216,6 +216,27 @@ public sealed class BackgroundImageService(
         }
     }
 
+    /// <summary>按来源丢弃缓存条目（F35）：单例字典与应用同寿，来源 URL 变更后旧条目永久
+    /// 强可达（finalizer 永远够不着）。调用方（游戏列表重建的应用背景来源变更）在旧来源不再
+    /// 被任何消费者引用时调用。不 Dispose 位图——所有权契约：缓存不拥有位图生命周期，
+    /// 释放由放弃引用的 UI 侧经 ImageRetireQueue 宽限退役。</summary>
+    internal void Forget(string source)
+    {
+        lock (_cache)
+        {
+            _ = _cache.Remove(source);
+        }
+    }
+
+    /// <summary>来源是否仍有缓存条目（测试观察缝）。</summary>
+    internal bool IsCachedForTests(string source)
+    {
+        lock (_cache)
+        {
+            return _cache.ContainsKey(source);
+        }
+    }
+
     /// <summary>缓存条目：解码结果 + 写入时间 + 是否成功（成功永久、失败按 TTL）。</summary>
     private sealed record CacheEntry(IImage? Image, DateTimeOffset At, bool Success);
 }
