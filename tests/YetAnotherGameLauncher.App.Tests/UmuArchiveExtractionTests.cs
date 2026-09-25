@@ -173,11 +173,31 @@ public sealed class UmuArchiveExtractionTests : IDisposable
             Directory.CreateDirectory(Path.Combine(outdated, "locked"));
             File.WriteAllText(Path.Combine(outdated, "locked", "busy"), "x");
             File.SetUnixFileMode(Path.Combine(outdated, "locked"), UnixFileMode.None);
+            try
+            {
+                var ex = Record.Exception(() => UmuComponentProvisioner.ExtractSingleTopLevel(archive, target));
 
-            var ex = Record.Exception(() => UmuComponentProvisioner.ExtractSingleTopLevel(archive, target));
-
-            Assert.Null(ex); // 红落此断言：硬删除形态在此抛 UnauthorizedAccessException
-            Assert.True(File.Exists(Path.Combine(target, "proton"))); // 新树完整就位
+                Assert.Null(ex); // 红落此断言：硬删除形态在此抛 UnauthorizedAccessException
+                Assert.True(File.Exists(Path.Combine(target, "proton"))); // 新树完整就位
+            }
+            finally
+            {
+                // 还原权限位：TempDir.Dispose 的递归删除（及 owner 的 rm -rf）对 mode-000
+                // 目录无能为力，不还原则每跑一次遗留一棵不可删树污染临时目录
+                var lockedDir = Path.Combine(outdated, "locked");
+                if (Directory.Exists(lockedDir))
+                {
+                    try
+                    {
+                        File.SetUnixFileMode(
+                            lockedDir,
+                            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                    }
+                }
+            }
         }
         else
         {
