@@ -219,5 +219,7 @@
   "umu_err_runtimeDownloadTimeout": "Steam Runtime download failed (timeout): {0}",
   "umu_err_runtimeNoTopDir": "Steam Runtime package has no top-level directory.",
   "umu_err_runtimeExtract": "Steam Runtime extraction or placement failed: {0}",
+  "umu_err_runtimeComponentInvalid": "Steam Runtime version identifier contains invalid characters: {0}.",
+  "umu_err_runtimeShaMissing": "The Steam Runtime SHA256SUMS has no checksum entry for {0}; refusing to install an unverified package.",
   "umu_err_runtimeShaMismatch": "Steam Runtime verification failed: expected SHA256 {0}, got {1}."
 }

@@ -219,5 +219,7 @@
   "umu_err_runtimeDownloadTimeout": "Steam Runtime 下载失败（超时）：{0}",
   "umu_err_runtimeNoTopDir": "Steam Runtime 包内没有顶层目录。",
   "umu_err_runtimeExtract": "Steam Runtime 解压或落位失败：{0}",
+  "umu_err_runtimeComponentInvalid": "Steam Runtime 版本标识含非法字符：{0}。",
+  "umu_err_runtimeShaMissing": "Steam Runtime 的 SHA256SUMS 缺少 {0} 的校验条目，拒绝安装未经验证的包。",
   "umu_err_runtimeShaMismatch": "Steam Runtime 校验失败：期望 SHA256 {0}，实际 {1}。"
 }

@@ -77,6 +77,35 @@ public sealed class UmuArchiveExtractionTests : IDisposable
     }
 
     [Fact]
+    public void ExtractTarArchive_HardLinkBeforeTarget_OutOfOrder_StillMaterialized()
+    {
+        // 次级 suspect（第 9 轮，artifacts/bugs.md）：tar 允许硬链接条目先于目标文件出现（乱序包）——
+        // 单趟解压时目标未解出即静默跳过，链接路径整体缺失（运行时树缺文件）。修复 = 链接条目
+        // 延迟到普通文件全部落盘后再创建
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("链接创建为 POSIX 语义（Windows 需开发者模式），仅 Linux 确定性");
+        }
+
+        var archive = WriteTarGz(writer =>
+        {
+            var hard = new UstarTarEntry(TarEntryType.HardLink, "top/bin/wine");
+            hard.LinkName = "wine-preloader"; // ustar 硬链接目标相对链接所在目录（GNU tar 实包形态）
+            writer.WriteEntry(hard); // 先于目标出现
+            var target = new UstarTarEntry(TarEntryType.RegularFile, "top/bin/wine-preloader");
+            target.DataStream = new MemoryStream("payload"u8.ToArray());
+            writer.WriteEntry(target);
+        });
+
+        var dest = _temp.FilePath("out");
+        UmuComponentProvisioner.ExtractTarArchive(archive, dest);
+
+        Assert.True(File.Exists(Path.Combine(dest, "top", "bin", "wine-preloader")));
+        Assert.True(File.Exists(Path.Combine(dest, "top", "bin", "wine"))); // 红落此断言：乱序硬链接被静默跳过
+        Assert.Equal("payload", File.ReadAllText(Path.Combine(dest, "top", "bin", "wine")));
+    }
+
+    [Fact]
     public void ExtractSingleTopLevel_MovesTopDirIntoTarget()
     {
         var archive = WriteTarGz(writer =>

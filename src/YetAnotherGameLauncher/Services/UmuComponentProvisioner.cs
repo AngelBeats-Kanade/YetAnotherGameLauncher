@@ -854,10 +854,24 @@ public sealed class UmuComponentProvisioner(
                         _loc["umu_err_runtimeVersionEmpty"]);
                 }
 
+                // 版本号进 URL 路径、BUILD_ID 进缓存文件名（次级 suspect 第 9 轮）：未过白名单的
+                // 上游文本即拼接会产路径穿越/注入面——拒绝即走下载失败分类（可重试/修复 UI）
+                EnsureSafeComponent(version);
+
                 var baseUrl = $"{RuntimeHost}{images}/{version}";
                 var sums = await FetchTextAsync($"{baseUrl}/SHA256SUMS", cancellationToken).ConfigureAwait(false);
                 var expectedSha = ParseSha256For(sums, archive);
+                if (string.IsNullOrEmpty(expectedSha))
+                {
+                    // 次级 suspect（第 9 轮）：SHA256SUMS 拉到了但没有本资产条目 = 上游清单与资产
+                    // 不一致——静默跳过校验会让未验哈希的包落盘安装，按下载失败分类拒绝
+                    throw new LaunchException(
+                        LaunchFailureKind.UmuRuntimeDownloadFailed,
+                        _loc.Format("umu_err_runtimeShaMissing", archive));
+                }
+
                 var buildId = (await FetchTextAsync($"{baseUrl}/BUILD_ID.txt", cancellationToken).ConfigureAwait(false)).Trim();
+                EnsureSafeComponent(buildId);
 
                 var cache = UmuPaths.CacheRoot(cacheHome);
                 Directory.CreateDirectory(cache);
@@ -909,10 +923,17 @@ public sealed class UmuComponentProvisioner(
 
         var installRoot = UmuPaths.RuntimeDirectory(variant, dataHome);
         var staging = installRoot + ".staging";
+        var outdated = installRoot + ".outdated";
         if (Directory.Exists(staging))
         {
             // 上次中断的暂存树尽力清理（被占用时整删会抛，误报成下载失败）
             FileUtilities.TryDeleteDirectory(staging);
+        }
+
+        if (Directory.Exists(outdated))
+        {
+            // 上次替换中让位后中断的旧代残留：新装流程开始前清掉（见下方替换序列）
+            FileUtilities.TryDeleteDirectory(outdated);
         }
 
         Directory.CreateDirectory(staging);
@@ -926,10 +947,33 @@ public sealed class UmuComponentProvisioner(
                           _loc["umu_err_runtimeNoTopDir"]);
             if (Directory.Exists(installRoot))
             {
-                Directory.Delete(installRoot, recursive: true);
+                // 旧代先整体改名让位（瞬时 rename）再挪新树：原"边删边挪"在递归删除
+                // 数 GB 旧树的长窗口内中断 = 旧安装已毁、新安装未至（次级 suspect 第 9 轮）；
+                // 让位后旧树删除发生新树就位之后，中断最多留下待下次清理的 .outdated
+                Directory.Move(installRoot, outdated);
             }
 
-            Directory.Move(top, installRoot);
+            try
+            {
+                Directory.Move(top, installRoot);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // 新树挪入失败：把旧代让位目录还原回去（保住可用安装），再原样上抛
+                if (Directory.Exists(outdated) && !Directory.Exists(installRoot))
+                {
+                    try
+                    {
+                        Directory.Move(outdated, installRoot);
+                    }
+                    catch (Exception rollbackEx) when (rollbackEx is IOException or UnauthorizedAccessException)
+                    {
+                    }
+                }
+
+                throw;
+            }
+
             File.WriteAllText(Path.Combine(installRoot, UmuPaths.InstallMarkerName), DateTime.UtcNow.ToString("O"));
 
             var entry = Path.Combine(installRoot, "_v2-entry-point");
@@ -949,6 +993,9 @@ public sealed class UmuComponentProvisioner(
                     }
                 }
             }
+
+            // 新树已就位且带安装标记：此刻起删除旧代只剩垃圾清理语义（中断不再毁安装）
+            FileUtilities.TryDeleteDirectory(outdated);
 
             logger?.LogInformation("Installed Steam Runtime {Variant} to {Dir}", variant, installRoot);
         }
@@ -983,47 +1030,59 @@ public sealed class UmuComponentProvisioner(
     /// <summary>
     /// 解包 tar / tar.gz / tar.xz 到目标目录。条目解析与落盘走 System.Formats.Tar，
     /// 按 tar 头还原 Unix 权限位（SharpCompress 的解压不保留执行位，Proton/Runtime 树离开执行位无法启动）；
-    /// 符号链接按原样创建，硬链接条目无数据、目标已解出时退化为符号链接。失败条目静默跳过（同 tar -x 容错），
-    /// 拒绝绝对路径与 ".." 穿越。xz 容器仍用 SharpCompress 的 XZStream（BCL 无 XZ 解码）。
+    /// 符号链接按原样创建，硬链接条目无数据、退化为指向目标的符号链接；链接条目统一延迟到
+    /// 普通文件全部落盘后创建（tar 允许硬链接先于目标出现，单趟形态会静默丢失链接路径——
+    /// 次级 suspect 第 9 轮）。穿越条目（绝对路径 / ".." / 逃逸链接目标）静默拒绝；普通文件与
+    /// 目录的 IO 失败照常抛出（由调用方按下载失败分类，非 tar -x 式全条目容错）。
+    /// xz 容器仍用 SharpCompress 的 XZStream（BCL 无 XZ 解码）。
     /// </summary>
     internal static void ExtractTarArchive(string archivePath, string destinationDir)
     {
         Directory.CreateDirectory(destinationDir);
-        using var raw = File.OpenRead(archivePath);
-        using var decompressed = OpenDecompressedStream(raw);
-        using var reader = new TarReader(decompressed);
-        while (reader.GetNextEntry() is { } entry)
+        var deferredLinks = new List<(string Key, string LinkName, TarEntryType Type)>();
+        using (var raw = File.OpenRead(archivePath))
+        using (var decompressed = OpenDecompressedStream(raw))
+        using (var reader = new TarReader(decompressed))
         {
-            var key = entry.Name.Replace('\\', '/');
-            // 路径穿越防护（IsPathRooted 连 Windows 盘符形态一并拒绝）
-            if (Path.IsPathRooted(key) || key.Split('/').Contains(".."))
+            while (reader.GetNextEntry() is { } entry)
             {
-                continue;
-            }
+                var key = entry.Name.Replace('\\', '/');
+                // 路径穿越防护（IsPathRooted 连 Windows 盘符形态一并拒绝）
+                if (Path.IsPathRooted(key) || key.Split('/').Contains(".."))
+                {
+                    continue;
+                }
 
-            switch (entry.EntryType)
-            {
-                case TarEntryType.Directory:
-                    Directory.CreateDirectory(Path.Combine(destinationDir, key));
-                    break;
-                case TarEntryType.RegularFile:
-                    WriteRegularFile(destinationDir, entry, key);
-                    break;
-                case TarEntryType.SymbolicLink:
-                case TarEntryType.HardLink:
-                    var link = entry.LinkName.Replace('\\', '/');
-                    // 链接目标与条目名同等校验：绝对路径（跨平台口径含 Windows 盘符/UNC 形态——
-                    // Linux 上 StartsWith('/') 挡不住 "C:/evil"，而该 tar 可能随后在 Windows 解出）
-                    // 或 ".." 目标的链接可把后续普通文件条目经链接写穿到目标目录外（同上游包被
-                    // 篡改时的纵深防御）
-                    if (IsEscapingLinkTarget(link))
-                    {
-                        continue;
-                    }
+                switch (entry.EntryType)
+                {
+                    case TarEntryType.Directory:
+                        Directory.CreateDirectory(Path.Combine(destinationDir, key));
+                        break;
+                    case TarEntryType.RegularFile:
+                        WriteRegularFile(destinationDir, entry, key);
+                        break;
+                    case TarEntryType.SymbolicLink:
+                    case TarEntryType.HardLink:
+                        var link = entry.LinkName.Replace('\\', '/');
+                        // 链接目标与条目名同等校验：绝对路径（跨平台口径含 Windows 盘符/UNC 形态——
+                        // Linux 上 StartsWith('/') 挡不住 "C:/evil"，而该 tar 可能随后在 Windows 解出）
+                        // 或 ".." 目标的链接可把后续普通文件条目经链接写穿到目标目录外（同上游包被
+                        // 篡改时的纵深防御）
+                        if (!IsEscapingLinkTarget(link))
+                        {
+                            deferredLinks.Add((key, entry.LinkName, entry.EntryType));
+                        }
 
-                    TryCreateLink(Path.Combine(destinationDir, key), entry.LinkName, entry.EntryType);
-                    break;
+                        break;
+                }
             }
+        }
+
+        // 链接统一在普通文件全部落盘后创建：此时硬链接目标必然已解出（真缺失的条目由
+        // TryCreateLink 的存在性检查跳过），乱序包不再静默丢文件
+        foreach (var (key, linkName, type) in deferredLinks)
+        {
+            TryCreateLink(Path.Combine(destinationDir, key), linkName, type);
         }
     }
 
@@ -1136,7 +1195,9 @@ public sealed class UmuComponentProvisioner(
         | UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute
         | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
 
-    /// <summary>internal 供单测（经 InternalsVisibleTo）：验证顶层目录迁移与“无顶层目录直接摊开”两种包布局。</summary>
+    /// <summary>internal 供单测（经 InternalsVisibleTo）：验证顶层目录迁移与“无顶层目录直接摊开”两种包布局。
+    /// 旧安装经"整体改名让位 → 新树挪入 → 删旧代"替换（次级 suspect 第 9 轮）：递归删除旧树的
+    /// 长窗口内中断不再出现"旧已毁新未至"的空窗。</summary>
     internal static void ExtractSingleTopLevel(string archivePath, string targetDir)
     {
         var temp = targetDir + ".extract";
@@ -1153,12 +1214,41 @@ public sealed class UmuComponentProvisioner(
             // GE-Proton 包顶层通常是一个目录；也可能直接摊开
             var top = Directory.EnumerateDirectories(temp).FirstOrDefault();
             var source = top ?? temp;
-            if (Directory.Exists(targetDir))
+            var outdated = targetDir + ".outdated";
+            if (Directory.Exists(outdated))
             {
-                Directory.Delete(targetDir, recursive: true);
+                FileUtilities.TryDeleteDirectory(outdated); // 上次替换中断的旧代残留
             }
 
-            Directory.Move(source, targetDir);
+            if (Directory.Exists(targetDir))
+            {
+                Directory.Move(targetDir, outdated); // 瞬时 rename 让位，删除延到新树就位后
+            }
+
+            try
+            {
+                Directory.Move(source, targetDir);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                if (Directory.Exists(outdated) && !Directory.Exists(targetDir))
+                {
+                    try
+                    {
+                        Directory.Move(outdated, targetDir); // 回滚让位目录，保住可用安装
+                    }
+                    catch (Exception rollbackEx) when (rollbackEx is IOException or UnauthorizedAccessException)
+                    {
+                    }
+                }
+
+                throw;
+            }
+
+            if (source != temp && Directory.Exists(outdated))
+            {
+                Directory.Delete(outdated, recursive: true); // 新树已就位，旧代只剩清理语义
+            }
         }
         finally
         {
@@ -1233,10 +1323,58 @@ public sealed class UmuComponentProvisioner(
         return string.Empty;
     }
 
-    /// <summary>校验下载的 Steam Runtime 包 SHA256，不符抛 LaunchException（启动失败覆盖层展示）。</summary>
+    /// <summary>版本号/BUILD_ID 是否为安全的路径与 URL 段：仅 ASCII 字母数字与 ._-、
+    /// 不以点开头（拒 ".." 段）、限长 128。上游文本未过白名单即拼 URL 路径与缓存文件名，
+    /// 分隔符/穿越段会产注入与路径逃逸面（次级 suspect 第 9 轮）。internal 供直测。</summary>
+    internal static bool IsSafeComponent(string value)
+    {
+        if (value.Length is 0 or > 128 || value[0] == '.')
+        {
+            return false;
+        }
+
+        foreach (var c in value)
+        {
+            if (!(char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '_'))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>白名单不过即按下载失败分类拒绝（错误文案回显截断到 64 字符防刷屏）。</summary>
+    private void EnsureSafeComponent(string value)
+    {
+        if (IsSafeComponent(value))
+        {
+            return;
+        }
+
+        throw new LaunchException(
+            LaunchFailureKind.UmuRuntimeDownloadFailed,
+            _loc.Format("umu_err_runtimeComponentInvalid", value.Length <= 64 ? value : value[..64] + "…"));
+    }
+
+    /// <summary>校验下载的 Steam Runtime 包 SHA256，不符抛 LaunchException（启动失败覆盖层展示）。
+    /// 读包的 IO 失败（磁盘满/权限）同样折算成本分类——裸异常穿出会落 Unknown 丢修复 UI
+    /// （次级 suspect 第 9 轮）。</summary>
     private async Task VerifySha256Async(string path, string expected, CancellationToken cancellationToken)
     {
-        var actual = await Hashing.Sha256HexAsync(path, cancellationToken).ConfigureAwait(false);
+        string actual;
+        try
+        {
+            actual = await Hashing.Sha256HexAsync(path, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new LaunchException(
+                LaunchFailureKind.UmuRuntimeDownloadFailed,
+                _loc.Format("umu_err_runtimeDownload", ex.Message),
+                ex);
+        }
+
         if (!string.Equals(actual, expected.Trim().ToLowerInvariant(), StringComparison.Ordinal))
         {
             throw new LaunchException(
