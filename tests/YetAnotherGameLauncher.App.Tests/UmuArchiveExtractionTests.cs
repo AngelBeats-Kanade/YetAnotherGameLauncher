@@ -160,6 +160,21 @@ public sealed class UmuArchiveExtractionTests : IDisposable
         // 正向守卫 + else Skip：CA1416 平台分析器只认 OperatingSystem.IsLinux() 直接分支
         if (OperatingSystem.IsLinux())
         {
+            // root/CAP_DAC_OVERRIDE 豁免 DAC（对照 FileUtilitiesTests/GB 测试的 root 前提探针）：
+            // chmod 000 构造不出清理失败形态，测试会退化平凡通过
+            var probePath = _temp.FilePath("dac-probe.txt");
+            File.WriteAllText(probePath, "x");
+            File.SetUnixFileMode(probePath, UnixFileMode.None);
+            try
+            {
+                _ = File.ReadAllText(probePath);
+                Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），清理失败形态不成立");
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // 前提成立：写盘/删除真的会被拒
+            }
+
             var archive = WriteTarGz(writer =>
             {
                 writer.WriteEntry(new UstarTarEntry(TarEntryType.Directory, "GE-Proton10-9"));
