@@ -370,9 +370,9 @@ public sealed class BackgroundImageServiceTests
 
         // root/CAP_DAC_OVERRIDE 豁免 DAC：拒读构造不出时测试空心化（解码失败分支同样返回
         // null，两形态不可区分）——同族前提探针
-        if (DacExemptionProbe.Exempt(dir.Path))
+        if (!DacExemptionProbe.CanConstructDeniedFixture(dir.Path))
         {
-            Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），拒读形态不成立");
+            Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE 等能力豁免），拒读形态不成立");
         }
 
         var path = dir.FilePath("denied.png");

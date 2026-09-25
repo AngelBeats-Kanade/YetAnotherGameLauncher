@@ -36,9 +36,9 @@ public class FileUtilitiesTests : IDisposable
 
         // DAC 豁免读探针（机制本身，替代早期 Environment.UserName 形态——CAP_DAC_OVERRIDE
         // 的非 root 进程同样豁免，用户名判断有双向泄漏）
-        if (DacExemptionProbe.Exempt(_temp.Path))
+        if (!DacExemptionProbe.CanConstructDeniedFixture(_temp.Path))
         {
-            Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），拒删形态不成立");
+            Assert.Skip("探针检出读权限检查被豁免（root/CAP_DAC_OVERRIDE 等能力豁免），拒访形态不可保证构造");
         }
 
         var root = _temp.FilePath("tree");
@@ -79,9 +79,9 @@ public class FileUtilitiesTests : IDisposable
 
         // DAC 豁免读探针（机制本身，替代早期 Environment.UserName 形态——CAP_DAC_OVERRIDE
         // 的非 root 进程同样豁免，用户名判断有双向泄漏）
-        if (DacExemptionProbe.Exempt(_temp.Path))
+        if (!DacExemptionProbe.CanConstructDeniedFixture(_temp.Path))
         {
-            Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），拒删形态不成立");
+            Assert.Skip("探针检出读权限检查被豁免（root/CAP_DAC_OVERRIDE 等能力豁免），拒访形态不可保证构造");
         }
 
         var root = _temp.FilePath("locked-root");

@@ -332,9 +332,9 @@ public class ManifestVerifierMissingInfoTests
 
             using var dir = new TempDir();
             // root/CAP_DAC_OVERRIDE 豁免 DAC：拒读形态构造不出（同族前提探针）
-            if (DacExemptionProbe.Exempt(dir.Path))
+            if (!DacExemptionProbe.CanConstructDeniedFixture(dir.Path))
             {
-                Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），拒读形态不成立");
+                Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE 等能力豁免），拒读形态不成立");
             }
 
             var file = dir.FilePath("locked.bin");

@@ -7,7 +7,7 @@ namespace YetAnotherGameLauncher.AppTests;
 /// <summary>
 /// 设置持久化失败分支回归（2026-09-20 三审）：代理/限速保存曾丢弃 TrySaveCatalogAsync 的
 /// 布尔结果——games.json 写不进时消息槽照样弹"已保存"，重启后设置静默回退。
-/// 通过把配置所在目录临时改为不可写构造持久化失败（Linux 权限位；root 下跳过）。
+/// 通过把配置所在目录临时改为不可写构造持久化失败（Linux 权限位；DAC 豁免进程下跳过）。
 /// </summary>
 [Collection("sequential")]
 public class SettingsSaveFailureTests : IDisposable
@@ -75,7 +75,7 @@ public class SettingsSaveFailureTests : IDisposable
     {
         if (!DacExemptionProbe.TryMakeDirectoryUnwritable(dir))
         {
-            Assert.Skip("非 root 才能通过权限位制造写失败（当前以 root 运行，权限注入无效）");
+            Assert.Skip("探针检出读权限检查被豁免（root/CAP_DAC_OVERRIDE 等能力豁免），拒访写失败形态不可保证构造");
         }
     }
 

@@ -321,9 +321,9 @@ public class IncrementalUpdateServiceTests : IDisposable
         else
         {
             // root/CAP_DAC_OVERRIDE 豁免 DAC：去写权限构造不出"删不掉"形态（同族前提探针）
-            if (DacExemptionProbe.Exempt(_tempDir.Path))
+            if (!DacExemptionProbe.CanConstructDeniedFixture(_tempDir.Path))
             {
-                Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），删不掉形态不成立");
+                Assert.Skip("探针检出读权限检查被豁免（root/CAP_DAC_OVERRIDE 等能力豁免），拒访形态不可保证构造");
             }
 
             // 删除依赖所在目录写位：去掉写位使 File.Delete 抛 UnauthorizedAccessException
@@ -388,9 +388,9 @@ public class IncrementalUpdateServiceStagedManifestTests : IDisposable
         if (!OperatingSystem.IsWindows())
         {
             // root/CAP_DAC_OVERRIDE 豁免 DAC：拒读形态构造不出（同族前提探针）
-            if (DacExemptionProbe.Exempt(_tempDir.Path))
+            if (!DacExemptionProbe.CanConstructDeniedFixture(_tempDir.Path))
             {
-                Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），拒读形态不成立");
+                Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE 等能力豁免），拒读形态不成立");
             }
 
             File.SetUnixFileMode(manifestPath, UnixFileMode.None);

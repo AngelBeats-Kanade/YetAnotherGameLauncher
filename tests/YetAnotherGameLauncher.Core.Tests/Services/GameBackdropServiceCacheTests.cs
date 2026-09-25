@@ -21,9 +21,9 @@ public class GameBackdropServiceCacheTests : IDisposable
         if (OperatingSystem.IsLinux())
         {
             // root/CAP_DAC_OVERRIDE 豁免 DAC：拒读形态构造不出（同族前提探针）
-            if (DacExemptionProbe.Exempt(_tempDir.Path))
+            if (!DacExemptionProbe.CanConstructDeniedFixture(_tempDir.Path))
             {
-                Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），拒读形态不成立");
+                Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE 等能力豁免），拒读形态不成立");
             }
 
             var metaPath = Path.Combine(_tempDir.Path, "g1", "meta.json");

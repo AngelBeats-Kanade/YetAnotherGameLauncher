@@ -240,9 +240,9 @@ public class GameInstallServiceTests : IDisposable
         if (!OperatingSystem.IsWindows())
         {
             // root/CAP_DAC_OVERRIDE 豁免 DAC：去写权限构造不出"删除被拒"形态（同族前提探针）
-            if (DacExemptionProbe.Exempt(_tempDir.Path))
+            if (!DacExemptionProbe.CanConstructDeniedFixture(_tempDir.Path))
             {
-                Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），删除被拒形态不成立");
+                Assert.Skip("探针检出读权限检查被豁免（root/CAP_DAC_OVERRIDE 等能力豁免），拒访形态不可保证构造");
             }
 
             File.SetUnixFileMode(lockedDir, UnixFileMode.UserRead | UnixFileMode.UserExecute);

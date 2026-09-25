@@ -570,16 +570,11 @@ public class MigrationSaveFailureTests
         var ctx = VmFactory.Build(configJson: OldSchemaConfig);
         try
         {
-            // 预检：非 root 才能靠权限位制造写失败
-            var probe = Path.Combine(ctx.TempDir.Path, ".yagl-write-probe");
-            try
+            // 预检：读探针检出 DAC 豁免（root/CAP_DAC_OVERRIDE 等能力豁免）时跳过——
+            // 写失败形态对仅持 CAP_DAC_READ_SEARCH 的进程实际可构造，但读探针无法区分，保守跳过
+            if (!DacExemptionProbe.CanConstructDeniedFixture(ctx.TempDir.Path))
             {
-                File.WriteAllText(probe, "x");
-                File.Delete(probe);
-            }
-            catch (Exception)
-            {
-                Assert.Skip("以 root 运行时权限位注入无效");
+                Assert.Skip("探针检出读权限检查被豁免（root/CAP_DAC_OVERRIDE 等能力豁免），拒访写失败形态不可保证构造");
             }
 
             // 初始化**之前**就把目录改只读：config 加载只需读权限，而 schemaVersion 3→4/5 的

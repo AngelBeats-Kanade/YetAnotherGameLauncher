@@ -162,9 +162,9 @@ public sealed class UmuArchiveExtractionTests : IDisposable
         {
             // root/CAP_DAC_OVERRIDE 豁免 DAC：chmod 000 构造不出清理失败形态，测试会退化
             // 平凡通过（同族前提探针）
-            if (DacExemptionProbe.Exempt(_temp.Path))
+            if (!DacExemptionProbe.CanConstructDeniedFixture(_temp.Path))
             {
-                Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），清理失败形态不成立");
+                Assert.Skip("探针检出读权限检查被豁免（root/CAP_DAC_OVERRIDE 等能力豁免），拒访形态不可保证构造");
             }
 
             var archive = WriteTarGz(writer =>

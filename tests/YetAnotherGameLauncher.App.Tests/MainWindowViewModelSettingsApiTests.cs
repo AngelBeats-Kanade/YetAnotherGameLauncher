@@ -202,12 +202,12 @@ public class MainWindowViewModelSettingsApiTests : IDisposable
         }
     }
 
-    /// <summary>目录权限位注入写失败（与 SettingsSaveFailureTests 同款；root 下跳过）。</summary>
+    /// <summary>目录权限位注入写失败（与 SettingsSaveFailureTests 同款；DAC 豁免进程下跳过）。</summary>
     private static void MakeUnwritable(string dir)
     {
         if (!DacExemptionProbe.TryMakeDirectoryUnwritable(dir))
         {
-            Assert.Skip("非 root 才能通过权限位制造写失败（当前以 root 运行，权限注入无效）");
+            Assert.Skip("探针检出读权限检查被豁免（root/CAP_DAC_OVERRIDE 等能力豁免），拒访写失败形态不可保证构造");
         }
     }
 
