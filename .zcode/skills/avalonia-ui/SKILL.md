@@ -71,7 +71,7 @@ Avalonia 12（本项目 12.1.2）+ .NET 10。跨平台 XAML（.axaml）UI 框架
 8. **Transform 上不能写 `x:Name`**（AVLN2000）；该错误还可能让后续增量构建产出缺预编译 XAML 的程序集（运行时报 "No precompiled XAML"）——见到此错误先清 bin/obj 全量重建。
 9. **Fluent 主题的状态样式在模板 presenter 层写前景**：`Button` 的 `:pointerover`/`:pressed`/`:disabled` 把主题前景直接设在 `ContentPresenter#PART_ContentPresenter` 上，会压过 Button 本体的任何 Foreground（含继承）。自定义按钮的固定前景必须同样下沉到 presenter 层逐状态覆盖（先例：`Button.glass-onart` 组，MainWindow.axaml）。
 10. **`Image` 的 `UniformToFill` 默认按控件对齐居中裁切**：需要保住某一边（如海报左缘完整贴侧栏）时，设 `HorizontalAlignment="Left"` + `VerticalAlignment="Top"`，让测量出的封面尺寸向右/下溢出，由外层 `ClipToBounds` 裁掉。
-11. **Animation API（2026-09-21 实测，本项目编舞已弃用之，改手写驱动——见 docs/UI_STRUCTURE.md §2.1）**：`RunAsync` 目标必须是控件（Visual）；keyframe 属性写 `TranslateTransform.YProperty` 等 AttachedProperty 形态；keyframe 缓动用 `KeySpline`（没有 `Easing` 属性），且 **KeySpline 作用于"进入该帧"的段落**（帧 i 的样条管 i-1→i 段）；一个 KeyFrame 带多个 Setter 与拆成多条单属性动画**功能等价**（真机 A/B 插桩实测）——不要用"两动画失步"解释卡顿。空闲渲染循环下 Animation 时钟无法自举的根因见 docs/ARCHITECTURE.md §3.7。
+11. **Animation API（2026-09-21 实测，本项目编舞已弃用之，改手写驱动——见 docs/UI_STRUCTURE.md §2.1）**：`RunAsync` 目标必须是控件（Visual）；keyframe 属性写 `TranslateTransform.YProperty`/`ScaleTransform.ScaleYProperty`；keyframe 缓动用 `KeySpline`（没有 `Easing` 属性），且 **KeySpline 作用于"进入该帧"的段落**（帧 i 的样条管 i-1→i 段）；一个 KeyFrame 带多个 Setter 与拆成多条单属性动画**功能等价**（真机 A/B 插桩实测，引擎源码 `Animation.InterpretKeyframes`/`TransformAnimator` 逐层核对）——不要用"两动画失步"解释卡顿。空闲渲染循环下 Animation 时钟无法自举的根因见 docs/ARCHITECTURE.md §3.7。
 
 ## 写完 UI 后必做
 

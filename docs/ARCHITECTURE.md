@@ -281,7 +281,10 @@ flowchart LR
   配置错误/无游戏无条件放行。纯决策在
   `BootGate.ShouldRelease`（放行矩阵单测）；遮蔽可见性/淡出由 `MainWindow` 代码后置驱动
   （IsBooting 属性通知 → `SyncBootSplash`，回 UI 线程再摸控件；淡出为手写自泵 0.25s——
-  同迁移编舞纪律，Animation API 空闲渲染循环下无法自举；`SplashAnimationEnabled` 测试开关）。
+  同迁移编舞纪律：Animation 时钟取自渲染循环，而本应用渲染循环空闲时按需降频（实测 ~10Hz）、
+  窗口内无外部泵时无法自举——旧复核环的每秒数万次分发器投递曾"意外承重"充当渲染泵，泵被修掉后
+  两方向动画都掉到 ~10fps；手写 `Task.Delay(8ms)` 循环自身就是泵（每拍直写变换基值→失效→渲染），
+  插桩复测两方向全程 8ms 一拍零断流；`SplashAnimationEnabled` 测试开关）。
   `IsBooting` 默认 false：headless 测试与截图导出不受影响，仅生产启动路径显式开启。
 - **播放**：`FfmpegVideoBackdropPlayer` 后台线程解码（Windows D3D11VA / Linux VAAPI→CUDA(NVDEC)
   硬解，按序尝试、设备创建失败自动落到下一项直至回软解；硬解 GPU 帧经 `av_hwframe_transfer_data`
@@ -300,7 +303,8 @@ flowchart LR
   2026-09-22 起 ffmpeg/背景/图标缓存统一从 %ConfigDirectory% 迁到 %DataDirectory%——可重建
   缓存归数据目录，config 下的旧副本成遗留、可手动删除）。
   **解压必须还原符号链接**（2026-09-24 P0 实锤）：SharpCompress `WriteEntryTo` 对 SymbolicLink 条目
-  摊平成 0 字节普通文件——BtbN 包里全部短名 soname（`libavcodec.so.63` 等）以链接形态存在；
+  摊平成 0 字节普通文件——BtbN 包里全部短名 soname（`libavcodec.so.63` 等）以链接形态存在，
+  本机下载目录 14 个短名曾全 0 字节（2026-09-24 实测）；
   `ExtractArchive` 经 `IEntry.LinkTarget` 还原真链接（目标限同目录裸文件名，逃逸即拒）。凡解包
   不可信外部归档都要显式处理链接条目（zip `\` 条目名坑同族，见 `PackageInstallerService.ExtractArchive`）。
   **目录内库按依赖序预载**（同日 P0 实锤）：BtbN 库间 DT_NEEDED 只有同伴 soname 且**无 RUNPATH**，
@@ -364,7 +368,8 @@ flowchart LR
   帧缓冲/解码源/订阅原样保留，`HasBackgroundVideo` 不翻（页外不占解码资源但不付重启成本）；
   **重进游戏页** = 续播快路径（会话存活且已订阅时直接 `Resume`，无 500ms 起播延迟、不重开
   解码源/不重新分析循环点；`FrameSurface` 重挂视觉树即画暂停帧）。**保活上限**：暂停队列
-  （按暂停先后）超过 2 路（加在播 1 路 = 3 路会话/帧位图驻留上限）时最旧的被全停淘汰，
+  （按暂停先后）超过 2 路（加在播 1 路 = 3 路会话/帧位图驻留上限，`MainWindowViewModel.TrackParkedVideo`）
+  时最旧的被全停淘汰，
   该游戏重进凭已解析路径重新起播自愈；`_activeVideoPage` 在切非游戏页后仍指向被暂停的游戏页
   （直到被另一游戏页替换）。播放器侧续播经 `ManualResetEventSlim` 门与取消令牌
   `WaitAny`——暂停中 `Stop` 靠取消令牌正常唤醒退出，醒来重定 `PlaybackClock` 基线（暂停时长不计入
