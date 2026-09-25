@@ -151,12 +151,12 @@ public class DetailPageHeadlessTests : IDisposable
             var texts = page.GetVisualDescendants().OfType<TextBlock>().ToList();
             Assert.Contains(texts, t => t.Text == _ctx.Vm.Games[0].VersionChipLead);
             Assert.Contains(texts, t => t.Text == _ctx.Vm.Games[0].VersionChipNumber);
-            // 顶部纱带：全出血渐变底，不拦交互；比例高 30%（官方烧录 Logo 区随 UniformToFill
-            // 缩放随窗口等比增长，固定高度在高窗口盖不住——2026-09-25 由 150 固定改比例）
+            // 顶部纱带：全出血渐变底，不拦交互；固定高 140 盖住顶部 chips 簇
+            //（自绘标题移除后纱带职责只剩 chips 可读底，2026-09-25 由 30% 比例回调固定值）
             var scrim = page.GetVisualDescendants().OfType<Border>()
                 .First(b => ReferenceEquals(b.Background, window.FindResource("AppOnArtworkScrimBrush")));
             Assert.False(scrim.IsHitTestVisible);
-            Assert.InRange(scrim.Bounds.Height, page.Bounds.Height * 0.3 - 1, page.Bounds.Height * 0.3 + 1);
+            Assert.Equal(140, scrim.Height);
             window.Close();
         }, CancellationToken.None);
     }
@@ -164,7 +164,7 @@ public class DetailPageHeadlessTests : IDisposable
     [Fact]
     public async Task GameDetailPage_Scrim_DimsArtworkBehindTitleCluster()
     {
-        // 纱带的职责是压暗标题/chips 身后的插画（含官方背景烧录的 Logo 字）：
+        // 纱带的职责是给 chips 身后的插画垫可读底：
         // 平色亮背景上同列采样，带内点必须显著暗于带外点（像素级守卫，先例 ProtonUpdateConfirm）。
         // resolver 必须在 InitializeAsync 前种好：版本缓存命中后的复刷不再发射资产加载
         // （LoadAssetsCoreAsync 还是 fire-and-forget），后种缝永远等不到背景（StartupAssetPreloadTests 同款）
@@ -223,19 +223,19 @@ public class DetailPageHeadlessTests : IDisposable
                     + System.Runtime.InteropServices.Marshal.ReadByte(addr + 2);
             }
 
-            // x=600：右移避开左上文字簇；y=80 带内（约 0.67 不透明度）、y=450 带外纯背景。
-            // 先按截图测试同款等待真实时钟再推渲染计时器：首拍可能还没把海报画出来
+            // x=600：右移避开左上 chips 簇；y=60 带内上部（0.55 顶渐变，此处 α≈0.31）、
+            // y=450 带外纯背景。先按截图测试同款等待真实时钟再推渲染计时器：首拍可能还没把海报画出来
             Thread.Sleep(150);
-            inBand = LuminanceAt(600, 80);
+            inBand = LuminanceAt(600, 60);
             belowBand = LuminanceAt(600, 450);
             window.Close();
         }, CancellationToken.None);
 
         Assert.True(inBand > 0, "带内采样点抓帧失败");
-        // belowBand 下限钉住"海报确实渲染了"：深底（~90）会让 inBand<belowBand*0.5 失去判别力
+        // belowBand 下限钉住"海报确实渲染了"：深底（~90）会让压暗比较失去判别力
         Assert.True(belowBand > 400, $"带外采样点过暗，平色海报可能未渲染：belowBand={belowBand}");
-        Assert.True(inBand < belowBand * 0.5,
-            $"纱带未显著压暗标题身后插画：inBand={inBand} belowBand={belowBand}");
+        Assert.True(inBand < belowBand * 0.8,
+            $"纱带未压暗 chips 身后插画：inBand={inBand} belowBand={belowBand}");
     }
 
     [Fact]

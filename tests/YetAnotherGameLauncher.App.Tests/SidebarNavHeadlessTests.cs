@@ -277,10 +277,9 @@ public class SidebarNavHeadlessTests : IDisposable
             Assert.Equal(row.Bounds.Height - 8, indicator.Height, 1);
             Assert.True(indicator.Height < expandedHeight);
             Assert.Equal(RowCenterY(row, overlay), RenderedCenterY(window, indicator), 1);
-            // 收起态：行内被图标占满，指示点退到项背景左缘外侧（点右缘与项左缘留 2px 间隙），
-            // 必须跟随目标项几何——贴窗口边的旧形态与项背景脱开，观感"悬空"（2026-09-25 修复）
-            var rowLeft = row.TranslatePoint(new Point(0, 0), overlay)!.Value.X;
-            Assert.Equal(rowLeft - indicator.Width - 2, window.IndicatorLeft, 1);
+            // 收起态与展开态同一选中语言：点在选中块内部左缘（贴块左缘 0 内缩——块 44 宽、
+            // 图标盒 38 居中后左缝仅 3px，点与图标盒左缘相切）
+            Assert.Equal(row.TranslatePoint(new Point(0, 0), overlay)!.Value.X, window.IndicatorLeft, 1);
             window.Close();
         }, CancellationToken.None);
     }
@@ -325,8 +324,8 @@ public class SidebarNavHeadlessTests : IDisposable
             // 布局取整会把居中结果偏 0.5px（宽度 44/45 抖动），断言用 ±0.75 容差
             Assert.InRange(iconCenterInButton, settings.Bounds.Width / 2 - 0.75, settings.Bounds.Width / 2 + 0.75);
             Assert.Equal(ButtonCenterY(settings, overlay), RenderedCenterY(window, indicator), 1);
-            var buttonLeft = settings.TranslatePoint(new Point(0, 0), overlay)!.Value.X;
-            Assert.Equal(buttonLeft - indicator.Width - 2, window.IndicatorLeft, 1);
+            // 收起态点同样在选中块（按钮）内部左缘、贴块左缘
+            Assert.Equal(settings.TranslatePoint(new Point(0, 0), overlay)!.Value.X, window.IndicatorLeft, 1);
             window.Close();
         }, CancellationToken.None);
     }

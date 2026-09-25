@@ -93,7 +93,7 @@ public class MainWindowHeadlessTests : IDisposable
     }
 
     [Fact]
-    public async Task AboutPage_ProjectHomeButton_ShowsShortLabel_WithFullUrlInTooltip()
+    public async Task AboutPage_ProjectHomeButton_IsGhostIconButton_WithFullUrlInTooltip()
     {
         await _ctx.Vm.InitializeAsync();
 
@@ -104,13 +104,15 @@ public class MainWindowHeadlessTests : IDisposable
             _ctx.Vm.ShowAboutCommand.Execute(null);
             window.UpdateLayout();
 
-            // 项目主页出口：短文案按钮，完整 URL 收进 ToolTip——整串 URL 当按钮文字
-            // 在信息卡里过宽过重（2026-09-25 修复）
+            // 项目主页出口：幽灵式图标按钮（信息卡纯文本行内不放带底描边胶囊——"突兀"根源），
+            // 图标 16px 视觉重量与 13px 信息行一致，完整 URL 收进 ToolTip（2026-09-25 用户决定）
             var about = Assert.IsType<AboutViewModel>(_ctx.Vm.CurrentPage);
             var home = window.GetVisualDescendants().OfType<Button>()
                 .Single(b => Equals(b.Command, about.OpenProjectHomeCommand));
-            Assert.Equal(about.Loc["about_openHome"], home.Content);
+            Assert.False(home.Content is string, "按钮不得以文字为内容（应为 GitHub 图标）");
             Assert.Equal(AboutViewModel.ProjectHomeUrl, ToolTip.GetTip(home));
+            Assert.True(home.Bounds.Height <= 22,
+                $"按钮高 {home.Bounds.Height}px 应与相邻信息行文字量级一致（≤22px）");
             window.Close();
         }, CancellationToken.None);
     }

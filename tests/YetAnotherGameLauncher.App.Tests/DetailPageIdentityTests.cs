@@ -12,8 +12,9 @@ using YetAnotherGameLauncher.Views;
 namespace YetAnotherGameLauncher.UiTests;
 
 /// <summary>
-/// 详情页身份感与未安装空态（2026-09-23 UI 评审 P1-1/P1-2）：
-/// 1) 详情页必须呈现游戏名（"沉浸影院"改版删除标题簇后页面无名，识别性缺口）；
+/// 详情页身份感与未安装空态：
+/// 1) 信息簇以 chips 行为首（自绘标题 2026-09-25 移除：官方背景自带烧录 Logo 字标，
+///    识别职责由窗口 Title「游戏名 · 应用名」与侧栏选中项承担）；
 /// 2) 窗口 Title 跟随当前页（游戏页 =「游戏名 · 应用名」，其余页 = 应用名）；
 /// 3) 未安装时空态引导卡可见、禁用的启动钮隐藏（规范 §5 空态要设计 / §6 隐藏不可用操作）。
 /// </summary>
@@ -25,20 +26,18 @@ public class DetailPageIdentityTests : IDisposable
 
     private readonly VmFactory.Context _ctx;
 
-    /// <summary>标题行是否落在 chips 上方（Dispatch 内赋值、Dispatch 外断言）。</summary>
-    private bool TitleAboveChips;
-
     public DetailPageIdentityTests() => _ctx = VmFactory.Build();
 
     public void Dispose() => _ctx.TempDir.Dispose();
 
     [Fact]
-    public async Task DetailPage_ShowsGameTitle_AboveChips()
+    public async Task DetailPage_InfoCluster_LeadsWithChips_NoDrawnTitle()
     {
         await _ctx.Vm.InitializeAsync();
         var wuwa = _ctx.Vm.Games[0];
 
-        var title = default(TextBlock);
+        var chipsFirst = false;
+        var hasDrawnTitle = true;
         await HeadlessSession.Instance.Dispatch(() =>
         {
             var window = new MainWindow { DataContext = _ctx.Vm };
@@ -47,26 +46,19 @@ public class DetailPageIdentityTests : IDisposable
 
             var page = window.GetVisualDescendants().OfType<Panel>()
                 .First(p => p.Classes.Contains("page"));
-            title = page.GetVisualDescendants().OfType<TextBlock>()
-                .FirstOrDefault(t => t.Text == wuwa.DisplayName);
+            hasDrawnTitle = page.GetVisualDescendants().OfType<TextBlock>()
+                .Any(t => t.Text == wuwa.DisplayName);
 
-            // 标题行须位于状态 chips 上方（Row0 簇首元素）
-            if (title is not null)
-            {
-                // 标题字号钉值（2026-09-25 28→32：整幅背景画面上 28 偏小，用户实测反馈）
-                Assert.Equal(32, title.FontSize);
-
-                var statusText = page.GetVisualDescendants().OfType<TextBlock>()
-                    .First(t => t.Text == wuwa.StatusText);
-                TitleAboveChips = title.TranslatePoint(new Point(0, 0), page)!.Value.Y
-                                  < statusText.TranslatePoint(new Point(0, 0), page)!.Value.Y;
-            }
+            // chips 行是信息簇首元素（自绘标题移除后，2026-09-25 用户决定）
+            var statusText = page.GetVisualDescendants().OfType<TextBlock>()
+                .First(t => t.Text == wuwa.StatusText);
+            chipsFirst = statusText.TranslatePoint(new Point(0, 0), page)!.Value.Y < 120;
 
             window.Close();
         }, CancellationToken.None);
 
-        Assert.NotNull(title);
-        Assert.True(TitleAboveChips, "游戏名未落在 chips 行上方（Row0 簇首）");
+        Assert.False(hasDrawnTitle, "详情页不得自绘游戏名标题（官方背景自带烧录 Logo 字标，自绘与之重复打架）");
+        Assert.True(chipsFirst, "状态 chips 应落在信息簇顶部（y<120）");
     }
 
     [Fact]

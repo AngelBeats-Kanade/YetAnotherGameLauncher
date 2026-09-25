@@ -41,12 +41,17 @@
                         </Grid>
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
                             <TextBlock Grid.Column="0" Text="{Binding Loc[about_projectHome]}" Classes="card-caption" Width="110"/>
-                            <!-- 短文案按钮 + ToolTip 完整地址：整串 URL 当按钮文字在信息卡里过宽过重 -->
-                            <Button Grid.Column="1" Classes="btn-sm pressable glass" HorizontalAlignment="Left"
-                                    FontSize="13"
-                                    Content="{Binding Loc[about_openHome]}"
+                            <!-- 幽灵式图标按钮（GitHub 官方 mark 16px，复用 icon-btn 幽灵底）：
+                                 信息卡纯文本行内不放带底描边胶囊（唯一带底控件即"突兀"根源），
+                                 图标视觉重量≈13px 信息行文字；完整地址悬停可见 -->
+                            <Button Grid.Column="1" Classes="icon-btn ghost-home" HorizontalAlignment="Left"
+                                    VerticalAlignment="Center"
                                     Command="{Binding OpenProjectHomeCommand}"
-                                    ToolTip.Tip="{x:Static vm:AboutViewModel.ProjectHomeUrl}"/>
+                                    ToolTip.Tip="{x:Static vm:AboutViewModel.ProjectHomeUrl}">
+                                <Path Data="{StaticResource GitHubIconGeo}"
+                                      Fill="{Binding $parent[Button].Foreground}"
+                                      Stretch="Uniform" Width="16" Height="16"/>
+                            </Button>
                         </Grid>
                     </StackPanel>
                 </Border>
