@@ -135,10 +135,18 @@ public sealed class UmuArchiveExtractionTests : IDisposable
         });
 
         var target = _temp.FilePath("compat", "GE-Proton10-9");
+        // 预置旧代安装（含 .outdated 残留形态的对照）：替换后旧树清掉、不得留 .outdated——
+        // 平铺包（source==temp）分支曾因条件守卫跳过清理，旧安装整树滞留一个更新周期
+        //（review 立案 2026-09-26 第 2 轮）
+        Directory.CreateDirectory(target);
+        File.WriteAllText(Path.Combine(target, "old-marker"), "old");
+
         UmuComponentProvisioner.ExtractSingleTopLevel(archive, target);
 
         // 无顶层目录的包直接摊开：proton 落在 target 根
         Assert.True(File.Exists(Path.Combine(target, "proton")));
+        Assert.False(File.Exists(Path.Combine(target, "old-marker")));
+        Assert.False(Directory.Exists(target + ".outdated")); // 红落此断言：平铺分支旧形态不清理
         Assert.False(Directory.Exists(target + ".extract"));
     }
 

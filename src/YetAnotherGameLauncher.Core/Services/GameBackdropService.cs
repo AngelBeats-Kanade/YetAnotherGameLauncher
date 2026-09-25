@@ -96,10 +96,13 @@ public sealed class GameBackdropService(
         return string.IsNullOrEmpty(meta?.GameVersion) ? null : meta.GameVersion;
     }
 
-    /// <summary>缓存是否可直接使用：区域一致、背景文件在；requireVersionMatch 时还要求缓存记录的游戏版本与传入版本一致。</summary>
+    /// <summary>缓存是否可直接使用：元数据完整（<see cref="BackdropMeta.File"/> 非空——手改/
+    /// 截断的 meta.json 缺字段时 null 拼接会裸 ArgumentNullException，2026-09-26 review 立案）、
+    /// 区域一致、背景文件在；requireVersionMatch 时还要求缓存记录的游戏版本与传入版本一致。</summary>
     private static bool IsCacheFreshFor(
         BackdropMeta? meta, string region, string cacheDir, bool requireVersionMatch, string? gameVersion = null) =>
         meta is { } cached
+        && !string.IsNullOrEmpty(cached.File)
         && string.Equals(cached.Region, region, StringComparison.Ordinal)
         && (!requireVersionMatch
             || (gameVersion is not null && string.Equals(cached.GameVersion, gameVersion, StringComparison.Ordinal)))

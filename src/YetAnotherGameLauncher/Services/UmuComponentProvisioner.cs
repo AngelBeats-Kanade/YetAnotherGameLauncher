@@ -1248,8 +1248,9 @@ public sealed class UmuComponentProvisioner(
             if (Directory.Exists(outdated))
             {
                 // 新树已就位：旧代只剩清理语义（平铺包 source==temp 同样成立——Move 成功后
-                // outdated 必为垃圾，无条件清）
-                Directory.Delete(outdated, recursive: true);
+                // outdated 必为垃圾，无条件清）。fail-soft 与流程开头的残留清理对称：Windows
+                // 旧树被占用时删除失败不得让"安装成功"折算成失败
+                FileUtilities.TryDeleteDirectory(outdated);
             }
         }
         finally

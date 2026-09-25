@@ -50,4 +50,26 @@ public class GameBackdropServiceCacheTests : IDisposable
             Assert.Skip("chmod 权限位拒读语义仅 Linux 确定性");
         }
     }
+
+    [Fact]
+    public async Task ResolveCachedAsync_MetaMissingFileField_ReturnsNullInsteadOfThrowing()
+    {
+        // review 立案（2026-09-26 第 2 轮，artifacts/bugs.md）：可读但缺 file 字段的 meta.json
+        //（手改/格式演化才可达）在 IsCacheFreshFor 的 Path.Combine(cacheDir, null) 裸
+        // ArgumentNullException 穿出——按无缓存处理（与拒读/损坏同语义族）
+        var metaPath = Path.Combine(_tempDir.Path, "g1", "meta.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(metaPath)!);
+        File.WriteAllText(metaPath, "{\"region\":\"global\"}");
+
+        var service = new GameBackdropService(
+            new HttpClient(new StubHttpHandler()),
+            new Dictionary<string, IBackdropResolver>(),
+            cacheRoot: _tempDir.Path);
+        var request = new BackdropRequest("g1", "kuro", "global", null, new Dictionary<string, string>());
+
+        var ex = await Record.ExceptionAsync(() => service.ResolveCachedAsync(request));
+
+        Assert.Null(ex); // 红落此断言：无判空时裸 ANE 穿出
+        Assert.Null(await service.ResolveCachedAsync(request));
+    }
 }
