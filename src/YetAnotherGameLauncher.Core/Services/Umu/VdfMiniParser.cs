@@ -94,7 +94,16 @@ public static class VdfMiniParser
                     if (text[i] == '\\' && i + 1 < text.Length)
                     {
                         i++;
-                        sb.Append(text[i]);
+                        // Valve KeyValues 认可转义 \n/\t/\\/\"（Source SDK KeyValues.cpp）：
+                        // \n/\t 真转义（F24）；其余未知转义丢弃反斜杠取字面字符（与 Valve 行为
+                        // 一致，D:\tools → D:tools 即 Valve 语义，不在此"修正"）
+                        sb.Append(text[i] switch
+                        {
+                            'n' => '\n',
+                            't' => '\t',
+                            'r' => '\r',
+                            var ch => ch,
+                        });
                         i++;
                         continue;
                     }

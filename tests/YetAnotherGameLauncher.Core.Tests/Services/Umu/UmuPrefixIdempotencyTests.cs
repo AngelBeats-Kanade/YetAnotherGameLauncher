@@ -88,6 +88,70 @@ public sealed class UmuPrefixIdempotencyTests : IDisposable
     }
 
     [Fact]
+    public void Setup_DanglingPfxSymlink_SelfHealsInsteadOfFailingForever()
+    {
+        // F21（artifacts/bugs.md）：pfx 为悬空符号链接（旧布局目标被删/卷未挂载）时
+        // Directory.Exists false、IsSymlink false（DirectoryInfo.Exists 跟随链接）→ 自愈分支
+        // 全部跳过 → CreateSymbolicLink EEXIST → CreateDirectory 同样 EEXIST → 二次
+        // IOException 穿出 Setup → 每次启动永久失败。修复后：IsSymlink 按 LinkTarget 判定
+        // （悬空链接仍是链接，官方 LinkTarget 语义 = "是否为链接"而非"目标是否存在"），
+        // 错误链接照常修复
+        var gone = _temp.FilePath("prefixes", "gone-target");
+        var pfx = PfxPath("dangling");
+        Directory.CreateDirectory(Path.GetDirectoryName(pfx)!);
+        Directory.CreateSymbolicLink(pfx, gone);
+
+        UmuPrefix.Setup(pfx, unixUserName: "tester");
+
+        // 红落 Setup 抛 IOException：修复后 Setup 正常完成、pfx/pfx 链接可用
+        Assert.True(Directory.Exists(Path.Combine(pfx, "pfx")),
+            "修复后 pfx 链接应可用（Setup 正常完成，不再抛 IOException）");
+    }
+
+    [Fact]
+    public void Setup_DanglingUsersSymlink_CompletesInsteadOfThrowing()
+    {
+        // F21 第 13 轮补充：users 自身是悬空符号链接时 :139 裸 CreateDirectory 报 EEXIST
+        // → IOException 穿出 Setup → 同款每启动失败链。修复后：悬空链接先清再建
+        var pfx = PfxPath("dangling-users");
+        UmuPrefix.Setup(pfx, unixUserName: "tester");
+        var users = Path.Combine(pfx, "pfx", "drive_c", "users");
+        Directory.CreateDirectory(users); // 模拟 wineboot 过的前缀（否则 SetupUserLinks 直接跳过）
+        var gone = _temp.FilePath("prefixes", "gone-users-target");
+        Directory.Delete(users, recursive: true);
+        Directory.CreateSymbolicLink(users, gone);
+
+        UmuPrefix.Setup(pfx, unixUserName: "tester");
+
+        Assert.True(Directory.Exists(users)); // 悬空链接已清除并重建为真实目录
+    }
+
+    [Fact]
+    public void Setup_DoubleDanglingUserLinks_DoesNotThrow()
+    {
+        // F21 双悬空形态：IsSymlink 修复后悬空链接计入"已占用"，四分支全不命中——
+        // Setup 不得抛（降级语义：用户链接缺失时 Proton/wineboot 自行创建，
+        // 见 TryCreateDirectoryLink 注释），steamuser 悬空链接保持原样不再裸 mkdir
+        var pfx = PfxPath("double-dangling");
+        UmuPrefix.Setup(pfx, unixUserName: "tester");
+        var users = Path.Combine(pfx, "pfx", "drive_c", "users");
+        Directory.CreateDirectory(users);
+        var steamuser = Path.Combine(users, "steamuser");
+        var wineuser = Path.Combine(users, "tester");
+        Directory.CreateDirectory(steamuser);
+        Directory.CreateDirectory(wineuser);
+        var gone = _temp.FilePath("prefixes", "gone-target");
+        Directory.Delete(steamuser, recursive: true);
+        Directory.Delete(wineuser, recursive: true);
+        Directory.CreateSymbolicLink(steamuser, gone);
+        Directory.CreateSymbolicLink(wineuser, gone);
+
+        var ex = Record.Exception(() => UmuPrefix.Setup(pfx, unixUserName: "tester"));
+
+        Assert.Null(ex); // 红：当前裸 mkdir EEXIST 抛 IOException
+    }
+
+    [Fact]
     public void Setup_LockContention_TimesOutWithActionableError()
     {
         var pfx = PfxPath();

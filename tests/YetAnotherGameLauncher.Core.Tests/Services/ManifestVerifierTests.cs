@@ -251,4 +251,34 @@ public class ManifestVerifierMissingInfoTests
 
         Assert.Equal(FileStatus.Missing, result.Results[0].Status);
     }
+
+    [Fact]
+    public async Task CheckFile_F18_RemovedAfterExists_ReportsMissing()
+    {
+        // F18（artifacts/bugs.md）：Exists→Length/Md5 之间文件被外部移除（手删/云同步隔离/杀毒）
+        // 时裸 FileNotFoundException 让整轮校验中止而非按 Missing 走补下载——官方 File.Exists
+        // Remarks 明示该 TOCTOU 窗口（"another process can potentially do something with the
+        // file in between"）。探测段整体包 catch：修复范围含 Length 与 Md5 两段（第 13 轮补充）
+        var data = new byte[] { 1, 2, 3, 4, 5 };
+        var manifest = new GameManifest
+        {
+            Version = "1.0.0",
+            Files = [new ManifestFile("data.bin", data.Length, Hashing.Md5Hex(data))],
+        };
+
+        using var dir = new TempDir();
+        var file = dir.FilePath("data.bin");
+        await File.WriteAllBytesAsync(file, data);
+        ManifestVerifier.FileRemovedBetweenCheckAndProbeForTests = () => File.Delete(file);
+        try
+        {
+            var status = ManifestVerifier.CheckFile(file, manifest.Files[0], withMd5: true);
+
+            Assert.Equal(FileStatus.Missing, status); // 红：当前 FileNotFoundException 穿出
+        }
+        finally
+        {
+            ManifestVerifier.FileRemovedBetweenCheckAndProbeForTests = null;
+        }
+    }
 }

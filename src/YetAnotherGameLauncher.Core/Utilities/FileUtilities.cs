@@ -51,7 +51,7 @@ public static class FileUtilities
     }
 
     /// <summary>路径是否为符号链接/junction 等重解析点；探测失败按否处理（后续删除自会再兜）。</summary>
-    private static bool IsReparsePoint(string path)
+    internal static bool IsReparsePoint(string path)
     {
         try
         {
@@ -101,33 +101,45 @@ public static class FileUtilities
         }
 
         var clean = true;
-        foreach (var entry in Directory.EnumerateFileSystemEntries(path))
+        try
         {
-            // 符号链接/junction 只删链接本身：递归会穿过链接把目标处（可能远在自管目录之外）
-            // 的真实文件删掉。先按目录链接删，失败（实为文件链接）再按文件删。
-            if (IsReparsePoint(entry))
+            // IgnoreInaccessible：子树含无 ListDirectory 权限的目录时跳过该子项（官方语义），
+            // 其余照删——单不可读子目录不得打断整链（F25；path 自身不可读时枚举仍抛，
+            // 由外层 catch 兜成 false 保住 best-effort 契约）
+            foreach (var entry in Directory.EnumerateFileSystemEntries(
+                path, "*", new EnumerationOptions { IgnoreInaccessible = true }))
             {
-                if (!TryDeleteLinkQuiet(entry, logger))
+                // 符号链接/junction 只删链接本身：递归会穿过链接把目标处（可能远在自管目录之外）
+                // 的真实文件删掉。先按目录链接删，失败（实为文件链接）再按文件删。
+                if (IsReparsePoint(entry))
                 {
-                    clean = false;
+                    if (!TryDeleteLinkQuiet(entry, logger))
+                    {
+                        clean = false;
+                    }
+
+                    continue;
                 }
 
-                continue;
-            }
-
-            if (Directory.Exists(entry) && !File.Exists(entry))
-            {
-                clean &= TryDeleteDirectory(entry, logger);
-            }
-            else
-            {
-                DeleteQuiet(entry);
-                if (File.Exists(entry))
+                if (Directory.Exists(entry) && !File.Exists(entry))
                 {
-                    logger?.LogDebug("Skipped in-use file during tree delete: {Path}", entry);
-                    clean = false;
+                    clean &= TryDeleteDirectory(entry, logger);
+                }
+                else
+                {
+                    DeleteQuiet(entry);
+                    if (File.Exists(entry))
+                    {
+                        logger?.LogDebug("Skipped in-use file during tree delete: {Path}", entry);
+                        clean = false;
+                    }
                 }
             }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger?.LogDebug(ex, "Cannot enumerate directory tree, left in place: {Path}", path);
+            return false;
         }
 
         try

@@ -23,6 +23,9 @@ public static class UmuPrefix
         }
 
         var root = Path.GetFullPath(prefixRoot);
+        // root 自身是悬空符号链接（旧布局目标被删/卷未挂载）时 CreateDirectory 报 EEXIST
+        // → 启动永久失败（F21）；悬空链接先清再建，真实目录/可用链接不受影响
+        DeleteDanglingLink(root);
         Directory.CreateDirectory(root);
 
         using var _ = AcquireLock(Path.Combine(root, "pfx.lock"));
@@ -133,10 +136,15 @@ public static class UmuPrefix
             return;
         }
 
+        // users/steamuser 自身是悬空符号链接时裸 mkdir 报 EEXIST → IOException 穿出 Setup
+        // → 启动永久失败（F21 第 13 轮补充）：悬空链接先清再建（与 EnsurePfxSymlink 自愈同型）
+        DeleteDanglingLink(users);
+        Directory.CreateDirectory(users);
+
         var steamuser = Path.Combine(users, "steamuser");
         var wineuser = Path.Combine(users, unixUserName);
 
-        Directory.CreateDirectory(users);
+        DeleteDanglingLink(steamuser);
 
         if (!ExistsLinkOrDir(wineuser) && !ExistsLinkOrDir(steamuser))
         {
@@ -153,6 +161,33 @@ public static class UmuPrefix
         }
     }
 
+    /// <summary>清除悬空符号链接（链接本身在、目标不存在）：真实目录/可用链接原样保留。
+    /// 判定必须以"链接目标的可达性"为准——.NET 10 实测（/tmp 探针）对悬空目录链接
+    /// File.Exists 返回 true、Directory.Exists 返回 false，且 Directory.Delete 抛
+    /// DirectoryNotFoundException，移除链接本身须用 File.Delete（unlink 语义）。</summary>
+    private static void DeleteDanglingLink(string path)
+    {
+        if (!IsSymlink(path))
+        {
+            return;
+        }
+
+        var info = new DirectoryInfo(path);
+        var target = info.LinkTarget;
+        if (string.IsNullOrEmpty(target))
+        {
+            return;
+        }
+
+        var resolved = Path.IsPathRooted(target)
+            ? target
+            : Path.GetFullPath(Path.Combine(Path.GetDirectoryName(path)!, target));
+        if (!Directory.Exists(resolved) && !File.Exists(resolved))
+        {
+            File.Delete(path);
+        }
+    }
+
     private static bool ExistsLinkOrDir(string path) =>
         Directory.Exists(path) || IsSymlink(path);
 
@@ -160,8 +195,12 @@ public static class UmuPrefix
     {
         try
         {
+            // 判定基准 = "是否为链接"（官方 LinkTarget 语义），不得要求 info.Exists——
+            // DirectoryInfo.Exists 跟随链接，悬空链接会误判 false，让 EnsurePfxSymlink 的
+            // 错误链接自愈分支全部跳过 → CreateSymbolicLink/CreateDirectory 连环 EEXIST
+            // → 启动永久失败（F21）
             var info = new DirectoryInfo(path);
-            return info.Exists && info.LinkTarget is not null;
+            return info.LinkTarget is not null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -206,7 +245,17 @@ public static class UmuPrefix
     {
         if (IsSymlink(path))
         {
-            Directory.Delete(path);
+            try
+            {
+                Directory.Delete(path);
+            }
+            catch (DirectoryNotFoundException)
+            {
+                // 悬空目录链接：Directory.Exists=false → Directory.Delete 抛 DNFE
+                //（.NET 10 /tmp 探针实测）——链接本身用 unlink 移除
+                File.Delete(path);
+            }
+
             return;
         }
 

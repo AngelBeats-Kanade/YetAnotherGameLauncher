@@ -43,6 +43,17 @@ public class VdfMiniParserTests : IDisposable
     }
 
     [Fact]
+    public void Parse_EscapeSequencesNAndT_ConvertToControlCharacters()
+    {
+        // F24（artifacts/bugs.md）：Valve KeyValues 认可转义集为 \n/\t/\\/\"（Source SDK
+        // KeyValues.cpp）；\n/\t 曾被"丢弃反斜杠"分支吞成字面字母。其余未知转义保持丢弃反斜杠
+        // （与 Valve 行为一致，不在此改动）
+        var root = VdfMiniParser.Parse("\"key\" \"line1\\nline2\\ttabbed\"");
+
+        Assert.Equal("line1\nline2\ttabbed", root["key"]); // 红：当前产字面 'n'/'t'
+    }
+
+    [Fact]
     public void Parse_UnterminatedString_TakesRestOfText()
     {
         // 容错语义：右引号缺失时不抛，吞到文本末尾（对不可信输入不崩溃）

@@ -286,4 +286,57 @@ public class PackageInstallerCollisionTests : IDisposable
         await Assert.ThrowsAsync<YetAnotherGameLauncher.Core.Abstractions.UpdateException>(
             () => new PackageInstallerService(_downloader).PredownloadAsync(_tempDir.Path, manifest));
     }
+
+    [Fact]
+    public void ExtractArchive_EntryThroughExistingDirectorySymlink_RejectedInsteadOfWritingOut()
+    {
+        // F19（artifacts/bugs.md）：安装目录内已存在指向目录外的目录符号链接（游戏自带/搬盘手法）
+        // 时，Directory.CreateDirectory 对既有链接目录是 no-op，ExtractToFile 经链接写出沙箱——
+        // 词法防穿越（".."、盘符、rooted）管不住既有 reparse 点。威胁模型即代码自述"清单不可信"
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("目录符号链接创建在 Windows 需特权，仅 Linux 确定性");
+        }
+
+        var outside = _tempDir.FilePath("outside");
+        Directory.CreateDirectory(outside);
+        var installDir = _tempDir.FilePath("install");
+        Directory.CreateDirectory(installDir);
+        Directory.CreateSymbolicLink(Path.Combine(installDir, "mods"), outside);
+
+        var zipPath = _tempDir.FilePath("pkg.zip");
+        var zipBytes = TestZip.Create(("mods/evil.txt", "evil"));
+        File.WriteAllBytes(zipPath, zipBytes);
+
+        var ex = Record.Exception(() => PackageInstallerService.ExtractArchive(zipPath, installDir, "pkg.zip"));
+
+        Assert.NotNull(ex); // 红落此断言：当前静默写出
+        Assert.False(File.Exists(Path.Combine(outside, "evil.txt")), "沙箱外不得出现解压产物");
+    }
+
+    [Fact]
+    public void PruneForeignPackages_CaseVariantStaleFile_PrunedOnLinux()
+    {
+        // F20：keep 集合恒 OrdinalIgnoreCase 与 seenTargets（Windows 才 IgnoreCase）策略不一致——
+        // Linux 上两代清单间包名仅大小写变化时旧代残留永不清理（磁盘滞留，数十 GB 级）
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("平台比较器语义差异：本用例钉 Linux=Ordinal 分支");
+        }
+
+        var packagesDir = _tempDir.FilePath("pkgs");
+        Directory.CreateDirectory(packagesDir);
+        var stale = Path.Combine(packagesDir, "pkg.zip");
+        File.WriteAllText(stale, "old-generation");
+        var manifest = new GameManifest
+        {
+            Version = "2.0.0",
+            EntriesAreArchives = true,
+            Files = [new ManifestFile("PKG.ZIP", 20, "", Url: "https://cdn.example.com/PKG.ZIP")],
+        };
+
+        PackageInstallerService.PruneForeignPackages(packagesDir, manifest);
+
+        Assert.False(File.Exists(stale)); // 红落此断言：当前 IgnoreCase keep 把它当保留
+    }
 }

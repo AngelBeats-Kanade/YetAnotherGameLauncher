@@ -10,6 +10,29 @@ namespace YetAnotherGameLauncher.Core.Tests.Services;
 
 public class SystemProcessRunnerTests
 {
+    /// <summary>首次 WriteLine 即抛 IOException 的 writer（模拟日志分区写满 ENOSPC，F22-1）。</summary>
+    private sealed class FailingWriter(Stream stream) : StreamWriter(stream)
+    {
+        public override void Write(string? value) => throw new IOException("模拟：设备上没有空间");
+    }
+
+    [Fact]
+    public async Task PumpToLog_WriterThrowsIOException_CompletesInsteadOfFaulting()
+    {
+        // F22-1：泵只捕 ObjectDisposedException——日志分区写满（ENOSPC）抛 IOException 使泵任务
+        // fault：WhenAll 异常落入 fire-and-forget 即 unobserved，脚注不写、writer.Dispose()/
+        // process.Dispose() 全跳过（句柄泄漏到进程退出）。修复后：IOException 与 ODE 同为
+        // "泵中止、正常收尾"语义，任务完成而非 fault
+        using var reader = new StreamReader(new MemoryStream("line\n"u8.ToArray()));
+        await using var writer = new FailingWriter(new MemoryStream());
+
+        var pump = SystemProcessRunner.PumpToLog(reader, writer, new object(), null);
+
+        var ex = await Record.ExceptionAsync(() => pump);
+        Assert.Null(ex); // 红：当前 IOException 从泵任务逃逸（fault）
+        Assert.True(pump.IsCompletedSuccessfully);
+    }
+
     [Fact]
     public async Task RunAsync_FireAndForget_ReturnsBeforeProcessExits()
     {

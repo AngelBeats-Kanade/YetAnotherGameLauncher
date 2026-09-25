@@ -148,16 +148,23 @@ public sealed class SystemProcessRunner(
             var pumpStderr = PumpToLog(process.StandardError, writer, gate, "[stderr] ");
             var startedTicksCopy = startedAt;
             var launchedFile = spec.FileName;
+            // 先订阅再补查 HasExited（F22-3）：先查后订在"检查为未退出→进程恰在此时退出"
+            // 的窗口内会永久丢失 Exited 事件（脚注缺失/句柄泄漏/秒退线索丢失）。
+            // Interlocked 守卫保证事件与补查双触发时收尾恰好一次
+            var exitObserved = 0;
+            void OnExited()
+            {
+                if (Interlocked.Exchange(ref exitObserved, 1) == 0)
+                {
+                    ObserveFireAndForgetExit(process, pumpStdout, pumpStderr, writer, gate, launchedFile, startedTicksCopy, logger);
+                }
+            }
+
             process.EnableRaisingEvents = true;
+            process.Exited += (_, _) => OnExited();
             if (process.HasExited)
             {
-                // 进程在布防前就退出了：Exited 事件不会再触发，直接收尾
-                ObserveFireAndForgetExit(process, pumpStdout, pumpStderr, writer, gate, launchedFile, startedTicksCopy, logger);
-            }
-            else
-            {
-                process.Exited += (_, _) => ObserveFireAndForgetExit(
-                    process, pumpStdout, pumpStderr, writer, gate, launchedFile, startedTicksCopy, logger);
+                OnExited();
             }
 
             return new ProcessResult(0, "", "");
@@ -167,16 +174,22 @@ public sealed class SystemProcessRunner(
         {
             // 无日志路径：仍然把"退出码 + 存活时长"写应用日志（游戏秒退排查线索）。
             // 进程句柄不主动释放：Dispose 会解除 Exited 布防导致事件丢失，交给 SafeProcessHandle 终结器
-            var startedTicksCopy = startedAt;
-            var launchedFile = spec.FileName;
+            var startedTicksCopy2 = startedAt;
+            var launchedFile2 = spec.FileName;
+            var logged = 0;
+            void OnLoggedExit()
+            {
+                if (Interlocked.Exchange(ref logged, 1) == 0)
+                {
+                    LogFireAndForgetExit(process, startedTicksCopy2, launchedFile2, logger);
+                }
+            }
+
             process.EnableRaisingEvents = true;
+            process.Exited += (_, _) => OnLoggedExit();
             if (process.HasExited)
             {
-                LogFireAndForgetExit(process, startedTicksCopy, launchedFile, logger);
-            }
-            else
-            {
-                process.Exited += (_, _) => LogFireAndForgetExit(process, startedTicksCopy, launchedFile, logger);
+                OnLoggedExit();
             }
 
             return new ProcessResult(0, "", "");
@@ -241,7 +254,9 @@ public sealed class SystemProcessRunner(
         }
     }
 
-    /// <summary>杀整棵进程树并等其退出；句柄/进程已消失（竞态）按已退出处理。</summary>
+    /// <summary>杀整棵进程树并等其退出；竞态类失败按已退出/尽力而为处理（F22-2：官方 Kill
+    /// 文档的异常表含 Win32Exception——进程无法终止/正在终止——与 AggregateException——
+    /// 子树未全部终止；两者都不该改变调用方"超时/取消"的分类）。</summary>
     private static async Task KillProcessTreeAsync(Process process)
     {
         try
@@ -249,9 +264,9 @@ public sealed class SystemProcessRunner(
             process.Kill(entireProcessTree: true);
             await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
         }
-        catch (InvalidOperationException)
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or AggregateException)
         {
-            // 进程已退出
+            // 进程已退出 / 无法终止（权限、正在终止）/ 子树部分未终止：尽力而为
         }
     }
 
@@ -335,22 +350,31 @@ public sealed class SystemProcessRunner(
     }
 
     /// <summary>把一个输出流逐行写入日志直到 EOF；prefix 用于区分 stderr。行写入经 <paramref name="gate"/> 串行化。</summary>
-    private static async Task PumpToLog(
+    internal static async Task PumpToLog(
         StreamReader reader, StreamWriter writer, object gate, string? prefix)
     {
-        while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
+        try
         {
-            lock (gate)
+            while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
             {
-                try
+                lock (gate)
                 {
-                    writer.WriteLine(prefix is null ? line : $"{prefix}{line}");
-                }
-                catch (ObjectDisposedException)
-                {
-                    return; // 日志已关闭：停止泵
+                    try
+                    {
+                        writer.WriteLine(prefix is null ? line : $"{prefix}{line}");
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        return; // 日志已关闭：停止泵
+                    }
                 }
             }
+        }
+        catch (IOException)
+        {
+            // 管道/日志盘读写失败（如日志分区写满 ENOSPC）：与"日志已关闭"同语义，泵正常
+            // 收尾返回——抛出会让泵任务 fault，WhenAll 异常落入 fire-and-forget 即 unobserved，
+            // 脚注不写、writer/process Dispose 全跳过（F22-1）
         }
     }
 }

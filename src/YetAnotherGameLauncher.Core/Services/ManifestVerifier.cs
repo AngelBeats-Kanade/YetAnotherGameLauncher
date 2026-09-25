@@ -46,10 +46,18 @@ public static class ManifestVerifier
         string installDir, GameManifest manifest, Action<int, int>? onFileChecked = null) =>
         Verify(installDir, manifest, withMd5: true, onFileChecked);
 
+    /// <summary>F18 确定性测试缝（生产恒 null）：Exists 通过后、实际探测前触发——
+    /// 在测试里注入"检查与操作之间文件被外部移除"的 TOCTOU 窗口（官方 File.Exists Remarks
+    /// 明示该窗口存在）。覆盖 Length 与 Md5 两段（整体 try 包裹，修复范围含第 13 轮补充的 MD5 段）。</summary>
+    internal static Action? FileRemovedBetweenCheckAndProbeForTests;
+
     /// <summary>检查单个文件：存在性 → 大小 →（可选）MD5，返回首个不匹配项或 Ok。
     /// 清单 size ≤ 0 或 MD5 为空表示渠道未提供该字段的校验信息：跳过对应项而非按目标值比较——
     /// 否则字段缺失的健康文件恒判损坏，下载器重下真内容后仍过不了全量校验、更新必然失败
-    /// （与 <see cref="HttpFileDownloader.Verify"/> 同一语义，2026-09-20 复审补齐）。</summary>
+    /// （与 <see cref="HttpFileDownloader.Verify"/> 同一语义，2026-09-20 复审补齐）。
+    /// 探测段整体包 <see cref="FileNotFoundException"/>：Exists 与 Length/Md5 之间文件被外部
+    /// 移除（手删/云同步隔离/杀毒）时按 Missing 报告走补下载，而不是让整轮校验以裸异常中止
+    /// （F18——只包 Length 段会漏 MD5 段的 Hashing.Md5Hex 内部 File.OpenRead）。</summary>
     public static FileStatus CheckFile(string fullPath, ManifestFile file, bool withMd5)
     {
         if (!File.Exists(fullPath))
@@ -57,18 +65,27 @@ public static class ManifestVerifier
             return FileStatus.Missing;
         }
 
-        if (file.Size > 0 && new FileInfo(fullPath).Length != file.Size)
+        try
         {
-            return FileStatus.SizeMismatch;
-        }
+            FileRemovedBetweenCheckAndProbeForTests?.Invoke();
 
-        if (withMd5 && !string.IsNullOrEmpty(file.Md5) && !string.Equals(
-                Utilities.Hashing.Md5Hex(fullPath), file.Md5, StringComparison.OrdinalIgnoreCase))
+            if (file.Size > 0 && new FileInfo(fullPath).Length != file.Size)
+            {
+                return FileStatus.SizeMismatch;
+            }
+
+            if (withMd5 && !string.IsNullOrEmpty(file.Md5) && !string.Equals(
+                    Utilities.Hashing.Md5Hex(fullPath), file.Md5, StringComparison.OrdinalIgnoreCase))
+            {
+                return FileStatus.Md5Mismatch;
+            }
+
+            return FileStatus.Ok;
+        }
+        catch (FileNotFoundException)
         {
-            return FileStatus.Md5Mismatch;
+            return FileStatus.Missing;
         }
-
-        return FileStatus.Ok;
     }
 
     private static ManifestVerificationResult Verify(

@@ -15,9 +15,17 @@ public sealed record ToolManifest(
     /// <summary>该工具是否为 Proton（需要 wine prefix 布局）。</summary>
     public bool IsProton => string.Equals(LayerName, "proton", StringComparison.Ordinal);
 
-    /// <summary>解析结果的 Runtime；无 appid 时为 host。</summary>
+    /// <summary>解析结果的 Runtime：无 appid 时为 host；appid 存在但未收录即结构化报错
+    /// （F23：`FromAppId ?? Host` 曾把"未知 appid"并入"无 appid"，NativeUmuLauncher 据此跳过
+    /// runtime 安装，Proton 裸跑宿主环境静默降级——诚实报错优于静默错环境，与"已知缺失
+    /// runtime"的 UmuRuntimeMissing 报错同路）。</summary>
     public SteamRuntimeInfo RequiredRuntime =>
-        SteamRuntimeCatalog.FromAppId(RequiredToolAppId) ?? SteamRuntimeCatalog.Host;
+        RequiredToolAppId is null
+            ? SteamRuntimeCatalog.Host
+            : SteamRuntimeCatalog.FromAppId(RequiredToolAppId)
+                ?? throw new LaunchException(
+                    LaunchFailureKind.UmuRuntimeMissing,
+                    $"toolmanifest 引用的 Steam Runtime appid「{RequiredToolAppId}」未被收录，无法确定所需 Runtime。");
 
     /// <summary>
     /// 从 Proton 目录加载清单。缺 toolmanifest.vdf 时抛 <see cref="UpdateException"/>。

@@ -63,12 +63,18 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
         progress?.Report(new UpdateProgress(UpdatePhase.Done, 0, 0, packageManifest.Files.Count, packageManifest.Files.Count, null));
     }
 
+    /// <summary>暂存路径比较策略（F20）：keep 集合与 seenTargets 必须同策略——Windows 文件名
+    /// 不分大小写用 OrdinalIgnoreCase，Linux（Ordinal）按精确名。两处策略分叉曾让 Linux 上
+    /// 两代清单间仅大小写变化的旧包永不清理（磁盘滞留）。</summary>
+    private static StringComparer StagedPathComparer =>
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
     /// <summary>清理暂存包目录里不属于当前清单的游离文件（上次预下载的旧代际残留）。</summary>
-    private static void PruneForeignPackages(string packagesDir, GameManifest packageManifest)
+    internal static void PruneForeignPackages(string packagesDir, GameManifest packageManifest)
     {
         var keep = packageManifest.Files
             .Select(f => Path.GetFullPath(StagedArchivePath(packagesDir, f)))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            .ToHashSet(StagedPathComparer);
         foreach (var file in Directory.EnumerateFiles(packagesDir))
         {
             if (!keep.Contains(Path.GetFullPath(file)))
@@ -141,8 +147,7 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
         var totalBytes = packageManifest.Files.Sum(f => f.Size);
         var downloaded = 0L;
         var staged = new List<(ManifestFile, string)>();
-        var seenTargets = new HashSet<string>(
-            OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        var seenTargets = new HashSet<string>(StagedPathComparer);
 
         foreach (var (file, index) in packageManifest.Files.Select((f, i) => (f, i)))
         {
@@ -172,7 +177,7 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
         return staged;
     }
 
-    private static void ExtractArchive(string archivePath, string installDir, string displayName)
+    internal static void ExtractArchive(string archivePath, string installDir, string displayName)
     {
         try
         {
@@ -189,6 +194,10 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
                 {
                     continue;
                 }
+
+                // 既有目录符号链接会让词法沙箱失效：CreateDirectory 对链接目录是 no-op，
+                // ExtractToFile 经链接写出沙箱（F19——词法防穿越管不住 reparse 点）
+                EnsureNoReparseWithin(installDir, target);
 
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                 if (File.Exists(target))
@@ -222,10 +231,41 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
 
         if (segments.Length == 0 || normalized.EndsWith('/'))
         {
-            Directory.CreateDirectory(Path.Combine([installDir, .. segments]));
+            var dirTarget = Path.Combine([installDir, .. segments]);
+            EnsureNoReparseWithin(installDir, dirTarget); // 目录条目同样不得穿过既有链接（F19）
+            Directory.CreateDirectory(dirTarget);
             return null;
         }
 
         return Path.Combine([installDir, .. segments]);
+    }
+
+    /// <summary>
+    /// 确保落点的父目录链（安装根之下）不含既有符号链接/reparse 点（F19）：清单不可信威胁
+    /// 模型下，游戏自带或搬盘手法留下的目录链接会让解压产物落到沙箱之外。命中即抛
+    /// IOException（由 ExtractArchive 统一折算 UpdateException）。
+    /// </summary>
+    private static void EnsureNoReparseWithin(string installDir, string target)
+    {
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(installDir));
+        var fullTarget = Path.GetFullPath(target);
+        if (!fullTarget.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+            && !string.Equals(fullTarget, root, StringComparison.Ordinal))
+        {
+            throw new IOException($"Archive target escapes sandbox: {target}");
+        }
+
+        var current = Path.GetDirectoryName(fullTarget);
+        while (current is not null
+               && !string.Equals(current, root, StringComparison.Ordinal)
+               && current.Length > root.Length)
+        {
+            if (Directory.Exists(current) && FileUtilities.IsReparsePoint(current))
+            {
+                throw new IOException($"Archive target traverses a symlinked directory: {current}");
+            }
+
+            current = Path.GetDirectoryName(current);
+        }
     }
 }
