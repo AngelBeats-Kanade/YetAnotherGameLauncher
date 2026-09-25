@@ -135,14 +135,18 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         }
     }
 
-    /// <summary>资源条目 → 清单文件；withUrl=false 用于差分组的源/目标描述（只需校验信息，URL 无意义）。</summary>
+    /// <summary>资源条目 → 清单文件；withUrl=false 用于差分组的源/目标描述（只需校验信息，URL 无意义）。
+    /// dest 空白的条目跳过（F42）：显式 null 会覆盖 ="" 初始化器，直通 BuildFileUrl/下游 ResolveSafe
+    /// 即 NRE——单条畸形炸全量更新、分类 Unknown，与 ParsePage 对缺失字段 continue 的语义对齐。</summary>
     private static IReadOnlyList<ManifestFile> ToManifestFiles(
         IEnumerable<KuroResourceEntry> entries, string cdn, string? folder, bool withUrl = true) =>
-        [.. entries.Select(entry => new ManifestFile(
-            entry.Dest,
-            entry.Size,
-            entry.Md5,
-            withUrl ? KuroUrlBuilder.BuildFileUrl(cdn, entry.FromFolder ?? folder, entry.Dest) : null))];
+        [.. entries
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.Dest))
+            .Select(entry => new ManifestFile(
+                entry.Dest,
+                entry.Size,
+                entry.Md5,
+                withUrl ? KuroUrlBuilder.BuildFileUrl(cdn, entry.FromFolder ?? folder, entry.Dest) : null))];
 
     private static IReadOnlyList<PatchGroup> ToGroups(
         IEnumerable<KuroGroupInfo>? groups, string cdn,
@@ -153,13 +157,15 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
             return [];
         }
 
-        return [.. groups.Select(group => new PatchGroup(
-            group.Dest,
-            group.Size,
-            group.Md5,
-            ToManifestFiles(group.SrcFiles, cdn, resourcesBasePath, withUrl: false),
-            ToManifestFiles(group.DstFiles, cdn, resourcesBasePath, withUrl: false),
-            KuroUrlBuilder.BuildPatchUrl(cdn, patchBaseUrl, defaultBaseUrl, group.Dest)))];
+        return [.. groups
+            .Where(group => !string.IsNullOrWhiteSpace(group.Dest))
+            .Select(group => new PatchGroup(
+                group.Dest,
+                group.Size,
+                group.Md5,
+                ToManifestFiles(group.SrcFiles, cdn, resourcesBasePath, withUrl: false),
+                ToManifestFiles(group.DstFiles, cdn, resourcesBasePath, withUrl: false),
+                KuroUrlBuilder.BuildPatchUrl(cdn, patchBaseUrl, defaultBaseUrl, group.Dest)))];
     }
 
     private static IReadOnlyList<string> GetPatchSourceVersions(KuroResourceConfig? config) =>

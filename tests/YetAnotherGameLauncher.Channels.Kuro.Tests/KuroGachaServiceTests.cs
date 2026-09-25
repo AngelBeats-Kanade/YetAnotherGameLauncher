@@ -261,6 +261,26 @@ public class KuroGachaServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task FetchPoolAsync_MalformedQualityLevel_SkipsValueInsteadOfFailingWholeFetch()
+    {
+        // F41（artifacts/bugs.md）：qualityLevel 为对象/数组时 GetString() 抛 InvalidOperationException——
+        // 单条畸形炸整个七池拉取（GachaViewModel foreach 全作废、已拉取全丢）。
+        // 防线：数字/字符串之外按 0 缺省，同页其余记录保留（与不可解析缺省同语义）
+        _handler.Map("https://gmserver-api.aki-game2.com/gacha/record/query", """
+            {"code":0,"data":[
+              {"time":"2026-09-01 10:00:00","name":"Good","qualityLevel":{"v":5}},
+              {"time":"2026-09-01 09:00:00","name":"AlsoGood","qualityLevel":[4]}
+            ]}
+            """);
+        var info = new GachaUrlInfo("76xx", "100000002", "zh-Hans", "rec123", IsChina: true);
+
+        var records = await CreateService().FetchPoolAsync(info, 1);
+
+        Assert.Equal(2, records.Count);
+        Assert.All(records, r => Assert.Equal(0, r.QualityLevel));
+    }
+
+    [Fact]
     public async Task FetchPoolAsync_InternationalDomain_UsesNet()
     {
         _handler.Map("https://gmserver-api.aki-game2.net/gacha/record/query", """{"code":0,"data":[]}""");

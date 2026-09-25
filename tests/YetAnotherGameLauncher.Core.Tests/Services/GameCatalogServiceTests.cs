@@ -262,13 +262,38 @@ public class GameCatalogNullMemberTests
     [Theory]
     [InlineData("""{"settings":null,"games":[]}""")]
     [InlineData("""{"settings":{"installRoot":"~/x"},"games":null}""")]
+    [InlineData("""{"settings":{"installRoot":"~/x"},"games":[null]}""")]
+    [InlineData("""{"settings":{"installRoot":"~/x"},"games":[{"id":"a","displayName":"A","channel":"kuro","installDir":"~/a","executable":"a.exe","launch":null}]}""")]
+    [InlineData("""{"settings":{"installRoot":"~/x"},"games":[{"id":"a","displayName":"A","channel":"kuro","installDir":"~/a","executable":"a.exe","launch":{"commandTemplate":"{exe}"},"servers":null}]}""")]
+    [InlineData("""{"settings":{"installRoot":"~/x"},"games":[{"id":"a","displayName":"A","channel":"kuro","installDir":"~/a","executable":"a.exe","launch":{"commandTemplate":"{exe}"},"servers":[null]}]}""")]
+    [InlineData("""{"settings":{"installRoot":"~/x"},"games":[{"id":"a","displayName":"A","channel":"kuro","installDir":"~/a","executable":"a.exe","launch":{"commandTemplate":"{exe}"},"servers":[],"nameLocalized":null}]}""")]
     public void Parse_NullMembers_ThrowValidationInsteadOfNre(string json)
     {
         // 回归（2026-09-20 三审）：显式 null 的引用属性会绕过校验防线在 Validate 里 NRE，
-        // "手改坏配置→友好提示"变成无提示空壳启动
+        // "手改坏配置→友好提示"变成无提示空壳启动。
+        // F14（artifacts/bugs.md）嵌套延伸：JSON null 还能覆盖嵌套层的 = new() 初始化器
+        // （games 元素 / launch / servers / servers 元素 / nameLocalized），防线必须下探
         var ex = Assert.Throws<GameCatalogValidationException>(() => GameCatalogService.Parse(json));
 
         Assert.Contains(ex.Errors, e => e.Contains("got null", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Parse_NullEnvironmentOrNullOptions_AreNormalizedInsteadOfPropagating()
+    {
+        // F14 第 12 轮补充：environment/options 是更深的字典袋，显式 null 覆盖初始化器后
+        // **过 Parse 校验**（Validate 不触碰它们），带出 null 到消费点
+        // （GameLauncherService.ToDictionary / KuroChannelApi.TryGetValue）NRE——归一为空袋
+        var json = """
+            {"settings":{"installRoot":"~/x"},"games":[{"id":"a","displayName":"A","channel":"kuro",
+            "installDir":"~/a","executable":"a.exe","launch":{"commandTemplate":"{exe}","environment":null},
+            "servers":[{"id":"s","name":"S","options":null}]}]}
+            """;
+
+        var catalog = GameCatalogService.Parse(json);
+
+        Assert.NotNull(catalog.Games[0].Launch.Environment);
+        Assert.NotNull(catalog.Games[0].Servers[0].Options);
     }
 
     [Fact]

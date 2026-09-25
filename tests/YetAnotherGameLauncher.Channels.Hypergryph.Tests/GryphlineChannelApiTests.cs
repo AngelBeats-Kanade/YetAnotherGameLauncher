@@ -130,6 +130,27 @@ public class GryphlineChannelApiTests
         Assert.Null(manifest);
     }
 
+    [Theory]
+    [InlineData("""{ "version": "1.3.0", "pkg": { "packs": null } }""", "packs null")]
+    [InlineData("""{ "version": "1.3.0", "pkg": { "packs": 42 } }""", "packs non-array")]
+    public async Task GetPredownloadManifest_MalformedPatchPkg_ReturnsNullInsteadOfRawException(string pkgJson, string _)
+    {
+        // F40（artifacts/bugs.md，6664197 同族漏网）：patch.pkg 形态漂移时 "packs": null 覆盖
+        // =[] 初始化器（STJ null-over-initializer → pkg.Packs.Count NRE）、非数组抛裸 JsonException——
+        // 都穿出预下载按钮的宽 catch 变无分类技术文案。防线：折算成"无预下载补丁"（return null）
+        RegisterBatchResponse($$"""
+            {
+              "version": "1.2.0", "action": 1,
+              "pkg": { "packs": [ { "url": "https://cdn.example.com/pkg0.zip", "md5": "aa", "package_size": "100" } ] },
+              "patch": {{pkgJson}}
+            }
+            """);
+
+        var manifest = await CreateApi().GetPredownloadManifestAsync(Server());
+
+        Assert.Null(manifest);
+    }
+
     [Fact]
     public async Task MissingApiBase_Throws()
     {

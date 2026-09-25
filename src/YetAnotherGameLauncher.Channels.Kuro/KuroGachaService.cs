@@ -287,11 +287,16 @@ public sealed partial class KuroGachaService(HttpClient httpClient, string? cach
             var quality = 0;
             if (item.TryGetProperty("qualityLevel", out var q))
             {
-                quality = q.ValueKind == JsonValueKind.Number
-                    ? (q.TryGetInt32(out var number) ? number : 0)
-                    : int.TryParse(q.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
-                        ? parsed
-                        : 0;
+                // F41：ValueKind 收紧到数字/字符串两种目标形态——Object/Array 上 GetString() 抛
+                // InvalidOperationException（文档化行为）会炸整个七池拉取；其余形态按 0 缺省，
+                // 与"不可解析缺省 0"的既有语义一致
+                quality = q.ValueKind switch
+                {
+                    JsonValueKind.Number => q.TryGetInt32(out var number) ? number : 0,
+                    JsonValueKind.String or JsonValueKind.Null
+                        => int.TryParse(q.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : 0,
+                    _ => 0,
+                };
             }
             result.Add(new GachaRecord(time, name, quality, poolType));
         }

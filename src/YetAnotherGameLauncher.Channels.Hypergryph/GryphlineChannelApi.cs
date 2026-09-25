@@ -84,8 +84,22 @@ public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger =
             return null;
         }
 
-        var pkg = pkgElement.Deserialize<PackageInfo>(GryphlineProtocol.JsonOptions);
-        return pkg is null || pkg.Packs.Count == 0 ? null : ToPackageManifest(patchVersion, pkg);
+        // patch.pkg 形态漂移（协议逆向威胁模型）在此折算：非目标形态抛裸 JsonException、
+        // "packs": null 覆盖 =[] 初始化器后 pkg.Packs 裸解引用 NRE——都不属于可折算的上层
+        // catch（:142 折算只包 batch envelope），会穿成无分类技术文案（F40，6664197 同纪律）
+        PackageInfo? pkg;
+        try
+        {
+            pkg = pkgElement.Deserialize<PackageInfo>(GryphlineProtocol.JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return null; // 调用方已有"无本版本预下载补丁"分支接住 null
+        }
+
+        return pkg is null || pkg.Packs is not { Count: > 0 }
+            ? null
+            : ToPackageManifest(patchVersion, pkg);
     }
 
     private async Task<GameVersionResponse> PostGetLatestGameAsync(

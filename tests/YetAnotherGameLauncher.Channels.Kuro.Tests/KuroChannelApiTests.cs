@@ -90,6 +90,79 @@ public class KuroChannelApiTests
     private static string Md5(string s) => Hashing.Md5Hex(System.Text.Encoding.UTF8.GetBytes(s));
 
     [Fact]
+    public async Task GetManifest_NullDestEntry_SkippedInsteadOfThrowing()
+    {
+        // F42（artifacts/bugs.md）：dest 显式 null 覆盖 ="" 初始化器（STJ null-over-initializer），
+        // KuroUrlBuilder.Build 裸解引用 NRE 穿出渠道 → 单条畸形炸全量更新、分类 Unknown。
+        // 防线：dest 空白的条目跳过，其余条目保留（与 ParsePage time/name 缺失 continue 同语义）
+        var indexFileJson = """
+            {
+              "resource": [
+                { "dest": "Client/Content/Paks/keep1.pak", "md5": "aaaa1111aaaa1111aaaa1111aaaa1111", "size": 10 },
+                { "dest": null, "md5": "bbbb2222bbbb2222bbbb2222bbbb2222", "size": 20 },
+                { "dest": "Client/Content/Paks/keep2.pak", "md5": "cccc3333cccc3333cccc3333cccc3333", "size": 30 }
+              ]
+            }
+            """;
+        var indexJson = $$"""
+            {
+              "default": {
+                "version": "3.6.0",
+                "cdnList": [ { "P": 1, "K1": 1, "K2": 1, "url": "{{Cdn}}" } ],
+                "resourcesBasePath": "launcher/game/G152/10003/3.6.0/token/zip/",
+                "config": {
+                  "version": "3.6.0",
+                  "indexFile": "resource/10003/3.6.0/token/indexFile.json",
+                  "indexFileMd5": "{{Md5(indexFileJson)}}"
+                }
+              }
+            }
+            """;
+        _downloader.Serve(Server().Options["indexUrl"], indexJson);
+        _downloader.Serve(Cdn + "resource/10003/3.6.0/token/indexFile.json", indexFileJson);
+
+        var manifest = await CreateApi().GetManifestAsync(Server(), "3.6.0");
+
+        Assert.Equal(
+            ["Client/Content/Paks/keep1.pak", "Client/Content/Paks/keep2.pak"],
+            [.. manifest.Files.Select(f => f.Path)]);
+    }
+
+    [Fact]
+    public async Task GetIncrementalManifest_NullDestGroupOrEntry_SkippedInsteadOfThrowing()
+    {
+        // F42 同族：差分组 dest null → ToGroups/BuildPatchUrl NRE；组内 srcFiles 条目 dest null → ToManifestFiles NRE
+        RegisterFullFixture();
+        const string patchIndexFile = """
+            {
+              "resource": [
+                { "dest": "Client/Content/Paks/brand-new.pak", "md5": "12341234123412341234123412341234", "size": 40 }
+              ],
+              "groupInfos": [
+                {
+                  "dest": null, "size": 2048, "md5": "56785678567856785678567856785678",
+                  "srcFiles": [], "dstFiles": []
+                },
+                {
+                  "dest": "patch_ok.krpdiff", "size": 128, "md5": "abababababababababababababababab",
+                  "srcFiles": [ { "dest": null, "md5": "99999999999999999999999999999999", "size": 4 },
+                                { "dest": "Client/Content/Paks/old.pak", "md5": "88888888888888888888888888888888", "size": 4 } ],
+                  "dstFiles": [ { "dest": "Client/Content/Paks/old.pak", "md5": "12121212121212121212121212121212", "size": 5 } ]
+                }
+              ]
+            }
+            """;
+        _downloader.Serve(Cdn + "resource/10003/3.6.0/350/indexFile.json", patchIndexFile);
+
+        var manifest = await CreateApi().GetIncrementalManifestAsync(Server(), "3.5.0", "3.6.0");
+
+        Assert.NotNull(manifest);
+        var group = Assert.Single(manifest.Groups);
+        Assert.Equal("patch_ok.krpdiff", group.PatchFile);
+        Assert.Equal("Client/Content/Paks/old.pak", Assert.Single(group.SrcFiles).Path);
+    }
+
+    [Fact]
     public async Task GetVersionInfo_ParsesVersionPatchSourcesAndPredownload()
     {
         RegisterFullFixture();

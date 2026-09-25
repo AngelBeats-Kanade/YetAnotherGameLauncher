@@ -126,7 +126,10 @@ public sealed class GameCatalogService
         }
 
         // 显式 null 的引用属性会被原样赋 null（未开反序列化 nullability 校验）——放行会让
-        // Validate NRE，"手改坏配置→友好校验提示"的防线被绕过成无提示空壳启动（2026-09-20 三审修复）
+        // Validate NRE，"手改坏配置→友好校验提示"的防线被绕过成无提示空壳启动（2026-09-20 三审修复）。
+        // F14 嵌套延伸：null 同样能覆盖嵌套层的 = new() 初始化器（games 元素/launch/servers/
+        // servers 元素/nameLocalized），防线与错误口径下探；environment/options 更深的字典袋
+        // Validate 不触碰、消费点裸解引用，直接归一为空袋（缺失即空、无语义分歧）
         var errors = new List<string>();
         if (catalog.Settings is null)
         {
@@ -138,6 +141,52 @@ public sealed class GameCatalogService
         {
             errors.Add("games must be an array (got null).");
             catalog.Games = [];
+        }
+
+        for (var i = catalog.Games.Count - 1; i >= 0; i--)
+        {
+            if (catalog.Games[i] is not { } game)
+            {
+                errors.Add($"games[{i}] must be an object (got null).");
+                catalog.Games.RemoveAt(i);
+                continue;
+            }
+
+            if (game.Launch is null)
+            {
+                errors.Add($"games[{i}].launch must be an object (got null).");
+                game.Launch = new LaunchOptions();
+            }
+            else
+            {
+                game.Launch.Environment ??= [];
+            }
+
+            if (game.Servers is null)
+            {
+                errors.Add($"games[{i}].servers must be an array (got null).");
+                game.Servers = [];
+            }
+            else
+            {
+                for (var s = game.Servers.Count - 1; s >= 0; s--)
+                {
+                    if (game.Servers[s] is not { } server)
+                    {
+                        errors.Add($"games[{i}].servers[{s}] must be an object (got null).");
+                        game.Servers.RemoveAt(s);
+                        continue;
+                    }
+
+                    server.Options ??= [];
+                }
+            }
+
+            if (game.NameLocalized is null)
+            {
+                errors.Add($"games[{i}].nameLocalized must be an object (got null).");
+                game.NameLocalized = [];
+            }
         }
 
         errors.AddRange(Validate(catalog));
