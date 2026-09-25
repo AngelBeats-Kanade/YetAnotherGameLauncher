@@ -247,19 +247,35 @@ public class HttpFileDownloaderTests : IDisposable
     public async Task DownloadFileAsync_ReportsMonotonicProgress()
     {
         _handler.Map(Url, Content);
-        var reports = new System.Collections.Concurrent.ConcurrentQueue<long>();
-        var progress = new Progress<long>(reports.Enqueue);
+        // 进度契约断言的是"签发顺序单调"。Progress<T> 的投递（SynchronizationContext.Post /
+        // 线程池派发）不保证与签发同序：早前形态直接对投递队列断言相邻单调，SpinUntil 见到
+        // 末值即退出、更早的报告可能仍在途，偶发假红（e5d202d 引入断言后 7 实跑 1 红，
+        // 2026-09-26 本会话复现 20 跑 2 红）——改为 OnReport 重载在签发线程同步记账：
+        // await 完成后全部报告必然已入列，列表顺序即签发顺序，零竞态
+        var reports = new IssueOrderProgress();
 
-        await CreateDownloader().DownloadFileAsync(Request(), progress, Ct);
+        await CreateDownloader().DownloadFileAsync(Request(), reports, Ct);
 
-        // 等待最终报告送达（Progress<T> 异步投递）
-        Assert.True(SpinWait.SpinUntil(
-            () => reports.Contains(Content.Length), TimeSpan.FromSeconds(5)));
-        Assert.Equal(Content.Length, reports.Last());
-        // 审计修复（2026-09-19）：原断言只看末值，与"单调"的测试名不符——
-        // 进度回退（后一次报告小于前一次）本测试拦不住。现补相邻报告两两单调断言。
-        var ordered = reports.ToArray();
-        Assert.Equal(ordered.OrderBy(b => b), ordered); // 进度序列不得回退
+        Assert.NotEmpty(reports.Issued);
+        Assert.Equal(Content.Length, reports.Issued.Last());
+        Assert.Equal(reports.Issued.OrderBy(b => b), reports.Issued); // 签发序列不得回退
+    }
+
+    /// <summary>在签发线程同步记账的 <see cref="Progress{T}"/>（OnReport 由 Report 的调用
+    /// 线程直接执行，不经异步投递），供"签发顺序"类断言使用。</summary>
+    private sealed class IssueOrderProgress : Progress<long>
+    {
+        private readonly object _gate = new();
+
+        public List<long> Issued { get; } = [];
+
+        protected override void OnReport(long value)
+        {
+            lock (_gate)
+            {
+                Issued.Add(value);
+            }
+        }
     }
 
     [Fact]
