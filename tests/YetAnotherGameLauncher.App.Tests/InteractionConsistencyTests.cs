@@ -63,7 +63,7 @@ public class InteractionConsistencyTests : IDisposable
             window.UpdateLayout();
 
             var settings = Assert.IsType<SettingsViewModel>(_ctx.Vm.CurrentPage);
-            // UserControl 内具名元素不在窗口 namescope，走视觉树（AGENTS 已知坑）
+            // UserControl 内具名元素不在窗口 namescope，走视觉树（docs/UI_STRUCTURE.md §1）
             var box = window.GetVisualDescendants().OfType<TextBox>()
                 .FirstOrDefault(t => t.Name == "InstallRootBox");
             var browse = window.GetVisualDescendants().OfType<Button>()
