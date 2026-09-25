@@ -317,6 +317,12 @@ flowchart LR
   `FfmpegLibraryResolverDownloadTests`——否则无库新环境会真实下载约 60–70MB 并写真实用户目录）。
   DI 注册必须走**显式工厂**：容器注册过 `HttpClient`（全局 30s）后，类型激活会把 `downloadClient`
   的 null 默认劫持为容器实例、15 分钟专用超时成死代码（组合根装配断言钉住）。
+  **AutoGen 函数委托解析结果是进程级缓存**（2026-09-25 /tmp 探针实锤）：`FunctionResolver` 每次调用
+  都被咨询，但每个函数只解析一次——null（零句柄 + throwOnError=false）与成功委托均缓存，仅 resolver
+  抛异常会重新咨询。同进程任何先行 TryBind 都会令后续 resolver 实例被完全绕过（2026-09-25 CI Linux
+  实锤 false+0、本机全量实锤 true+0，双形态同一根因）——断言实例内部状态（解析计数/缓存内容）必须经
+  `PrimeResolutionCacheForTests` 直驱缝（不经 AutoGen 缓存），集成路径只断言可观测结果；先例
+  `EnsureReady_MissingLibraries_ResolveEachLibraryAtMostOnce`。
   **改本链（`FfmpegLibraryResolver`/FFmpeg 绑定/dlopen）必须真机冒烟**：绑定成功路径无法离线覆盖
   （测试夹具是假库字节，真绑定每进程只有一次机会），最低验证 = 跑应用看 `FFmpeg libraries ready`
   日志 + 解码器协商 + 无 `Video backdrop playback failed`（DEVELOPMENT.md §3.6）。
