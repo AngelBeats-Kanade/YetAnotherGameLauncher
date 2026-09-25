@@ -144,14 +144,16 @@ public sealed partial class FfmpegLibraryResolver(
         _sharedResolver = new DirectoryFunctionResolver();
         DynamicallyLoadedBindings.FunctionResolver = _sharedResolver;
 
-        // ① 已下载目录命中——只信带完成标记的目录：无标记 = 解压中断毒化（F26）或旧布局遗留，
-        // 在其上尝试绑定会烧掉一次性初始化并永久锁死，必须先删（本会话即可落穿②③重下自愈）；
-        // 带标记目录（SHA256 验过 + 解压完整）TryBind 失败即整体失败——完整库仍绑不上 = 环境不兼容，
-        // 重下只会无限循环（2026-09-24 实测修复落穿后的语义，毒目录防线由标记检查承接）
+        // ① 已下载目录命中——只信带当前版本标记的目录：无标记 = 解压中断毒化（F26）或旧布局遗留，
+        // 标记内容 ≠ 当前绑定配套的下载资产名 = App 升级换绑后的过期版本（次级 suspect 第 9 轮：
+        // 无版本戳时旧版库被 TryBind 静默绑上、ABI 错配炸在结构体调用处）——两类都先删（一次性
+        // 初始化未烧），本会话即可落穿②③重下自愈；带当前版本标记的目录 TryBind 失败即整体失败
+        // ——完整库仍绑不上 = 环境不兼容，重下只会无限循环（2026-09-24 实测修复落穿后的语义，
+        // 毒目录防线由版本标记检查承接）
         var dir = LocateLibraryDir(_downloadRoot);
-        while (dir is not null && !HasCompletionMarker(dir))
+        while (dir is not null && !HasCurrentVersionMarker(dir))
         {
-            logger?.LogInformation("Deleting incomplete FFmpeg library directory {Directory}", dir);
+            logger?.LogInformation("Deleting incomplete or version-stale FFmpeg library directory {Directory}", dir);
             if (!FileUtilities.TryDeleteDirectory(dir))
             {
                 logger?.LogWarning(
@@ -189,11 +191,23 @@ public sealed partial class FfmpegLibraryResolver(
             dir = LocateLibraryDir(_downloadRoot);
             return dir is not null && TryBind(dir);
         }
-        catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException
-            or TaskCanceledException or InvalidDataException
-            or System.Security.Cryptography.CryptographicException)
+        catch (InvalidDataException ex)
         {
-            // 下载/解压失败尚未触碰 ffmpeg 类型（TryBind 未执行），保持"未尝试"以便下次调用重试
+            // 次级 suspect（第 9 轮）：InvalidDataException 只产自"确定性不可用"形态——checksums
+            // 无本资产条目（上游改名）/ 解压成功但布局不可识别（上游打包面变化，SHA256 已过说明
+            // 拿到的就是上游真包）。同 URL 重下结果恒同，停留"未尝试"= 每次会话重拉 60-72MB
+            // 死循环——锁死永久失败（重启进程重置）。瞬态网络/IO 错误走下方 HTTP/IO 臂保持可重试
+            logger?.LogWarning(ex, "FFmpeg download unusable (upstream layout change?); marking permanent failure");
+            Volatile.Write(ref _resolveState, ResolveFailedPermanently);
+            return false;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException
+            or OperationCanceledException or System.Security.Cryptography.CryptographicException)
+        {
+            // 下载/解压失败尚未触碰 ffmpeg 类型（TryBind 未执行），保持"未尝试"以便下次调用重试。
+            // 取消族用基类 OperationCanceledException：HttpClient 超时抛 TaskCanceledException（子类），
+            // 手动取消可抛裸 OCE——两者同为"本次未完成、可重试"语义（次级 suspect 第 9 轮：原过滤
+            // 只收子类，诊断口径错位）
             logger?.LogInformation(ex, "FFmpeg library download failed");
             return false;
         }
@@ -294,7 +308,8 @@ public sealed partial class FfmpegLibraryResolver(
                 ExtractArchive(tempFile, staging);
                 var libDir = LocateLibraryDir(staging)
                     ?? throw new InvalidDataException("Extracted FFmpeg archive has no recognisable library directory");
-                File.WriteAllText(Path.Combine(libDir, CompletionMarkerFileName), "ok");
+                // 标记内容 = 下载资产名：版本身份，EnsureReady 据此识别过期目录（次级 suspect 第 9 轮）
+                File.WriteAllText(Path.Combine(libDir, CompletionMarkerFileName), BtbnAsset.Value.Asset);
                 var final = Path.Combine(_downloadRoot, "installed");
                 if (Directory.Exists(final))
                 {
@@ -411,9 +426,21 @@ public sealed partial class FfmpegLibraryResolver(
     internal static readonly string[] LibraryDependencyOrder =
         ["avutil", "swresample", "swscale", "avcodec", "avformat", "avfilter", "avdevice"];
 
-    /// <summary>目录是否携带完成标记（<see cref="CompletionMarkerFileName"/>）。</summary>
-    private static bool HasCompletionMarker(string libraryDir) =>
-        File.Exists(Path.Combine(libraryDir, CompletionMarkerFileName));
+    /// <summary>目录标记是否有效（<see cref="CompletionMarkerFileName"/> 存在且内容 = 当前绑定
+    /// 配套的下载资产名）：标记缺失 = 解压中断/旧布局遗留（F26）；内容不匹配 = App 升级换绑后的
+    /// 过期版本目录，同样先删重下（防旧版库被静默绑上后 ABI 错配）。无下载支持的平台（资产名
+    /// 不可知）退化为只查存在性。</summary>
+    private static bool HasCurrentVersionMarker(string libraryDir)
+    {
+        var markerPath = Path.Combine(libraryDir, CompletionMarkerFileName);
+        if (!File.Exists(markerPath))
+        {
+            return false;
+        }
+
+        var expected = BtbnAsset?.Asset;
+        return expected is null || File.ReadAllText(markerPath).Trim() == expected;
+    }
 
     /// <summary>递归查找目录里 avcodec 库文件所在目录；找不到返回 null。</summary>
     internal static string? LocateLibraryDir(string? root)

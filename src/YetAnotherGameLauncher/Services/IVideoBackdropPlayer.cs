@@ -23,7 +23,9 @@ public interface IVideoBackdropPlayer
 
     /// <summary>
     /// 后台起播本地视频文件：静音、循环、按需准备原生库（必要时含首运下载）。
-    /// 返回 false 表示无法起播（库不可用/文件损坏），调用方保持静态海报。
+    /// 契约澄清（次级 suspect 第 9 轮）：返回的 Task 在**播放会话结束**时完成（自然结束/
+    /// 解码失败/被 Stop 或新一代 PlayAsync 取代），不是起播即返回——调用方以此在会话收尾
+    /// 时校验退订。false = 未能起播或会话以失败告终（库不可用/文件损坏），调用方保持静态海报。
     /// </summary>
     /// <param name="videoPath">本地视频文件路径。</param>
     /// <param name="cancellationToken">外部取消令牌（应用退出）。</param>

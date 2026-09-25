@@ -199,6 +199,10 @@ public sealed class FfmpegVideoBackdropPlayer(
                     Interlocked.Exchange(ref _sessionActive, 0);
                 }
 
+                // 自然结束路径同样先取消再释放：循环点分析/预卷后台任务持有同一令牌轮询，
+                // 不取消就继续整片解码到自然尽头（分析=软解全片，秒级 CPU 白烧）——
+                // Stop 路径已先行取消，此处对已取消源再 Cancel 是幂等 no-op
+                cts.Cancel();
                 cts.Dispose();
             }
         }, CancellationToken.None);
@@ -361,8 +365,16 @@ public sealed class FfmpegVideoBackdropPlayer(
                     }
                 }
 
-                RenderFrame(softFrame, ref scaler, ref pixelBuffer, ref pixelBufferSize, notify, failures, generation);
-                (lastRenderedWidth, lastRenderedHeight) = ClampEven(softFrame->width, softFrame->height);
+                RenderFrame(softFrame, ref scaler, ref pixelBuffer, ref pixelBufferSize, notify, failures, generation,
+                    out var rendered);
+                // 渲染失败（sws 上下文/帧位图创建失败）不得推进渲染尺寸：pixelBuffer 仍持旧帧的
+                // 小缓冲，推进会让循环终点的 ComputeSeamDiff 按新大尺寸读旧缓冲——原生越界读
+                //（次级 suspect 第 9 轮）。尺寸与缓冲保持一致，接缝差按无末帧语义兜底走淡化
+                if (rendered)
+                {
+                    (lastRenderedWidth, lastRenderedHeight) = ClampEven(softFrame->width, softFrame->height);
+                }
+
                 lastRenderedPts = double.IsNaN(ptsSeconds) ? lastRenderedPts : ptsSeconds;
                 frameIndex++;
                 TryKickPreroll(ptsSeconds);
@@ -421,6 +433,10 @@ public sealed class FfmpegVideoBackdropPlayer(
 
                     active.Dispose();
                     active = payload.Source;
+                    // 收编换队前先释放旧队列残留：循环终点可能在待消费队列中途截断（渲染帧越过
+                    // loopEnd 触发 HandleLoopEnd），直接赋值会丢掉旧 AVFrame 引用造成原生泄漏
+                    //（帧经 av_frame_ref 持引用计数，无人 free 则整帧缓冲滞留到进程退出）
+                    FreeFrames(pendingFrames);
                     pendingFrames = payload.Frames;
                     pendingFramePts = payload.PendingPts;
                     frameIndex = 0;
@@ -453,7 +469,7 @@ public sealed class FfmpegVideoBackdropPlayer(
                 var reopened = OpenDecodeSource(path, softwareOnly: false);
                 active.Dispose();
                 active = reopened;
-                pendingFrames.Clear();
+                FreeFrames(pendingFrames); // 释放（而非 Clear）旧队列残留，理由同收编路径
                 pendingFramePts.Clear();
                 frameIndex = 0;
                 // 对齐到当前（轮换前的）头帧：刚离开的正是当前配对的尾帧，切口须落在配对上
@@ -523,13 +539,22 @@ public sealed class FfmpegVideoBackdropPlayer(
 
                 if (pendingFrames.Count > 0)
                 {
-                    // 收编的预解码帧优先消费：这是零间隙续播的关键路径
+                    // 收编的预解码帧优先消费：这是零间隙续播的关键路径。
+                    // PresentFrame 抛出路径也要释放帧引用（帧已出队，finally 的 FreeFrames
+                    // 够不着它）——否则单帧 AVFrame 泄漏
                     var pending = (AVFrame*)pendingFrames[0];
                     pendingFrames.RemoveAt(0);
                     var pendingPts = pendingFramePts[0];
                     pendingFramePts.RemoveAt(0);
-                    PresentFrame(pending, pendingPts);
-                    av_frame_free(&pending);
+                    try
+                    {
+                        PresentFrame(pending, pendingPts);
+                    }
+                    finally
+                    {
+                        av_frame_free(&pending);
+                    }
+
                     if (loopEndReached && !HandleLoopEnd())
                     {
                         break;
@@ -792,8 +817,10 @@ public sealed class FfmpegVideoBackdropPlayer(
                     break;
                 }
 
-                // 精确对帧：丢弃循环起点之前的帧
-                if (loopStartPts > 0 && !double.IsNaN(pts) && pts < loopStartPts - halfFrame)
+                // 精确对帧：丢弃循环起点之前（或无时间戳、无法定位）的帧——NaN 帧不可对齐，
+                // 放行会以队列头形态在接缝处呈现错位内容（对齐丢弃与循环点分析同语义：
+                // CollectAnalyzedFrames 对 NaN 帧同样跳过）
+                if (loopStartPts > 0 && (double.IsNaN(pts) || pts < loopStartPts - halfFrame))
                 {
                     av_frame_unref(softwareFrame);
                     continue;
@@ -1285,7 +1312,9 @@ public sealed class FfmpegVideoBackdropPlayer(
 
     /// <summary>单帧处理：确保缩放器与缓冲匹配源格式 → swscale 到 BGRA → blit 进位图 → 节流通知。
     /// generation 为本代循环代号：过代际门后的 PTS 等待与 sws/拷贝期间可能发生 Stop/新一代起播，
-    /// 拷入位图后复查代际，失配则整帧丢弃且不投递通知（清帧由 Stop 在锁内完成）。</summary>
+    /// 拷入位图后复查代际，失配则整帧丢弃且不投递通知（清帧由 Stop 在锁内完成）。
+    /// 返回是否实际渲染进共享缓冲（<paramref name="rendered"/>）——失败路径（尺寸非法/sws 上下文
+    /// 创建失败/位图创建失败）不写缓冲，调用方据此决定是否推进渲染尺寸（越界读防线，见 PresentFrame）。</summary>
     private unsafe void RenderFrame(
         AVFrame* source,
         ref SwsContext* scaler,
@@ -1293,8 +1322,10 @@ public sealed class FfmpegVideoBackdropPlayer(
         ref nint pixelBufferSize,
         NotifyThrottle notify,
         DecodeFailureLog failures,
-        int generation)
+        int generation,
+        out bool rendered)
     {
+        rendered = false;
         var (width, height) = ClampEven(source->width, source->height);
         if (width <= 0 || height <= 0)
         {
@@ -1355,6 +1386,8 @@ public sealed class FfmpegVideoBackdropPlayer(
 
         AdvanceLoopCrossfade();
         FlushRetiredFrames(); // 解码节拍顺带冲刷过期退役位图（列表空时零开销）
+
+        rendered = true; // 缓冲与位图已一致：后续代际失配只丢弃通知，不影响调用方的尺寸记账
 
         // 代际收尾复查（锁外，仅丢弃不缓存）：过门后的 PTS 等待/sws/拷贝窗口内若发生 Stop/换代，
         // 此帧不投递通知即被丢弃——旧画面无从"复活"。清帧由 Stop 的 ClearFrame 在 _gate 锁内完成，

@@ -67,7 +67,8 @@ public class FfmpegLibraryResolverEnsureReadyTests : IDisposable
         var libDir = Path.Combine(root, "ffmpeg-n9.0", "lib");
         Directory.CreateDirectory(libDir);
         File.WriteAllBytes(Path.Combine(libDir, "libavcodec.so.63"), "junk-not-an-elf"u8.ToArray());
-        File.WriteAllText(Path.Combine(libDir, FfmpegLibraryResolver.CompletionMarkerFileName), "ok");
+        File.WriteAllText(Path.Combine(libDir, FfmpegLibraryResolver.CompletionMarkerFileName),
+            FfmpegLibraryResolver.BtbnAsset!.Value.Asset); // F26 后无标记目录会被先删重下、到不了绑定
         var resolver = CreateResolver(stub, root);
 
         // 绑定必败（垃圾库 + 系统探测恒 false）：状态烧毁不重试，首个探测即触发预载与计数
@@ -104,7 +105,8 @@ public class FfmpegLibraryResolverEnsureReadyTests : IDisposable
         var libDir = Path.Combine(root, "ffmpeg-n9.0", "lib");
         Directory.CreateDirectory(libDir);
         File.WriteAllBytes(Path.Combine(libDir, "libavcodec.so.63"), "junk-not-an-elf"u8.ToArray());
-        File.WriteAllText(Path.Combine(libDir, FfmpegLibraryResolver.CompletionMarkerFileName), "ok"); // F26：无标记会被先删
+        File.WriteAllText(Path.Combine(libDir, FfmpegLibraryResolver.CompletionMarkerFileName),
+            FfmpegLibraryResolver.BtbnAsset!.Value.Asset); // F26：无标记会被先删；内容不匹配当过期目录删
         var resolver = CreateResolver(stub, root);
 
         var result = resolver.EnsureReady(CancellationToken.None);
@@ -125,7 +127,8 @@ public class FfmpegLibraryResolverEnsureReadyTests : IDisposable
         var libDir = Path.Combine(root, "ffmpeg-n9.0", "lib");
         Directory.CreateDirectory(libDir);
         File.WriteAllBytes(Path.Combine(libDir, "libavcodec.so.63"), "junk-not-an-elf"u8.ToArray());
-        File.WriteAllText(Path.Combine(libDir, FfmpegLibraryResolver.CompletionMarkerFileName), "ok");
+        File.WriteAllText(Path.Combine(libDir, FfmpegLibraryResolver.CompletionMarkerFileName),
+            FfmpegLibraryResolver.BtbnAsset!.Value.Asset); // F26 后只信版本匹配的标记目录
         var resolver = CreateResolver(stub, root);
 
         // 前置：夹具目录必须可定位。全量套件中本测试曾出现一次"落穿形状"的 flake
@@ -173,8 +176,8 @@ public class FfmpegLibraryResolverEnsureReadyTests : IDisposable
         Assert.Equal(2, stub.Requests.Count); // checksums + 资产各一次：落穿③重下发生了
         var healedDir = FfmpegLibraryResolver.LocateLibraryDir(root);
         Assert.NotNull(healedDir);
-        Assert.True(File.Exists(Path.Combine(healedDir!, FfmpegLibraryResolver.CompletionMarkerFileName)),
-            "重下的安装必须携带完成标记");
+        Assert.Equal(assetName,
+            File.ReadAllText(Path.Combine(healedDir!, FfmpegLibraryResolver.CompletionMarkerFileName)).Trim());
         Assert.False(result); // 夹具是假库字节：重下后绑定仍必败（本进程内无法二次烧初始化）
 
         // 永久锁死语义对"带标记的完整目录"保持：二次调用零新增请求（防不兼容环境无限重下）
@@ -219,6 +222,58 @@ public class FfmpegLibraryResolverEnsureReadyTests : IDisposable
         // 单飞不变量：整包下载序列恰好一次（checksums + 资产各一次）。
         // 修复前两调用方各自完整下载 = 4 次请求；结果 true/false 不断言（随系统库差异合法波动）
         Assert.Equal(2, stub.Requests.Count);
+    }
+
+    [Fact]
+    public void EnsureReady_StaleVersionMarker_DeletedAndRedownloaded()
+    {
+        // 次级 suspect（第 9 轮，artifacts/bugs.md）：下载目录完成标记无版本信息——App 升级换绑
+        // 新版 FFmpeg（BtbnAsset 资产名变化）后，旧版目录凭"有标记"被 TryBind 静默绑上，ABI 错配
+        // 炸在结构体调用处（系统库路径有精确主版本预检、下载路径没有）。修复 = 标记内容记下载
+        // 资产名；内容不匹配 = 过期目录先删再经②③重下（一次性 60-72MB 自愈成本）。
+        // 断言全部落在绑定尝试**前**的删除/重下行为上，不依赖绑定成败（随机器系统库差异波动）
+        var stub = new StubHttpHandler();
+        var (archiveBytes, _) = TestFfmpegArchive.Create();
+        var assetName = FfmpegLibraryResolver.BtbnAsset!.Value.Asset;
+        var declared = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(archiveBytes)).ToLowerInvariant();
+        stub.Map(ChecksumsUrl, $"{declared}  *{assetName}\n");
+        stub.Map(AssetUrl, archiveBytes);
+        var root = _tempDir.FilePath("root-stale-version");
+        var libDir = Path.Combine(root, "ffmpeg-n8.0", "lib");
+        Directory.CreateDirectory(libDir);
+        File.WriteAllBytes(Path.Combine(libDir, "libavcodec.so.62"), "junk-not-an-elf"u8.ToArray());
+        File.WriteAllText(Path.Combine(libDir, FfmpegLibraryResolver.CompletionMarkerFileName),
+            "ffmpeg-n8.0-latest-linux64-lgpl-shared-8.0.tar.xz"); // 旧版资产名 = 过期标记
+        var resolver = CreateResolver(stub, root);
+
+        resolver.EnsureReady(CancellationToken.None);
+
+        Assert.False(Directory.Exists(libDir), "红落此断言：版本不匹配的旧目录被静默信任时原样保留");
+        Assert.Equal(2, stub.Requests.Count); // checksums + 资产各一次：过期目录触发重下
+        var healed = FfmpegLibraryResolver.LocateLibraryDir(root);
+        Assert.NotNull(healed);
+        Assert.Equal(assetName,
+            File.ReadAllText(Path.Combine(healed!, FfmpegLibraryResolver.CompletionMarkerFileName)).Trim());
+    }
+
+    [Fact]
+    public void EnsureReady_ChecksumsMissingAssetEntry_LocksPermanently_NoPerSessionRedownload()
+    {
+        // 次级 suspect（第 9 轮，artifacts/bugs.md）：下载成功但布局不可识别（staging 无 avcodec，
+        // InvalidDataException）/ checksums 无本资产条目（上游改名）时，旧形态停留"未尝试"——
+        // 每次会话重拉 60-72MB 死循环（同 URL 重下结果恒同，SHA256 还必须先过）。修复 = 该类
+        // 失败锁死永久失败（重启进程重置；瞬态网络错误走 HTTP/IO 臂保持可重试，不受影响）
+        var stub = new StubHttpHandler();
+        stub.Map(ChecksumsUrl, "0000000000000000000000000000000000000000000000000000000000000000  some-other-asset.zip\n");
+        var resolver = CreateResolver(stub, _tempDir.FilePath("root-noentry"));
+
+        Assert.False(resolver.EnsureReady(CancellationToken.None));
+        _ = Assert.Single(stub.Requests); // 仅 checksums 一次
+
+        // 永久锁死本体断言：二次调用零新增请求（红落此断言：未锁死时请求会累计到 2）
+        Assert.False(resolver.EnsureReady(CancellationToken.None));
+        _ = Assert.Single(stub.Requests);
     }
 
     /// <summary>收集 resolver 日志的最小 ILogger（卡死取证用，先例 SystemProcessRunnerTests）。</summary>
