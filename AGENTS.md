@@ -13,7 +13,7 @@ dotnet build -warnaserror            # 全解决方案构建；零警告是硬�
 dotnet format whitespace --verify-no-changes
 # 测试（xunit.v3 + MTP；本环境 dotnet test 可能发现 0 个测试——直接跑测试产物更可靠；dotnet <dll> 为跨平台形态，.exe 仅 Windows）：
 dotnet tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll
-# 单个测试（--filter-fqn 经 dotnet test 在本机实测零匹配，用 xunit 自带 runner 的 -method）：
+# 单个测试（--filter-fqn 经 dotnet test 在本机实测零匹配，用 xunit 自带 runner 的 -method；注意 -method 对部分用例名会静默 Total:0——判定以全量运行 + -xml 为准，见 skills avalonia-headless-testing §4）：
 dotnet tests/<测试工程>/bin/Debug/net10.0/<测试程序集>.dll -method "<完整类型名>.<方法名>"
 ```
 
@@ -75,22 +75,10 @@ dotnet tests/<测试工程>/bin/Debug/net10.0/<测试程序集>.dll -method "<�
 ## UI / 无头测试已知坑（实踩）
 
 - **UI 结构/控件常数/指示点几何/各页布局**：单一事实源已迁 **docs/UI_STRUCTURE.md**（改 .axaml 前必读；窗口骨架/侧栏指示点/详情页/设置页/覆盖层/关于页）。
-- **改机制前先实验，禁止跨框架直觉迁移（2026-09-25 实锤）**：涉及控件模板/主题绘制机制（背景画在哪个区域、样式优先级谁压谁、状态前景落在 presenter 还是本体）时，先构造最小实验（临时色块/探针按钮/放大截图实测坐标）验证机制假设，再写实现——Fluent `ListBoxItem` 的选中高亮背景=ContentPresenter 区域、**不随 Item 负 Margin 溢出扩展**（负 Margin 只撑大 bounds），"外扩选中块让点进块内"方案因此在 judge 两轮 FAIL 才被推翻；从 WPF/其他框架带来的绘制直觉在本仓库一律视为未验证假设。
-- **judge/视觉判据的仲裁规则**：judge 是信号不是 oracle——半透明刷（如 `AppSidebarSelected` 60% α）会让"找纯色边界"类判据把背景本体误读成间隙（实锤：60% α 选中块+点辉光被误判"点在块外"FAIL，放大目视+混合色实测才翻案）；反过来 judge 的 FAIL 也可能是真问题（实锤：水印缺失实为夹具缺陷）。收到 judge FAIL：先裁剪放大目视 + 像素实测仲裁，确认判据语义后再定改不改；给 judge 交底必须注明坐标系与半透明刷的预期混合色。
-- **Avalonia headless 不执行动画**：样式动画与代码 `Animation.RunAsync` 都冻结在首帧（`ForceRenderTimerTick`/真实等待均无效）。模式：先写最终基值再播动画；需要测试落位时用 internal 开关跳过动画（现有先例：`MainWindow.NavIndicatorAnimationEnabled`，经 `InternalsVisibleTo` 暴露）。动画观感只能真机验证或截图 + judge。
-- **Transform 上不能写 `x:Name`**（AVLN2000）；该错误还可能让后续增量构建产出缺预编译 XAML 的程序集（运行时报 "No precompiled XAML"）——见到此错误先清 bin/obj 全量重建。
-- 代码构建的变换动画：**指示点迁移动画已改手写驱动（`DriveTransferAsync` + 纯函数 `EvalTransfer`，2026-09-21）**，Animation API 的经验仅作历史参考：`RunAsync` 目标必须是控件（Visual），keyframe 属性写 `TranslateTransform.YProperty`/`ScaleTransform.ScaleYProperty`，Avalonia 12 keyframe 缓动用 `KeySpline`（没有 `Easing` 属性）。**KeySpline 作用于"进入该帧"的段落**（帧 i 的样条管 i-1→i 段）；一个 KeyFrame 带多个 Setter 与拆成多条单属性动画**功能等价**（真机 A/B 插桩实测，引擎源码 `Animation.InterpretKeyframes`/`TransformAnimator` 逐层核对）——**不要再用"两动画失步"解释卡顿**。**弃用 Animation API 的根因：本应用渲染循环空闲时按需降频（实测 ~10Hz），Animation 时钟取自渲染循环、窗口内无外部泵时无法自举——旧复核环的每秒数万次分发器投递曾"意外承重"充当渲染泵，泵被修掉后两方向动画都掉到 ~10fps**；手写 `Task.Delay(8ms)` 循环自身就是泵（每拍直写变换基值→失效→渲染），插桩复测两方向全程 8ms 一拍零断流。**编舞插值必须是纯函数**（`EvalTransfer`）：钉边不变量/接缝连续性/缓动曲线都能单测，不再有"结构断言测不到引擎行为"的盲区。**手写驱动直写基值，失去了动画优先级层的遮盖**：迁移进行中 `MoveNavIndicator` 不得直写变换属性（终态只入记录，由驱动独占写入），否则终态基值会把首拍飞行值盖掉——观感为"指示点先在目的地闪现再跳回"；快速连点时旧驱动的收尾/异常复位必须以 `_indicatorCts` 所有权比对守卫，别覆盖新驱动。**驱动末拍必须按实时几何收敛**（再跑一次落位计算）：迁移起点几何带着按压时的 RenderTransform 缩放（`pressable` 按下 scale(0.97) **参与 TranslatePoint**），飞行期间布局也可能微调——残差要在落地帧内吃掉，推迟补写就是"动画结束后鼠标一动指示点又挪一下"。**动画时间线按墙钟推进：UI 线程被重活占住时剩余时间轴压缩成大跳步**——切游戏时背景视频首帧位图分配/上传（大视频 Debug 单帧可达 80ms）曾是元凶，现 `GameItemViewModel.VideoStartDeferral` 把起播挪出迁移编舞窗口；同类症状先怀疑 UI 线程阻塞（诊断手法：环境变量门控的临时插桩 + Render 优先级采样器逐帧记录变换值 + 脚本化自动切换，跑完即删）。**动画进行中读变换属性拿到的是动画优先级的生效值**：收敛/复核判定必须比自记录的基值（`IndicatorTop` 等），否则 SystemIdle 复核环自旋（曾实测 7 秒 14 万次）。
-- **Fluent 主题的状态样式在模板 presenter 层写前景**：`Button` 的 `:pointerover`/`:pressed`/`:disabled` 把主题前景直接设在 `ContentPresenter#PART_ContentPresenter` 上，会压过 Button 本体的任何 Foreground（含继承）。自定义按钮的固定前景必须同样下沉到 presenter 层逐状态覆盖（先例：`Button.glass-onart` 组，见 MainWindow.axaml）。
-- **`Image` 的 `UniformToFill` 默认按控件对齐居中裁切**：需要保住某一边（如海报左缘完整贴侧栏）时，设 `HorizontalAlignment="Left"` + `VerticalAlignment="Top"`，让测量出的封面尺寸向右/下溢出，由外层 `ClipToBounds` 裁掉。
-- XAML 全部启用编译绑定：视图根必须有 `x:DataType`；绑定错误是编译错误，不要绕过。
-- headless 换页后模板在下轮布局构建：切页后需 `window.UpdateLayout()`；落位类排队任务用 `Dispatcher.UIThread.RunJobs()` 冲刷。
-- 视觉自检：七个截图画面共 21 张（01-15 + 02b + 16 + 17/18 + 10b + 19，`Export_UiScreenshots_ForReview` 11 张 + `Export_LaunchErrorOverlay_ForReview` 5 张（10/10b/11/12/14，10b=CanRetry=true 覆盖层） + `Export_ProtonUpdateConfirm_ForReview` 1 张 + `Export_BootSplash_ForReview` 1 张（16-boot-splash 启动遮蔽层）+ `Export_GachaPage_ForReview` 2 张（17/18 唤取页暗/亮，2026-09-23 补评审 P3-12 覆盖缺口）+ `Export_EndfieldRealBackdrop_ForReview` 1 张（19 真实海报×终末地详情页，自绘标题移除后顶部无字标冲突的日常形态验收，机器无背景缓存时 Skip，2026-09-25 增）；2026-09-20 实测归属更正、2026-09-21 增启动页、2026-09-23 增唤取页、2026-09-25 增真实海报页）到 `artifacts/ui-review/`（已 gitignore），改动 UI 后重跑并人工/judge 审查（`Export_LaunchErrorOverlay_ForReview` 覆盖启动失败覆盖层与 Linux 启动设置卡：umu 启动 + Proton 发行版下拉 + 检查更新按钮；`Export_ProtonUpdateConfirm_ForReview` 为 Proton 更新确认覆盖层，内含纱罩压暗的像素级回归断言）。启动遮蔽层 `BootSplash` 的结构事实见 docs/UI_STRUCTURE.md §5。
-- **视觉判定以像素级/字节级为准，图像分析工具会误报**：2026-09 实锤 analyze_image 对同一截图连续两次误称"纱罩未压暗"，纯红探针实验也误报"无红色"，而解帧字节证明纱罩/纯红一直正常渲染。颜色/遮罩类结论用帧 Lock 读像素或 PNG 解码采样交叉验证（先例：`Export_ProtonUpdateConfirm_ForReview` 的 LuminanceAt 断言）。
-- **像素探针的坐标系三坑（2026-09-25 一天咬两次实锤，先例 DetailPageHeadlessTests 纱带探针）**：`CaptureRenderedFrame().Lock()` 读像素用**全窗口帧坐标**——与 page 局部坐标差侧栏宽+页边距、与 scrim 等全出血层局部坐标又差 46px 内容卡偏移；侧栏收放（264↔68）还会让同一"局部"换算出两套窗口值（探针测试默认跑展开态）。几何采样一律由目标元素 `TranslatePoint` 推导到窗口坐标，不写裸数字；给 judge 交底时也要注明坐标系与半透明刷的混合色预期（60% α 的选中块曾被按"纯 accent 色"找边界误判）。
-- **ComboBox 的 SelectedItem 按引用匹配**：从枚举"解析"出的选项若不是 `ItemsSource` 集合内的实例，下拉框显示空白（`LaunchSettingsViewModel.DetectLaunchMode` 返回 `LaunchModes.First(...)` 即此故）。
-- **涉原生库加载/触发 headless 初始化的测试类必须进 `sequential` 集合**（2026-09-20 实锤，2026-09-25 泛化）：两类触发源都会与并行组竞争 headless 平台首初始化，让别的测试在 Compositor 构造处炸 `InvalidOperationException`——①`EnsureReady` 的 dlopen（`VideoBackdropPlayerCtsTests` 不进集合时引爆 `BackgroundImageServiceTests`）；②`VmFactory`/`HeadlessSession` 的调用（`OpenFolderFailureTests` 实锤：单跑必过、全量必炸，三次连跑同用例失败曾被误判为"确定性回归"）。判据：测试类只要有任一路径触碰 Avalonia 位图/窗口/平台服务，就进 `sequential`；纯逻辑类不受限。
-- **xunit.v3 自带 runner 的 `-method`/`-class` 过滤器对部分用例名会静默失灵（Total:0 假象）**（2026-09-25 实锤，一次会话踩三次）：`-method "全名"` 返回 Total:0 但用例实际存在且全量可跑——`AGENTS.md` 常用命令节的 `-method` 单测形态不可靠。判定测试是否"存在/发现"以**全量运行 + `-xml` 输出核对**为准；为 Total:0 长时间推演"为什么没被发现"（怀疑陈旧 bin、怀疑类定义重复）都是浪费，先跑全量。
-- **测试桩实现接口必须显式声明，C# 不会从公开方法推断**（2026-09-25 实锤，`ImageRetireQueueTests`）：`public void Dispose()` 存在但类未列 `IDisposable` 时 `obj is IDisposable` 为 false——被测代码按契约正确跳过释放，测试却误判被测代码坏；排查绕行两轮（怀疑实现→怀疑构建陈旧→写探针才发现是桩的类型问题）。写桩先写接口清单；调试被测代码前先验证测试自身的前提。
+- **Avalonia 机制坑**（presenter 层前景/Transform x:Name/UniformToFill 裁切/IsHitTestVisible 剪枝/BoxShadow 真机灰板/编译绑定/ComboBox 引用匹配/Animation API 历史）：skills **avalonia-ui**「常见坑」「Linux 渲染」。
+- **视觉判定/judge 仲裁/改机制先实验/截图清单（21 张归属）**：skills **avalonia-ui-review** §1/§3.5——交付前必跑该技能的截图循环。
+- **Dispatch 三规则**：`Dispatch(Func<Task>)` 全形态禁用（发射后不管、吞断言，CI grep `Dispatch(async` 守卫）；`Dispatch(Action)` 同步 lambda 必须 await 且内部保持无 await；Bitmap/RenderTargetBitmap 只能在会话线程——细则 skills **avalonia-headless-testing** §4（哨兵 `DispatchSentinelTests` 常驻）。
+- **headless 测试语义坑**（动画冻结首帧/窗口 Width 仅 Show 前接受且 MinWidth=920 钳制/Maximized 不铺满/像素探针全窗口帧坐标系/sequential 集合/-method 静默失灵/桩显式接口/VM 时序）：skills **avalonia-headless-testing** §4/§5——写/改无头测试前必加载该技能。
 - **resolver 下载缝已可注入，真实 resolver 的测试必须离线构造**（2026-09-22 修复）：
   `FfmpegLibraryResolver(proxyManager, logger?, downloadClient?, downloadRoot?)` 两个可选缝——
   涉真实 resolver 的测试一律传 `new HttpClient(new StubHttpHandler())` + 临时目录根（先例
@@ -102,15 +90,6 @@ dotnet tests/<测试工程>/bin/Debug/net10.0/<测试程序集>.dll -method "<�
 - **.NET 10 起 Dispose 后的 CTS `Cancel()` 是 no-op 不抛 ODE**（变异实验实锤：对已释放实例直接
   Cancel 的"崩溃"测试击不杀）——"已释放实例悬挂"不再表现为崩溃但仍是悬挂；防御性 try/catch
   的价值是语义显式化，别假设 ODE 会替你暴露 bug（先例：FfmpegVideoBackdropPlayer._cts 摘除）。
-- **headless 会话 `Dispatch` 三条实测规则（2026-09-19 探针+位图实验三连实锤，哨兵 `DispatchSentinelTests` 常驻守卫）**：
-  ① **`Dispatch(Func<Task>)`（async lambda）全形态禁用**——lambda 首个 await 处即被放弃、返回任务被丢弃，await 前后抛的异常一律静默吞掉（探针实锤，`SettingsHeadlessTests`/`BackgroundImageServiceTests` 曾整文件假绿）；
-  ② **`Dispatch(Action)` 同步 lambda 必须 `await`**——不 await 则 lambda 只是排队、根本没跑，读局部变量恒为初值（实测踩坑）；await 后 lambda 在会话线程执行完毕才返回、**异常与断言失败正常传播**（探针实锤：`Action` 重载不吞断言，此前的"两类都不可信"认知系过度泛化）；
-  ③ **Bitmap/RenderTargetBitmap 只能在会话线程**（`await Dispatch(...)` 的同步 lambda 内）——测试线程直调抛 `InvalidOperationException: IPlatformRenderInterface`（locator 只在会话线程注册），且该异常会被服务的静默回退吞掉。lambda 内的异步服务调用用 `RunJobs` 泵到完成（先例：`BackgroundImageServiceTests.RunToCompletion`）；lambda 内保持无 await，断言与轮询一律放 Dispatch 之外（先例：`SettingsHeadlessTests`）；文件级落盘断言用 `JsonSerializer` 反序列化后断模型值，不要对原始文件文本做 Contains（JSON 转义与子串巧合都会骗过它——`LinuxFirstRunLaunchTests` 的 `Contains("{exe}")` 曾放行"模板已被重写为 native-umu {exe}"的事实，模型断言抓出）；CI 有 grep `Dispatch(async` 守卫禁用形态。
-- **headless 平台窗口只在 `Show()` 前接受 `Width/Height`，且设 `WindowState=Maximized` 不会自动铺满**（真合成器会铺满工作区，headless 不会）：测最大化相关视觉（图标/圆角）须构造时按 `Screens.ScreenFromWindow` 的工作区定尺寸再 `Show`（先例：`SidebarNavHeadlessTests.CustomTitleBar_ButtonsPresent_AndMaximizeIconToggles`；`MainWindow.axaml` 写死了 `Width="1464" Height="720"`，不覆盖就会用默认尺寸）。
-- **测窄窗口布局必须连 `MinWidth` 一起解除，并断言目标行为实际发生**：`MainWindow.axaml` 还写死了 `MinWidth="920"`，设 Width 低于它会被钳回 920，且 920 恰好触发侧栏自动收起（内容区反而变 852px）——两股力叠加后，想测的"放不下的窄布局"可能根本不存在，测试对旧代码假绿（2026-09-16 实锤：chips 行换行测试设 860 被钳回 920，最长行 790px 在收起态内容区里放得下，对修复前的 StackPanel 代码照样绿）。先例：`GameDetailPage_ChipsRow_LongStatus_WrapsInsteadOfClipping`（`MinWidth = 0` + `Width = 640` 构造，断言"版本 chip 换到状态 chip 下一行"这个行为本身，而非只断言"不越界"）。
-- **`IsHitTestVisible=False` 在 Avalonia 会把整棵子树剪出命中测试**（与 WPF 不同，子级设回 `True` 也翻不回来）：ToastHost 宿主曾在 ItemsControl 上设 `IsHitTestVisible="False"` 想"面板穿透、卡片设回 True"，结果所有 toast 的关闭钮都点不动——点击直接穿透到下层页面，4s 自灭掩盖了症状（2026-09-17 实锤）。穿透靠"无背景（null）不参与命中"的默认语义即达（宿主 Right/Top 对齐、尺寸贴合卡片；对照先例：`TitleDrag` 需显式 `Background="Transparent"` 才可命中）。回归必须走真实指针：`ToastHeadlessTests.ClickingCloseButton_RemovesToast_ViaRealHitTesting` 用 `MouseMove/MouseDown/MouseUp` 走命中链路——直接 `DismissCommand.Execute` 的 VM 层测试（`ToastTests.DismissCommand_RemovesToast`）拦不住这类视图层断裂。
-- **BoxShadow 无头渲染正常、真机渲染管线（原生 Wayland + NVIDIA + HDR 输出）会呈成边缘生硬的灰色矩形板**（2026-09-17 实锤：toast 卡阴影在用户屏幕上是"卡片同尺寸的硬边灰板"，观感即用户报告的"四角不是圆角、有矩形背景层"；同刻 grim 抓帧里阴影却几乎不存在——合成器截图缓冲与 HDR 扫描输出两条路径都不对，headless 截图则完全正常，三路互证）。弹层类 UI（toast/错误卡/修复确认条）的层次改用「描边 + 近实心底」表达，不要用 BoxShadow（NavIndicator 的 blur 8 小辉光保留为已知例外）。
-- **VM 测试两条时序坑**（2026-09-20 实锤复踩一次）：`MainWindowViewModel.Games` 集合在 `InitializeAsync` 之后才有值，先初始化再取 `Games[0]`，否则 `IndexOutOfRangeException`；`Progress<T>` 回调在线程池异步到达且多文件批量下载的进度是累计字节，断言进度字段须有界轮询或订阅 PropertyChanged 历史（先例 `GameItemProgressTests`），KB/MB 窗口类文案断言用单文件清单逐轮驱动。
 - **变异实验纪律**（scripts/mutation-smoke.mjs 头注释同款）：只对**已提交**状态做变异——`git checkout --` 还原会把目标文件上的未提交改动一并吃掉（实锤吃过一次修复）；变异后必须构建**测试工程**（测试 bin 持有独立依赖副本，只构建 src 项目不生效，Failed: 0 是假象）；测试数据必须能区分变异前后，否则"存活"无法判定。
 
 ## 其他坑

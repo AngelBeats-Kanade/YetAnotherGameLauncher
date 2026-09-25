@@ -51,6 +51,7 @@ Avalonia 12（本项目 12.1.2）+ .NET 10。跨平台 XAML（.axaml）UI 框架
 - **合成器会无视 `WindowDecorations="BorderOnly"` 给 X11 窗口画 SSD 标题条**：Linux 下在 `InitializeComponent()` 之后设 `WindowDecorations.None`（XAML 属性会覆盖构造函数先写的值）。
 - 长文案的状态 chip/提示条必须 `MaxWidth + TextWrapping`，否则会横穿窗口被裁（judge 实锤；详情页 chips 行整体限宽 640）。
 - 压在深色玻璃底/插画上的文字必须显式插画上前景（`AppOnArtworkBrush` 系），继承主题前景在亮色主题会黑字叠黑底（judge 实锤：操作坞值列）。
+- **BoxShadow 无头渲染正常、真机渲染管线（原生 Wayland + NVIDIA + HDR 输出）会呈成边缘生硬的灰色矩形板**（2026-09-17 实锤：toast 卡阴影在用户屏幕上是"卡片同尺寸的硬边灰板"；同刻 grim 抓帧里阴影却几乎不存在，headless 截图完全正常——三路互证）。弹层类 UI（toast/错误卡/修复确认条）的层次一律用「1px 描边 + 近实心底」表达，不要用 BoxShadow（NavIndicator 的 blur 8 小辉光是已知例外）。
 
 ## 布局模式（本项目 MainWindow）
 
@@ -66,9 +67,13 @@ Avalonia 12（本项目 12.1.2）+ .NET 10。跨平台 XAML（.axaml）UI 框架
 2. `Application.Current` 属于 UI 线程；后台线程改主题/控件需投递 Dispatcher。
 3. `Progress<T>` 回调异步投递且**不保证顺序**；测试收集用 `ConcurrentQueue`（见 `avalonia-headless-testing`）。
 4. Avalonia 12 的 `AvaloniaUI.DiagnosticsSupport` 包仅 Debug 有效，csproj 已条件化。
-5. ComboBox 绑定枚举：`ItemsSource` 给 `IReadOnlyList<Enum>` 属性 + `SelectedItem` 双向绑定，配合 `JsonStringEnumConverter`。
+5. ComboBox 绑定枚举：`ItemsSource` 给 `IReadOnlyList<Enum>` 属性 + `SelectedItem` 双向绑定，配合 `JsonStringEnumConverter`。**`SelectedItem` 按引用匹配**：从枚举"解析"出的选项若不是 `ItemsSource` 集合内的同一实例，下拉框显示空白（`LaunchSettingsViewModel.DetectLaunchMode` 返回 `LaunchModes.First(...)` 即此故）。
 6. 列表项 hover 高亮、按钮 accent 样式都走 `Classes` + 伪类选择器，不要内联触发器。
-7. **`IsHitTestVisible=False` 的视觉会被连整棵子树剪出命中测试**（与 WPF 不同，子级设回 `True` 翻不回来）：想要"宿主面板穿透、仅卡片可点"，靠宿主**无背景（null）不参与命中**的默认语义即达（无背景的控件不挡点击；需要可点时才显式 `Background="Transparent"`），不要在宿主上写显式 False——toast 关闭钮因此点不动过（2026-09-17 实锤，详见 AGENTS.md）。
+7. **`IsHitTestVisible=False` 的视觉会被连整棵子树剪出命中测试**（与 WPF 不同，子级设回 `True` 翻不回来）：想要"宿主面板穿透、仅卡片可点"，靠宿主**无背景（null）不参与命中**的默认语义即达（无背景的控件不挡点击；需要可点时才显式 `Background="Transparent"`），不要在宿主上写显式 False——toast 关闭钮因此点不动过（2026-09-17 实锤；回归必须走真实指针，见 `avalonia-headless-testing`）。
+8. **Transform 上不能写 `x:Name`**（AVLN2000）；该错误还可能让后续增量构建产出缺预编译 XAML 的程序集（运行时报 "No precompiled XAML"）——见到此错误先清 bin/obj 全量重建。
+9. **Fluent 主题的状态样式在模板 presenter 层写前景**：`Button` 的 `:pointerover`/`:pressed`/`:disabled` 把主题前景直接设在 `ContentPresenter#PART_ContentPresenter` 上，会压过 Button 本体的任何 Foreground（含继承）。自定义按钮的固定前景必须同样下沉到 presenter 层逐状态覆盖（先例：`Button.glass-onart` 组，MainWindow.axaml）。
+10. **`Image` 的 `UniformToFill` 默认按控件对齐居中裁切**：需要保住某一边（如海报左缘完整贴侧栏）时，设 `HorizontalAlignment="Left"` + `VerticalAlignment="Top"`，让测量出的封面尺寸向右/下溢出，由外层 `ClipToBounds` 裁掉。
+11. **Animation API（2026-09-21 实测，本项目编舞已弃用之，改手写驱动——见 docs/UI_STRUCTURE.md §2.1）**：`RunAsync` 目标必须是控件（Visual）；keyframe 属性写 `TranslateTransform.YProperty` 等 AttachedProperty 形态；keyframe 缓动用 `KeySpline`（没有 `Easing` 属性），且 **KeySpline 作用于"进入该帧"的段落**（帧 i 的样条管 i-1→i 段）；一个 KeyFrame 带多个 Setter 与拆成多条单属性动画**功能等价**（真机 A/B 插桩实测）——不要用"两动画失步"解释卡顿。空闲渲染循环下 Animation 时钟无法自举的根因见 docs/ARCHITECTURE.md §3.7。
 
 ## 写完 UI 后必做
 

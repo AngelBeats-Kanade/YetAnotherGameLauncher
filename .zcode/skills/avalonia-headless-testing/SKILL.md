@@ -84,13 +84,15 @@ public async Task Window_Shows_Items()
 
 - **测试类只要有任一路径触碰 Avalonia 位图/窗口/平台服务/`VmFactory`/`HeadlessSession`，就必须进 `[Collection("sequential")]`**（2026-09-25 泛化实锤）：这类类会触发或竞争 headless 平台首初始化，与并行组并发时别的测试在 Compositor 构造处炸 `InvalidOperationException`。两种实锤形态：①dlopen 竞争（`VideoBackdropPlayerCtsTests` 引爆 `BackgroundImageServiceTests`）；②`VmFactory` 构建 VM 触发平台初始化（`OpenFolderFailureTests` 不进集合时全量必炸、单跑必过——"单跑过全量炸"不是 flake，是并行冲突的特征指纹）。纯逻辑类不受限。
 - 所有 UI 对象操作必须在 `Dispatch` 内；`Application.Current` 属于 headless UI 线程。
-- **`Dispatch(Action)` 重载不泵异步续体**（async lambda 即 async void）：
-  服务内部 `await HttpClient`/`Task.Delay` 之类的真异步调用挂进去会**永久卡死**（await 后的续体
-  排进无人泵的队列）。12.1.2 起另有 `Dispatch(Func<Task>, CancellationToken) → Task` 可等待重载
-  且不被此坑（`StartupAssetPreloadTests`/`SettingsHeadlessTests` 在用）。非 UI 的异步服务调用（背景图加载等）在测试 ctor 触发
-  `HeadlessSession.Instance` 启动会话后**测试线程直调**即可——Bitmap 解码只依赖全局
-  Avalonia locator，线程无关（先例：`BackgroundResilienceTests`）。直接在 Dispatch 外调
-  `new Bitmap(...)` 会因 locator 未初始化抛 `IPlatformRenderInterface` 缺失。
+- **Dispatch 三条实测规则（2026-09-19 探针+位图实验实锤；哨兵 `DispatchSentinelTests` 常驻钉住②的传播属性）**：
+  ① **`Dispatch(Func<Task>)`（async lambda）全形态禁用**：本仓库 Avalonia 12.1.2 实为"发射后不管"——lambda 在首个 await 处即被放弃、返回任务不等待完成，await 前后抛的异常与断言一律静默吞掉（`SettingsHeadlessTests` 头注释、`StartupAssetPreloadTests` 审计注记实锤；两文件曾整文件假绿）。CI 有 grep `Dispatch(async` 守卫禁用形态。（历史勘误 2026-09-26：本 skill 曾称"12.1.2 的 `Func<Task>` 可等待重载不被此坑、先例 `BackgroundResilienceTests`"——该先例实为纯逻辑缓存测试（FakeImage，不经 Avalonia 解码），引用无效，勿再据此放开此形态。）
+  ② **`Dispatch(Action)` 同步 lambda 必须 `await`**：不 await 则 lambda 只是排队、根本没跑，读局部变量恒为初值；await 后 lambda 在会话线程执行完毕才返回，**异常与断言失败正常传播**（哨兵钉住）。该重载不泵异步续体——lambda 内保持**无 await**（真异步挂进去永久卡死），异步服务调用用 `RunJobs` 泵到完成（先例 `BackgroundImageServiceTests.RunToCompletion`、`StartupAssetPreloadTests`），断言与轮询一律放 Dispatch 之外（先例 `SettingsHeadlessTests`）。文件级落盘断言用 `JsonSerializer` 反序列化后断模型值，不要对原始文件文本做 Contains（JSON 转义与子串巧合都会骗过它——`LinuxFirstRunLaunchTests` 实锤）。
+  ③ **Bitmap/RenderTargetBitmap 只能在会话线程**（`await Dispatch(...)` 的同步 lambda 内）：测试线程直调抛 `InvalidOperationException: IPlatformRenderInterface`（渲染接口只在会话线程注册），且该异常会被服务的静默回退吞掉（`BackgroundImageServiceTests` 头注释实锤）。只有纯逻辑/缓存类服务（不经 Avalonia 解码，如 `BackgroundResilienceTests` 的 FakeImage 缓存策略）才可测试线程直调。
+- **headless 不执行动画**：样式动画与代码 `Animation.RunAsync` 都冻结在首帧（`ForceRenderTimerTick`/真实等待均无效）。模式：先写最终基值再播动画；需要测试落位时用 internal 开关跳过动画（先例：`MainWindow.NavIndicatorAnimationEnabled` / `SplashAnimationEnabled`，经 `InternalsVisibleTo` 暴露）。动画观感只能真机验证或截图 + judge（见 `avalonia-ui-review`）。
+- **窗口尺寸语义**：headless 窗口只在 `Show()` 前接受 `Width/Height`；设 `WindowState=Maximized` **不会自动铺满**（真合成器会铺满工作区，headless 不会）——测最大化相关视觉须构造时按 `Screens.ScreenFromWindow` 的工作区定尺寸再 `Show`（先例 `SidebarNavHeadlessTests.CustomTitleBar_ButtonsPresent_AndMaximizeIconToggles`）。`MainWindow.axaml` 写死 `Width="1464" Height="720"` 与 `MinWidth="920"`：测窄窗口必须连 `MinWidth` 一起解除（`MinWidth = 0` + 显式 Width），且 920 恰好触发侧栏自动收起（内容区反而变 852px）——两股力叠加后想测的"放不下的窄布局"可能根本不存在，测试对旧代码假绿（实锤：chips 换行测试设 860 被钳回 920，最长行 790px 在收起态内容区放得下）。要断言目标行为实际发生（如"版本 chip 换到下一行"），而非只断言"不越界"（先例 `GameDetailPage_ChipsRow_LongStatus_WrapsInsteadOfClipping`）。
+- 切页后模板在下轮布局构建：`window.UpdateLayout()`；落位类排队任务用 `Dispatcher.UIThread.RunJobs()` 冲刷。
+- **像素探针的坐标系**：`CaptureRenderedFrame().Lock()` 读像素用**全窗口帧坐标**——与 page 局部坐标差侧栏宽+页边距、与 scrim 等全出血层局部坐标又差 46px 内容卡偏移；侧栏收放（264↔68）还会让同一"局部"换算出两套窗口值（探针测试默认跑展开态）。几何采样一律由目标元素 `TranslatePoint` 推导到窗口坐标，不写裸数字（先例 `DetailPageHeadlessTests` 纱带探针；judge 交底模板见 `avalonia-ui-review` §3.5）。
+- `MainWindowViewModel.Games` 集合在 `InitializeAsync` 之后才有值：先初始化再取 `Games[0]`，否则 `IndexOutOfRangeException`。
 - 被测代码若会碰 UI（如切主题），实现层要自检 `CheckAccess()`/`Dispatcher.Post`（`ThemeService` 即范例）。
 - **视图层命中/交互回归必须走真实指针**：`window.MouseMove(center); window.MouseDown(center, MouseButton.Left); window.MouseUp(center, MouseButton.Left)`（中心点用 `TranslatePoint` 换算到窗口坐标，先例 `SidebarNavHeadlessTests` / `ToastHeadlessTests`）。直接 `command.Execute()` 的 VM 层测试拦不住命中测试断裂——toast 关闭钮被宿主 `IsHitTestVisible=False` 整树剪掉（Avalonia 语义：祖先剪枝连子级一起剪，子级设回 True 翻不回来），VM 测试全绿而按钮实际点不动，即此故。
 - **窗口已挂接后 VM 的 InitializeAsync 必须仍在会话线程内驱动**：`Games` 是 ObservableCollection，
@@ -116,6 +118,9 @@ public async Task Window_Shows_Items()
 
 ## 5. 平台相关测试（Windows / Linux 双平台 CI）
 
+- **平台分支本机只能执行到一边，另一边是死代码，本地全绿不代表分支正确**（v0.1.1 发布曾被 5 个
+  从未在 Windows 上绿过、本地 Linux 全绿的测试阻塞）——对侧正确性由 CI 双平台腿兜底，
+  写分支时按下面三条纪律把"另一边"显式建模。
 - 测试**不得依赖真机 OS**：本仓库 CI 矩阵在 windows-latest + ubuntu-latest 各跑一遍，
   任何"假设 Windows 行为"的测试都会把 Linux job 打红（2026-09 实修 4 处）。
 - App 测试经 `VmFactory.Build(platformInfo:, linuxProtonVersions:)` 注入平台；
@@ -128,5 +133,10 @@ public async Task Window_Shows_Items()
   真实平台上被前置门控挡住、不可达的场景（POSIX 执行位/符号链接语义、Windows 独占文件锁、
   权限位注入等）用 `Assert.Skip("原因")` 显式跳过——先例 20+ 处（2026-09-22 审计口径），
   对侧平台由 CI 双平台腿兜底；禁止无条件 Skip（那会让两个平台都失去覆盖）。
+- **Windows 上读生产进程正在写的日志**：`StreamWriter` 持写锁期间，测试轮询读同一日志必须以
+  `FileShare.ReadWrite` 打开（`File.ReadAllTextAsync` 直接 IOException；Linux 允许并发读所以
+  本地测不出，先例 `SystemProcessRunnerTests`）。
+- CI 失败注解只有用例名，断言消息需登录 Actions 看完整日志（logs API 要管理员权限，
+  check-runs 注解公开可读）。
 - 依赖真机状态的扫描（Proton 版本、/proc NVIDIA、$HOME）在测试里一律注入固定值，
   否则测试结果随执行机器漂移。
