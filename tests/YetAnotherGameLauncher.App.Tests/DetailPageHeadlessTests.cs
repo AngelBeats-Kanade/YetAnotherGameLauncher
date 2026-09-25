@@ -223,13 +223,27 @@ public class DetailPageHeadlessTests : IDisposable
                     + System.Runtime.InteropServices.Marshal.ReadByte(addr + 2);
             }
 
-            // x=680：chips 行 WrapPanel（x≈28 起、MaxWidth 640）最右到 x≈668——采样列在其右侧，
-            // 防未来长文案 chip 盖住采样点后 chip 自身暗底把守卫喂成假绿；y=60 带内上部
-            //（0.55 顶渐变，此处 α≈0.31）、y=450 带外纯背景（EmptyStateCard MaxWidth 480 够不到）。
+            // 采样点由 scrim 元素几何推导（右缘向内 100px）——不写裸窗口坐标。
+            // 坐标系坑实录（2026-09-25 一天咬两次）：LuminanceAt 用全窗口帧坐标；
+            // chips 行 WrapPanel 窗口可达域为 292..932（展开态侧栏 264 + 页边距 28 起点 +
+            // MaxWidth 640；状态 chip 自身右缘上限 773 = 292+481）——裸坐标 x=680 曾被
+            // 长文案 chip（右缘 773）盖住、chip 暗底把守卫喂绿（变异实验实锤）。
+            // scrim 全出血右缘=窗口右缘（1464 → 采样列 1364；MinWidth 920 自动收起场景
+            // 为 820），对 chips 帽 932 / 空态卡右缘 772 均有 ≥400px 净空。
+            // y 为 scrim 局部坐标：60 → 窗口 106 带内上部（0.55 顶渐变）、450 → 窗口 496
+            // 带外纯背景（操作坞顶 ≈640 之上不到）。
             // 先按截图测试同款等待真实时钟再推渲染计时器：首拍可能还没把海报画出来
             Thread.Sleep(150);
-            inBand = LuminanceAt(680, 60);
-            belowBand = LuminanceAt(680, 450);
+            var scrimResource = window.FindResource("AppOnArtworkScrimBrush");
+            var scrim = window.GetVisualDescendants().OfType<Border>()
+                .FirstOrDefault(b => ReferenceEquals(b.Background, scrimResource));
+            Assert.NotNull(scrim); // 纱带被移除时此处干净失败（而非 First 抛异常）
+            var inBandPoint = scrim.TranslatePoint(
+                new Point(scrim.Bounds.Width - 100, 60), window)!.Value;
+            var belowBandPoint = scrim.TranslatePoint(
+                new Point(scrim.Bounds.Width - 100, 450), window)!.Value;
+            inBand = LuminanceAt((int)inBandPoint.X, (int)inBandPoint.Y);
+            belowBand = LuminanceAt((int)belowBandPoint.X, (int)belowBandPoint.Y);
             window.Close();
         }, CancellationToken.None);
 
