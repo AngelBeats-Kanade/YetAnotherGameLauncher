@@ -87,6 +87,13 @@ public class CompatToolsScanDegradationTests : IDisposable
             return; // CA1416：SetUnixFileMode 仅 Unix；Windows 路径上无权限可恢复
         }
 
+        if (!Directory.Exists(PrimaryRoot))
+        {
+            // root 前提探针的 Skip 路径先于夹具构造抛出：无根目录即无权限可恢复，
+            // 对不存在路径 SetUnixFileMode 的异常会与 SkipTestException 合并成 FAIL
+            return;
+        }
+
         File.SetUnixFileMode(PrimaryRoot,
         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
         | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);

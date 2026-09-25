@@ -320,6 +320,19 @@ public class IncrementalUpdateServiceTests : IDisposable
         }
         else
         {
+            // root/CAP_DAC_OVERRIDE 豁免 DAC：去写权限构造不出"删不掉"形态（同族前提探针）
+            var dacProbe = Path.Combine(_tempDir.Path, "dac-probe.txt");
+            File.WriteAllText(dacProbe, "x");
+            File.SetUnixFileMode(dacProbe, UnixFileMode.None);
+            try
+            {
+                _ = File.ReadAllText(dacProbe);
+                Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），删不掉形态不成立");
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+
             // 删除依赖所在目录写位：去掉写位使 File.Delete 抛 UnauthorizedAccessException
             new DirectoryInfo(dir) { UnixFileMode = UnixFileMode.UserRead | UnixFileMode.UserExecute };
         }

@@ -34,9 +34,21 @@ public class FileUtilitiesTests : IDisposable
             Assert.Skip("Unix 权限模型：000 目录仅在 Linux 语义下确定性");
         }
 
-        if (Environment.UserName == "root")
+        // DAC 豁免读探针（机制本身，替代早期 Environment.UserName 形态——CAP_DAC_OVERRIDE
+        // 的非 root 进程同样豁免，用户名判断有双向泄漏）。!IsWindows 分支满足 CA1416
+        if (!OperatingSystem.IsWindows())
         {
-            Assert.Skip("root 不受目录 000 权限约束，前提不成立");
+            var dacProbe = Path.Combine(_temp.Path, "dac-probe.txt");
+            File.WriteAllText(dacProbe, "x");
+            File.SetUnixFileMode(dacProbe, UnixFileMode.None);
+            try
+            {
+                _ = File.ReadAllText(dacProbe);
+                Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），拒删形态不成立");
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
         }
 
         var root = _temp.FilePath("tree");
@@ -73,9 +85,21 @@ public class FileUtilitiesTests : IDisposable
             Assert.Skip("Unix 权限模型：000 目录仅在 Linux 语义下确定性");
         }
 
-        if (Environment.UserName == "root")
+        // DAC 豁免读探针（机制本身，替代早期 Environment.UserName 形态——CAP_DAC_OVERRIDE
+        // 的非 root 进程同样豁免，用户名判断有双向泄漏）。!IsWindows 分支满足 CA1416
+        if (!OperatingSystem.IsWindows())
         {
-            Assert.Skip("root 不受目录 000 权限约束，前提不成立");
+            var dacProbe = Path.Combine(_temp.Path, "dac-probe.txt");
+            File.WriteAllText(dacProbe, "x");
+            File.SetUnixFileMode(dacProbe, UnixFileMode.None);
+            try
+            {
+                _ = File.ReadAllText(dacProbe);
+                Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），拒删形态不成立");
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
         }
 
         var root = _temp.FilePath("locked-root");
