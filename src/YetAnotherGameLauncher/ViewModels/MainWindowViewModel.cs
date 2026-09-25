@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -1171,6 +1172,9 @@ public partial class SettingsViewModel : ViewModelBase
 {
     private readonly MainWindowViewModel _owner;
 
+    /// <summary>限速草稿上界（MB/s，1 TB/s）：界外按无效拒绝，防 Infinity/超 long 转换类畸形输入（F39）。</summary>
+    private const double MaxSpeedLimitMb = 1_000_000;
+
     /// <summary>radio 互斥协调的防重入守卫（级联清空其他项时不再反向触发）。</summary>
     private bool _syncingProxyRadios;
 
@@ -1198,7 +1202,7 @@ public partial class SettingsViewModel : ViewModelBase
     }
 
     private static string FormatSpeed(long bytes) =>
-        bytes <= 0 ? "0" : Math.Round(bytes / 1024.0 / 1024.0, 1).ToString("0.#");
+        bytes <= 0 ? "0" : Math.Round(bytes / 1024.0 / 1024.0, 1).ToString("0.#", CultureInfo.InvariantCulture);
 
     /// <summary>文案服务（转发主窗口实例，供 XAML 绑定）。</summary>
     public ILocalizationService Loc => _owner.Loc;
@@ -1323,7 +1327,11 @@ public partial class SettingsViewModel : ViewModelBase
     private async Task SaveDownloadLimitAsync(CancellationToken cancellationToken)
     {
         SpeedLimitSave.Clear();
-        if (!double.TryParse(SpeedLimitMbDraft.Trim(), out var mb) || mb < 0)
+        // 机器格式解析（InvariantCulture + 不带 AllowThousands）：草稿框显示的就是不变文化小数点，
+        // 跟随 CurrentCulture 会让逗号文化系统把 "0.5" 当千分位静默放大 10 倍（F39）；
+        // 非有限值（"1e999"→Infinity）与界外大数一并按无效拒绝——unchecked cast 曾把它们变负值持久化
+        if (!double.TryParse(SpeedLimitMbDraft.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var mb)
+            || !double.IsFinite(mb) || mb < 0 || mb > MaxSpeedLimitMb)
         {
             SpeedLimitSave.SetFailure(Loc["settings_downloadLimitInvalid"]);
             return;

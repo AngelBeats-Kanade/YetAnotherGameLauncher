@@ -50,8 +50,9 @@ public sealed class SpeedLimiter
             var durationTicks = (long)(_time.TimestampFrequency * bytes / (double)_bytesPerSecond);
             _nextFreeTimestamp = start + Math.Max(durationTicks, 1);
 
-            var waitTicks = start - now;
-            return waitTicks <= 0 ? TimeSpan.Zero : TimeSpan.FromTicks(waitTicks);
+            // GetTimestamp 的 tick 单位是 QPC 频率（Linux=1e9 纳秒），不是 TimeSpan tick（100ns）——
+            // 差值必须经 GetElapsedTime 按频率换算，直接 FromTicks 会把等待放大若干倍（Linux 恰 100 倍，F13）
+            return start <= now ? TimeSpan.Zero : _time.GetElapsedTime(now, start);
         }
     }
 }
