@@ -57,9 +57,20 @@ public sealed class LocalizationService : ILocalizationService
         }
 
         var culture = language.Trim();
-        return culture == DefaultLanguage || culture.StartsWith("en", StringComparison.OrdinalIgnoreCase)
-            ? culture
-            : DefaultLanguage; // 未提供的语言回退默认，避免整页缺译
+        if (culture == DefaultLanguage)
+        {
+            return culture;
+        }
+
+        // en 族归一到 en-US（次级 suspect 第 9 轮）：资源只有 strings_en-US.json，
+        // 裸 "en" 原样放行会 Load 空集逐键回退中文；"en-GB" 等未提供变体维持既有回退语义
+        //（见 LocalizationServiceTests.SetLanguage_UnprovidedEnVariant_FallsBackToDefaultStrings）
+        if (culture == "en-US")
+        {
+            return culture;
+        }
+
+        return culture == "en" ? "en-US" : DefaultLanguage; // 未提供的语言回退默认，避免整页缺译
     }
 
     private static string ResolveSystemCulture()

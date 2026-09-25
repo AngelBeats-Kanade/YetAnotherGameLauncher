@@ -548,8 +548,12 @@ public partial class MainWindowViewModel : ViewModelBase
             await _catalogService.SaveAsync(cancellationToken);
             return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            or GameCatalogValidationException)
         {
+            // GameCatalogValidationException（次级 suspect 第 10 轮加固）：未来某保存路径让
+            // 内存态变非法时，SaveAsync 写前校验的 throw 不得成为命令层无人接的未观察异常——
+            // 同样走落盘失败提示
             ConfigError = true;
             StatusMessage = _loc.Format("message_saveFailed", ex.Message);
             return false;

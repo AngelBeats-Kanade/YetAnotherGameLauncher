@@ -620,9 +620,22 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 UmuId = originalLaunch.UmuId,
             };
 
+            bool saved;
             try
             {
+                // 内层 try 只包 SaveAsync（次级 suspect 第 10 轮）：保存成功后的后置动作
+                //（脏标记复位/轻提示）若被同一个 catch 覆盖，后置动作的意外异常会被误判成
+                // "保存失败"而回滚已持久化的变更——内存退旧、磁盘留新
                 await _catalogService.SaveAsync(CancellationToken.None);
+                saved = true;
+            }
+            catch (Exception)
+            {
+                saved = false;
+            }
+
+            if (saved)
+            {
                 // 即时保存也是一次落盘：保存后草稿与已保存值重新一致，脏标记必须复位——
                 // 否则"保存启动设置"钮在无未保存变更时错误常亮（对照整卡保存三条退出路径的
                 // RecomputeDirty；草稿里若还有其余未保存字段，这里按实际比对保持脏态）
@@ -630,7 +643,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 // 变更恰好只有 PROTONPATH：沿用整卡保存的轻提示管线，按"Proton 发行版"汇报
                 RaiseChangedToast(false, false, false, false, ["PROTONPATH"]);
             }
-            catch (Exception)
+            else
             {
                 _game.Launch = originalLaunch; // 失败回滚，内存与磁盘保持一致（对照整卡 SaveAsync 的快照纪律）
                 RecomputeDirty();

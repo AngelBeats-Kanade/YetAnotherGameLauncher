@@ -111,6 +111,19 @@ public class LocalizationServiceTests
     }
 
     [Fact]
+    public void SetLanguage_BareEn_NormalizesToEnUs()
+    {
+        // 次级 suspect（第 9 轮，artifacts/bugs.md）：裸 "en"（手改 games.json 才可达的防御缺口）
+        // 原样放行会 Load 空集逐键回退中文——归一到 en-US 直接命中既有英文资源
+        var loc = new LocalizationService();
+
+        loc.SetLanguage("en");
+
+        Assert.Equal("en-US", loc.Language);
+        Assert.Equal("Settings", loc["common_settings"]);
+    }
+
+    [Fact]
     public void LanguageResources_HaveParity()
     {
         // 防漏译：默认语言与各翻译资源的键集必须完全一致

@@ -37,7 +37,7 @@ public partial class GameItemViewModel(
     /// <summary>原生 umu 组件准备器（设置卡检查/下载；null = 不可用）。</summary>
     private readonly IUmuComponentProvisioner? _umuProvisioner = umuProvisioner;
 
-    /// <summary>背景视频播放器（单例共享；null = 测试场景或平台无解码能力）。</summary>
+    /// <summary>背景视频播放器（按游戏独占 transient；null = 测试场景或平台无解码能力）。</summary>
     public IVideoBackdropPlayer? VideoPlayer { get; } = videoPlayer;
 
     /// <summary>视频起播延迟：跨越侧栏指示点迁移编舞（420ms）后再点亮新背景。
@@ -72,8 +72,23 @@ public partial class GameItemViewModel(
     /// <summary>显示名：配置 nameLocalized 按当前语言取值，缺失回退 displayName。</summary>
     public string DisplayName => ResolveDisplayName();
 
-    /// <summary>列表图标：显示名首字（icon 加载失败/未配置时的回退）。</summary>
-    public string IconText => string.IsNullOrEmpty(DisplayName) ? "?" : DisplayName[..1];
+    /// <summary>列表图标：显示名首字（icon 加载失败/未配置时的回退）。首字为代理对
+    /// （增补平面字符，如 emoji/生僻字）时取完整代理对，避免渲染出半个替换符
+    /// （次级 suspect 第 9 轮）。</summary>
+    public string IconText
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(DisplayName))
+            {
+                return "?";
+            }
+
+            return char.IsHighSurrogate(DisplayName[0]) && DisplayName.Length > 1
+                ? DisplayName[..2]
+                : DisplayName[..1];
+        }
+    }
 
     private string ResolveDisplayName()
     {
@@ -364,7 +379,7 @@ public partial class GameItemViewModel(
             : HasUpdate
                 ? Loc["status_hasUpdate"]
                 : PredownloadAvailable ? Loc["status_predownload"] : Loc["status_upToDate"];
-        RaiseStatusToast(newStatus);
+        RaiseStatusToast(newStatus, info.LatestVersion);
         // 侧栏短变体（评审 P2-11）：status_detected/notInstalled 的 EN(zh) 全文案在侧栏槽位
         // 过长/可更短，用 Short 键；其余状态无 Short 变体，保持全文。
         // 显式赋值而非"覆盖滞留"机制——同值赋值不触发通知会滞留覆盖（修复轮 review）
@@ -702,21 +717,28 @@ public partial class GameItemViewModel(
     /// <summary>状态文案的语义键（跨语言稳定）：RefreshAsync 早期会把 StatusText 清空，
     /// toast 的"是否变化"判定必须用这里记录的上次语义，而非 StatusText 现值——否则每次刷新
     /// （含语言切换）都会误判为变化而重复弹泡。</summary>
-    private string? _lastStatusSemantic;
+    /// <summary>已弹过状态的去重键集（语义；hasUpdate 附带最新版本号）：首轮刷新（启动预热）
+    /// 不弹——状态胶囊本就承载；此后值得被动告知的类别（检测到游戏/有更新/可预下载）仅首次
+    /// 弹出。单值"上一语义"在状态类别回摆（两服务器状态不同来回切换）时会反复重弹，且静默
+    /// 类别覆写记忆（次级 suspect 第 9 轮）——改为键集：hasUpdate 纳入版本号后同版本只弹一次，
+    /// 真正的新版本（3.7→3.8）是新键照常再弹；静默类别（other）不进集合不覆写记忆。</summary>
+    private readonly HashSet<string> _toastedStatusKeys = new(StringComparer.Ordinal);
 
-    /// <summary>首轮刷新（启动预热）不弹——状态胶囊本就承载；此后状态语义变化且属于值得被动
-    /// 告知的类别（检测到游戏/有更新/可预下载）才弹，已是最新/未安装/断网静默。</summary>
-    private void RaiseStatusToast(string newStatus)
+    private void RaiseStatusToast(string newStatus, string? latestVersion)
     {
         var semantic = newStatus == Loc["status_detected"] ? "detected"
             : newStatus == Loc["status_hasUpdate"] ? "hasUpdate"
             : newStatus == Loc["status_predownload"] ? "predownload"
             : "other";
-        var previous = _lastStatusSemantic;
-        _lastStatusSemantic = semantic;
         var wasArmed = _statusToastArmed;
         _statusToastArmed = true;
-        if (!wasArmed || previous == semantic || semantic == "other")
+        if (!wasArmed || semantic == "other")
+        {
+            return;
+        }
+
+        var dedupeKey = semantic == "hasUpdate" ? $"{semantic}|{latestVersion}" : semantic;
+        if (!_toastedStatusKeys.Add(dedupeKey))
         {
             return;
         }
@@ -829,6 +851,12 @@ public partial class GameItemViewModel(
         {
             StatusText = Loc.Format("status_launchFailed", ex.Message);
             LaunchError = CreateLaunchError(ex.Message, ex.ToString(), ex.LogPath, ex.Kind);
+        }
+        catch (OperationCanceledException)
+        {
+            // 取消不是启动失败（次级 suspect 第 9 轮）：当前无取消入口，但未来接入后
+            // 用户主动取消不得落 Unknown 类别弹错误覆盖层——豁免上抛，IsBusy 由 finally 复位
+            throw;
         }
         catch (Exception ex)
         {

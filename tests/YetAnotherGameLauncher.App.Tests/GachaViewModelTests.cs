@@ -100,4 +100,26 @@ public class GachaViewModelTests : IDisposable
         Assert.True(viewModel.Records[0].Rare5);
         Assert.True(viewModel.Records[1].Rare4);
     }
+
+    [Fact]
+    public async Task RebuildView_AllPoolView_ShowsTotalPullsAsSinceLastFiveStar()
+    {
+        // 次级 suspect（第 9 轮，artifacts/bugs.md）：保底进度按池独立累计才有意义——
+        // "全部"视图的跨池混算既非保底进度也无意义；按属性注释约定显示总抽数
+        var (_, viewModel) = await CreateInitializedViewModelAsync();
+        WriteGameLog();
+        _handler.Map("https://gmserver-api.aki-game2.com/gacha/record/query", """
+            {"code":0,"data":[
+              {"time":"2026-09-01 10:00:00","name":"Char A","qualityLevel":5},
+              {"time":"2026-09-01 09:00:00","name":"Weap B","qualityLevel":4}
+            ]}
+          """);
+
+        await viewModel.RefreshAsync();
+
+        Assert.Equal(14, viewModel.TotalCount);
+        Assert.Equal(14, viewModel.SinceLastFiveStar); // 红落此断言：旧形态跨池混算（各池最新都是五星 → 0）
+        viewModel.SelectedPool = viewModel.Pools.First(p => p.Type == 1);
+        Assert.Equal(0, viewModel.SinceLastFiveStar); // 单池视图保底进度语义不变
+    }
 }

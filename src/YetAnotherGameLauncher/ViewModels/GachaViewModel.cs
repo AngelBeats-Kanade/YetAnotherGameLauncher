@@ -81,7 +81,8 @@ public partial class GachaViewModel : ViewModelBase
     [ObservableProperty]
     private int _fourStarCount;
 
-    /// <summary>当前池距最近一个五星的抽数（保底进度，全部池视图无意义则显示总计）。</summary>
+    /// <summary>当前池距最近一个五星的抽数（保底进度按池独立累计；"全部"视图按注释约定
+    /// 显示总抽数——跨池混算既非保底进度也无意义，次级 suspect 第 9 轮修正为与注释一致）。</summary>
     [ObservableProperty]
     private int _sinceLastFiveStar;
 
@@ -166,6 +167,14 @@ public partial class GachaViewModel : ViewModelBase
         TotalCount = ordered.Count;
         FiveStarCount = ordered.Count(r => r.QualityLevel >= 5);
         FourStarCount = ordered.Count(r => r.QualityLevel == 4);
+        // 保底进度按池独立累计才有意义（注释自述"全部池视图无意义则显示总计"）：
+        // "全部"视图显示总抽数，不再跨池混算出既非保底进度也无意义的数字（次级 suspect 第 9 轮）
+        if (pool == 0)
+        {
+            SinceLastFiveStar = ordered.Count;
+            return;
+        }
+
         SinceLastFiveStar = 0;
         foreach (var record in ordered) // 时间倒序：遇到首个五星即为止
         {

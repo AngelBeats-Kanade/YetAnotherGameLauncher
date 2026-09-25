@@ -19,6 +19,57 @@ public class GameItemActionsTests : IDisposable
 
     public void Dispose() => _ctx.TempDir.Dispose();
 
+    [Fact]
+    public async Task RefreshAsync_HasUpdateToast_DedupedPerVersion()
+    {
+        // 次级 suspect（第 9 轮，artifacts/bugs.md）：_lastStatusSemantic 为语义单值——状态类别
+        // 回摆（服务器切换/检测波动）会反复弹"有可用更新"。修复 = hasUpdate 的去重键纳入
+        // 最新版本号：同版本只弹一次，真正的新版本照常再弹
+        await _ctx.Vm.InitializeAsync();
+        var wuwa = _ctx.Vm.Games[0];
+        SetupKuroUpToDate();
+        await wuwa.InstallOrUpdateCommand.ExecuteAsync(null); // 安装并到最新（3.6.0）
+
+        var toasts = new List<string>();
+        wuwa.StatusToastRequested += (_, msg, _) => toasts.Add(msg);
+
+        wuwa.ResetVersionCheckCache();
+        _ctx.Kuro.VersionInfo = new ChannelVersionInfo { LatestVersion = "3.7.0" };
+        await wuwa.RefreshAsync();
+        Assert.Single(toasts); // 首次出现更新：弹
+
+        wuwa.ResetVersionCheckCache();
+        _ctx.Kuro.VersionInfo = new ChannelVersionInfo { LatestVersion = "3.6.0" };
+        await wuwa.RefreshAsync(); // 回到最新（other 类别，静默）
+        wuwa.ResetVersionCheckCache();
+        _ctx.Kuro.VersionInfo = new ChannelVersionInfo { LatestVersion = "3.7.0" };
+        await wuwa.RefreshAsync(); // 回摆到同一版本的 hasUpdate
+        Assert.Single(toasts); // 红落此断言：旧单值语义在此重复弹
+
+        wuwa.ResetVersionCheckCache();
+        _ctx.Kuro.VersionInfo = new ChannelVersionInfo { LatestVersion = "3.8.0" };
+        await wuwa.RefreshAsync(); // 真正的新版本：必须再弹
+        Assert.Equal(2, toasts.Count);
+    }
+
+    [Fact]
+    public async Task IconText_SurrogatePairFirstName_TakesFullPair()
+    {
+        // 次级 suspect（第 9 轮，artifacts/bugs.md）：按 UTF-16 码元截首字会把代理对劈开，
+        // 增补平面首字（emoji 等）渲染成半个替换符
+        var json = VmFactory.SampleConfigJson.Replace(
+            "\"zh-CN\": \"鸣潮\"",
+            "\"zh-CN\": \"\U0001F3B4游戏\"");
+        Assert.NotEqual(VmFactory.SampleConfigJson, json); // 夹具自检：替换必须生效
+        using var ctx = VmFactory.Build(configJson: json);
+        await ctx.Vm.InitializeAsync();
+
+        var game = ctx.Vm.Games[0];
+
+        Assert.StartsWith("\U0001F3B4", game.DisplayName);
+        Assert.Equal(2, game.IconText.Length); // 红落此断言：旧形态截断成 1 个孤立代理项
+    }
+
     /// <summary>给鸣潮渠道配置"已安装即最新"的假清单与下载内容（含真实 exe 路径，安装后即可启动）。</summary>
     private void SetupKuroUpToDate()
     {
