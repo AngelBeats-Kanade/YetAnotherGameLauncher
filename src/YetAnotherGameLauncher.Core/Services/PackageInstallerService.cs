@@ -177,8 +177,16 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
         return staged;
     }
 
-    internal static void ExtractArchive(string archivePath, string installDir, string displayName)
+    /// <summary>默认解压体量上限（字节）：小压缩包吃 1GiB 绝对下限（合法补丁包永不被误杀），
+    /// 大压缩包吃 100 倍比例（合法包内容本已压缩、解压比≈1-3，炸弹比例成千）。</summary>
+    internal static long DeriveMaxExtractBytes(long archiveBytes) =>
+        Math.Max(archiveBytes * 100, 1L << 30);
+
+    internal static void ExtractArchive(string archivePath, string installDir, string displayName,
+        long? maxExtractBytes = null)
     {
+        var cap = maxExtractBytes ?? DeriveMaxExtractBytes(new FileInfo(archivePath).Length);
+        long declaredTotal = 0;
         try
         {
             // 不用 ZipFile.ExtractToDirectory：它在 Unix 上把含 '\' 的条目名当字面文件名
@@ -193,6 +201,15 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
                 if (target is null)
                 {
                     continue;
+                }
+
+                // 体量记账：zip bomb 的体量在中央目录的声明尺寸可见，累计超阈值即拒，
+                // 超限条目不落盘（加固项，artifacts/bugs.md——威胁模型下路径有防线、体量原本没有）
+                declaredTotal += entry.Length;
+                if (declaredTotal > cap)
+                {
+                    throw new IOException(
+                        $"Archive declares {declaredTotal} bytes total, exceeding extraction cap {cap}: {displayName}");
                 }
 
                 // 既有目录符号链接会让词法沙箱失效：CreateDirectory 对链接目录是 no-op，
@@ -211,11 +228,27 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
 
                 if (File.Exists(target))
                 {
+                    // 硬链接没有 ReparsePoint 标记（F43）：File.GetAttributes 返回共享 inode 的
+                    // 属性，上述符号链接防线对它全部失效——ExtractToFile(overwrite:true) 沿既有
+                    // inode 写会截断改写同卷沙箱外的真实文件。链接数 > 1 = 与沙箱外共享 inode，拒绝
+                    if (FileUtilities.HardLinkCount(target) > 1)
+                    {
+                        throw new IOException($"Archive target is an existing hard link: {target}");
+                    }
+
                     // 只读属性会让 overwrite 失败（Windows），就地解除
                     File.SetAttributes(target, File.GetAttributes(target) & ~FileAttributes.ReadOnly);
                 }
 
                 entry.ExtractToFile(target, overwrite: true);
+
+                // 中央目录可能谎报声明尺寸（定制炸弹声明 10 实际吐 GB 级）：写完实测对账，
+                // 撒谎条目在写入后立即暴露（诚实打包的条目两者恒等）
+                if (new FileInfo(target).Length != entry.Length)
+                {
+                    throw new IOException(
+                        $"Archive entry {entry.FullName} declares {entry.Length} bytes but wrote {new FileInfo(target).Length}");
+                }
             }
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)

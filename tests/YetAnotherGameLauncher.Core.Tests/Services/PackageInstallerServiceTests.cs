@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Xunit;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
@@ -365,4 +366,90 @@ public class PackageInstallerCollisionTests : IDisposable
         Assert.NotNull(ex); // 红落此断言：当前静默写穿
         Assert.Equal("victim-original", File.ReadAllText(outside)); // 沙箱外文件不得被改写
     }
+
+    [Fact]
+    public void ExtractArchive_ExistingHardLinkAtTarget_RejectedInsteadOfWritingThrough()
+    {
+        // F43（artifacts/bugs.md）：硬链接没有 ReparsePoint 标记，File.GetAttributes 返回的
+        // 是共享 inode 的属性——目录/文件符号链接防线对它全部失效，ExtractToFile(overwrite:true)
+        // 沿既有 inode 写会截断改写同卷沙箱外真实文件。link(2)/CreateHardLinkW 双平台均无需
+        // 特权；victim 与 install 同在 TempDir 下保证同卷
+        if (!(OperatingSystem.IsLinux() || OperatingSystem.IsWindows()))
+        {
+            Assert.Skip("硬链接创建仅验证 Linux/Windows 双腿");
+        }
+
+        var outside = _tempDir.FilePath("outside-victim.txt");
+        File.WriteAllText(outside, "victim-original");
+        var installDir = _tempDir.FilePath("install");
+        Directory.CreateDirectory(Path.Combine(installDir, "mods"));
+        MakeHardLink(Path.Combine(installDir, "mods", "evil.txt"), outside);
+
+        var zipPath = _tempDir.FilePath("pkg.zip");
+        File.WriteAllBytes(zipPath, TestZip.Create(("mods/evil.txt", "EVIL-VIA-HARDLINK")));
+
+        var ex = Record.Exception(() => PackageInstallerService.ExtractArchive(zipPath, installDir, "pkg.zip"));
+
+        Assert.NotNull(ex); // 红落此断言：当前对硬链接目标静默写穿
+        Assert.Equal("victim-original", File.ReadAllText(outside)); // 共享 inode 的沙箱外文件不得被改写
+    }
+
+    [Fact]
+    public void ExtractArchive_DeclaredTotalOverCap_ThrowsBeforeExtractingRemainingEntries()
+    {
+        // 加固（artifacts/bugs.md）：清单不可信威胁模型下解压无体量上限，zip bomb 可写满磁盘。
+        // 累计声明尺寸（entry.Length）达阈值即拒；测试缝注入小阈值。红证据：超限后剩余条目未落盘
+        var zipPath = _tempDir.FilePath("bomb.zip");
+        File.WriteAllBytes(zipPath, TestZip.Create(
+            ("data/f0.bin", new string('0', 4096)),
+            ("data/f1.bin", new string('0', 4096)),
+            ("data/f2.bin", new string('0', 4096)),
+            ("data/f3.bin", new string('0', 4096)),
+            ("data/f4.bin", new string('0', 4096)),
+            ("data/f5.bin", new string('0', 4096)),
+            ("data/f6.bin", new string('0', 4096)),
+            ("data/f7.bin", new string('0', 4096))));
+        var installDir = _tempDir.FilePath("install");
+        Directory.CreateDirectory(installDir);
+
+        var ex = Record.Exception(() =>
+            PackageInstallerService.ExtractArchive(zipPath, installDir, "bomb.zip", maxExtractBytes: 8 * 1024));
+
+        Assert.NotNull(ex); // 红落此断言：当前无上限、全量解压
+        Assert.True(File.Exists(Path.Combine(installDir, "data", "f1.bin"))); // 阈值内条目正常落盘
+        Assert.False(File.Exists(Path.Combine(installDir, "data", "f7.bin"))); // 超限后不再解压
+    }
+
+    [Fact]
+    public void DeriveMaxExtractBytes_FloorForSmallArchives_RatioForLargeOnes()
+    {
+        // 默认阈值双腿：小压缩包吃 1GiB 绝对下限（合法补丁包永不被误杀），大压缩包吃
+        // 100 倍比例（合法包内容已压缩、比例≈1-3，炸弹比例成千）
+        Assert.Equal(1L << 30, PackageInstallerService.DeriveMaxExtractBytes(1024));
+        Assert.Equal(100L * (1L << 30), PackageInstallerService.DeriveMaxExtractBytes(1L << 30));
+    }
+
+    /// <summary>创建硬链接（F43 测试夹具）：Windows 走 CreateHardLinkW，其余走 link(2)。</summary>
+    private static void MakeHardLink(string linkPath, string existingPath)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            if (!CreateHardLink(linkPath, existingPath, IntPtr.Zero))
+            {
+                throw new IOException($"CreateHardLinkW failed, win32 error {Marshal.GetLastWin32Error()}");
+            }
+        }
+        else if (link(existingPath, linkPath) != 0)
+        {
+            throw new IOException($"link(2) failed, errno {Marshal.GetLastWin32Error()}");
+        }
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "CreateHardLinkW")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern bool CreateHardLink(string lpFileName, string lpExistingFileName, IntPtr lpSecurityAttributes);
+
+    [DllImport("libc", SetLastError = true, EntryPoint = "link")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
+    private static extern int link(string oldpath, string newpath);
 }

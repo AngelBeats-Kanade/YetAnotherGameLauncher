@@ -312,4 +312,48 @@ public class ManifestVerifierMissingInfoTests
             ManifestVerifier.FileRemovedBetweenCheckAndProbeForTests = null;
         }
     }
+
+    [Fact]
+    public void CheckFile_F44_UnreadableFile_ReportsUnreadableInsteadOfThrowing()
+    {
+        // F44（artifacts/bugs.md）：chmod 000/ACL 拒读时 Hashing.Md5Hex 的 File.OpenRead 抛
+        // UnauthorizedAccessException 裸穿（catch 只接 FNFE/DNFE），整轮校验中止——与 F18 同型
+        // 的 best-effort 失守，映射 Unreadable 并入 NeedsDownload 走补下载语义而非炸掉校验轮。
+        // 前提自检（AGENTS.md 复审纪律 2）：root/CAP_DAC_OVERRIDE 无视权限位，构造不出拒读形态
+        //（正向守卫 + else Skip：CA1416 平台分析器只认 OperatingSystem.IsLinux() 直接分支）
+        if (OperatingSystem.IsLinux())
+        {
+            var data = new byte[] { 7, 8, 9, 10 };
+            var manifest = new GameManifest
+            {
+                Version = "1.0.0",
+                Files = [new ManifestFile("locked.bin", data.Length, Hashing.Md5Hex(data))],
+            };
+
+            using var dir = new TempDir();
+            var file = dir.FilePath("locked.bin");
+            File.WriteAllBytes(file, data);
+            File.SetUnixFileMode(file, UnixFileMode.None);
+            try
+            {
+                using (File.OpenRead(file))
+                {
+                    Assert.Skip("当前进程可无视权限位读文件（root/CAP_DAC_OVERRIDE），无法构造拒读形态");
+                }
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // 前提成立：读确实被拒
+            }
+
+            var ex = Record.Exception(() => ManifestVerifier.CheckFile(file, manifest.Files[0], withMd5: true));
+
+            Assert.Null(ex); // 红落此断言：当前 UnauthorizedAccessException 裸穿
+            Assert.Equal(FileStatus.Unreadable, ManifestVerifier.CheckFile(file, manifest.Files[0], withMd5: true));
+        }
+        else
+        {
+            Assert.Skip("chmod 权限位拒读语义仅 Linux 确定性（Windows ACL 形态不同）");
+        }
+    }
 }

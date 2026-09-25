@@ -9,6 +9,10 @@ public enum FileStatus
     Missing,
     SizeMismatch,
     Md5Mismatch,
+
+    /// <summary>存在但被拒读（chmod 000/ACL）：≠缺失（报 Missing 会触发重下、重下同样拒读的循环面），
+    /// 并入 NeedsDownload 走一轮补下载，复验仍不可读时由 SyncAsync 以结构化报错收尾（F44）。</summary>
+    Unreadable,
 }
 
 /// <summary>单个文件的检查结果。</summary>
@@ -57,7 +61,9 @@ public static class ManifestVerifier
     /// （与 <see cref="HttpFileDownloader.Verify"/> 同一语义，2026-09-20 复审补齐）。
     /// 探测段整体包 <see cref="FileNotFoundException"/>：Exists 与 Length/Md5 之间文件被外部
     /// 移除（手删/云同步隔离/杀毒）时按 Missing 报告走补下载，而不是让整轮校验以裸异常中止
-    /// （F18——只包 Length 段会漏 MD5 段的 Hashing.Md5Hex 内部 File.OpenRead）。</summary>
+    /// （F18——只包 Length 段会漏 MD5 段的 Hashing.Md5Hex 内部 File.OpenRead）。
+    /// 拒读（chmod 000/ACL）另报 <see cref="FileStatus.Unreadable"/>（F44）：缺失与拒读语义
+    /// 分开，均不中止整轮校验。</summary>
     public static FileStatus CheckFile(string fullPath, ManifestFile file, bool withMd5)
     {
         if (!File.Exists(fullPath))
@@ -87,6 +93,13 @@ public static class ManifestVerifier
             // FNFE = 文件被移除（FileInfo.Length）；DNFE = 父目录被移除（Hashing.Md5Hex 的
             // File.OpenRead 对父目录缺失抛 DNFE）——同一 TOCTOU 族，均按 Missing 走补下载
             return FileStatus.Missing;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // F44：拒读（chmod 000/ACL）≠ 缺失——报 Missing 会触发重下、重下同样被拒的循环面。
+            // 独立 Unreadable 并入 NeedsDownload：一轮补下载（写盘 UAE 由下载器的本地错误臂
+            // 分类），复验仍不可读时 SyncAsync 以 "path(Unreadable)" 结构化报错收尾，轮次有界
+            return FileStatus.Unreadable;
         }
     }
 

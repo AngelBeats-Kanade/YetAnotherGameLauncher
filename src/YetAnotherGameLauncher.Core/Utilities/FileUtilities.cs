@@ -1,10 +1,97 @@
 namespace YetAnotherGameLauncher.Core.Utilities;
 
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 
 /// <summary>文件工具：原子写入、静默删除、文件名清洗与可执行位检查。</summary>
 public static class FileUtilities
 {
+    /// <summary>
+    /// 目标路径的硬链接数（同一 inode 的目录项数；F43）。.NET 无可移植 API：
+    /// Linux x64 经 stat(2) 的 st_nlink，Windows 经 GetFileInformationByHandle 的
+    /// nNumberOfLinks。探测失败、路径不存在、其他平台/架构（aarch64 的 stat 布局
+    /// 不同，未实现）一律返回 1——按"非硬链接"放行，与 <see cref="IsReparsePoint"/>
+    /// 的失败语义一致（后续写入自会暴露真实问题）。
+    /// </summary>
+    internal static long HardLinkCount(string path)
+    {
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                using var handle = File.OpenHandle(
+                    path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                return GetFileInformationByHandle(handle, out var info) ? info.NumberOfLinks : 1;
+            }
+
+            if (OperatingSystem.IsLinux() && RuntimeInformation.ProcessArchitecture == Architecture.X64)
+            {
+                return stat(path, out var st) == 0 ? unchecked((long)st.st_nlink) : 1;
+            }
+
+            return 1;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return 1;
+        }
+    }
+
+    /// <summary>Linux x64 的 struct stat（内核 ABI 布局，共 144 字节—— marshaling 缓冲必须
+    /// 等大，声明不足会被 stat(2) 越界写）。填充字段按平台 ABI 占位，无语义。</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct StatLinuxX64
+    {
+        public ulong st_dev;
+        public ulong st_ino;
+        public ulong st_nlink;
+        public uint st_mode;
+        public uint st_uid;
+        public uint st_gid;
+        public readonly uint Pad0;
+        public ulong st_rdev;
+        public ulong st_size;
+        public ulong st_blksize;
+        public ulong st_blocks;
+        public ulong st_atime;
+        public ulong st_atime_nsec;
+        public ulong st_mtime;
+        public ulong st_mtime_nsec;
+        public ulong st_ctime;
+        public ulong st_ctime_nsec;
+        public readonly ulong Unused0;
+        public readonly ulong Unused1;
+        public readonly ulong Unused2;
+    }
+
+    [DllImport("libc", SetLastError = true, EntryPoint = "stat")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
+    private static extern int stat(string pathname, out StatLinuxX64 statbuf);
+
+    /// <summary>BY_HANDLE_FILE_INFORMATION（FILETIME 按 4 字节对齐展开成两个 uint，
+    /// NumberOfLinks 落在偏移 40——用 ulong 字段会被 8 字节对齐插出错误布局）。</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ByHandleFileInformation
+    {
+        public uint FileAttributes;
+        public uint CreationTimeLow;
+        public uint CreationTimeHigh;
+        public uint LastAccessTimeLow;
+        public uint LastAccessTimeHigh;
+        public uint LastWriteTimeLow;
+        public uint LastWriteTimeHigh;
+        public uint VolumeSerialNumber;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+        public uint NumberOfLinks;
+        public uint FileIndexHigh;
+        public uint FileIndexLow;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true, EntryPoint = "GetFileInformationByHandle")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern bool GetFileInformationByHandle(
+        Microsoft.Win32.SafeHandles.SafeFileHandle hFile, out ByHandleFileInformation information);
     /// <summary>原子写入文本：先写同目录 .tmp 再 Move 覆盖，避免写入中途崩溃损坏目标文件。</summary>
     public static async Task WriteAtomicAsync(string path, string content, CancellationToken cancellationToken = default)
     {
