@@ -1,4 +1,5 @@
 using Xunit;
+using YetAnotherGameLauncher.TestSupport;
 using YetAnotherGameLauncher.ViewModels;
 
 namespace YetAnotherGameLauncher.AppTests;
@@ -72,23 +73,10 @@ public class SettingsSaveFailureTests : IDisposable
 
     private static void MakeDirectoryUnwritable(string dir)
     {
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
-        var probe = Path.Combine(dir, ".yagl-write-probe");
-        try
-        {
-            File.WriteAllText(probe, "x");
-            File.Delete(probe);
-        }
-        catch (Exception)
+        if (!DacExemptionProbe.TryMakeDirectoryUnwritable(dir))
         {
             Assert.Skip("非 root 才能通过权限位制造写失败（当前以 root 运行，权限注入无效）");
         }
-
-        File.SetUnixFileMode(dir, UnixFileMode.None);
     }
 
     private static void RestoreDirectoryWritable(string dir)

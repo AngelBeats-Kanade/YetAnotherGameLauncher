@@ -42,4 +42,33 @@ public static class DacExemptionProbe
             }
         }
     }
+
+    /// <summary>
+    /// 把目录置为不可写（mode-000）以注入"删除/写入被拒"形态；置位前以写+删探针自检——
+    /// DAC 豁免进程（root/CAP_DAC_OVERRIDE）注入无效，返回 false，调用方应 Skip。
+    /// Windows 无 Unix 权限位语义：no-op 返回 true（Windows 腿的占用/只读形态由调用方自建）。
+    /// </summary>
+    /// <param name="dir">目标目录（须已存在）。</param>
+    /// <returns>true = 目录已置为不可写；false = 注入无效（DAC 豁免），调用方应 Skip。</returns>
+    public static bool TryMakeDirectoryUnwritable(string dir)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return true;
+        }
+
+        var probe = Path.Combine(dir, ".yagl-write-probe");
+        try
+        {
+            File.WriteAllText(probe, "x");
+            File.Delete(probe);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+
+        File.SetUnixFileMode(dir, UnixFileMode.None);
+        return true;
+    }
 }

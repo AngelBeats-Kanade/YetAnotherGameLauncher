@@ -331,20 +331,15 @@ public class ManifestVerifierMissingInfoTests
             };
 
             using var dir = new TempDir();
+            // root/CAP_DAC_OVERRIDE 豁免 DAC：拒读形态构造不出（同族前提探针）
+            if (DacExemptionProbe.Exempt(dir.Path))
+            {
+                Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），拒读形态不成立");
+            }
+
             var file = dir.FilePath("locked.bin");
             File.WriteAllBytes(file, data);
             File.SetUnixFileMode(file, UnixFileMode.None);
-            try
-            {
-                using (File.OpenRead(file))
-                {
-                    Assert.Skip("当前进程可无视权限位读文件（root/CAP_DAC_OVERRIDE），无法构造拒读形态");
-                }
-            }
-            catch (UnauthorizedAccessException)
-            {
-                // 前提成立：读确实被拒
-            }
 
             var ex = Record.Exception(() => ManifestVerifier.CheckFile(file, manifest.Files[0], withMd5: true));
 
