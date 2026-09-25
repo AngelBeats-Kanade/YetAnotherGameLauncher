@@ -46,9 +46,7 @@ Avalonia 12（本项目 12.1.2）+ .NET 10。跨平台 XAML（.axaml）UI 框架
 
 ## Linux 渲染（实踩）
 
-- **Linux 窗口后端：原生 Wayland 优先（Avalonia 12.1 实验性后端，`Avalonia.Wayland` 包 + `UseWayland()` 显式启用）+ X11/XWayland 回退**：`UsePlatformDetect()` 不会自动选中 Wayland 且无自动回退，由 `Services/WaylandBackendPolicy` 先决（Linux 且 `WAYLAND_DISPLAY` 非空 → 原生 Wayland；`YAGL_FORCE_XWAYLAND=1` 逃生舱回退）。X11 路径渲染模式显式 `RenderingMode = [Egl, Glx, Software]`——GLX 在 XWayland+NVIDIA 下是糊化/撕裂高发点。已知差异：原生 Wayland 窗口 class/app_id 为空（窗口规则匹配不到），且会把平铺误报为 `WindowState.Maximized`（`Services/WindowStateMapper` 视觉判定修复）。
-- **XWayland 拿不到合成器分数缩放**（X 恒报 96dpi）：4K+1.67 桌面上 UI 会按物理像素渲染（小字且糊）。`Program.TrySyncXftDpiWithCompositor` 启动时把 Hyprland 缩放写进 `Xft.dpi`（仅用户未设置时）。Avalonia 12 已无 `AVALONIA_SCREEN_SCALE_FACTORS` 环境变量。
-- **合成器会无视 `WindowDecorations="BorderOnly"` 给 X11 窗口画 SSD 标题条**：Linux 下在 `InitializeComponent()` 之后设 `WindowDecorations.None`（XAML 属性会覆盖构造函数先写的值）。
+- **Linux 平台后端与窗口状态**（原生 Wayland 优先决策与 `YAGL_FORCE_XWAYLAND` 逃生舱 / EGL 优先 / Wayland 后端 Maximized 误报与视觉最大化判定 / Xft.dpi 分数缩放同步 / SSD 标题条与 `WindowDecorations.None` 后置）：单一事实源 docs/ARCHITECTURE.md §3.8——改 `Program.cs`/`WaylandBackendPolicy`/`WindowStateMapper` 前先读对应节。
 - 长文案的状态 chip/提示条必须 `MaxWidth + TextWrapping`，否则会横穿窗口被裁（judge 实锤；详情页 chips 行整体限宽 640）。
 - 压在深色玻璃底/插画上的文字必须显式插画上前景（`AppOnArtworkBrush` 系），继承主题前景在亮色主题会黑字叠黑底（judge 实锤：操作坞值列）。
 - **BoxShadow 无头渲染正常、真机渲染管线（原生 Wayland + NVIDIA + HDR 输出）会呈成边缘生硬的灰色矩形板**（2026-09-17 实锤：toast 卡阴影在用户屏幕上是"卡片同尺寸的硬边灰板"；同刻 grim 抓帧里阴影却几乎不存在，headless 截图完全正常——三路互证）。弹层类 UI（toast/错误卡/修复确认条）的层次一律用「1px 描边 + 近实心底」表达，不要用 BoxShadow（NavIndicator 的 blur 8 小辉光是已知例外）。

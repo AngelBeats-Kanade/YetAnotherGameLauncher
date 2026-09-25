@@ -158,7 +158,11 @@ UMU_ID 由 `launch.umuId` 覆盖（对齐 umu 数据库规范 ID：鸣潮 `umu-3
 
 外部 `umu-run` zipapp 路径（`UmuLauncherInstaller`）已整体移除；存量模板经 schemaVersion 5 迁移转入原生链。
 Wine prefix 统一在 `{数据目录}/yagl/prefixes/<游戏id>`（`STEAM_COMPAT_DATA_PATH` 同址），
-绝不写入游戏安装目录——安装同步的清单外清理不会误删 prefix（`compatdata` 另在保留名单纵深防御）。
+绝不写入游戏安装目录——安装同步的清单外清理不会误删 prefix（`GameInstallService.PreservedEntries`
+保留名单把 prefix/`compatdata` 列入纵深防御：prefix 内有注册表/着色器缓存/用户数据，误删即毁游戏环境）。
+本地解析同样按主机架构过滤（`FindInstalledProton` byName 与 `FindLatestLocalProton` 经 `MatchesHostArch`）：
+已装的错架构目录视同缺失、下次启动自动重装自愈。更新清理（`PruneOtherProtonVersions`）与安装共用
+`proton.lock`；更新确认覆盖层提示先退出运行中的游戏（删旧版会让运行中游戏的延迟加载失效）。
 （唯一例外是首运配置生成：Linux 会把默认 `{exe}` 升级为推荐链再落盘，见 GAME_CONFIG.md。）
 
 ### 3.2 全量同步（文件式）
@@ -295,6 +299,23 @@ flowchart LR
   下载 BtbN LGPL 共享构建（SHA256 校验后解压到 `%DataDirectory%/ffmpeg/<rid>/`；
   2026-09-22 起 ffmpeg/背景/图标缓存统一从 %ConfigDirectory% 迁到 %DataDirectory%——可重建
   缓存归数据目录，config 下的旧副本成遗留、可手动删除）。
+  **解压必须还原符号链接**（2026-09-24 P0 实锤）：SharpCompress `WriteEntryTo` 对 SymbolicLink 条目
+  摊平成 0 字节普通文件——BtbN 包里全部短名 soname（`libavcodec.so.63` 等）以链接形态存在；
+  `ExtractArchive` 经 `IEntry.LinkTarget` 还原真链接（目标限同目录裸文件名，逃逸即拒）。凡解包
+  不可信外部归档都要显式处理链接条目（zip `\` 条目名坑同族，见 `PackageInstallerService.ExtractArchive`）。
+  **目录内库按依赖序预载**（同日 P0 实锤）：BtbN 库间 DT_NEEDED 只有同伴 soname 且**无 RUNPATH**，
+  glibc 不会到被加载库自己的目录找依赖——不按 `LibraryDependencyOrder`（avutil 最先、avcodec 先于
+  avformat）先 dlopen 驻留，avformat/avcodec 必落 AutoGen throw-stub、起播抛 `NotSupportedException`。
+  就绪判定不能只探 `av_version_info()`（avutil 独立可加载 + ABI 稳定，会放行残缺绑定）——探针必须
+  覆盖实际调用面（教训泛化见 DEVELOPMENT.md §3.6）。
+  **测试缝与 DI**：构造签名 `FfmpegLibraryResolver(proxyManager, logger?, downloadClient?, downloadRoot?)`
+  的两个可选缝供测试注入（`StubHttpHandler` + 临时目录根，先例 `VideoBackdropPlayerCtsTests`/
+  `FfmpegLibraryResolverDownloadTests`——否则无库新环境会真实下载约 60–70MB 并写真实用户目录）。
+  DI 注册必须走**显式工厂**：容器注册过 `HttpClient`（全局 30s）后，类型激活会把 `downloadClient`
+  的 null 默认劫持为容器实例、15 分钟专用超时成死代码（组合根装配断言钉住）。
+  **改本链（`FfmpegLibraryResolver`/FFmpeg 绑定/dlopen）必须真机冒烟**：绑定成功路径无法离线覆盖
+  （测试夹具是假库字节，真绑定每进程只有一次机会），最低验证 = 跑应用看 `FFmpeg libraries ready`
+  日志 + 解码器协商 + 无 `Video backdrop playback failed`（DEVELOPMENT.md §3.6）。
 - **无缝循环（v2，2026-09-21）**：`SeamAnalyzer` 把头/尾各约 3s 的帧缩为 64×36 **RGB** 缩略
   （纯灰度会漏掉同亮度不同色相的跳变），按综合分搜索循环点——三通道全局平均差 + 最差分块
   （8×4 网格）均值的加权惩罚（局部动作跳变不被全局平均淹没）+ 后续 2 帧的时序连续性项
@@ -351,8 +372,34 @@ flowchart LR
   `StartVideoAsync` 的起播延迟窗口内离页放弃起播，不在页外隐形解码。
   关窗/程序性退出经 `StopBackdropVideo` 逐游戏全停（含暂停保活中的会话，退出期 GPU 栈必须
   先行静止）；installRoot 变更重建列表时旧 VM 的会话同样在 `RebuildGames` 内全停释放。
-- **关键约束**：本机 BtbN FFmpeg n9.0 构建的 mov demuxer 上 seek 不可靠——
-  所有路径一律顺序读取 + 帧丢弃对齐，禁止带时间戳的 seek。
+- **关键约束**：本机 BtbN FFmpeg n9.0 构建的 mov demuxer 上 `av_seek_frame` 后 `av_read_frame` 会提前
+  `AVERROR_EOF`（新开 demuxer 或非 EOF 状态都可能），且 seek 返回 0 不报错——
+  所有路径一律顺序读取 + 帧丢弃对齐，禁止带时间戳的 seek（循环点对齐即此方案）。
+
+### 3.8 平台后端与窗口状态（Linux）
+
+- **原生 Wayland 优先（Avalonia 12.1 实验性）+ X11/XWayland 回退**：独立 `Avalonia.Wayland` 包 +
+  `UseWayland()` 显式启用；`UsePlatformDetect()` 不会自动选中且**无自动回退**（无 Wayland 合成器时
+  直接启动失败），故必须条件启用。决策在 `Services/WaylandBackendPolicy`（纯函数，决策表测试）：
+  Linux 且 `WAYLAND_DISPLAY` 非空 → 原生 Wayland；`YAGL_FORCE_XWAYLAND=1`（或 true）逃生舱回退
+  X11。X11 路径渲染显式 EGL 优先（`X11PlatformOptions.RenderingMode = [Egl, Glx, Software]`——GLX 在
+  XWayland+NVIDIA 下是糊化/撕裂高发点），见 `Program.BuildAvaloniaApp(bool)`；NVIDIA 渲染异常先试
+  `WaylandPlatformOptions.UseDmabufSwapchain = false`。已知差异：Wayland 后端窗口 class/app_id 为空
+  （`hyprctl clients` 的 class 是空串，窗口规则匹配不到），X11 路径正常。
+- **视觉最大化判定**（`Services/WindowStateMapper`，决策表测试）：Wayland 后端会把合成器平铺状态
+  误报为 `WindowState.Maximized`（2026-09 实测：平铺 2516×1352 / 工作区 2560×1440 仍报 Maximized），
+  且 `Screen.WorkingArea` 按 DIP 上报、`Scaling` 恒报 1（`PixelRect` 契约本应物理像素）；叠加合成器
+  `suppress_event=maximize`（忽略应用最大化请求，X11 有状态回报可自愈、Wayland 后端无）会让
+  `.maximized` 去圆角样式打在平铺/浮动窗口上——详情页左上圆角丢失即此故。判定 = Maximized 且
+  客户区铺满工作区 ±4px（DIP/物理双单位候选），`MainWindow.UpdateMaximizedFlag` 在状态与尺寸变化
+  两处时机重判，关闭时按视觉最大化持久化。
+- **XWayland 分数缩放与窗口装饰**：X 服务器恒报 96dpi，4K+分数缩放桌面上 UI 按物理像素渲染
+  （小字且糊）。`Program.TrySyncXftDpiWithCompositor` 启动时经 hyprctl 把缩放写进 `Xft.dpi`
+  （仅用户未设置时；Avalonia 12 已无 `AVALONIA_SCREEN_SCALE_FACTORS` 环境变量）——**仅 X11/XWayland
+  路径执行**（原生 Wayland 由合成器直供分数缩放，不应改写会话级 X 资源）。窗口装饰：合成器会无视
+  `WindowDecorations="BorderOnly"` 给 X11 窗口画 SSD 标题条，故在 `InitializeComponent()` **之后**设
+  `WindowDecorations.None`（XAML 属性会覆盖构造函数先写的值；对原生 Wayland 同样正确，2026-09
+  实测 CSD 生效、无双标题）。
 
 ## 4. 配置与状态的数据流
 

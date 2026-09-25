@@ -152,6 +152,12 @@ tests/
 
 同日五轮复盘沉淀的复审与修复延伸纪律——权威定义见 AGENTS.md「复审与修复纪律」节（此处不枚举不复制：**枚举即副本**，本体演化必漂移，2026-09-24 F1 实锤——第 7 条改为只扫不修后本段逐条名称漏改）。
 
+### 3.7 变异实验纪律（scripts/mutation-smoke.mjs 头注释同款）
+
+- 只对**已提交**状态做变异——`git checkout --` 还原会把目标文件上的未提交改动一并吃掉（实锤吃过一次修复）。
+- 变异后必须构建**测试工程**：测试 bin 持有独立依赖副本，只构建 src 项目不生效，`Failed: 0` 是假象。
+- 测试数据必须能区分变异前后，否则"存活"无法判定。
+
 ## 4. 测试布局要点
 
 - **共享替身**（TestSupport 项目）：`FakeDownloader`（URL→字节）、`StubHttpHandler`（可模拟 Range/瞬态故障/忽略 Range）、`FakePatchApplier`（预设输出/可失败/可损坏）、`FakeChannel`（可配置版本信息与清单）、`FakeProcessRunner`、`FakePlatformInfo`（IsLinux/NVIDIA 探测可控）、`FakeAutostartService`（启用状态可控/可编程写入失败）、`TempDir`、`TestZip`。
@@ -264,7 +270,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64   --self-contain
   **86.90%（2026-09-22 审计补测与缓存目录迁移后，5452/6274 行——TDD 转型首批补齐
   MWVM 设置 API/Proton 按 tag 下载/VDF 解析/协议工具/主窗口 chrome 47 用例 + 缓存路径策略 3 用例）**。
 - **判定口径**：行覆盖只是必要条件——合格证据 = 行覆盖命中 + 变异击杀（每日冒烟批
-  scripts/mutation-smoke.mjs 即该纪律的脚本化；手工变异纪律见 AGENTS.md「变异实验纪律」）。
+  scripts/mutation-smoke.mjs 即该纪律的脚本化；手工变异纪律见 §3.7）。
   测试须双向可证伪：断言真实执行、失败会传播、断被测行为而非镜像自身。
 - **政策排除**（结构性理由摘要）：`Program.cs` 与 `App.axaml.cs`（组合根——类型正确性由消费方
   测试背书，**装配正确性另由组合根装配断言钉住**，2026-09-20 实锤：可选参数漏传编译期不可见）、

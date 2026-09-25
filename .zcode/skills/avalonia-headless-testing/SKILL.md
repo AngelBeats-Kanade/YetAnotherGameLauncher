@@ -125,7 +125,9 @@ public async Task Window_Shows_Items()
   任何"假设 Windows 行为"的测试都会把 Linux job 打红（2026-09 实修 4 处）。
 - App 测试经 `VmFactory.Build(platformInfo:, linuxProtonVersions:)` 注入平台；
   **缺省 = Windows 假平台**（TestSupport `FakePlatformInfo`），保证同一套断言在两个 OS 上
-  确定性通过。要测 Linux 分支时显式注入 `new FakePlatformInfo(isLinux: true)`。
+  确定性通过。要测 Linux 分支时显式注入 `new FakePlatformInfo(isLinux: true)`；
+  **分支需要的前置状态必须在分支内自己驱动，不能假设对侧路径发生过**（实锤：
+  `NativeUmuLaunchRoutingTests` Windows 分支曾因用默认平台导致首运迁移门控不可达、启动假成功）。
 - 平台分支期望值惯例（照 `InstallPathTests` / `SystemProcessRunnerTests`）：
   `OperatingSystem.IsWindows() ? "C:/Windows/evil.txt" : "/etc/evil.txt"`。
 - 平台专属真实集成（如 `WindowsAutostartService` 真跑 `reg`）：按 OS 分支注入各平台真实现
