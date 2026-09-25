@@ -58,7 +58,10 @@ public class FfmpegLibraryResolverEnsureReadyTests : IDisposable
         // 红实证（2026-09-24）：旧形态计数=1——预载只扫目录不计系统回退、首个探测失败即中止
         // TryBind，"每库恰一次全链解析"的不变量在旧结构里根本不存在。
         // 夹具带完成标记（F26 后无标记目录会被先删重下、到不了绑定）——本用例的主语是负缓存，
-        // 必须走"被信任的目录"路径
+        // 必须走"被信任的目录"路径。
+        // 计数观测必须经 PrimeResolutionCacheForTests 直驱（2026-09-25 CI Linux 实锤 false+0 /
+        // 本机全量实锤 true+0，见缝注释）：AutoGen 的函数级进程缓存使集成路径的计数依赖"本进程
+        // 尚无任何先行 TryBind"——同集合类顺序与跨集合并行都不受测试控制，该前提在 CI 不可保证
         var stub = new StubHttpHandler();
         var root = _tempDir.FilePath("root-negcache");
         var libDir = Path.Combine(root, "ffmpeg-n9.0", "lib");
@@ -70,6 +73,14 @@ public class FfmpegLibraryResolverEnsureReadyTests : IDisposable
         // 绑定必败（垃圾库 + 系统探测恒 false）：状态烧毁不重试，首个探测即触发预载与计数
         Assert.False(resolver.EnsureReady(CancellationToken.None));
 
+        resolver.PrimeResolutionCacheForTests();
+        Assert.Equal(
+            FfmpegLibraryResolver.LibraryDependencyOrder.Length,
+            resolver.DirectoryResolutionAttemptsForTests);
+
+        // 负缓存的本体断言：重复驱动必须命中缓存零新增（"失败句柄也缓存"）。变异击杀点：
+        // 摘除零句柄缓存后二次驱动会对全部库重扫 → 计数翻倍 → 此断言红
+        resolver.PrimeResolutionCacheForTests();
         Assert.Equal(
             FfmpegLibraryResolver.LibraryDependencyOrder.Length,
             resolver.DirectoryResolutionAttemptsForTests);

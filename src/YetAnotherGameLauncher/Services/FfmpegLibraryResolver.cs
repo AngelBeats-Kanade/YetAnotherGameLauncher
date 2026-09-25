@@ -127,6 +127,15 @@ public sealed partial class FfmpegLibraryResolver(
     /// <see cref="LibraryDependencyOrder"/> 的库数（每库至多一次）；零句柄被反复重扫则更多。</summary>
     internal int DirectoryResolutionAttemptsForTests => _sharedResolver?.ResolutionAttempts ?? -1;
 
+    /// <summary>测试缝：按 <see cref="LibraryDependencyOrder"/> 逐库直驱共享解析器的取句柄路径。
+    /// 必须绕开集成路径观测的原因：AutoGen 对每个函数委托的解析结果**进程级缓存一次**——
+    /// null（零句柄 + throwOnError=false）与成功均缓存，仅 resolver 抛异常不缓存（2026-09-25
+    /// /tmp 探针实测：换 resolver 后二次调用零咨询）——同进程任何先行 TryBind 都会让后续实例的
+    /// 集成路径恒定绕开本实例解析器（CI Linux 实锤 attempts=0 + EnsureReady=false：先行用例
+    /// 缓存了 null；本机全量实锤 attempts=0 + EnsureReady=true：FfmpegDecodeDrainTests 真解码
+    /// 缓存了成功委托）。负缓存断言经本缝直驱观测，双平台 CI 确定性。仅测试调用。</summary>
+    internal void PrimeResolutionCacheForTests() => _sharedResolver!.PrimeForTests();
+
     /// <summary>解析主体（调用方须持 <see cref="_ensureGate"/> 且状态为未尝试）。</summary>
     private bool EnsureReadyCore(CancellationToken cancellationToken)
     {
@@ -462,6 +471,17 @@ public sealed partial class FfmpegLibraryResolver(
 
         /// <summary>全链解析执行次数（测试观测经外层 <see cref="FfmpegLibraryResolver.DirectoryResolutionAttemptsForTests"/>）。</summary>
         internal int ResolutionAttempts;
+
+        /// <summary>测试缝：按依赖序逐库直驱 <see cref="GetOrLoadLibrary"/>（含首入预载与负缓存），
+        /// 供负缓存断言绕开 AutoGen 的函数级进程缓存观测本实例行为（机制说明见外层
+        /// <see cref="FfmpegLibraryResolver.PrimeResolutionCacheForTests"/>）。仅测试调用。</summary>
+        internal void PrimeForTests()
+        {
+            foreach (var name in FfmpegLibraryResolver.LibraryDependencyOrder)
+            {
+                _ = GetOrLoadLibrary(name);
+            }
+        }
 
         /// <summary>设置库目录（null = 仅系统默认搜索）。</summary>
         public void SetDirectory(string? directory) => _directory = directory;
