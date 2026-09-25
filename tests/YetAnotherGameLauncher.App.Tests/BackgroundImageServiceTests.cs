@@ -369,20 +369,10 @@ public sealed class BackgroundImageServiceTests
         using var dir = new TempDir();
 
         // root/CAP_DAC_OVERRIDE 豁免 DAC：拒读构造不出时测试空心化（解码失败分支同样返回
-        // null，两形态不可区分）——同族前提探针。!IsWindows 分支满足 CA1416
-        if (!OperatingSystem.IsWindows())
+        // null，两形态不可区分）——同族前提探针
+        if (DacExemptionProbe.Exempt(dir.Path))
         {
-            var dacProbe = Path.Combine(dir.Path, "dac-probe.txt");
-            File.WriteAllText(dacProbe, "x");
-            File.SetUnixFileMode(dacProbe, UnixFileMode.None);
-            try
-            {
-                _ = File.ReadAllText(dacProbe);
-                Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），拒读形态不成立");
-            }
-            catch (UnauthorizedAccessException)
-            {
-            }
+            Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），拒读形态不成立");
         }
 
         var path = dir.FilePath("denied.png");

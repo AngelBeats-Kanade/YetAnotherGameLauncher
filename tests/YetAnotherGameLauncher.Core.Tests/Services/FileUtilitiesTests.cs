@@ -35,20 +35,10 @@ public class FileUtilitiesTests : IDisposable
         }
 
         // DAC 豁免读探针（机制本身，替代早期 Environment.UserName 形态——CAP_DAC_OVERRIDE
-        // 的非 root 进程同样豁免，用户名判断有双向泄漏）。!IsWindows 分支满足 CA1416
-        if (!OperatingSystem.IsWindows())
+        // 的非 root 进程同样豁免，用户名判断有双向泄漏）
+        if (DacExemptionProbe.Exempt(_temp.Path))
         {
-            var dacProbe = Path.Combine(_temp.Path, "dac-probe.txt");
-            File.WriteAllText(dacProbe, "x");
-            File.SetUnixFileMode(dacProbe, UnixFileMode.None);
-            try
-            {
-                _ = File.ReadAllText(dacProbe);
-                Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），拒删形态不成立");
-            }
-            catch (UnauthorizedAccessException)
-            {
-            }
+            Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），拒删形态不成立");
         }
 
         var root = _temp.FilePath("tree");
@@ -65,7 +55,9 @@ public class FileUtilitiesTests : IDisposable
             var result = FileUtilities.TryDeleteDirectory(root);
 
             // 可删部分照删（红落此断言：当前顶层枚举 UAE 裸穿）；不可读子目录留存
-            // （000 目录 stat 不可达，Directory.Exists 恒 false——只能经父目录列表确认其名）；
+            // （000 目录自身的 stat/Directory.Exists 仍为 true——stat 只查祖先目录的搜索
+            // 权，不查目标权限位；不可读的是**穿越**它的子项，File.Exists(000dir/x) 为
+            // false——故经父目录列表确认其名）；
             // root 因非空删不掉 → 返回 false（契约内的 best-effort 失败，不抛）
             Assert.False(File.Exists(deletable));
             Assert.Contains(locked, Directory.GetFileSystemEntries(root));
@@ -86,20 +78,10 @@ public class FileUtilitiesTests : IDisposable
         }
 
         // DAC 豁免读探针（机制本身，替代早期 Environment.UserName 形态——CAP_DAC_OVERRIDE
-        // 的非 root 进程同样豁免，用户名判断有双向泄漏）。!IsWindows 分支满足 CA1416
-        if (!OperatingSystem.IsWindows())
+        // 的非 root 进程同样豁免，用户名判断有双向泄漏）
+        if (DacExemptionProbe.Exempt(_temp.Path))
         {
-            var dacProbe = Path.Combine(_temp.Path, "dac-probe.txt");
-            File.WriteAllText(dacProbe, "x");
-            File.SetUnixFileMode(dacProbe, UnixFileMode.None);
-            try
-            {
-                _ = File.ReadAllText(dacProbe);
-                Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），拒删形态不成立");
-            }
-            catch (UnauthorizedAccessException)
-            {
-            }
+            Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），拒删形态不成立");
         }
 
         var root = _temp.FilePath("locked-root");

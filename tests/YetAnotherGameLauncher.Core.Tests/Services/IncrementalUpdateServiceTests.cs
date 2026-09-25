@@ -395,16 +395,9 @@ public class IncrementalUpdateServiceStagedManifestTests : IDisposable
         if (!OperatingSystem.IsWindows())
         {
             // root/CAP_DAC_OVERRIDE 豁免 DAC：拒读形态构造不出（同族前提探针）
-            var dacProbe = Path.Combine(_tempDir.Path, "dac-probe.txt");
-            File.WriteAllText(dacProbe, "x");
-            File.SetUnixFileMode(dacProbe, UnixFileMode.None);
-            try
+            if (DacExemptionProbe.Exempt(_tempDir.Path))
             {
-                _ = File.ReadAllText(dacProbe);
                 Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），拒读形态不成立");
-            }
-            catch (UnauthorizedAccessException)
-            {
             }
 
             File.SetUnixFileMode(manifestPath, UnixFileMode.None);

@@ -20,19 +20,16 @@ public class GameBackdropServiceCacheTests : IDisposable
         //（正向守卫 + else Skip：CA1416 平台分析器只认 OperatingSystem.IsLinux() 直接分支）
         if (OperatingSystem.IsLinux())
         {
+            // root/CAP_DAC_OVERRIDE 豁免 DAC：拒读形态构造不出（同族前提探针）
+            if (DacExemptionProbe.Exempt(_tempDir.Path))
+            {
+                Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），拒读形态不成立");
+            }
+
             var metaPath = Path.Combine(_tempDir.Path, "g1", "meta.json");
             Directory.CreateDirectory(Path.GetDirectoryName(metaPath)!);
             File.WriteAllText(metaPath, "{\"region\":\"global\"}");
             File.SetUnixFileMode(metaPath, UnixFileMode.None);
-            try
-            {
-                _ = File.ReadAllText(metaPath);
-                Assert.Skip("当前进程可无视权限位读文件（root/CAP_DAC_OVERRIDE），拒读形态不成立");
-            }
-            catch (UnauthorizedAccessException)
-            {
-                // 前提成立：读确实被拒
-            }
 
             var service = new GameBackdropService(
                 new HttpClient(new StubHttpHandler()),

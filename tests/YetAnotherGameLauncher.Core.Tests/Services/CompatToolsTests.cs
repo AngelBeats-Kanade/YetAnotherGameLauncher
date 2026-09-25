@@ -109,16 +109,9 @@ public class CompatToolsScanDegradationTests : IDisposable
         }
 
         // root/CAP_DAC_OVERRIDE 豁免 DAC：拒读形态构造不出（同族前提探针，FileUtilitiesTests 同款）
-        var dacProbe = Path.Combine(_home.Path, "dac-probe.txt");
-        File.WriteAllText(dacProbe, "x");
-        File.SetUnixFileMode(dacProbe, UnixFileMode.None);
-        try
+        if (DacExemptionProbe.Exempt(_home.Path))
         {
-            _ = File.ReadAllText(dacProbe);
             Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE），拒读形态不成立");
-        }
-        catch (UnauthorizedAccessException)
-        {
         }
 
         Directory.CreateDirectory(PrimaryRoot);
