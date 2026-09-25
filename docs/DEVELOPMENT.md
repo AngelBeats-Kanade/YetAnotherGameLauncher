@@ -158,6 +158,15 @@ tests/
 - 变异后必须构建**测试工程**：测试 bin 持有独立依赖副本，只构建 src 项目不生效，`Failed: 0` 是假象。
 - 测试数据必须能区分变异前后，否则"存活"无法判定。
 
+### 3.8 写码时点前提纪律（2026-09-26 CI 双腿复盘沉淀）
+
+背景：两次 CI 迟发红是同一结构——代码在未写明前提下正确、本机验证环境恰好满足前提、CI 不满足（Linux 事故前提=进程态：先行测试污染 FFmpeg.AutoGen 函数级进程缓存；Windows 事故前提=平台语义：Unix 探针结论被写成普适事实）。本机反馈通道对此类缺陷结构性失明（非粗心），review/CI 本质是环境变体——复审纪律第 5 条的原理前移到写码时点，按以下顺序自查：
+
+1. **断言观测路径穿越全局层 → 换直驱缝**：测试要断言实例内部状态（计数/缓存）时，先问"观测路径上有没有 static 字段 / 已加载原生库 / 生成代码缓存 / DI 单例？"——有，则内部状态断言必须走直驱缝（实例自身逻辑，不经全局层），集成路径只断言可观测结果（返回值/网络/文件系统）。先例：`PrimeResolutionCacheForTests`（45b3604）。
+2. **平台中性 API 的结论必须带平台限定**：从单平台探针得出事实（如"删悬空链接用 File.Delete"）写进注释/文档前，先查另一平台官方语义——尤其 File.Delete/Directory.Delete/rename 这类名字中性、语义分叉的删除/移动族（反例全集见 docs/PITFALLS.md 悬空符号链接条）。写测试时把双平台预期都写成带锚点的注释，Windows CI 失败就从"意外"变成"对照预测"。
+3. **收尾自查"本批哪些测试真的 Ran 过"**：skip ≠ 绿。凡在本机只以 SKIP 形态存在的测试（机器前提 guard、全量进程才 SKIP 的形态），其红绿主张标注"仅 CI 可验证"并写进提交信息；单类运行 ≠ 全量运行（进程态不同），两者都不等于 CI 腿。
+4. **跨平台语义风险批先分支拿双腿 CI 再进 main**：Windows 腿无本地等价物，改动落在链接/进程/文件语义族时 push 分支让双腿 CI 先跑，失败不污染 main。
+
 ## 4. 测试布局要点
 
 - **共享替身**（TestSupport 项目）：`FakeDownloader`（URL→字节）、`StubHttpHandler`（可模拟 Range/瞬态故障/忽略 Range）、`FakePatchApplier`（预设输出/可失败/可损坏）、`FakeChannel`（可配置版本信息与清单）、`FakeProcessRunner`、`FakePlatformInfo`（IsLinux/NVIDIA 探测可控）、`FakeAutostartService`（启用状态可控/可编程写入失败）、`TempDir`、`TestZip`。
