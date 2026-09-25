@@ -15,11 +15,11 @@ description: Use before delivering or after changing any Avalonia UI — render 
 真实 Skia 渲染 + 文字排版），在共享 headless 会话内用 `window.CaptureRenderedFrame()`
 抓帧并保存 PNG 到 `artifacts/ui-review/`。
 
-运行：
+运行（本机 `dotnet test` 可能发现 0 个测试，直跑编译产物更可靠，--filter-fqn 实测零匹配）：
 
 ```bash
-dotnet test --project tests/YetAnotherGameLauncher.App.Tests \
-  --filter-fqn "YetAnotherGameLauncher.UiTests.UiScreenshotTests.Export_UiScreenshots_ForReview"
+dotnet tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll \
+  -method "YetAnotherGameLauncher.UiTests.UiScreenshotTests.Export_UiScreenshots_ForReview"
 ```
 
 要点（改 UiScreenshotTests 前先读）：
@@ -31,12 +31,8 @@ dotnet test --project tests/YetAnotherGameLauncher.App.Tests \
 - 保存：`frame.Save(path, new PngBitmapEncoderOptions())`。
 - 数据必须真实：用 `VmFactory` 样例数据（两个游戏、假渠道状态：已安装/有更新/预下载可用都摆出来）。
 - 截图窗口固定 1120×720（`UiScreenshotTests` 内写死，与主窗口默认 1464×720 无关，保证构图稳定）。
-  共导出 17 张（张数以 `UiScreenshotTests.Export_UiScreenshots_ForReview` 实际为准）：01 游戏详情暗、
-  02 亮、02b 游戏设置、03 第二游戏、04 侧栏收起、05 设置、06 关于、07 英文、08 已安装态、
-  09 校验修复确认条、10 启动失败覆盖层、11 Linux 启动设置卡、12 详情页空态、13 最大化、14 toast、
-  15 Proton 更新确认、16 启动遮蔽层（`Export_BootSplash_ForReview`，2026-09-21 增）
-  （亮暗主题与多页面/多状态覆盖都在其中；另有 `Export_LaunchErrorOverlay_ForReview`
-  与 `Export_ProtonUpdateConfirm_ForReview` 两组专项导出，后者内含纱罩压暗的像素断言）。
+  张数与各导出方法归属**不在此复制**（枚举即副本必漂移）——以 AGENTS.md「UI / 无头测试已知坑」
+  的"视觉自检"条为准（该条带实测日期），另有专项导出内含像素级断言。
 
 ## 2. 看图检查清单（逐项过，亮暗各一遍）
 
@@ -57,12 +53,12 @@ dotnet test --project tests/YetAnotherGameLauncher.App.Tests \
 - 改 AXAML 时对照 `avalonia-ui` 的约定（主题刷子成对、伪类样式、Classes 扩展按钮）。
 - 全部通过清单后跑 `dotnet test` 再交付，并把关键截图结论写进交付说明。
 
-## 3.5 judge 协作纪律（2026-09-25 实锤）
+## 3.5 judge 协作纪律（2026-09-25 实锤；规则本体在 AGENTS.md「UI 坑」对应条，此处只留执行细节）
 
-- **judge 是信号不是 oracle**：半透明刷（如 60% α 的选中高亮）+ 辉光会让"找纯色边界"类像素判据把背景本体误读成"间隙"（实锤：选中块被误判 FAIL）；judge 的 FAIL 也可能是真问题（水印缺失实为夹具缺陷）。收到 FAIL 先裁剪放大目视 + 像素实测仲裁判据语义，再定改不改。
-- **给 judge 交底必须带坐标系与混合色预期**：窗口帧坐标 vs 页局部坐标 vs 全出血层局部坐标三套换算（差侧栏宽/页边距/46px 内容卡偏移）；半透明元素给出预期混合色（如 #99304978 画在 #191920 上 ≈ rgb(39,54,85)）。
-- **改观感机制前先最小实验**：模板背景画在哪个区域、样式优先级谁压谁，用临时色块/探针实测（先例：Fluent ListBoxItem 高亮不随负 Margin 扩展——两轮 judge FAIL 才推翻该假设）。
-- **Review followup 批次与原始批次同标准**（AGENTS.md「复审与修复纪律」第 8 条）：行为修复要可失败测试或变异击杀；注释修复要同族扫描清零；采纳 review 的数字先换算实测。
+- **judge 是信号不是 oracle**：收到 FAIL 先裁剪放大目视 + 像素实测仲裁判据语义，再定改不改（正反实锤与半透明刷判据陷阱见 AGENTS.md「UI 坑」judge 仲裁规则条）。
+- **给 judge 交底的执行模板**：采样点用目标元素 `TranslatePoint` 推导的窗口坐标；半透明元素附预期混合色（如 #99304978 画在 #191920 上 ≈ rgb(39,54,85)，α=0x99/255=60%）。
+- **改观感机制前先最小实验**：本技能内可操作的实验形式 = 临时色块/探针按钮/裁剪放大实测坐标（规则与先例见 AGENTS.md「UI 坑」"改机制前先实验"条）。
+- **Review followup 批次与原始批次同标准**：规则本体在 AGENTS.md「复审与修复纪律」第 8 条（单一事实源，此处只留指针）。
 
 ## 4. 已知限制
 
