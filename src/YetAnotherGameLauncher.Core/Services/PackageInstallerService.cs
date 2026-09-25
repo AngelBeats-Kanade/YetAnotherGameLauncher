@@ -200,15 +200,17 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
                 EnsureNoReparseWithin(installDir, target);
 
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                // 目标自身是文件符号链接同样写穿：ExtractToFile 的 open(O_CREAT) 跟随链接
+                // 改写/创建沙箱外的真实文件（复审 R2 /tmp 探针实锤，含悬空链接变体）——
+                // 检查必须无条件执行：Windows 的 File.Exists 对悬空链接为 false，放在其门内
+                // 会让悬空形态绕过检查
+                if (FileUtilities.IsReparsePoint(target))
+                {
+                    throw new IOException($"Archive target is an existing symlink: {target}");
+                }
+
                 if (File.Exists(target))
                 {
-                    // 目标自身是文件符号链接同样写穿：ExtractToFile 的 open(O_CREAT) 跟随
-                    // 链接改写沙箱外的真实文件（复审 R2 /tmp 探针实锤）——命中即拒
-                    if (FileUtilities.IsReparsePoint(target))
-                    {
-                        throw new IOException($"Archive target is an existing symlink: {target}");
-                    }
-
                     // 只读属性会让 overwrite 失败（Windows），就地解除
                     File.SetAttributes(target, File.GetAttributes(target) & ~FileAttributes.ReadOnly);
                 }
