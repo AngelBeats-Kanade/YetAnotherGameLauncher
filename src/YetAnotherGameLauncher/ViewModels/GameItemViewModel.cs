@@ -776,6 +776,10 @@ public partial class GameItemViewModel(
         }
 
         IsBusy = true;
+        // 进度复位与 RunUpdateAsync 对齐（F32）：不复位则上一操作遗留的"100%+旧文案"
+        // 贯穿整个启动过程，与 StatusText 矛盾
+        ProgressPercent = 0;
+        ProgressText = Loc["progress_preparing"];
         try
         {
             // 不带 Platform.IsLinux 门：Windows 上也走原生链入口，由 NativeUmuLauncher.EnsureLinux
@@ -918,6 +922,13 @@ public partial class GameItemViewModel(
     [RelayCommand]
     public async Task InstallOrUpdateAsync(CancellationToken cancellationToken = default)
     {
+        // 忙碌互斥门（F33）：与 Launch/RegisterVersion/Predownload/RunUpdate 四者对齐——
+        // 拉清单网络窗口内重复点击/确认会打开覆盖安装确认条甚至并发整包重下
+        if (IsBusy)
+        {
+            return;
+        }
+
         // 检测到游戏的包式渠道：没有逐文件清单可供校验，登记版本即可（重下整包没有意义）
         if (!IsInstalled && CanLaunch && UsesPackageManifest)
         {
@@ -966,6 +977,7 @@ public partial class GameItemViewModel(
         }
 
         IsBusy = true;
+        ProgressPercent = 0; // 进度复位（F32，与 RunUpdateAsync 对齐）
         // 结果消息归属发起时的服务器：完成前切服时不得覆盖新服状态行
         // （RefreshAsync 有代际门，紧随其后的 StatusText 写入没有，2026-09-20 复审修复）
         var originServer = SelectedServer;
@@ -999,10 +1011,17 @@ public partial class GameItemViewModel(
         }
     }
 
-    /// <summary>确认整包重下校验修复（包式渠道）：隐藏确认条后走完整更新流程。</summary>
+    /// <summary>确认整包重下校验修复（包式渠道）：隐藏确认条后走完整更新流程。
+    /// 忙时保留确认条（F33）：RunUpdateAsync 自带 IsBusy 门会早退，先收起确认条等于
+    /// "看起来已排队、实际什么都没发生"。</summary>
     [RelayCommand]
     public async Task ConfirmRepairAsync(CancellationToken cancellationToken = default)
     {
+        if (IsBusy)
+        {
+            return;
+        }
+
         ShowRepairConfirm = false;
         await RunUpdateAsync(
             () => updateService.UpdateAsync(_installDir, Game, SelectedServer, channel, Progress, cancellationToken),
@@ -1024,6 +1043,7 @@ public partial class GameItemViewModel(
         }
 
         IsBusy = true;
+        ProgressPercent = 0; // 进度复位（F32，与 RunUpdateAsync 对齐）
         // 结果消息归属发起时的服务器：完成前切服时不得覆盖新服状态行
         // （RefreshAsync 有代际门，紧随其后的 StatusText 写入没有，2026-09-20 复审修复）
         var originServer = SelectedServer;

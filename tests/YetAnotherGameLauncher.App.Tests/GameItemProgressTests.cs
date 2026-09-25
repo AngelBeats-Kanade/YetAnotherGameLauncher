@@ -231,4 +231,32 @@ public class GameItemProgressTests : IDisposable
         Assert.False(wuwa.IsInstalled); // 失败不落登记状态：下次启动仍提示安装
         Assert.Null(new LocalStateService(wuwa.InstallDirPath).Load(wuwa.Game.Id, "cn"));
     }
+
+    [Fact]
+    public async Task LaunchAsync_ResetsStaleProgressFromPreviousOperation()
+    {
+        // F32（artifacts/bugs.md）：LaunchAsync/RegisterVersionAsync/PredownloadAsync 置
+        // IsBusy 前不复位进度——刚跑完校验修复（100%、"校验完成"）后点启动，整个启动过程
+        // 操作坞显示上一操作的"100%"，与 StatusText 矛盾。RunUpdateAsync 有复位（:1092），
+        // 三操作对齐同款
+        SetupKuroUpToDate();
+        await _ctx.Vm.InitializeAsync();
+        var wuwa = _ctx.Vm.Games[0];
+
+        // CanLaunch 前置：无 exe 时 LaunchAsync 在进度复位点之前就按"未就绪"早退。
+        // exe 路径 = 配置的 executable（Client/Binaries/Win64/Client-Win64-Shipping.exe）
+        var exePath = Path.Combine(
+            wuwa.InstallDirPath, "Client", "Binaries", "Win64", "Client-Win64-Shipping.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(exePath)!);
+        await File.WriteAllBytesAsync(exePath, "MZ"u8.ToArray());
+        await wuwa.RefreshAsync();
+
+        // 上一操作遗留的进度（如校验修复完成后未清卡）
+        wuwa.ProgressPercent = 100;
+        wuwa.ProgressText = "校验完成";
+
+        await wuwa.LaunchAsync();
+
+        Assert.Equal(0, wuwa.ProgressPercent); // 红落此断言：当前保持 100
+    }
 }

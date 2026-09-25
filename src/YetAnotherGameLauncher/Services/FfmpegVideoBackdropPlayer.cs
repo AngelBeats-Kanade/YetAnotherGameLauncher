@@ -106,6 +106,9 @@ public sealed class FfmpegVideoBackdropPlayer(
     /// 与取消令牌一起 WaitAny——暂停中 Stop（切游戏/退出）靠取消令牌唤醒泊车线程正常退出。</summary>
     private readonly ManualResetEventSlim _resumeGate = new(initialState: true);
 
+    /// <summary>续播门测试观察缝（F37）：断言 Dispose 后 WaitHandle 抛 ObjectDisposedException。</summary>
+    internal ManualResetEventSlim ResumeGateForTests => _resumeGate;
+
     /// <summary>活动会话标志（0/1）：PlayAsync 启动置位、后台任务收尾归零；Pause/Resume 据此判定 no-op。</summary>
     private int _sessionActive;
 
@@ -1562,7 +1565,11 @@ public sealed class FfmpegVideoBackdropPlayer(
     }
 
     /// <inheritdoc/>
-    public void Dispose() => StopCore();
+    public void Dispose()
+    {
+        StopCore();
+        _resumeGate.Dispose(); // F37：per-game 实例废弃时不留内核等待句柄
+    }
 }
 
 /// <summary>

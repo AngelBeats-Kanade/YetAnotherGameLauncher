@@ -71,4 +71,16 @@ public class VideoBackdropPlayerFrameBitmapTests
             FfmpegVideoBackdropPlayer.RetireGrace = originalGrace;
         }
     }
+
+    [Fact]
+    public void Dispose_ReleasesResumeGate()
+    {
+        // F37（artifacts/bugs.md）：Dispose() => StopCore() 从不释放 _resumeGate——
+        // per-game 实例列表重建时整批废弃，WaitHandle 懒创建的内核句柄累积。
+        // 修复后 Dispose 释放 gate，后续访问抛 ObjectDisposedException
+        var player = CreatePlayer();
+        player.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => _ = player.ResumeGateForTests.WaitHandle);
+    }
 }

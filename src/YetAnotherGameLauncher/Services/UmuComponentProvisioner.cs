@@ -313,12 +313,21 @@ public sealed class UmuComponentProvisioner(
             }
 
             var keep = Path.GetFullPath(keepPath);
+            var keepKey = CompatTools.NumericSortKey(Path.GetFileName(keep));
             foreach (var dir in Directory.EnumerateDirectories(root))
             {
                 var name = Path.GetFileName(dir);
                 if (!name.StartsWith(localPrefix, StringComparison.OrdinalIgnoreCase)
                     || !IsProtonReady(dir)
                     || string.Equals(Path.GetFullPath(dir), keep, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                // 只删比 keep 严格更旧的版本（F38，语义变更："删一切非 keep"在两次更新流程
+                // 并发时互删至零残留；NumericSortKey 比较下并发双方收敛——各保留自己及更新的，
+                // 删掉更旧的）。磁盘上比 keep 更新的版本（另一流程刚装的）必须保留
+                if (string.Compare(CompatTools.NumericSortKey(name), keepKey, StringComparison.Ordinal) >= 0)
                 {
                     continue;
                 }

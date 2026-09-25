@@ -417,4 +417,54 @@ public class GameItemActionsTests : IDisposable
         Assert.False(endfield.ShowRepairConfirm);
         Assert.Equal("已重新下载并校验完整安装包", endfield.StatusText);
     }
+
+    [Fact]
+    public async Task InstallOrUpdate_WhileBusy_DoesNotOpenRepairConfirm()
+    {
+        // F33（artifacts/bugs.md）：InstallOrUpdateAsync 无 IsBusy 门——拉清单网络窗口内
+        // 可重复点击/可点确认覆盖安装。修复后与其他四个操作同样带门：忙时直接返回，
+        // 不再打开确认条
+        SetupEndfieldUpToDate();
+        await _ctx.Vm.InitializeAsync();
+        var endfield = _ctx.Vm.Games[1];
+        await endfield.InstallOrUpdateCommand.ExecuteAsync(null); // 首次安装
+        Assert.True(endfield.IsInstalled);
+
+        endfield.IsBusy = true; // 模拟另一操作进行中（网络窗口/更新在途）
+        try
+        {
+            await endfield.InstallOrUpdateCommand.ExecuteAsync(null);
+
+            Assert.False(endfield.ShowRepairConfirm); // 红落此断言：当前忙时照样弹确认
+        }
+        finally
+        {
+            endfield.IsBusy = false;
+        }
+    }
+
+    [Fact]
+    public async Task ConfirmRepair_WhileBusy_KeepsConfirmBarInsteadOfSilentlyDropping()
+    {
+        // F33：ConfirmRepairAsync 先收起确认条再调 RunUpdateAsync——忙时 RunUpdateAsync
+        // 自门早退，确认条已消失却什么都没发生，用户误以为已排队。修复后：忙时保留确认条
+        SetupEndfieldUpToDate();
+        await _ctx.Vm.InitializeAsync();
+        var endfield = _ctx.Vm.Games[1];
+        await endfield.InstallOrUpdateCommand.ExecuteAsync(null);
+        await endfield.InstallOrUpdateCommand.ExecuteAsync(null); // 弹确认条
+        Assert.True(endfield.ShowRepairConfirm);
+
+        endfield.IsBusy = true;
+        try
+        {
+            await endfield.ConfirmRepairCommand.ExecuteAsync(null);
+
+            Assert.True(endfield.ShowRepairConfirm); // 红落此断言：当前忙时确认条被静默收起
+        }
+        finally
+        {
+            endfield.IsBusy = false;
+        }
+    }
 }

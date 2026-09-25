@@ -461,6 +461,30 @@ public sealed class UmuComponentProvisionerTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateProtonAsync_KeepsNewerSiblingVersions_OnlyPrunesOlder()
+    {
+        // F38（artifacts/bugs.md）：prune"删一切非 keep"在两次更新流程并发（检查更新 vs 启动链
+        // EnsureProtonAsync，或两次 latest 拉取间上游发新版）时互删至零残留。语义改为"只删比
+        // keep 严格更旧"（NumericSortKey 比较，并发下收敛）：磁盘上比 keep 更新的版本（另一
+        // 流程刚装的）必须保留
+        InstallReadyProton("GE-Proton10-9"); // 旧：该删
+        InstallReadyProton("GE-Proton12-1"); // 比 keep 更新：模拟另一流程刚装的，不该删
+        ServeGitHubRelease(UmuComponentProvisioner.GeProtonReleaseApi, "GE-Proton11-6", [
+            ("GE-Proton11-6-x86_64.tar.gz", "https://github.com/x/GE-Proton11-6-x86_64.tar.gz"),
+        ]);
+        _downloader.Serve(
+            "https://github.com/x/GE-Proton11-6-x86_64.tar.gz",
+            BuildProtonArchive("GE-Proton11-6-x86_64", wineserverElfMachine: ElfX86_64));
+
+        await NewProvisioner(Architecture.X64).UpdateProtonAsync("GE-Proton");
+
+        var root = UmuPaths.SteamCompatRoot(_tempDir.Path);
+        Assert.False(Directory.Exists(Path.Combine(root, "GE-Proton10-9"))); // 比 keep 旧：删
+        Assert.True(Directory.Exists(Path.Combine(root, "GE-Proton12-1"))); // 红落此断言：当前被删
+        Assert.True(Directory.Exists(Path.Combine(root, "GE-Proton11-6"))); // keep 在
+    }
+
+    [Fact]
     public async Task UpdateProtonAsync_AlreadyLatest_ReturnsExistingWithoutDownload()
     {
         InstallReadyProton("GE-Proton11-6");
