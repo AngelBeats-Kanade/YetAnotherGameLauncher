@@ -202,9 +202,11 @@ sealed class Program
     }
 
     /// <summary>超时/故障路径终结子进程；契约 = 尽力终结、绝不打断超时/故障路径。
-    /// Kill 前已退出的竞态（OIE）、无法终止/正在终止（Win32Exception，官方异常表，F22-2 同族）、
-    /// 子树未全终止（AggregateException——.NET 10 起不再属 SystemException，调用点的
-    /// catch (SystemException) 兜不住它，51d0c16 同根因）全部静默放过。</summary>
+    /// Kill 前已退出的竞态（OIE）与无法终止（Win32Exception，官方异常表，F22-2 同族）静默
+    /// 放过；AggregateException 本就不属 SystemException（.NET 10 的 51d0c16 实锤只是把它
+    /// 从"可由 catch (SystemException) 兜住"的错觉里纠正），调用点的 catch (SystemException)
+    /// 兜不住它——官方异常表将其记录在 Kill(entireProcessTree:true) 重载，本方法的无参 Kill
+    /// 捕获它属纯防御性覆盖。</summary>
     internal static void KillProcessQuietly(Process process)
     {
         try

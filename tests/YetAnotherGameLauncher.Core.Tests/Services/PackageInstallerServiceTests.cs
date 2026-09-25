@@ -373,10 +373,15 @@ public class PackageInstallerCollisionTests : IDisposable
         // F43（artifacts/bugs.md）：硬链接没有 ReparsePoint 标记，File.GetAttributes 返回的
         // 是共享 inode 的属性——目录/文件符号链接防线对它全部失效，ExtractToFile(overwrite:true)
         // 沿既有 inode 写会截断改写同卷沙箱外真实文件。link(2)/CreateHardLinkW 双平台均无需
-        // 特权；victim 与 install 同在 TempDir 下保证同卷
-        if (!(OperatingSystem.IsLinux() || OperatingSystem.IsWindows()))
+        // 特权；victim 与 install 同在 TempDir 下保证同卷。
+        // 架构前提（AGENTS.md 复审纪律 2）：非 x64 Linux 的 stat 布局未实现、生产 fail-open
+        // 返 1——夹具可建硬链接但防线不触发，不 Skip 即假红
+        if (!(OperatingSystem.IsLinux() || OperatingSystem.IsWindows())
+            || (OperatingSystem.IsLinux()
+                && System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
+                    != System.Runtime.InteropServices.Architecture.X64))
         {
-            Assert.Skip("硬链接创建仅验证 Linux/Windows 双腿");
+            Assert.Skip("硬链接夹具 + x64 stat(2) 探测：仅 Linux x64 / Windows 腿确定性");
         }
 
         var outside = _tempDir.FilePath("outside-victim.txt");
@@ -390,7 +395,9 @@ public class PackageInstallerCollisionTests : IDisposable
 
         var ex = Record.Exception(() => PackageInstallerService.ExtractArchive(zipPath, installDir, "pkg.zip"));
 
-        Assert.NotNull(ex); // 红落此断言：当前对硬链接目标静默写穿
+        // 断言钉异常类型而非"有异常"：glibc<2.33 上 stat 探测不可用（fail-open 放行）时
+        // 不抛任何异常——NotNull 形态会假绿，UpdateException 类型断言使其转红可见
+        Assert.IsType<UpdateException>(ex);
         Assert.Equal("victim-original", File.ReadAllText(outside)); // 共享 inode 的沙箱外文件不得被改写
     }
 

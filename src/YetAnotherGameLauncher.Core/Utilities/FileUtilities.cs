@@ -10,8 +10,9 @@ public static class FileUtilities
     /// 目标路径的硬链接数（同一 inode 的目录项数；F43）。.NET 无可移植 API：
     /// Linux x64 经 stat(2) 的 st_nlink，Windows 经 GetFileInformationByHandle 的
     /// nNumberOfLinks。探测失败、路径不存在、其他平台/架构（aarch64 的 stat 布局
-    /// 不同，未实现）一律返回 1——按"非硬链接"放行，与 <see cref="IsReparsePoint"/>
-    /// 的失败语义一致（后续写入自会暴露真实问题）。
+    /// 不同，未实现）、glibc 低于 2.33（不导出 stat 动态符号，此前是 __xstat 内联包装，
+    /// P/Invoke 抛 EntryPointNotFound）一律返回 1——按"非硬链接"放行，与
+    /// <see cref="IsReparsePoint"/> 的失败语义一致（后续写入自会暴露真实问题）。
     /// </summary>
     internal static long HardLinkCount(string path)
     {
@@ -31,7 +32,8 @@ public static class FileUtilities
 
             return 1;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            or DllNotFoundException or EntryPointNotFoundException)
         {
             return 1;
         }

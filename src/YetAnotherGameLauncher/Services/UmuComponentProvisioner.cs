@@ -1245,9 +1245,11 @@ public sealed class UmuComponentProvisioner(
                 throw;
             }
 
-            if (source != temp && Directory.Exists(outdated))
+            if (Directory.Exists(outdated))
             {
-                Directory.Delete(outdated, recursive: true); // 新树已就位，旧代只剩清理语义
+                // 新树已就位：旧代只剩清理语义（平铺包 source==temp 同样成立——Move 成功后
+                // outdated 必为垃圾，无条件清）
+                Directory.Delete(outdated, recursive: true);
             }
         }
         finally
