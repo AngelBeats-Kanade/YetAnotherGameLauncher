@@ -5,6 +5,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- 内置依赖清单（Wine prefix 依赖安装，DependencyCatalog.LoadEmbedded 读取）；
+         资源逻辑名 = AssemblyName.Dependencies.catalog.json -->
+    <EmbeddedResource Include="Dependencies\catalog.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- 覆盖率与内部逻辑单测 -->
     <InternalsVisibleTo Include="YetAnotherGameLauncher.Core.Tests" />
   </ItemGroup>

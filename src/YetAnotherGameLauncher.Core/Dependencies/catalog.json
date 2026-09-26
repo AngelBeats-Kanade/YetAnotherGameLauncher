@@ -1,0 +1,60 @@
+[
+  // CJK 字体依赖（Bottles cjkfonts.yml 同源方案）：
+  // Adobe 思源黑体全量 ttc 覆盖简/繁/日/韩，经注册表把 Windows 系统字体名整体映射到思源黑体。
+  {
+    "id": "cjk-fonts",
+    "version": "2.004R",
+    "downloadUrl": "https://github.com/adobe-fonts/source-han-sans/releases/download/2.004R/SourceHanSans.ttc.zip",
+    "fileName": "SourceHanSans.ttc.zip",
+    "md5": "ce3fc169af61a4e7bc650e7e78186330",
+    "sizeBytes": 95184312,
+    "archiveEntry": "SourceHanSans.ttc",
+    "fonts": [
+      {
+        "file": "SourceHanSans.ttc",
+        "families": [
+          "Source Han Sans SC ExtraLight", "Source Han Sans SC Light", "Source Han Sans SC Normal",
+          "Source Han Sans SC", "Source Han Sans SC Medium", "Source Han Sans SC Bold", "Source Han Sans SC Heavy",
+          "Source Han Sans TC ExtraLight", "Source Han Sans TC Light", "Source Han Sans TC Normal",
+          "Source Han Sans TC", "Source Han Sans TC Medium", "Source Han Sans TC Bold", "Source Han Sans TC Heavy",
+          "Source Han Sans ExtraLight", "Source Han Sans Light", "Source Han Sans Normal",
+          "Source Han Sans", "Source Han Sans Medium", "Source Han Sans Bold", "Source Han Sans Heavy",
+          "Source Han Sans K ExtraLight", "Source Han Sans K Light", "Source Han Sans K Normal",
+          "Source Han Sans K", "Source Han Sans K Medium", "Source Han Sans K Bold", "Source Han Sans K Heavy"
+        ]
+      }
+    ],
+    "replacementGroups": [
+      {
+        "target": "Source Han Sans SC",
+        "replaces": [
+          "Dengxian", "FangSong", "KaiTi", "Microsoft YaHei", "Microsoft YaHei UI",
+          "NSimSun", "SimHei", "SimKai", "SimSun", "SimSun-ExtB"
+        ]
+      },
+      {
+        "target": "Source Han Sans TC",
+        "replaces": [
+          "DFKai-SB", "Microsoft JhengHei", "Microsoft JhengHei UI",
+          "MingLiU", "PMingLiU", "MingLiU-ExtB", "PMingLiU-ExtB"
+        ]
+      },
+      {
+        "target": "Source Han Sans",
+        "replaces": [
+          "Meiryo", "Meiryo UI", "MS Gothic", "MS PGothic", "MS Mincho", "MS PMincho", "MS UI Gothic",
+          "UD Digi KyoKasho N-R", "UD Digi KyoKasho NK-R", "UD Digi KyoKasho NP-R",
+          "Yu Gothic", "Yu Gothic UI", "Yu Mincho",
+          "メイリオ", "ＭＳ ゴシック", "ＭＳ Ｐゴシック", "ＭＳ 明朝", "ＭＳ Ｐ明朝"
+        ]
+      },
+      {
+        "target": "Source Han Sans K",
+        "replaces": [
+          "Batang", "BatangChe", "Dotum", "DotumChe", "Gulim", "GulimChe", "Gungsuh", "GungsuhChe", "Malgun Gothic",
+          "바탕", "바탕체", "돋움", "돋움체", "굴림", "굴림체", "맑은 고딕"
+        ]
+      }
+    ]
+  }
+]
