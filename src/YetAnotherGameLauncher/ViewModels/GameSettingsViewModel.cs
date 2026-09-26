@@ -19,6 +19,13 @@ public partial class GameSettingsViewModel(GameItemViewModel game, MainWindowVie
     /// <summary>位置/启动参数编辑卡（与详情页共享同一实例）。</summary>
     public LaunchSettingsViewModel LaunchSettings => Game.LaunchSettings;
 
+    /// <summary>
+    /// Wine prefix 依赖区（Linux 且有安装器装配时可见；无安装器 = 测试空跑，整区隐藏）。
+    /// 数据目录沿主 VM 的注入值，保证测试与生产 prefix 定位一致。
+    /// </summary>
+    public DependencySectionViewModel Dependencies { get; } =
+        new(game, owner, owner.DependencyInstaller, owner.LinuxDataHome);
+
     [RelayCommand]
     private void BackToGame() => owner.ShowGamesCommand.Execute(null);
 }

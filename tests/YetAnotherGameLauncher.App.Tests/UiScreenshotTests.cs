@@ -651,6 +651,101 @@ public class UiScreenshotTests
         File.WriteAllBytes(Path.Combine(outDir, "19-endfield-real-backdrop-dark.png"), png!);
     }
 
+    /// <summary>
+    /// 游戏设置页「依赖」卡的视觉自检（2026-09-27 增）：Linux + 就绪环境（DW-Proton + 已初始化
+    /// prefix）+ 注入安装器 → 暗色未安装态（灰点/安装钮）与亮色已安装态（绿点/重装钮/版本号）。
+    /// </summary>
+    [Fact]
+    public async Task Export_GameDependencies_ForReview()
+    {
+        var outDir = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "..", "artifacts", "ui-review"));
+        Directory.CreateDirectory(outDir);
+
+        var installer = new FakeDependencyInstaller();
+        using var ctx = VmFactory.Build(
+            configJson: VmFactory.SampleConfigJson.Replace(
+                "\"executable\": \"Client/Binaries/Win64/Client-Win64-Shipping.exe\",",
+                "\"executable\": \"Client/Binaries/Win64/Client-Win64-Shipping.exe\",\n" +
+                "              \"launch\": { \"commandTemplate\": \"native-umu {exe}\" },"),
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            dependencyInstaller: installer);
+
+        // 就绪环境：DW-Proton（含 wine）+ 统一 prefix 的 drive_c（与解析器决策表同构）
+        var dataHome = ctx.TempDir.FilePath("data-home");
+        var wine = Path.Combine(
+            dataHome, "Steam", "compatibilitytools.d", "dwproton-11.0-12", "files", "bin", "wine");
+        Directory.CreateDirectory(Path.GetDirectoryName(wine)!);
+        File.WriteAllText(wine, "#!/bin/sh\n");
+        if (OperatingSystem.IsLinux())
+        {
+            File.SetUnixFileMode(wine, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        Directory.CreateDirectory(Path.Combine(
+            dataHome, "yagl", "prefixes", "wuthering-waves", "pfx", "drive_c", "windows"));
+
+        var captured = new List<(string Name, byte[]? Png)>();
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            RunToCompletion(() => ctx.Vm.InitializeAsync());
+            var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
+            window.NavIndicatorAnimationEnabled = false;
+            window.Show();
+
+            void Capture(string name)
+            {
+                Thread.Sleep(150);
+                Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+                var frame = window.CaptureRenderedFrame();
+                if (frame is null)
+                {
+                    captured.Add((name, null));
+                    return;
+                }
+
+                using var ms = new MemoryStream();
+                frame.Save(ms, new PngBitmapEncoderOptions());
+                captured.Add((name, ms.ToArray()));
+            }
+
+            ctx.Vm.SelectedGame = ctx.Vm.Games[0];
+            ctx.Vm.ShowGameSettingsCommand.Execute(null);
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+
+            var settings = Assert.IsType<GameSettingsViewModel>(ctx.Vm.CurrentPage);
+            Assert.True(settings.Dependencies.IsVisible, "夹具前置失败：依赖卡未点亮（就绪环境未生效）");
+
+            // 暗色 · 未安装（滚动到依赖卡）
+            var dark = ctx.Vm.ThemeModes.First(t => t.Mode == ThemeMode.Dark);
+            var light = ctx.Vm.ThemeModes.First(t => t.Mode == ThemeMode.Light);
+            ctx.Vm.SelectedTheme = dark;
+            window.GetVisualDescendants()
+                .OfType<Border>().First(b => b.Name == "DependenciesCard").BringIntoView();
+            window.UpdateLayout();
+            Capture("20-game-dependencies-dark.png");
+
+            // 亮色 · 已安装（绿点 + 重装钮 + 版本号）
+            installer.MarkInstalled = true;
+            settings.Dependencies.Refresh();
+            ctx.Vm.SelectedTheme = light;
+            window.UpdateLayout();
+            Capture("21-game-dependencies-installed-light.png");
+
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.NotEmpty(captured);
+        Assert.All(captured, c => Assert.True(c.Png is not null && c.Png.Length > 0, $"截图 {c.Name} 抓帧失败"));
+        foreach (var (name, png) in captured)
+        {
+            File.WriteAllBytes(Path.Combine(outDir, name), png!);
+        }
+    }
+
     /// <summary>更新确认截图的组件准备器替身：本地 11-6、上游 11-7 → 必然弹更新确认。</summary>
     private sealed class UpdateConfirmProvisioner : YetAnotherGameLauncher.Core.Abstractions.IUmuComponentProvisioner
     {

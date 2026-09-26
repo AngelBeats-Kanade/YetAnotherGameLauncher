@@ -4,9 +4,20 @@
              xmlns:models="using:YetAnotherGameLauncher.Core.Models"
              x:Class="YetAnotherGameLauncher.Controls.GameSettingsPage"
              x:DataType="vm:GameSettingsViewModel">
-    <!-- 游戏设置页（Motrix 式分区）：服务器 / 位置 / 启动 / 游戏信息。原 MainWindow.axaml 内联
+    <!-- 游戏设置页（Motrix 式分区）：服务器 / 位置 / 启动 / 依赖（Linux）/ 游戏信息。原 MainWindow.axaml 内联
          DataTemplate 提取，绑定契约不变（DataContext = GameSettingsViewModel，.page 类命中切换动画）；
          具名元素 InstallDirBox/LaunchCard/EnvironmentBox 供窗口级 Enter 保存类处理器按名分发与测试定位 -->
+    <UserControl.Styles>
+        <!-- 依赖条目状态点：未安装=弱化灰，已安装=状态绿（复用既有令牌，零新增主题键） -->
+        <Style Selector="Ellipse.dep-dot">
+            <Setter Property="Width" Value="8"/>
+            <Setter Property="Height" Value="8"/>
+            <Setter Property="Fill" Value="{DynamicResource AppTextSecondary}"/>
+        </Style>
+        <Style Selector="Ellipse.dep-dot.installed">
+            <Setter Property="Fill" Value="{DynamicResource AppStatusOk}"/>
+        </Style>
+    </UserControl.Styles>
     <Border Classes="page">
         <Grid>
             <ScrollViewer HorizontalScrollBarVisibility="Disabled">
@@ -149,6 +160,58 @@
                                     Command="{Binding LaunchSettings.SaveCommand}"
                                     IsEnabled="{Binding LaunchSettings.IsDirty}"
                                     HorizontalAlignment="Left"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 依赖（仅 Linux 且有安装器装配）：Wine prefix 可选组件，手动安装 -->
+                    <Border Classes="card" x:Name="DependenciesCard" IsVisible="{Binding Dependencies.IsVisible}">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="{Binding Loc[deps_section_title]}" FontSize="15" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding Loc[deps_section_hint]}" Classes="card-caption"
+                                       TextWrapping="Wrap" MaxWidth="640" HorizontalAlignment="Left"/>
+                            <ItemsControl ItemsSource="{Binding Dependencies.Items}" Margin="0,4,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:DependencyItemViewModel">
+                                        <StackPanel Spacing="4" Margin="0,4,0,0">
+                                            <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="10">
+                                                <Ellipse Grid.Column="0" Classes="dep-dot"
+                                                         Classes.installed="{Binding IsInstalled}"
+                                                         VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="14"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="2" Text="{Binding StatusText}"
+                                                           Classes="card-caption" VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <Button Grid.Column="3" Content="{Binding ButtonText}"
+                                                        Command="{Binding InstallCommand}"
+                                                        IsEnabled="{Binding CanInstall}"
+                                                        Classes="pressable btn-sm"/>
+                                            </Grid>
+                                            <TextBlock Text="{Binding Description}" Classes="card-caption"
+                                                       TextWrapping="Wrap" MaxWidth="640"
+                                                       HorizontalAlignment="Left"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <!-- 整区不可用原因（Direct/缺 wine/缺 Proton/prefix 未初始化） -->
+                            <TextBlock Text="{Binding Dependencies.UnavailableReason}" Classes="card-caption"
+                                       IsVisible="{Binding Dependencies.HasUnavailableReason}"
+                                       TextWrapping="Wrap" MaxWidth="640" HorizontalAlignment="Left"/>
+                            <!-- 安装进度行（安装期间可见） -->
+                            <StackPanel Spacing="4" Margin="0,4,0,0"
+                                        IsVisible="{Binding Dependencies.IsBusy}">
+                                <ProgressBar Value="{Binding Dependencies.ProgressPercent}"
+                                             IsIndeterminate="{Binding Dependencies.IsProgressIndeterminate}"
+                                             Maximum="100" Height="6"/>
+                                <TextBlock Text="{Binding Dependencies.ProgressText}" Classes="card-caption"/>
+                            </StackPanel>
+                            <!-- 安装结果消息槽：依赖区专属，不与位置卡 Save 槽混用 -->
+                            <TextBlock Classes="save-msg"
+                                       Text="{Binding Dependencies.Feedback.Message}"
+                                       IsVisible="{Binding Dependencies.Feedback.HasMessage}"
+                                       Classes.failed="{Binding Dependencies.Feedback.Failed}"
+                                       TextWrapping="Wrap"/>
                         </StackPanel>
                     </Border>
 

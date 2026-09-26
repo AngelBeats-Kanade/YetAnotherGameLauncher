@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.Input;
 using YetAnotherGameLauncher.Channels.Kuro;
 using YetAnotherGameLauncher.Core;
 using YetAnotherGameLauncher.Core.Abstractions;
+using YetAnotherGameLauncher.Core.Dependencies;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Services.Umu;
@@ -39,6 +40,12 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>平台环境（供子 ViewModel 复用，测试可注入假实现）。</summary>
     internal IPlatformInfo Platform => _platform;
+
+    /// <summary>Linux 首运注入的数据根（游戏设置页依赖区据此定位 prefix；null = AppPaths 缺省）。</summary>
+    internal string? LinuxDataHome => _linuxDataHome;
+
+    /// <summary>Wine prefix 依赖安装器（游戏设置页依赖区消费；null = 测试/未注册）。</summary>
+    internal IDependencyInstaller? DependencyInstaller => _dependencyInstaller;
     private readonly NetworkProxyManager? _proxyManager;
 
     /// <summary>VM 实际持有的代理管理器；internal 供单测断言组合根装配（经 InternalsVisibleTo）。</summary>
@@ -57,6 +64,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>原生 umu 组件准备器（null = 测试/未注册）。</summary>
     private readonly IUmuComponentProvisioner? _umuProvisioner;
+
+    /// <summary>Wine prefix 依赖安装器（null = 测试/未注册；游戏设置页依赖区随此门控隐藏）。</summary>
+    private readonly IDependencyInstaller? _dependencyInstaller;
 
     /// <summary>持久化窗口状态（InitializeAsync 加载目录后可读；null = 未持久化过，窗口用 XAML 默认尺寸）。</summary>
     public int? PersistedWindowWidth => _catalogService.Catalog?.Settings.WindowWidth;
@@ -94,7 +104,8 @@ public partial class MainWindowViewModel : ViewModelBase
         string? linuxWinePath = null,
         string? linuxDataHome = null,
         NativeUmuLauncher? nativeUmu = null,
-        IUmuComponentProvisioner? umuProvisioner = null)
+        IUmuComponentProvisioner? umuProvisioner = null,
+        IDependencyInstaller? dependencyInstaller = null)
     {
         _catalogService = catalogService;
         _updateService = updateService;
@@ -116,6 +127,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _linuxDataHome = linuxDataHome;
         _nativeUmu = nativeUmu;
         _umuProvisioner = umuProvisioner;
+        _dependencyInstaller = dependencyInstaller;
         _platform = platformInfo ?? PlatformInfoFactory.Create();
         Loc = localization;
         _loc.PropertyChanged += OnLanguageChanged;

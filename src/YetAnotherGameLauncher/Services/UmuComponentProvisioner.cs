@@ -92,6 +92,10 @@ public sealed class UmuComponentProvisioner(
         return null;
     }
 
+    /// <summary>发行版请求对应的本地目录名前缀（如 "DW-Proton" → "dwproton"）；未知请求返回 null。
+    /// 供依赖安装的目标解析复用（compatibilitytools.d 内按此前缀扫描已装版本），避免 flavor 表二次漂移。</summary>
+    internal static string? MatchFlavorLocalPrefix(string protonRequest) => MatchFlavor(protonRequest)?.LocalPrefix;
+
     /// <inheritdoc />
     public bool IsProtonReady(string protonPath)
     {

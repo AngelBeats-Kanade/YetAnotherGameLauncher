@@ -191,6 +191,7 @@ public static class VmFactory
         string? linuxDataHome = null,
         YetAnotherGameLauncher.Core.Services.Umu.NativeUmuLauncher? nativeUmu = null,
         YetAnotherGameLauncher.Core.Abstractions.IUmuComponentProvisioner? umuProvisioner = null,
+        YetAnotherGameLauncher.Core.Dependencies.IDependencyInstaller? dependencyInstaller = null,
         NetworkProxyManager? proxyManager = null,
         KuroGachaService? gachaService = null)
     {
@@ -281,7 +282,8 @@ public static class VmFactory
             linuxWinePath: linuxWinePath,
             linuxDataHome: linuxDataHome ?? tempDir.FilePath("data-home"),
             nativeUmu: nativeUmu,
-            umuProvisioner: umuProvisioner);
+            umuProvisioner: umuProvisioner,
+            dependencyInstaller: dependencyInstaller);
 
         return new Context
         {

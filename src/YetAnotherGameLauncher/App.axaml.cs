@@ -9,6 +9,7 @@ using YetAnotherGameLauncher.Channels.Hypergryph;
 using YetAnotherGameLauncher.Channels.Kuro;
 using YetAnotherGameLauncher.Core;
 using YetAnotherGameLauncher.Core.Abstractions;
+using YetAnotherGameLauncher.Core.Dependencies;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Services.Umu;
 using YetAnotherGameLauncher.Services;
@@ -179,6 +180,13 @@ public partial class App : Application
             sp.GetRequiredService<IUmuComponentProvisioner>(),
             sp.GetRequiredService<ILoggerFactory>().CreateLogger<NativeUmuLauncher>()));
 
+        // Wine prefix 依赖安装（游戏设置页依赖区）：显式工厂 + 类型化 logger（与 HttpFileDownloader 同理，
+        // 裸 ILogger 不在容器）；cacheRoot 缺省走 DependencyPaths.CacheRoot（XDG_CACHE_HOME 语义）
+        services.AddSingleton<IDependencyInstaller>(sp => new DependencyInstaller(
+            sp.GetRequiredService<IDownloader>(),
+            sp.GetRequiredService<IProcessRunner>(),
+            logger: sp.GetRequiredService<ILoggerFactory>().CreateLogger<DependencyInstaller>()));
+
         // 游戏背景解析（按渠道键注册；配置文件不携带背景地址，启动时向渠道确认当期背景）
         services.AddSingleton<KuroSwitchConfigClient>();
         services.AddSingleton<KuroGachaService>();
@@ -215,6 +223,7 @@ public partial class App : Application
                 proxyManager: sp.GetRequiredService<NetworkProxyManager>(),
                 nativeUmu: sp.GetRequiredService<NativeUmuLauncher>(),
                 umuProvisioner: sp.GetRequiredService<IUmuComponentProvisioner>(),
+                dependencyInstaller: sp.GetRequiredService<IDependencyInstaller>(),
                 platformInfo: sp.GetRequiredService<IPlatformInfo>());
         });
 
