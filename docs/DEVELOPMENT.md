@@ -13,7 +13,7 @@
 
 > 注意：`global.json` 只声明了 `test.runner`，不锁定 SDK 版本。
 
-> 文档时效性：`AGENTS.md`「文档同步」节定义了代码区域 → 文档章节的耦合地图（改动随变更同步）；全量兜底用 `/docs-sync` 技能审计，另有每周六 10:00 的定时自动化自动跑同一流程。
+> 文档时效性：`AGENTS.md`「文档同步」节定义了代码区域 → 文档章节的耦合地图（改动随变更同步）；全量兜底用 `/docs-sync` 技能审计。
 
 ## 2. 解决方案结构
 
@@ -56,6 +56,7 @@ src/
                     LocalizationService/ILocalizationService（JSON 资源本地化）；
                     FfmpegVideoBackdropPlayer/IVideoBackdropPlayer（FFmpeg 背景视频解码播放）+ FfmpegLibraryResolver（原生库准备/下载）；
                     SeamAnalyzer（循环接缝分析）+ PrerollHandoff（预卷零间隙交接状态机）实现无缝循环；
+                    ImageRetireQueue（被替换 UI 位图的宽限退役队列：合成器在途引用 2s 宽限后释放）；
                     BootGate（启动门控纯决策：遮蔽放行矩阵——背景就绪/最小展示时长/超时兜底）；
                     BackgroundImageService（静态背景图加载与缓存：会话内存 + http 来源磁盘缓存，失败结果按 TTL 短暂缓存；ReloadAsync 绕过缓存强制重取）、
                     UmuComponentProvisioner（原生 umu 的 Proton/Runtime 下载与校验；Proton 发行版三源：
@@ -79,7 +80,8 @@ src/
     Views/MainWindow
 tests/
   YetAnotherGameLauncher.TestSupport/           # 共享测试设施（可复用的替身与工具）
-    FakeDownloader / FakePatchApplier / FakeProcessRunner / FakeChannel / FakePlatformInfo / FakeAutostartService / StubHttpHandler / TempDir / TestZip / ManualTimeProvider（虚拟时钟）
+    FakeDownloader / FakePatchApplier / FakeProcessRunner / FakeChannel / FakePlatformInfo / FakeAutostartService / StubHttpHandler / TempDir / TestZip / ManualTimeProvider（虚拟时钟）/
+    TestFfmpegArchive（FFmpeg 资产微型归档夹具）/ DacExemptionProbe（DAC 豁免前提探针）
   YetAnotherGameLauncher.Core.Tests/            # 领域层测试
   YetAnotherGameLauncher.Channels.Kuro.Tests/   # 鸣潮渠道测试
   YetAnotherGameLauncher.Channels.Hypergryph.Tests/ # 包式协议渠道测试
@@ -276,8 +278,10 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64   --self-contain
   `[ExcludeFromCodeCoverage]` 类天然不计）。历次快照：80.29%（2026-09-19 起点）→ 83.49% →
   84.94%（2026-09-20 实测）→ 85.42%（2026-09-21 实测，5125/6000 行）→
   85.09%（2026-09-21 视频体验四连改造后，5336/6271 行——分母随按游戏独占播放器等新代码增长）→
-  **86.90%（2026-09-22 审计补测与缓存目录迁移后，5452/6274 行——TDD 转型首批补齐
-  MWVM 设置 API/Proton 按 tag 下载/VDF 解析/协议工具/主窗口 chrome 47 用例 + 缓存路径策略 3 用例）**。
+  86.90%（2026-09-22 审计补测与缓存目录迁移后，5452/6274 行——TDD 转型首批补齐
+  MWVM 设置 API/Proton 按 tag 下载/VDF 解析/协议工具/主窗口 chrome 47 用例 + 缓存路径策略 3 用例）→
+  **86.90%（2026-09-26 修复清账批后，5895/6784 行——F13-F44 与挂账 suspects 全量修复批，
+  分母随解压防线/DAC 探针等新代码增长，比率与 09-22 持平）**。
 - **判定口径**：行覆盖只是必要条件——合格证据 = 行覆盖命中 + 变异击杀（每日冒烟批
   scripts/mutation-smoke.mjs 即该纪律的脚本化；手工变异纪律见 §3.7）。
   测试须双向可证伪：断言真实执行、失败会传播、断被测行为而非镜像自身。

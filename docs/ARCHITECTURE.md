@@ -301,7 +301,11 @@ flowchart LR
   旧实现拼出 `libavcodec-63.dll`/裸 `dlopen("avcodec")`，Linux 上永远失败，是"背景视频没了"的根因）→
   下载 BtbN LGPL 共享构建（SHA256 校验后解压到 `%DataDirectory%/ffmpeg/<rid>/`；
   2026-09-22 起 ffmpeg/背景/图标缓存统一从 %ConfigDirectory% 迁到 %DataDirectory%——可重建
-  缓存归数据目录，config 下的旧副本成遗留、可手动删除）。
+  缓存归数据目录，config 下的旧副本成遗留、可手动删除）。落位走同卷暂存目录 + **完成标记**
+  （标记内容 = 下载资产名，即版本身份）：只信带当前版本标记的目录，无标记（解压中断毒化，F26）
+  或版本不匹配（App 换绑新版 FFmpeg 后的旧版目录）先删再重下自愈，防旧版库被静默绑上后 ABI 错配；
+  下载/解压失败（瞬态）保持"未尝试"下次重试，确定性不可用（上游布局变化/checksums 缺条目）锁死
+  永久失败防每次会话重下 60-72MB。
   **解压必须还原符号链接**（2026-09-24 P0 实锤）：SharpCompress `WriteEntryTo` 对 SymbolicLink 条目
   摊平成 0 字节普通文件——BtbN 包里全部短名 soname（`libavcodec.so.63` 等）以链接形态存在，
   本机下载目录 14 个短名曾全 0 字节（2026-09-24 实测）；
@@ -350,12 +354,16 @@ flowchart LR
   "hardware accelerator failed to decode picture"。运行期另有 `DecodeGuard` 两级熔断（纯状态机，
   决策表单测）：单路解码源连续 32 个视频包无输出帧（正常 h264 B 帧重排深度上限 16）判坏死放弃；
   重开/收编后的解码源仍未产出有效回（≥0.25s 且 ≥8 帧）连续 3 次即停止播放——帧位图清空后
-  `FrameSurface` 不绘制，静态海报自然兜底，下次进详情页重新起播可自愈。
+  `FrameSurface` 不绘制，静态海报自然兜底，下次进详情页重新起播可自愈。demuxer EOF ≠ 流结束：
+  EOF 后向解码器发 NULL flush 包 **drain**，吐出 B 帧重排缓冲的尾帧再报流结束（F34——不 drain
+  则每圈接缝提前 0.1-0.5s 丢尾帧）。
   **停止即清帧**：`Stop`（保活淘汰/退出/窗口关闭/列表重建共用；一切切页走暂停保活，不在此列）
   取消循环、推进代际并清空帧缓冲——全停后迟到的旧帧通知（解码线程经 UI 线程 Dispatcher
   异步投递）以空帧缓冲为证不再点亮视频层（`GameItemViewModel` 以 `Frame` 非空为准）；
   丢弃的帧位图（尺寸重建/循环淡化归零/全清三处）不立即 Dispose——合成器可能仍持有在途
   渲染引用（`IBitmapImpl` 无引用计数保证），退役入队、2s 宽限后冲刷释放（F5，2026-09-24）；
+  会话结束（ClearFrame）另有宽限+1s 的后台终末冲刷，刻意不用无视宽限的强冲——提前强释正是
+  要消灭的 use-after-free 面（F36）；
   旧循环另受代际门双重约束：`PresentFrame` 过门后方可渲染，`RenderFrame` 在位图拷入后复查代际，
   失配即整帧丢弃、不投递通知（旧画面无从复活；清帧由 Stop 的 `ClearFrame` 在锁内完成）——过门后的
   PTS 等待/sws/拷贝窗口内发生的 `Stop` 也不会让旧画面点亮。
@@ -382,7 +390,10 @@ flowchart LR
   该游戏重进凭已解析路径重新起播自愈；`_activeVideoPage` 在切非游戏页后仍指向被暂停的游戏页
   （直到被另一游戏页替换）。播放器侧续播经 `ManualResetEventSlim` 门与取消令牌
   `WaitAny`——暂停中 `Stop` 靠取消令牌正常唤醒退出，醒来重定 `PlaybackClock` 基线（暂停时长不计入
-  时间轴）；无会话时 `Pause` 为 no-op（不得留下复位门，新会话启动时 `Set` 另有兜底）。
+  时间轴）；无会话时 `Pause` 为 no-op（不得留下复位门，新会话启动时 `Set` 另有兜底）；
+  播放器 `Dispose` 时 `StopCore` 唤醒泊车线程后随即释放门（F37——不留内核等待句柄；
+  释放瞬间仍嵌在 `WaitAny` 里的微秒级窗口按"修复 + 声明"接受，观感上限为一次无害的
+  后台线程 ODE）。
   `StartVideoAsync` 的起播延迟窗口内离页放弃起播，不在页外隐形解码。
   关窗/程序性退出经 `StopBackdropVideo` 逐游戏全停（含暂停保活中的会话，退出期 GPU 栈必须
   先行静止）；installRoot 变更重建列表时旧 VM 的会话同样在 `RebuildGames` 内全停释放。
@@ -397,8 +408,8 @@ flowchart LR
   直接启动失败），故必须条件启用。决策在 `Services/WaylandBackendPolicy`（纯函数，决策表测试）：
   Linux 且 `WAYLAND_DISPLAY` 非空 → 原生 Wayland；`YAGL_FORCE_XWAYLAND=1`（或 true）逃生舱回退
   X11。X11 路径渲染显式 EGL 优先（`X11PlatformOptions.RenderingMode = [Egl, Glx, Software]`——GLX 在
-  XWayland+NVIDIA 下是糊化/撕裂高发点），见 `Program.BuildAvaloniaApp(bool)`；NVIDIA 渲染异常先试
-  `WaylandPlatformOptions.UseDmabufSwapchain = false`。已知差异：Wayland 后端窗口 class/app_id 为空
+  XWayland+NVIDIA 下是糊化/撕裂高发点），见 `Program.BuildAvaloniaApp(bool)`；NVIDIA 渲染异常的
+  排障建议是试 `WaylandPlatformOptions.UseDmabufSwapchain = false`（仅排障手段——代码保持全默认，未设该选项）。已知差异：Wayland 后端窗口 class/app_id 为空
   （`hyprctl clients` 的 class 是空串，窗口规则匹配不到），X11 路径正常。
 - **视觉最大化判定**（`Services/WindowStateMapper`，决策表测试）：Wayland 后端会把合成器平铺状态
   误报为 `WindowState.Maximized`（2026-09 实测：平铺 2516×1352 / 工作区 2560×1440 仍报 Maximized），
