@@ -36,6 +36,10 @@ src/
                     CompatTools（Linux 兼容层单一来源：umu/wine/Lutris/Proton 发现、prefix 统一路径、推荐链 BuildRecommendedLaunch、Proton 发行版代号/umuId 解析、含 LaunchMode 枚举与 CompatLaunch）、
                     Umu/（原生 umu：UmuPaths、VdfMiniParser、SteamRuntimeCatalog、ToolManifest、UmuPrefix、UmuEnvironment、NativeUmuLauncher），
                     GameBackdropService（详情页背景远程解析 + 本地缓存编排：区域/游戏版本门控，版本一致零网络）、WindowsPlatformInfo / LinuxPlatformInfo（IPlatformInfo 双实现）+ PlatformInfoFactory（唯一的 OS 选择分支，DI 与各 ViewModel 缺省共用）
+    Dependencies/   Wine prefix 依赖安装（管线细节见 docs/ARCHITECTURE.md §3.9）：DependencyManifest/DependencyCatalog（内嵌 catalog.json 清单：解析+校验+聚合错误）、
+                    WineRegistryScriptBuilder（清单 → UTF-16LE .reg，供单次 wine reg import）、DependencyPaths（全局下载缓存 ~/.cache/yagl/deps + prefix 内 .yagl-deps 状态目录布局）、
+                    DependencyInstaller + IDependencyInstaller（下载→解压→字体落位→注册表导入→完成标记五阶段编排；zip 防御解压复用 PackageInstallerService）、
+                    WinePrefixTarget/DependencyException 等模型
     Utilities/      Hashing（MD5/SHA-256 hex）、Json（统一序列化选项）、FileUtilities（原子写入/只读目标容错/目录树尽力删除/启动日志唯一路径）
   YetAnotherGameLauncher.Channels.Kuro/         # 库洛渠道（鸣潮）
     KuroChannelApi（index.json/indexFile 解析、CDN 选择、URL 拼接）
@@ -63,6 +67,8 @@ src/
                     DW-Proton 走 dawn.wine Forgejo API，GE/UMU-Proton 走 GitHub；资产按主机架构过滤
                     ——-x86_64/-aarch64 后缀 + wineserver ELF 头兜底；另提供上游 tag 查询与更新
                     ——装新版并清理同发行版旧目录，供设置页"检查更新"按钮使用），
+                    WinePrefixTargetResolver（依赖安装目标解析纯决策表：Direct 不适用 / 自定义 WINEPREFIX→系统 wine /
+                    umu 布局→Proton 内置 wine 挂 pfx；Proton 定位=PROTONPATH 绝对目录→compatibilitytools.d 精确名→发行版前缀择新），
                     FilePickerService/IFilePickerService（系统文件/目录选择器封装）
     Controls/       AppBackdrop（应用背景层：主题渐变 + 光晕 + 自定义背景图）、FrameSurface（背景视频帧自绘渲染面）、
                     AboutPage/GachaPage/SettingsPage/GameSettingsPage（四个整页 UserControl，从 MainWindow 内联
@@ -72,7 +78,8 @@ src/
                     启动设置实际变更，容量 3 丢最旧、4s 自灭；分别经 GameItemViewModel 的
                     StatusToastRequested/SettingsToastRequested 事件转发，状态首轮预热不弹）
     ViewModels/     MainWindowViewModel（SettingsViewModel、AboutViewModel 与其同文件）、GameItemViewModel、
-                    GameSettingsViewModel、LaunchSettingsViewModel、
+                    GameSettingsViewModel、LaunchSettingsViewModel、DependencySectionViewModel + DependencyItemViewModel（游戏设置页
+                    「依赖」区：内置依赖状态展示与手动安装，目标按启动方式现场解析，独立消息槽与进度行）、
                     LaunchErrorViewModel（启动失败覆盖层：类目化原因/技术详情/日志入口/umu 一键安装）、
                     GachaViewModel（鸣潮唤取记录页）、SaveMessageSlot（表单保存结果消息槽）、ToastItem（轻提示条目模型）、ViewModelBase
     Assets/         game-icons/（两游戏的官方图标 jpg，samples/games.json 以 avares:// 引用）
@@ -81,7 +88,7 @@ src/
 tests/
   YetAnotherGameLauncher.TestSupport/           # 共享测试设施（可复用的替身与工具）
     FakeDownloader / FakePatchApplier / FakeProcessRunner / FakeChannel / FakePlatformInfo / FakeAutostartService / StubHttpHandler / TempDir / TestZip / ManualTimeProvider（虚拟时钟）/
-    TestFfmpegArchive（FFmpeg 资产微型归档夹具）/ DacExemptionProbe（DAC 豁免前提探针）
+    TestFfmpegArchive（FFmpeg 资产微型归档夹具）/ DacExemptionProbe（DAC 豁免前提探针）/ FakeDependencyInstaller（依赖安装器替身：状态/失败/挂起可编程）
   YetAnotherGameLauncher.Core.Tests/            # 领域层测试
   YetAnotherGameLauncher.Channels.Kuro.Tests/   # 鸣潮渠道测试
   YetAnotherGameLauncher.Channels.Hypergryph.Tests/ # 包式协议渠道测试

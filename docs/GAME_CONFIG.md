@@ -225,6 +225,10 @@ Steam Runtime 容器与 Proton，发行版三选一），由启动器自动生�
 `games.json` 等不可清理物；旧位置的 `ffmpeg/`、`backdrops/`、`image-cache/`、`gacha/` 成遗留、
 可手动删除）：
 `ffmpeg/<rid>/`（FFmpeg 原生库，缺失自动重下）、`backdrops/<游戏id>/`（背景视频/首帧图缓存）、
-`image-cache/`（http 图标缓存）、`gacha/`（鸣潮唤取记录合并缓存）、`prefixes/<游戏id>/`（Wine prefix，见上文）。
+`image-cache/`（http 图标缓存）、`gacha/`（鸣潮唤取记录合并缓存）、`prefixes/<游戏id>/`（Wine prefix，见上文；
+其根下 `.yagl-deps/<依赖id>.ok` 为依赖安装完成标记，内容 `依赖id@版本`，随 prefix 删除自动重置）。
+依赖下载缓存另在**系统缓存目录**（Linux `~/.cache/yagl/deps`，Windows 回退数据目录 `cache\`）：
+压缩包全局共享（多 prefix 复用，size/MD5 双校验），`staging/<依赖id>/` 为解压暂存（用后即清）。
+依赖安装管线见 docs/ARCHITECTURE.md §3.9。
 
 清理游离文件时，`Saved/` 存档目录、`.yagl/`、`launcherDownloadConfig.json` 与 `compatdata/`（旧版推荐配置的 Proton prefix 位置，内有注册表/着色器缓存/用户数据）永远保留。清理枚举不穿过目录符号链接/junction（链接目标在安装树之外也绝不会被删），无权限读取的子目录会被静默跳过。

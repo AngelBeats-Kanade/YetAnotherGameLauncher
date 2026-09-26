@@ -24,6 +24,10 @@
 ## 3. 进程与日志
 
 - **SystemProcessRunner 即启即走 + 输出日志三坑**：① `BeginOutputReadLine` 事件会丢 stderr——`WaitForExit()` 只排空 stdout，必须自管 ReadLine 泵到 EOF；② `using var process` 在方法返回即 Dispose，会掐断管道，日志模式须泵收尾后再释放句柄；③ 进程可能在 `EnableRaisingEvents=true` 布防前退出，此时 Exited 永不触发，布防后要补查 `HasExited`。（Windows 上测试轮询读生产进程正在写的日志须 `FileShare.ReadWrite` 打开——见 skills avalonia-headless-testing §5。）
+- **wine reg import 的 V5 格式必须 UTF-16LE 带 BOM**（`FF FE`；无 BOM/ASCII 的 "Windows Registry Editor Version 5.00" 导入行为不保证）——Bottles 同款做法；`File.WriteAllText(path, content, Encoding.Unicode)` 自带 preamble。LF 换行可被接受，无需 CRLF。批量导入优先单 .reg 单次 `wine reg import`，逐键 `wine reg add` 每键一次 wine 调用（30+ 键 = 30+ 次 wineserver 会话）。
+- **直调 Proton 内置 wine（`<proton>/files/bin/wine`，不经 `proton run`/umu 容器）时 freetype 库路径未配置**：GDI 字体枚举不可用（每次 wine 调用打 "cannot find the FreeType font library" 告警），但**注册表读写（reg import/query）与 wineboot 前缀初始化不受影响**（2026-09-27 dwproton-11.0-13 真机实测）。依赖安装只需读写注册表与文件系统，故直调可行；需要字体渲染/GDI 的场景必须走 umu/Proton 完整容器环境。
+- **`WINEDLLOVERRIDES=mscoree,mshtml=`（等号结尾 = 禁用）防 wine 首次触碰 prefix 时弹 mono/gecko 安装框**：无人值守进程里弹框即挂起。依赖安装器对每次 wine 调用都带上，属纵深防御（prefix 已由游戏首启初始化时通常不会触发）。
+- **wine 拒绝在非本用户所有的目录创建 prefix**（"'/tmp' is not owned by you, refusing to create a configuration directory there"，owner 安全检查；sticky 目录即触发）——测试/脚本把 WINEPREFIX 指向 `/tmp` 会静默失败（exit 0 但 prefix 没建），必须放家目录或校验 `drive_c` 是否真的出现。
 
 ## 4. 研究与取证
 

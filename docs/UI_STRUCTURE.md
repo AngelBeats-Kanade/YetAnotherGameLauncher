@@ -50,6 +50,7 @@
 - **启动设置卡保存保留 `launch.umuId`**：SaveAsync 重建 LaunchOptions 时必须回填，否则 UMU_ID 退化为 umu-{gameId}（路由测试实锤）。
 - 确认更新走**页内确认覆盖层**（GameSettingsPage 根 Grid 内：纱罩 `AppOverlayScrimBrush` + `launch-error-card` 卡；卡片 `MinWidth=340` 防版本号 token 被拆行；确认钮为 `danger-card` 红字红描边幽灵钮、文案"删除旧版并更新"——破坏性操作不与 accent 实心主钮共用样式；确认后 `UpdateProtonAsync` 装新版并清理同发行版旧目录）。回归 `DangerActionStyleTests`。
 - 设置项实际变更落盘后弹轻提示：SaveAsync 对模板/工作目录/环境变量与旧值逐一快照对比，仅有变更才弹并列出变更字段（仅 `PROTONPATH` 变化即发行版切换，按"Proton 发行版"提示而非"环境变量"；无变更/校验失败不弹，失败仍走页内消息槽；服务器下拉切换也弹）。走 `GameItemViewModel.SettingsToastRequested` 事件转发，与状态 toast 同管线。
+- **依赖卡（2026-09-27 增，管线见 docs/ARCHITECTURE.md §3.9）**：`x:Name="DependenciesCard"`，位于启动卡与游戏信息卡之间；可见性 = `DependencySectionViewModel.IsVisible`（Linux 且 DI 装配了安装器且目录非空，任一不满足整卡隐藏——Windows 上不存在该卡）。卡内：标题 + 说明 caption（限宽 640 Wrap）+ 依赖条目（`Ellipse.dep-dot` 8px 状态点：未装 = AppTextSecondary 灰、`.installed` = AppStatusOk 绿；名称 14px；状态文本 card-caption；右侧 `btn-sm` 安装/重装钮 `IsEnabled=CanInstall`）+ 整区不可用原因行（Direct/缺 wine/缺 Proton/prefix 未初始化四态）+ 进度行（ProgressBar 高 6 + 文本，`IsBusy` 驱动）+ **专属 save-msg 消息槽**（不与位置卡 Save/启动卡 UmuFeedback 混用；`UmuFeedbackHeadlessTests` 归属断言已升级为按文本归属，不再假设槽总数）。条目文案键 `deps_{id}_name/_desc`（如 `deps_cjk-fonts_name`）。回归：`DependencySectionViewModelTests`（VM 行为）、`DependencySectionHeadlessTests`（Linux 可见/Windows 隐藏 + 命令接线）。截图 `20/21-game-dependencies-*`。
 
 ## 5. 覆盖层与浮动层
 

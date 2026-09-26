@@ -31,12 +31,14 @@ dotnet tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLa
 - 保存：`frame.Save(path, new PngBitmapEncoderOptions())`。
 - 数据必须真实：用 `VmFactory` 样例数据（两个游戏、假渠道状态：已安装/有更新/预下载可用都摆出来）。
 - 截图窗口固定 1120×720（`UiScreenshotTests` 内写死，与主窗口默认 1464×720 无关，保证构图稳定）。
-- **清单（2026-09-25 实测；改动 UI 或新增导出后同步本清单）**：七个画面共 21 张——
-  01-15 + 02b + 16 + 17/18 + 10b + 19。归属：`Export_UiScreenshots_ForReview` 11 张；
+- **清单（2026-09-27 实测；改动 UI 或新增导出后同步本清单）**：八个画面共 23 张——
+  01-15 + 02b + 16 + 17/18 + 10b + 19 + 20/21。归属：`Export_UiScreenshots_ForReview` 11 张；
   `Export_LaunchErrorOverlay_ForReview` 5 张（10/10b/11/12/14，10b=CanRetry=true 覆盖层；
   该导出同时覆盖启动失败覆盖层与 Linux 启动设置卡：umu 启动 + Proton 发行版下拉 + 检查更新按钮）；
   `Export_ProtonUpdateConfirm_ForReview` 1 张（Proton 更新确认覆盖层，内含纱罩压暗的像素级回归断言）；
   `Export_BootSplash_ForReview` 1 张（16-boot-splash 启动遮蔽层）；
+  `Export_GameDependencies_ForReview` 2 张（20/21 游戏设置页依赖卡：暗=未安装灰点安装钮、
+  亮=已安装绿点重装钮，2026-09-27 增）。
   `Export_GachaPage_ForReview` 2 张（17/18 唤取页暗/亮，2026-09-23 补评审 P3-12 覆盖缺口）；
   `Export_EndfieldRealBackdrop_ForReview` 1 张（19 真实海报×终末地详情页——自绘标题移除后顶部无字标冲突的日常形态验收，机器无背景缓存时 Skip，2026-09-25 增）。
   历史：2026-09-20 实测归属更正、2026-09-21 增启动页、2026-09-23 增唤取页、2026-09-25 增真实海报页。
