@@ -22,8 +22,7 @@ public sealed record DependencyReplacementGroup(string Target, IReadOnlyList<str
 /// <param name="FileName">下载缓存文件名（仅文件名，落共享缓存目录）。</param>
 /// <param name="Md5">压缩包 MD5（小写 hex，32 位；下载器负责校验）。</param>
 /// <param name="SizeBytes">压缩包字节数（下载器负责校验）。</param>
-/// <param name="ArchiveEntry">解压后要安装的字体文件在压缩包内的条目名（不得含路径段）。</param>
-/// <param name="Fonts">要安装的字体文件与族名登记。</param>
+/// <param name="Fonts">要安装的字体文件（压缩包内纯文件名）与族名登记。</param>
 /// <param name="ReplacementGroups">字体名替换组。</param>
 public sealed record DependencyManifest(
     string Id,
@@ -32,6 +31,5 @@ public sealed record DependencyManifest(
     string FileName,
     string Md5,
     long SizeBytes,
-    string ArchiveEntry,
     IReadOnlyList<DependencyFont> Fonts,
     IReadOnlyList<DependencyReplacementGroup> ReplacementGroups);

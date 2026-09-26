@@ -32,11 +32,14 @@ public class DependencyInstallerTests : IDisposable
 
     private string CacheRoot => _temp.FilePath("cache");
 
+    /// <summary>解压暂存目录（cacheRoot/staging/test-fonts，"用后即清"守卫的探针位置）。</summary>
+    private string StagingDir => _temp.FilePath("cache", "staging", "test-fonts");
+
     /// <summary>两字体清单；md5/size 与 _archiveBytes 一致（缓存有效性判定要用真值）。</summary>
     private DependencyManifest BuildManifest() => new(
         "test-fonts", "1.0",
         "https://example.com/fonts.zip", "fonts.zip",
-        Hashing.Md5Hex(_archiveBytes), _archiveBytes.Length, "a.ttc",
+        Hashing.Md5Hex(_archiveBytes), _archiveBytes.Length,
         [new DependencyFont("a.ttc", ["F1", "F2"]), new DependencyFont("b.ttf", ["F3"])],
         [new DependencyReplacementGroup("F1", ["OldFont"])]);
 
@@ -123,6 +126,9 @@ public class DependencyInstallerTests : IDisposable
         // 临时 .reg 用后即清
         Assert.Empty(Directory.GetFiles(StateDir, "*.reg*"));
 
+        // 暂存"用后即清"守卫（变异击杀位：删掉清理 finally 本用例必红）
+        Assert.False(Directory.Exists(StagingDir), "解压暂存目录未清理");
+
         // 完成标记最后写：id@version
         Assert.Equal("test-fonts@1.0", await File.ReadAllTextAsync(Path.Combine(StateDir, "test-fonts.ok")));
 
@@ -170,17 +176,19 @@ public class DependencyInstallerTests : IDisposable
     }
 
     [Fact]
-    public async Task Install_ArchiveEntryMissing_ThrowsExtractFailed()
+    public async Task Install_FontFileMissing_ThrowsExtractFailed_NoStagingLeft()
     {
         InitPrefix();
+        // 压缩包缺少清单声明的 b.ttf：解压成功但字体校验失败，暂存必须照样清理
         _downloader.Serve(
             "https://example.com/fonts.zip",
-            TestZip.Create(("other.txt", "x"u8.ToArray())));
+            TestZip.Create(("a.ttc", "font A"u8.ToArray())));
 
         var ex = await Assert.ThrowsAsync<DependencyException>(
             () => CreateInstaller().InstallAsync(MakeTarget(), BuildManifest(), null));
 
         Assert.Equal(DependencyFailureKind.ExtractFailed, ex.Kind);
+        Assert.False(Directory.Exists(StagingDir), "字体条目缺失时解压暂存目录未清理");
     }
 
     [Fact]
@@ -228,6 +236,110 @@ public class DependencyInstallerTests : IDisposable
         Assert.Contains("wineserver exploded", ex.Message);
         Assert.False(File.Exists(Path.Combine(StateDir, "test-fonts.ok")));
         Assert.Empty(Directory.GetFiles(StateDir, "*.reg*"));
+        Assert.False(Directory.Exists(StagingDir), "注册表失败时解压暂存目录未清理");
+    }
+
+    /// <summary>注册表阶段的脚本写盘失败（状态目录被文件占位 → 建目录抛 IOException）同样按
+    /// RegistryFailed 分类，不得裸穿。</summary>
+    [Fact]
+    public async Task Install_RegistryScriptWriteFails_ThrowsRegistryFailed()
+    {
+        InitPrefix();
+        _downloader.Serve("https://example.com/fonts.zip", _archiveBytes);
+        Directory.CreateDirectory(Path.GetDirectoryName(StateDir)!);
+        File.WriteAllText(StateDir, "占位文件：状态目录路径被文件占用");
+
+        var ex = await Assert.ThrowsAsync<DependencyException>(
+            () => CreateInstaller().InstallAsync(MakeTarget(), BuildManifest(), null));
+
+        Assert.Equal(DependencyFailureKind.RegistryFailed, ex.Kind);
+        Assert.False(File.Exists(Path.Combine(StateDir, "test-fonts.ok")));
+    }
+
+    /// <summary>注册表成功但完成标记写不进（标记路径被目录占位）：按 StateWriteFailed 分类，
+    /// 不得裸穿 IOException——此时字体已生效但状态未记录，用户必须得到失败提示。</summary>
+    [Fact]
+    public async Task Install_MarkerWriteFails_ThrowsStateWriteFailed()
+    {
+        InitPrefix();
+        _downloader.Serve("https://example.com/fonts.zip", _archiveBytes);
+        Directory.CreateDirectory(Path.Combine(StateDir, "test-fonts.ok")); // 标记路径被目录占位
+
+        var ex = await Assert.ThrowsAsync<DependencyException>(
+            () => CreateInstaller().InstallAsync(MakeTarget(), BuildManifest(), null));
+
+        Assert.Equal(DependencyFailureKind.StateWriteFailed, ex.Kind);
+    }
+
+    /// <summary>reg import 执行阶段抛非 OCE（生产 SystemProcessRunner 超时抛 UpdateException）：
+    /// 按 RegistryFailed 分类而非裸穿。</summary>
+    [Fact]
+    public async Task Install_RegistryRunnerThrows_ThrowsRegistryFailed()
+    {
+        InitPrefix();
+        _downloader.Serve("https://example.com/fonts.zip", _archiveBytes);
+        _runner.Handler = _ => throw new UpdateException("超时");
+
+        var ex = await Assert.ThrowsAsync<DependencyException>(
+            () => CreateInstaller().InstallAsync(MakeTarget(), BuildManifest(), null));
+
+        Assert.Equal(DependencyFailureKind.RegistryFailed, ex.Kind);
+        Assert.Contains("超时", ex.Message);
+    }
+
+    /// <summary>同尺寸但内容不同的缓存必须判无效走重下（MD5 分支；尺寸分支已有覆盖）。</summary>
+    [Fact]
+    public async Task Install_CachedArchiveSameSizeWrongContent_Redownloads()
+    {
+        InitPrefix();
+        Directory.CreateDirectory(CacheRoot);
+        var sameSizeWrongContent = new byte[_archiveBytes.Length];
+        Array.Fill(sameSizeWrongContent, (byte)0xAB);
+        await File.WriteAllBytesAsync(Path.Combine(CacheRoot, "fonts.zip"), sameSizeWrongContent);
+        _downloader.Serve("https://example.com/fonts.zip", _archiveBytes);
+
+        await CreateInstaller().InstallAsync(MakeTarget(), BuildManifest(), null);
+
+        Assert.Single(_downloader.Requests);
+    }
+
+    /// <summary>并发防护：同依赖的两个安装调用串行执行，后者凭先者写入的标记短路，
+    /// 注册表导入只发生一次（跨 VM/跨游戏并发互踩的回归守卫）。</summary>
+    [Fact]
+    public async Task Install_ConcurrentCalls_SerializedAndSecondShortCircuits()
+    {
+        InitPrefix();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gatedDownloader = new GatedDownloader(gate.Task, _archiveBytes);
+        var installer = new DependencyInstaller(gatedDownloader, _runner, [BuildManifest()], cacheRoot: CacheRoot);
+        var target = MakeTarget();
+        var manifest = BuildManifest();
+
+        var first = installer.InstallAsync(target, manifest);
+        var secondTask = installer.InstallAsync(target, manifest); // 第一枪挂在下载门上时发起
+        Assert.False(first.IsCompleted);
+
+        await Task.Yield();
+        gate.TrySetResult();
+        await Task.WhenAll(first, secondTask);
+
+        var import = Assert.Single(_runner.Specs);
+        Assert.StartsWith("reg import \"", import.Arguments);
+        Assert.Equal("test-fonts@1.0", await File.ReadAllTextAsync(Path.Combine(StateDir, "test-fonts.ok")));
+    }
+
+    /// <summary>挂在可释放门上的下载器替身（并发串行化测试用）。</summary>
+    private sealed class GatedDownloader(Task gate, byte[] content) : IDownloader
+    {
+        public async Task DownloadFileAsync(
+            Core.Models.DownloadRequest request,
+            IProgress<long>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            await gate;
+            Directory.CreateDirectory(Path.GetDirectoryName(request.DestinationPath)!);
+            await File.WriteAllBytesAsync(request.DestinationPath, content, cancellationToken);
+        }
     }
 
     [Fact]
@@ -264,7 +376,8 @@ public class DependencyInstallerTests : IDisposable
         var installer = new DependencyInstaller(
             new CancelledDownloader(), _runner, [BuildManifest()], cacheRoot: CacheRoot);
 
-        await Assert.ThrowsAsync<OperationCanceledException>(
+        // 取消可来自任一阶段（信号量等待 / 下载器）：契约 = 以 OCE 族透传，不折算成业务失败
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => installer.InstallAsync(MakeTarget(), BuildManifest(), null, new CancellationToken(canceled: true)));
     }
 

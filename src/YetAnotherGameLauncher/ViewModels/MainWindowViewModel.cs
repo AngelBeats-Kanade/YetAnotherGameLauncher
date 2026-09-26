@@ -46,6 +46,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>Wine prefix 依赖安装器（游戏设置页依赖区消费；null = 测试/未注册）。</summary>
     internal IDependencyInstaller? DependencyInstaller => _dependencyInstaller;
+
+    /// <summary>系统 wine 发现委托（依赖区消费；null = 生产缺省 CompatTools.FindSystemWine）。</summary>
+    internal Func<string?>? SystemWineResolver => _systemWineResolver;
     private readonly NetworkProxyManager? _proxyManager;
 
     /// <summary>VM 实际持有的代理管理器；internal 供单测断言组合根装配（经 InternalsVisibleTo）。</summary>
@@ -67,6 +70,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>Wine prefix 依赖安装器（null = 测试/未注册；游戏设置页依赖区随此门控隐藏）。</summary>
     private readonly IDependencyInstaller? _dependencyInstaller;
+
+    /// <summary>系统 wine 发现委托（游戏设置页依赖区消费；null = 生产走 CompatTools.FindSystemWine，
+    /// 测试注入桩避免依赖真机 PATH）。</summary>
+    private readonly Func<string?>? _systemWineResolver;
 
     /// <summary>持久化窗口状态（InitializeAsync 加载目录后可读；null = 未持久化过，窗口用 XAML 默认尺寸）。</summary>
     public int? PersistedWindowWidth => _catalogService.Catalog?.Settings.WindowWidth;
@@ -105,7 +112,8 @@ public partial class MainWindowViewModel : ViewModelBase
         string? linuxDataHome = null,
         NativeUmuLauncher? nativeUmu = null,
         IUmuComponentProvisioner? umuProvisioner = null,
-        IDependencyInstaller? dependencyInstaller = null)
+        IDependencyInstaller? dependencyInstaller = null,
+        Func<string?>? systemWineResolver = null)
     {
         _catalogService = catalogService;
         _updateService = updateService;
@@ -128,6 +136,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _nativeUmu = nativeUmu;
         _umuProvisioner = umuProvisioner;
         _dependencyInstaller = dependencyInstaller;
+        _systemWineResolver = systemWineResolver;
         _platform = platformInfo ?? PlatformInfoFactory.Create();
         Loc = localization;
         _loc.PropertyChanged += OnLanguageChanged;
@@ -461,6 +470,13 @@ public partial class MainWindowViewModel : ViewModelBase
             // 实际 VM 原封不动、下拉选项维持旧语言——2026-09-20 复审修正机制）
             NavigateTo(new GachaViewModel(this, gacha.OwnerGame, gachaService));
             return;
+        }
+
+        // 依赖区的状态文案是刷新期快照（非 Loc[key] 索引器绑定），视觉树重建不会重算：
+        // 停在游戏设置页时显式重读（LaunchSettingsViewModel 的显式刷新钩子同款）
+        if (CurrentPage is GameSettingsViewModel settings)
+        {
+            settings.Dependencies.Refresh();
         }
 
         // 兜底：强制重建当前页面的视觉树，刷新编译绑定重新求值的文本

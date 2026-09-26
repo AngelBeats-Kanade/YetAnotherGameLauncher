@@ -38,6 +38,34 @@ public static class VmFactory
         }
         """;
 
+    /// <summary>鸣潮条目带原生 umu 启动模板的样例配置（依赖区/启动设置类测试共用，避免 Replace 字面量散落）。</summary>
+    public const string UmuSampleConfigJson = $$"""
+        {
+          "settings": { "installRoot": "~/yagl-test-games", "theme": "Dark", "maxParallelDownloads": 4 },
+          "games": [
+            {
+              "id": "wuthering-waves",
+              "displayName": "鸣潮",
+              "nameLocalized": { "zh-CN": "鸣潮", "en-US": "Wuthering Waves" },
+              "channel": "kuro",
+              "installDir": "WutheringWaves",
+              "executable": "Client/Binaries/Win64/Client-Win64-Shipping.exe",
+              "launch": { "commandTemplate": "native-umu {exe}" },
+              "servers": [ { "id": "cn", "name": "国服" } ]
+            },
+            {
+              "id": "arknights-endfield",
+              "displayName": "明日方舟：终末地",
+              "nameLocalized": { "zh-CN": "明日方舟：终末地", "en-US": "Arknights: Endfield" },
+              "channel": "hypergryph",
+              "installDir": "ArknightsEndfield",
+              "executable": "Endfield.exe",
+              "servers": [ { "id": "global", "name": "国际服" } ]
+            }
+          ]
+        }
+        """;
+
     public sealed class Context : IDisposable
     {
         public required MainWindowViewModel Vm { get; init; }
@@ -192,6 +220,7 @@ public static class VmFactory
         YetAnotherGameLauncher.Core.Services.Umu.NativeUmuLauncher? nativeUmu = null,
         YetAnotherGameLauncher.Core.Abstractions.IUmuComponentProvisioner? umuProvisioner = null,
         YetAnotherGameLauncher.Core.Dependencies.IDependencyInstaller? dependencyInstaller = null,
+        Func<string?>? systemWineResolver = null,
         NetworkProxyManager? proxyManager = null,
         KuroGachaService? gachaService = null)
     {
@@ -283,7 +312,8 @@ public static class VmFactory
             linuxDataHome: linuxDataHome ?? tempDir.FilePath("data-home"),
             nativeUmu: nativeUmu,
             umuProvisioner: umuProvisioner,
-            dependencyInstaller: dependencyInstaller);
+            dependencyInstaller: dependencyInstaller,
+            systemWineResolver: systemWineResolver);
 
         return new Context
         {

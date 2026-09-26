@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
@@ -29,6 +30,9 @@ public interface IDependencyInstaller
 /// 多 prefix 复用）→ ③ 防御解压到暂存 → ④ 字体拷进 windows/Fonts → ⑤ 单次
 /// <c>wine reg import</c> 写字体登记与替换（UTF-16LE .reg，WINEPREFIX 指向目标 prefix）→
 /// ⑥ 原子写完成标记。任一阶段失败即中止且不写标记（幂等可重试）；取消透传 OCE。
+/// 同一依赖的全局安装按 id 串行（设置页重建会换新 VM，IsBusy 门挡不住跨页并发；
+/// 共享缓存/暂存目录与 .reg 临时文件都以 id 为键，并发即互踩），拿到锁后重查标记——
+/// 先行者装完时后者短路为已安装。
 /// </summary>
 public sealed class DependencyInstaller(
     IDownloader downloader,
@@ -46,6 +50,9 @@ public sealed class DependencyInstaller(
 
     private readonly string _cacheRoot = cacheRoot ?? DependencyPaths.CacheRoot();
 
+    /// <summary>按依赖 id 的安装互斥锁（静态：DI 单例也挡不住测试多实例与未来多入口）。</summary>
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> InstallLocks = new(StringComparer.Ordinal);
+
     /// <inheritdoc />
     public IReadOnlyList<DependencyManifest> Dependencies { get; } =
         dependencies ?? DependencyCatalog.LoadEmbedded();
@@ -54,12 +61,23 @@ public sealed class DependencyInstaller(
     public DependencyInstallState GetState(WinePrefixTarget target, DependencyManifest manifest)
     {
         var markerPath = DependencyPaths.MarkerPath(target.StateDirectory, manifest.Id);
-        if (!File.Exists(markerPath))
+        string content;
+        try
         {
+            if (!File.Exists(markerPath))
+            {
+                return new DependencyInstallState(false, null);
+            }
+
+            content = File.ReadAllText(markerPath);
+        }
+        catch (Exception ex) when (
+            ex is FileNotFoundException or DirectoryNotFoundException or IOException or UnauthorizedAccessException)
+        {
+            // 标记被并发删除/读失败（含 ACL 拒读）按"未安装"处理：重装是安全兜底（幂等）
             return new DependencyInstallState(false, null);
         }
 
-        var content = File.ReadAllText(markerPath);
         var expected = MarkerContent(manifest);
         return string.Equals(content.Trim(), expected, StringComparison.Ordinal)
             ? new DependencyInstallState(true, manifest.Version)
@@ -88,18 +106,45 @@ public sealed class DependencyInstaller(
                 $"Wine prefix 未初始化（缺 drive_c）：{target.WinePrefixDirectory}。请先启动一次游戏。");
         }
 
-        if (GetState(target, manifest) is { Installed: true })
+        var installLock = InstallLocks.GetOrAdd(manifest.Id, _ => new SemaphoreSlim(1, 1));
+        await installLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            logger?.LogInformation("Dependency {Id}@{Version} already installed, skipping", manifest.Id, manifest.Version);
-            return;
-        }
+            if (GetState(target, manifest) is { Installed: true })
+            {
+                logger?.LogInformation(
+                    "Dependency {Id}@{Version} already installed, skipping", manifest.Id, manifest.Version);
+                return;
+            }
 
+            await InstallCoreAsync(target, manifest, progress, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            installLock.Release();
+        }
+    }
+
+    /// <summary>安装主体（调用方已持依赖锁并做过已装短路）。</summary>
+    private async Task InstallCoreAsync(
+        WinePrefixTarget target,
+        DependencyManifest manifest,
+        IProgress<DependencyProgress>? progress,
+        CancellationToken cancellationToken)
+    {
         var archivePath = await EnsureArchiveAsync(manifest, progress, cancellationToken).ConfigureAwait(false);
 
         progress?.Report(new DependencyProgress(DependencyPhase.Extracting, null));
-        var fontFiles = ExtractFonts(manifest, archivePath);
+        var staging = DependencyPaths.StagingDirectory(_cacheRoot, manifest.Id);
+        // 预清上一轮硬杀（进程终止，finally 无法执行）可能留下的旧暂存：陈旧字体文件会被
+        // ExtractFonts 的存在性校验误当成本包产物
+        FileUtilities.TryDeleteDirectory(staging, logger);
+        List<string> fontFiles;
         try
         {
+            // 暂存清理覆盖解压与落位全程：解压产物可达百 MB 级，成败都用后即清
+            fontFiles = ExtractFonts(manifest, archivePath, staging);
+
             progress?.Report(new DependencyProgress(DependencyPhase.Copying, null));
             CopyFonts(target, manifest, fontFiles);
 
@@ -108,18 +153,18 @@ public sealed class DependencyInstaller(
         }
         finally
         {
-            // 暂存无论成败用后即清（zip 解压产物可达百 MB 级）
-            FileUtilities.TryDeleteDirectory(
-                DependencyPaths.StagingDirectory(_cacheRoot, manifest.Id), logger);
+            FileUtilities.TryDeleteDirectory(staging, logger);
         }
 
         await WriteMarkerAsync(target, manifest).ConfigureAwait(false);
         progress?.Report(new DependencyProgress(DependencyPhase.Done, null));
-        logger?.LogInformation("Dependency {Id}@{Version} installed into {Prefix}", manifest.Id, manifest.Version, target.WinePrefixDirectory);
+        logger?.LogInformation(
+            "Dependency {Id}@{Version} installed into {Prefix}", manifest.Id, manifest.Version, target.WinePrefixDirectory);
     }
 
     /// <summary>确保压缩包在共享缓存且校验通过：有效缓存直接复用，否则下载（DownloadRequest 自带
-    /// 断点续传与 MD5/size 校验）。校验失败由下载器抛出，这里统一折算 DownloadFailed。</summary>
+    /// 断点续传与 MD5/size 校验）。除取消外的任何失败统一折算 DownloadFailed——下载/缓存阶段的
+    /// IO 异常族（含 UnauthorizedAccessException：目录无权限、.temp 被锁）不该裸穿到 VM。</summary>
     private async Task<string> EnsureArchiveAsync(
         DependencyManifest manifest,
         IProgress<DependencyProgress>? progress,
@@ -137,7 +182,7 @@ public sealed class DependencyInstaller(
                     fraction,
                     cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is DownloadException or InvalidOperationException or IOException)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 throw new DependencyException(
                     DependencyFailureKind.DownloadFailed,
@@ -149,24 +194,28 @@ public sealed class DependencyInstaller(
     }
 
     /// <summary>缓存有效性：尺寸与 MD5 都一致才复用（与清单校验语义一致：字段缺失不跳过校验，
-    /// 内嵌清单已保证两字段恒在）。</summary>
+    /// 内嵌清单已保证两字段恒在）。Exists→读取之间缓存被并发删除/手删/拒读按"无效"走重下
+    /// （F18 同型 TOCTOU，先例 PackageInstallerService.IsArchiveIntact）。</summary>
     private static bool IsCachedArchiveValid(DependencyManifest manifest, string archivePath)
     {
-        if (!File.Exists(archivePath) || new FileInfo(archivePath).Length != manifest.SizeBytes)
+        try
+        {
+            return File.Exists(archivePath)
+                   && new FileInfo(archivePath).Length == manifest.SizeBytes
+                   && Hashing.Md5Hex(archivePath).Equals(manifest.Md5, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (
+            ex is FileNotFoundException or DirectoryNotFoundException or IOException or UnauthorizedAccessException)
         {
             return false;
         }
-
-        return Hashing.Md5Hex(archivePath).Equals(manifest.Md5, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>解压到暂存目录并返回清单声明的字体文件绝对路径；任一文件缺失按 ExtractFailed 失败
-    /// （zip 解包的穿越/链接/炸弹防御复用 PackageInstallerService 的既有实现，单一事实源）。</summary>
-    private List<string> ExtractFonts(DependencyManifest manifest, string archivePath)
+    /// （zip 解包的穿越/链接/炸弹防御复用 PackageInstallerService 的既有实现，单一事实源）。
+    /// 清理由调用方的 finally 承担。</summary>
+    private List<string> ExtractFonts(DependencyManifest manifest, string archivePath, string staging)
     {
-        var staging = DependencyPaths.StagingDirectory(_cacheRoot, manifest.Id);
-        FileUtilities.TryDeleteDirectory(staging, logger);
-        Directory.CreateDirectory(staging);
         try
         {
             PackageInstallerService.ExtractArchive(archivePath, staging, manifest.FileName);
@@ -195,7 +244,8 @@ public sealed class DependencyInstaller(
         return files;
     }
 
-    /// <summary>字体拷进 windows/Fonts（覆盖写：同版本重装幂等）。</summary>
+    /// <summary>字体拷进 windows/Fonts（覆盖写：同版本重装幂等；只读目标就地不可解，Windows
+    /// 占用/只读语义由 FontCopyFailed 承载）。</summary>
     private static void CopyFonts(WinePrefixTarget target, DependencyManifest manifest, List<string> stagedFiles)
     {
         try
@@ -214,17 +264,17 @@ public sealed class DependencyInstaller(
         }
     }
 
-    /// <summary>生成 .reg（UTF-16LE）并单次 <c>wine reg import</c> 导入；退出码非零按 RegistryFailed
-    /// 失败（附 stderr），临时 .reg 无论成败用后即删。</summary>
+    /// <summary>生成 .reg（UTF-16LE）并单次 <c>wine reg import</c> 导入；脚本写盘与导入执行同属
+    /// 注册表阶段，失败统一按 RegistryFailed（附 stderr），临时 .reg 无论成败用后即删。</summary>
     private async Task ImportRegistryAsync(
         WinePrefixTarget target,
         DependencyManifest manifest,
         CancellationToken cancellationToken)
     {
-        Directory.CreateDirectory(target.StateDirectory);
         var regPath = Path.Combine(target.StateDirectory, $"{manifest.Id}.reg");
         try
         {
+            Directory.CreateDirectory(target.StateDirectory);
             await WineRegistryScriptBuilder.WriteAsync(
                 regPath, WineRegistryScriptBuilder.Build(manifest), cancellationToken).ConfigureAwait(false);
 
@@ -255,17 +305,35 @@ public sealed class DependencyInstaller(
                     $"wine reg import 退出码 {result.ExitCode}：{result.StandardError}");
             }
         }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new DependencyException(
+                DependencyFailureKind.RegistryFailed,
+                $"注册表脚本写入失败：{ex.Message}", ex);
+        }
         finally
         {
             FileUtilities.DeleteQuiet(regPath);
         }
     }
 
-    /// <summary>原子写完成标记（内容 id@version；版本变更时可检测重装）。</summary>
-    private static Task WriteMarkerAsync(WinePrefixTarget target, DependencyManifest manifest) =>
-        FileUtilities.WriteAtomicAsync(
-            DependencyPaths.MarkerPath(target.StateDirectory, manifest.Id),
-            MarkerContent(manifest));
+    /// <summary>原子写完成标记（内容 id@version；版本变更时可检测重装）；状态目录不可写按
+    /// StateWriteFailed 失败——此时字体与注册表已生效，但"已安装"不被记录，重装幂等。</summary>
+    private static async Task WriteMarkerAsync(WinePrefixTarget target, DependencyManifest manifest)
+    {
+        try
+        {
+            await FileUtilities.WriteAtomicAsync(
+                DependencyPaths.MarkerPath(target.StateDirectory, manifest.Id),
+                MarkerContent(manifest)).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new DependencyException(
+                DependencyFailureKind.StateWriteFailed,
+                $"写入安装状态失败：{ex.Message}", ex);
+        }
+    }
 
     private static string MarkerContent(DependencyManifest manifest) => $"{manifest.Id}@{manifest.Version}";
 

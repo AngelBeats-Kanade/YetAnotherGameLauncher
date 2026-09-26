@@ -432,24 +432,30 @@ flowchart LR
 思源黑体 2.004R）。分层与数据流：
 
 - **清单（数据与代码分离）**：`Core/Dependencies/catalog.json` 内嵌资源，声明式 schema——
-  `id/version/downloadUrl/fileName/md5/sizeBytes/archiveEntry` + `fonts[]`（文件→族名登记）+
+  `id/version/downloadUrl/fileName/md5/sizeBytes` + `fonts[]`（文件→族名登记）+
   `replacementGroups[]`（旧字体名→目标字体）。`DependencyCatalog` 解析并聚合校验（id kebab 唯一、
-  https、md5 32hex、size>0、条目名禁路径段），错误一次性抛 `DependencyCatalogException`。
-  加新依赖 = 改清单，不改代码。
+  https、md5 32hex、size>0、文件名禁路径段与 `..`、**缺省键归一为校验错误而非 NRE**），错误一次性抛
+  `DependencyCatalogException`。加新依赖 = 改清单，不改代码。
 - **目标解析（App 层 `WinePrefixTargetResolver`，纯决策表）**：Direct → 不适用；启动环境里**非生成**
-  的自定义 `WINEPREFIX`（≠ 统一 prefix 根）→ 系统 wine 挂该 prefix；其余按 umu 布局——Proton 定位
-  （`PROTONPATH` 绝对目录 → compatibilitytools.d 精确名 → 发行版前缀择最新，flavor 表经
-  `UmuComponentProvisioner.MatchFlavorLocalPrefix` 单一来源）→ **Proton 内置 wine**（`files/bin/wine`）
-  挂 `<统一prefix根>/pfx`。prefix 未初始化（`drive_c` 缺失）是**可见状态**而非异常：提示先启动一次游戏。
-- **安装编排（Core `DependencyInstaller`，消费已解析的 `WinePrefixTarget`）**：前置校验（wine 可执行、
-  prefix 已初始化——失败绝不发起下载）→ 共享缓存下载（`~/.cache/yagl/deps`，size/MD5 双校验、断点续传、
-  多 prefix 复用）→ 防御解压到 staging（复用 `PackageInstallerService.ExtractArchive`：穿越/链接/炸弹
-  防线单一来源）→ 字体拷进 `<prefix>/drive_c/windows/Fonts` → **单次 `wine reg import`**（
-  `WineRegistryScriptBuilder` 生成 UTF-16LE BOM 的 V5 格式 .reg，HKLM Fonts 登记 + HKCU
-  `Wine\Fonts\Replacements` 替换合一脚本；环境 `WINEPREFIX` + `WINEDLLOVERRIDES=mscoree,mshtml=`
-  防 mono/gecko 弹窗）→ 原子写完成标记 `<prefix根>/.yagl-deps/<id>.ok`（内容 `id@version`，随 prefix
-  删除自动重置；已装同版本短路，版本变更可检测重装）。任一阶段失败即中止且不写标记，幂等可重试；
-  失败分类 `DependencyException`（UI 映射可操作文案），OCE 透传。
+  的自定义 `WINEPREFIX`（≠ 统一 prefix 根）→ 系统 wine 挂该 prefix；其余按 umu 布局——兼容数据根取
+  环境 `STEAM_COMPAT_DATA_PATH`（手改配置的自定义 prefix，生成模板恒等于统一 prefix 根、无行为差），
+  缺省 = 统一 prefix 根；Proton 定位（`PROTONPATH` 绝对目录 → compatibilitytools.d 精确名 →
+  发行版前缀择最新，flavor 表经 `UmuComponentProvisioner.MatchFlavorLocalPrefix` 单一来源，
+  择新**逐目录验证内置 wine 可执行**——更新中半解包目录被跳过并回退旧可用版）→ **Proton 内置 wine**
+  （`files/bin/wine`）挂 `<兼容数据根>/pfx`。prefix 未初始化（`drive_c` 缺失）是**可见状态**而非异常：
+  提示先启动一次游戏。
+- **安装编排（Core `DependencyInstaller`，消费已解析的 `WinePrefixTarget`）**：前置校验（wine 可用、
+  prefix 已初始化——失败绝不发起下载）→ **按依赖 id 全局串行**（静态信号量；设置页重建换新 VM 后
+  IsBusy 门失效，锁 + 拿锁后重查标记保证并发第二次短路）→ 共享缓存下载（`~/.cache/yagl/deps`，
+  size/MD5 双校验、断点续传、多 prefix 复用；缓存 TOCTOU 按"无效走重下"处理）→ 防御解压到 staging
+  （复用 `PackageInstallerService.ExtractArchive`：穿越/链接/炸弹防线单一来源）→ 字体拷进
+  `<prefix>/drive_c/windows/Fonts` → **单次 `wine reg import`**（`WineRegistryScriptBuilder` 生成
+  UTF-16LE BOM 的 V5 格式 .reg，HKLM Fonts 登记 + HKCU `Wine\Fonts\Replacements` 替换合一脚本；
+  环境 `WINEPREFIX` + `WINEDLLOVERRIDES=mscoree,mshtml=` 防 mono/gecko 弹窗）→ 原子写完成标记
+  `<prefix根>/.yagl-deps/<id>.ok`（内容 `id@version`，随 prefix 删除自动重置；已装同版本短路，
+  版本变更可检测重装）。staging 暂存覆盖解压到落位全程"用后即清"（变异实验钉住）；除取消外所有
+  阶段失败都折算分类 `DependencyException`（UI 映射可操作文案，VM 侧另有 catch-all 兜底不静默），
+  失败不写标记、幂等可重试，OCE 透传。
 - **真机验证记录（2026-09-27）**：Adobe release 包实测 MD5/size 与清单一致；dwproton-11.0-13 直调
   `files/bin/wine` 完成 `wineboot -i`（`WINEDLLOVERRIDES` 下无 mono/gecko 挂起）与 `reg import`，
   system.reg 28 条登记、user.reg 51 条替换全部落盘并可 `reg query` 读回。已知边界：**直调 Proton wine

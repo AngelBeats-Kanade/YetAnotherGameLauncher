@@ -34,17 +34,6 @@ public static class UmuPaths
     /// <summary>Runtime 安装完成标记文件名（与上游 umu 一致）。</summary>
     public const string InstallMarkerName = ".installed.ok";
 
-    /// <summary>缓存根缺省：Linux 尊重 XDG_CACHE_HOME，否则 ~/.cache。</summary>
-    private static string DefaultCacheHome()
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            return Path.Combine(AppPaths.DataHomeDirectory, "cache");
-        }
-
-        var xdg = Environment.GetEnvironmentVariable("XDG_CACHE_HOME");
-        return string.IsNullOrWhiteSpace(xdg) || !Path.IsPathRooted(xdg)
-            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache")
-            : xdg;
-    }
+    /// <summary>缓存根缺省：Linux 尊重 XDG_CACHE_HOME，否则 ~/.cache；单一事实源 AppPaths.DefaultCacheHome。</summary>
+    private static string DefaultCacheHome() => AppPaths.DefaultCacheHome();
 }

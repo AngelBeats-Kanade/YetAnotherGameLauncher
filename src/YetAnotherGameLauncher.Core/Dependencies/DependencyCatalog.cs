@@ -46,6 +46,14 @@ public static class DependencyCatalog
         {
             var manifest = documents[index];
             var prefix = $"清单[{index}]";
+            // 顶层数组的 null 元素（JSON [null]）：与嵌套层同款归一为聚合错误
+            if (manifest is null)
+            {
+                errors.Add($"{prefix}: 清单条目不能为空。");
+                continue;
+            }
+
+            // STJ 对缺省键不给非空强制（未标 required）：null 会一路穿到字段校验，先归一为聚合错误
             if (string.IsNullOrWhiteSpace(manifest.Id))
             {
                 errors.Add($"{prefix}: id 不能为空。");
@@ -67,7 +75,8 @@ public static class DependencyCatalog
                 errors.Add($"{prefix}({manifest.Id}): version 不能为空。");
             }
 
-            if (!Uri.TryCreate(manifest.DownloadUrl, UriKind.Absolute, out var url)
+            if (manifest.DownloadUrl is null
+                || !Uri.TryCreate(manifest.DownloadUrl, UriKind.Absolute, out var url)
                 || url.Scheme != Uri.UriSchemeHttps)
             {
                 errors.Add($"{prefix}({manifest.Id}): downloadUrl 必须是 https 绝对地址。");
@@ -80,7 +89,8 @@ public static class DependencyCatalog
                 errors.Add($"{prefix}({manifest.Id}): fileName 必须是纯文件名（不含路径分隔符）。");
             }
 
-            if (manifest.Md5.Length != 32
+            if (manifest.Md5 is null
+                || manifest.Md5.Length != 32
                 || !manifest.Md5.All(c => char.IsAsciiHexDigit(c)))
             {
                 errors.Add($"{prefix}({manifest.Id}): md5 必须是 32 位十六进制。");
@@ -91,44 +101,62 @@ public static class DependencyCatalog
                 errors.Add($"{prefix}({manifest.Id}): sizeBytes 必须大于 0。");
             }
 
-            if (string.IsNullOrWhiteSpace(manifest.ArchiveEntry)
-                || manifest.ArchiveEntry.Contains('/')
-                || manifest.ArchiveEntry.Contains('\\')
-                || manifest.ArchiveEntry.Contains("..", StringComparison.Ordinal))
-            {
-                errors.Add($"{prefix}({manifest.Id}): archiveEntry 必须是压缩包内的纯文件名。");
-            }
-
-            if (manifest.Fonts.Count == 0)
+            if (manifest.Fonts is null || manifest.Fonts.Count == 0)
             {
                 errors.Add($"{prefix}({manifest.Id}): fonts 不能为空。");
             }
-
-            foreach (var font in manifest.Fonts)
+            else
             {
-                if (string.IsNullOrWhiteSpace(font.File)
-                    || font.File.Contains('/')
-                    || font.File.Contains('\\'))
+                foreach (var font in manifest.Fonts)
                 {
-                    errors.Add($"{prefix}({manifest.Id}): fonts[].file 必须是纯文件名。");
-                }
+                    if (font is null)
+                    {
+                        errors.Add($"{prefix}({manifest.Id}): fonts[] 条目不能为空。");
+                        continue;
+                    }
 
-                if (font.Families.Count == 0 || font.Families.Any(string.IsNullOrWhiteSpace))
-                {
-                    errors.Add($"{prefix}({manifest.Id}): fonts[].families 不能为空且不得含空白项。");
+                    if (string.IsNullOrWhiteSpace(font.File)
+                        || font.File.Contains('/')
+                        || font.File.Contains('\\')
+                        || font.File.Split('/', '\\').Contains("..", StringComparer.Ordinal))
+                    {
+                        errors.Add($"{prefix}({manifest.Id}): fonts[].file 必须是压缩包内的纯文件名（禁路径段）。");
+                    }
+
+                    if (font.Families is null
+                        || font.Families.Count == 0
+                        || font.Families.Any(string.IsNullOrWhiteSpace))
+                    {
+                        errors.Add($"{prefix}({manifest.Id}): fonts[].families 不能为空且不得含空白项。");
+                    }
                 }
             }
 
-            foreach (var group in manifest.ReplacementGroups)
+            if (manifest.ReplacementGroups is null)
             {
-                if (string.IsNullOrWhiteSpace(group.Target))
+                errors.Add($"{prefix}({manifest.Id}): replacementGroups 不能为空。");
+            }
+            else
+            {
+                foreach (var group in manifest.ReplacementGroups)
                 {
-                    errors.Add($"{prefix}({manifest.Id}): replacementGroups[].target 不能为空。");
-                }
+                    if (group is null)
+                    {
+                        errors.Add($"{prefix}({manifest.Id}): replacementGroups[] 条目不能为空。");
+                        continue;
+                    }
 
-                if (group.Replaces.Count == 0 || group.Replaces.Any(string.IsNullOrWhiteSpace))
-                {
-                    errors.Add($"{prefix}({manifest.Id}): replacementGroups[].replaces 不能为空且不得含空白项。");
+                    if (string.IsNullOrWhiteSpace(group.Target))
+                    {
+                        errors.Add($"{prefix}({manifest.Id}): replacementGroups[].target 不能为空。");
+                    }
+
+                    if (group.Replaces is null
+                        || group.Replaces.Count == 0
+                        || group.Replaces.Any(string.IsNullOrWhiteSpace))
+                    {
+                        errors.Add($"{prefix}({manifest.Id}): replacementGroups[].replaces 不能为空且不得含空白项。");
+                    }
                 }
             }
         }

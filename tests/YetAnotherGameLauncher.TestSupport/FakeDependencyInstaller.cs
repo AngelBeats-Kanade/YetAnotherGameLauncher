@@ -26,6 +26,9 @@ public sealed class FakeDependencyInstaller : IDependencyInstaller
     /// <summary>true = InstallAsync 挂到 <see cref="ReleaseInstall"/> 才完成（构造忙碌窗口用）。</summary>
     public bool HangOnInstall { get; set; }
 
+    /// <summary>注入未分类原始异常（分类学兜底测试用）；优先于 FailKind。</summary>
+    public Exception? ThrowRaw { get; set; }
+
     private TaskCompletionSource? _hangGate;
 
     /// <summary>放行被 <see cref="HangOnInstall"/> 挂起的安装。</summary>
@@ -48,6 +51,11 @@ public sealed class FakeDependencyInstaller : IDependencyInstaller
         {
             _hangGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             await _hangGate.Task;
+        }
+
+        if (ThrowRaw is { } raw)
+        {
+            throw raw;
         }
 
         if (FailKind is { } kind)

@@ -44,4 +44,22 @@ public static class AppPaths
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share")
             : xdgDataHome!; // IsPathRooted 已保证非空
     }
+
+    /// <summary>
+    /// 缓存根缺省（XDG cache-home 语义，XDG_CACHE_HOME 须为绝对路径才生效；每次调用实时读环境变量，
+    /// 进程启动后变更可生效）：Linux ~/.cache，Windows 回退 {DataHomeDirectory}/cache。
+    /// UmuPaths.CacheRoot 与 DependencyPaths.CacheRoot 共用的单一事实源。
+    /// </summary>
+    public static string DefaultCacheHome()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return Path.Combine(DataHomeDirectory, "cache");
+        }
+
+        var xdgCacheHome = Environment.GetEnvironmentVariable("XDG_CACHE_HOME");
+        return string.IsNullOrWhiteSpace(xdgCacheHome) || !Path.IsPathRooted(xdgCacheHome)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache")
+            : xdgCacheHome;
+    }
 }

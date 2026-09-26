@@ -30,8 +30,11 @@ public enum DependencyFailureKind
     /// <summary>字体拷贝进 prefix 失败。</summary>
     FontCopyFailed,
 
-    /// <summary>wine reg import 非零退出或启动失败。</summary>
+    /// <summary>wine reg import 非零退出、启动失败或注册表脚本写盘失败。</summary>
     RegistryFailed,
+
+    /// <summary>完成标记写入失败（字体与注册表已生效，但安装状态未被记录）。</summary>
+    StateWriteFailed,
 }
 
 /// <summary>依赖安装失败（携带分类，消息面向日志；用户文案由 UI 按分类本地化）。</summary>

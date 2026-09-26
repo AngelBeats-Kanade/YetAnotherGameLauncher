@@ -664,10 +664,7 @@ public class UiScreenshotTests
 
         var installer = new FakeDependencyInstaller();
         using var ctx = VmFactory.Build(
-            configJson: VmFactory.SampleConfigJson.Replace(
-                "\"executable\": \"Client/Binaries/Win64/Client-Win64-Shipping.exe\",",
-                "\"executable\": \"Client/Binaries/Win64/Client-Win64-Shipping.exe\",\n" +
-                "              \"launch\": { \"commandTemplate\": \"native-umu {exe}\" },"),
+            configJson: VmFactory.UmuSampleConfigJson,
             platformInfo: new FakePlatformInfo(isLinux: true),
             dependencyInstaller: installer);
 

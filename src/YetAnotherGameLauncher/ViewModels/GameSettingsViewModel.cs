@@ -21,10 +21,11 @@ public partial class GameSettingsViewModel(GameItemViewModel game, MainWindowVie
 
     /// <summary>
     /// Wine prefix 依赖区（Linux 且有安装器装配时可见；无安装器 = 测试空跑，整区隐藏）。
-    /// 数据目录沿主 VM 的注入值，保证测试与生产 prefix 定位一致。
+    /// 数据目录沿主 VM 的注入值保证测试与生产 prefix 定位一致；wine 发现委托同理
+    /// （null = 生产缺省 CompatTools.FindSystemWine，测试可注入桩避免真机 PATH 依赖）。
     /// </summary>
     public DependencySectionViewModel Dependencies { get; } =
-        new(game, owner, owner.DependencyInstaller, owner.LinuxDataHome);
+        new(game, owner, owner.DependencyInstaller, owner.LinuxDataHome, owner.SystemWineResolver);
 
     [RelayCommand]
     private void BackToGame() => owner.ShowGamesCommand.Execute(null);

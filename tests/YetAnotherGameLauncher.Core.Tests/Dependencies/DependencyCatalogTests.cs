@@ -17,7 +17,6 @@ public class DependencyCatalogTests
             "fileName": "SourceHanSans.ttc.zip",
             "md5": "ce3fc169af61a4e7bc650e7e78186330",
             "sizeBytes": 95184312,
-            "archiveEntry": "SourceHanSans.ttc",
             "fonts": [ { "file": "SourceHanSans.ttc", "families": ["Source Han Sans SC", "Source Han Sans TC"] } ],
             "replacementGroups": [ { "target": "Source Han Sans SC", "replaces": ["SimSun", "SimHei"] } ]
           }
@@ -38,7 +37,6 @@ public class DependencyCatalogTests
         Assert.Equal("SourceHanSans.ttc.zip", manifest.FileName);
         Assert.Equal("ce3fc169af61a4e7bc650e7e78186330", manifest.Md5);
         Assert.Equal(95184312, manifest.SizeBytes);
-        Assert.Equal("SourceHanSans.ttc", manifest.ArchiveEntry);
         var font = Assert.Single(manifest.Fonts);
         Assert.Equal("SourceHanSans.ttc", font.File);
         Assert.Equal(["Source Han Sans SC", "Source Han Sans TC"], font.Families);
@@ -53,9 +51,9 @@ public class DependencyCatalogTests
         const string json = """
             [
               { "id": "Bad_Id", "version": "", "downloadUrl": "http://a.example/x.zip", "fileName": "",
-                "md5": "xyz", "sizeBytes": 0, "archiveEntry": "../evil.ttc", "fonts": [], "replacementGroups": [] },
+                "md5": "xyz", "sizeBytes": 0, "fonts": [], "replacementGroups": [] },
               { "id": "second", "version": "1", "downloadUrl": "https://a.example/x.zip", "fileName": "x.zip",
-                "md5": "ce3fc169af61a4e7bc650e7e78186330", "sizeBytes": 5, "archiveEntry": "a.ttc",
+                "md5": "ce3fc169af61a4e7bc650e7e78186330", "sizeBytes": 5, "archiveEntry": "ignored-unknown-field",
                 "fonts": [ { "file": "", "families": [] } ],
                 "replacementGroups": [ { "target": "", "replaces": [""] } ] }
             ]
@@ -71,9 +69,63 @@ public class DependencyCatalogTests
         Assert.Contains(ex.Errors, e => e.Contains("fileName"));
         Assert.Contains(ex.Errors, e => e.Contains("md5"));
         Assert.Contains(ex.Errors, e => e.Contains("sizeBytes"));
-        Assert.Contains(ex.Errors, e => e.Contains("archiveEntry"));
         Assert.Contains(ex.Errors, e => e.Contains("fonts"));
         Assert.Contains(ex.Errors, e => e.Contains("replacementGroups"));
+    }
+
+    /// <summary>缺省键（STJ 反序列化为 null，无非空强制）必须进聚合错误而非 NRE 穿透。</summary>
+    [Fact]
+    public void Parse_MissingKeys_AggregatesErrorsInsteadOfThrowingNre()
+    {
+        const string json = """
+            [
+              { "id": "missing-fields" }
+            ]
+            """;
+
+        var ex = Assert.Throws<DependencyCatalogException>(() => DependencyCatalog.Parse(json));
+
+        Assert.Contains(ex.Errors, e => e.Contains("version"));
+        Assert.Contains(ex.Errors, e => e.Contains("downloadUrl"));
+        Assert.Contains(ex.Errors, e => e.Contains("fileName"));
+        Assert.Contains(ex.Errors, e => e.Contains("md5"));
+        Assert.Contains(ex.Errors, e => e.Contains("sizeBytes"));
+        Assert.Contains(ex.Errors, e => e.Contains("fonts"));
+        Assert.Contains(ex.Errors, e => e.Contains("replacementGroups"));
+    }
+
+    /// <summary>顶层数组的 null 元素（JSON [null]）同样归一为聚合错误而非 NRE。</summary>
+    [Fact]
+    public void Parse_NullArrayElement_AggregatesError()
+    {
+        const string json = """
+            [
+              null,
+              { "id": "ok", "version": "1", "downloadUrl": "https://a/x.zip", "fileName": "x.zip",
+                "md5": "ce3fc169af61a4e7bc650e7e78186330", "sizeBytes": 5,
+                "fonts": [ { "file": "a.ttc", "families": ["F"] } ], "replacementGroups": [] }
+            ]
+            """;
+
+        var ex = Assert.Throws<DependencyCatalogException>(() => DependencyCatalog.Parse(json));
+
+        Assert.Contains(ex.Errors, e => e.Contains("清单条目不能为空"));
+    }
+
+    [Fact]
+    public void Parse_FontFileWithPathSegments_Rejected()
+    {
+        const string json = """
+            [
+              { "id": "traversal", "version": "1", "downloadUrl": "https://a/x.zip", "fileName": "x.zip",
+                "md5": "ce3fc169af61a4e7bc650e7e78186330", "sizeBytes": 5,
+                "fonts": [ { "file": "../evil.ttc", "families": ["F"] } ], "replacementGroups": [] }
+            ]
+            """;
+
+        var ex = Assert.Throws<DependencyCatalogException>(() => DependencyCatalog.Parse(json));
+
+        Assert.Contains(ex.Errors, e => e.Contains("fonts[].file"));
     }
 
     [Fact]
@@ -82,10 +134,10 @@ public class DependencyCatalogTests
         const string json = """
             [
               { "id": "a", "version": "1", "downloadUrl": "https://a/x.zip", "fileName": "x.zip",
-                "md5": "ce3fc169af61a4e7bc650e7e78186330", "sizeBytes": 5, "archiveEntry": "a.ttc",
+                "md5": "ce3fc169af61a4e7bc650e7e78186330", "sizeBytes": 5,
                 "fonts": [ { "file": "a.ttc", "families": ["F"] } ], "replacementGroups": [] },
               { "id": "A", "version": "2", "downloadUrl": "https://b/x.zip", "fileName": "y.zip",
-                "md5": "ce3fc169af61a4e7bc650e7e78186330", "sizeBytes": 5, "archiveEntry": "a.ttc",
+                "md5": "ce3fc169af61a4e7bc650e7e78186330", "sizeBytes": 5,
                 "fonts": [ { "file": "a.ttc", "families": ["F"] } ], "replacementGroups": [] }
             ]
             """;
@@ -116,7 +168,6 @@ public class DependencyCatalogTests
         Assert.Equal("SourceHanSans.ttc.zip", cjk.FileName);
         Assert.Equal(32, cjk.Md5.Length);
         Assert.True(cjk.SizeBytes > 0);
-        Assert.Equal("SourceHanSans.ttc", cjk.ArchiveEntry);
 
         var font = Assert.Single(cjk.Fonts);
         Assert.Equal("SourceHanSans.ttc", font.File);

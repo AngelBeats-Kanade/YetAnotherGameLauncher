@@ -27,17 +27,6 @@ public static class DependencyPaths
     public static string StagingDirectory(string cacheRoot, string dependencyId) =>
         Path.Combine(cacheRoot, StagingDirName, dependencyId);
 
-    /// <summary>缓存根缺省：Linux 尊重 XDG_CACHE_HOME，否则 ~/.cache；Windows 回退 {DataHome}/cache。</summary>
-    private static string DefaultCacheHome()
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            return Path.Combine(AppPaths.DataHomeDirectory, "cache");
-        }
-
-        var xdg = Environment.GetEnvironmentVariable("XDG_CACHE_HOME");
-        return string.IsNullOrWhiteSpace(xdg) || !Path.IsPathRooted(xdg)
-            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache")
-            : xdg;
-    }
+    /// <summary>缓存根缺省：Linux 尊重 XDG_CACHE_HOME，否则 ~/.cache；单一事实源 AppPaths.DefaultCacheHome。</summary>
+    private static string DefaultCacheHome() => AppPaths.DefaultCacheHome();
 }

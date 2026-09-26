@@ -27,10 +27,7 @@ public class DependencySectionViewModelTests : IDisposable
     public void Dispose() => _ctx.TempDir.Dispose();
 
     /// <summary>以原生 umu 启动方式落盘配置（其余字段复用样例）。</summary>
-    private static string UmuConfigJson => VmFactory.SampleConfigJson.Replace(
-        "\"executable\": \"Client/Binaries/Win64/Client-Win64-Shipping.exe\",",
-        "\"executable\": \"Client/Binaries/Win64/Client-Win64-Shipping.exe\",\n" +
-        "              \"launch\": { \"commandTemplate\": \"native-umu {exe}\" },");
+    private static string UmuConfigJson => VmFactory.UmuSampleConfigJson;
 
     /// <summary>搭建"已就绪"的本地环境：DW-Proton（含 wine）+ 统一 prefix 的 drive_c（搭进 ctx 自己的 data-home）。</summary>
     private static void ScaffoldReadyUmuEnvironment(TempDir tempDir)
@@ -174,7 +171,7 @@ public class DependencySectionViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task Install_SecondClickWhileBusy_Ignored()
+    public async Task Install_SecondClickWhileBusy_Ignored_AndButtonsDisabled()
     {
         _installer.HangOnInstall = true; // 挂起首次安装，制造真实的长任务窗口
         var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
@@ -183,11 +180,38 @@ public class DependencySectionViewModelTests : IDisposable
             var item = Assert.Single(section.Items);
 
             var first = item.InstallCommand.ExecuteAsync(null);
+
+            // 忙碌期：全部条目按钮置灰（不依赖点击门静默吞掉）、进度行在场
+            Assert.True(section.IsBusy);
+            Assert.All(section.Items, i => Assert.False(i.CanInstall));
+
             await item.InstallCommand.ExecuteAsync(null); // 忙碌期间的第二次点击必须被吞掉
             _installer.ReleaseInstall();
             await first;
 
             Assert.Equal(1, _installer.InstallCount);
+            Assert.False(section.IsBusy);
+            Assert.True(item.CanInstall); // 收尾恢复可点
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
+    }
+
+    /// <summary>分类学兜底：安装器逃出的未分类异常不得静默，必须落到失败槽。</summary>
+    [Fact]
+    public async Task Install_UnexpectedRawException_ShowsFallbackFailure()
+    {
+        _installer.ThrowRaw = new InvalidOperationException("boom");
+        var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
+        try
+        {
+            var item = Assert.Single(section.Items);
+
+            await item.InstallCommand.ExecuteAsync(null);
+
+            Assert.True(section.Feedback.Failed);
             Assert.False(section.IsBusy);
         }
         finally

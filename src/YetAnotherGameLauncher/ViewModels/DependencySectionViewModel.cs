@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using YetAnotherGameLauncher.Core.Dependencies;
@@ -43,7 +44,7 @@ public sealed partial class DependencySectionViewModel : ViewModelBase
     }
 
     /// <summary>依赖条目（每内置依赖一条）。</summary>
-    public System.Collections.ObjectModel.ObservableCollection<DependencyItemViewModel> Items { get; } = [];
+    public ObservableCollection<DependencyItemViewModel> Items { get; } = [];
 
     /// <summary>条目构造用的文案服务（条目与区共用同一实例）。</summary>
     internal ILocalizationService LocForItems => _loc;
@@ -118,7 +119,8 @@ public sealed partial class DependencySectionViewModel : ViewModelBase
         }
     }
 
-    /// <summary>安装单个依赖（条目命令转发入口）；IsBusy 互斥，失败分类映射成本地化文案。</summary>
+    /// <summary>安装单个依赖（条目命令转发入口）；IsBusy 互斥，失败分类映射成本地化文案，
+    /// 未分类异常兜底为通用失败文案（不得静默）。</summary>
     internal async Task InstallAsync(DependencyItemViewModel item)
     {
         if (_installer is null || IsBusy || !item.CanInstall)
@@ -129,16 +131,20 @@ public sealed partial class DependencySectionViewModel : ViewModelBase
         var target = ResolveTarget();
         if (target is null)
         {
-            item.Refresh(null);
+            // 目标失效（启动方式等被并发改动）：整区重读，条目/原因文案一并回到可见状态
+            Refresh();
             return;
         }
 
         IsBusy = true;
+        SetItemsInstallable(false);
         Feedback.Clear();
+        // 清掉上一轮的进度残留：Progress<T> 投递异步，新装首条报告到达前进度行不能闪旧文案
+        OnProgress(new DependencyProgress(DependencyPhase.Done, null));
         try
         {
             var progress = new Progress<DependencyProgress>(OnProgress);
-            await _installer.InstallAsync(target, item.Manifest, progress).ConfigureAwait(true);
+            await _installer.InstallAsync(target, item.Manifest, progress);
             Feedback.SetSuccess(_loc.Format("deps_install_success", item.Title));
         }
         catch (DependencyException ex)
@@ -149,11 +155,25 @@ public sealed partial class DependencySectionViewModel : ViewModelBase
         {
             Feedback.SetFailure(_loc["deps_install_cancelled"]);
         }
+        catch (Exception ex)
+        {
+            // 分类学兜底：安装器升级漏网的原始异常不得静默（全局 handler 只记日志）
+            Feedback.SetFailure(_loc.Format("deps_error_unexpected", ex.Message));
+        }
         finally
         {
             IsBusy = false;
             OnProgress(new DependencyProgress(DependencyPhase.Done, null));
             Refresh();
+        }
+    }
+
+    /// <summary>安装期间全部条目按钮置灰（Refresh 在收尾统一恢复）。</summary>
+    private void SetItemsInstallable(bool installable)
+    {
+        foreach (var entry in Items)
+        {
+            entry.CanInstall = installable;
         }
     }
 
@@ -187,7 +207,8 @@ public sealed partial class DependencySectionViewModel : ViewModelBase
         DependencyFailureKind.ExtractFailed => "deps_error_extract",
         DependencyFailureKind.FontCopyFailed => "deps_error_fontcopy",
         DependencyFailureKind.RegistryFailed => "deps_error_registry",
-        _ => "deps_error_registry",
+        DependencyFailureKind.StateWriteFailed => "deps_error_state",
+        _ => "deps_error_unexpected",
     };
 
     private static string ReasonKey(WineTargetUnavailable reason) => reason switch

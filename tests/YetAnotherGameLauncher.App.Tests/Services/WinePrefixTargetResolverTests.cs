@@ -98,6 +98,46 @@ public class WinePrefixTargetResolverTests : IDisposable
         Assert.Equal(Path.Combine(newest, "files", "bin", "wine"), resolution.Target!.WineExecutable);
     }
 
+    /// <summary>择新必须逐目录验 wine 可执行：更新中半解包的最新目录被跳过、回退旧可用版，
+    /// 而不是拿最新名命中后整体报 ProtonMissing（对齐 provisioner 的逐目录就绪过滤语义）。</summary>
+    [Fact]
+    public void UmuMode_NewestDirHalfExtracted_FallsBackToOlderReady()
+    {
+        CreateProton("dwproton-9-1");
+        var halfExtracted = Path.Combine(CompatRoot, "dwproton-11.0-13");
+        Directory.CreateDirectory(halfExtracted); // 更新中：目录在但 wine 未就位
+        InitUmuPrefix();
+
+        var resolution = WinePrefixTargetResolver.Resolve(
+            LaunchMode.NativeUmu, "wuthering-waves", null, "DW-Proton", SystemWine, DataHome);
+
+        Assert.Null(resolution.Reason);
+        Assert.Contains(
+            Path.Combine("dwproton-9-1", "files", "bin", "wine"),
+            resolution.Target!.WineExecutable);
+    }
+
+    /// <summary>手改配置的自定义 STEAM_COMPAT_DATA_PATH：游戏实际用该根下的 pfx，
+    /// 依赖必须跟进（装进统一 prefix 会静默无效）。</summary>
+    [Fact]
+    public void UmuMode_CustomSteamCompatDataPath_UsedAsPrefixRoot()
+    {
+        var protonDir = CreateProton("dwproton-11.0-12");
+        var customRoot = _temp.FilePath("games", "custom-compat");
+        Directory.CreateDirectory(Path.Combine(customRoot, "pfx", "drive_c", "windows"));
+
+        var resolution = WinePrefixTargetResolver.Resolve(
+            LaunchMode.NativeUmu, "wuthering-waves",
+            new Dictionary<string, string> { ["STEAM_COMPAT_DATA_PATH"] = customRoot },
+            "DW-Proton", SystemWine, DataHome);
+
+        Assert.Null(resolution.Reason);
+        var target = resolution.Target!;
+        Assert.Equal(Path.Combine(protonDir, "files", "bin", "wine"), target.WineExecutable);
+        Assert.Equal(Path.Combine(customRoot, "pfx"), target.WinePrefixDirectory);
+        Assert.Equal(Path.Combine(customRoot, ".yagl-deps"), target.StateDirectory);
+    }
+
     [Fact]
     public void UmuMode_ProtonPathEnv_AbsoluteDirWinsOverFlavorScan()
     {

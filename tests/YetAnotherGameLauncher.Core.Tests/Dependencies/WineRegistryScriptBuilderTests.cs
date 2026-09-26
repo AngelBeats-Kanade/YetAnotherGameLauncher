@@ -14,7 +14,7 @@ public class WineRegistryScriptBuilderTests
         new(
             "cjk-fonts", "2.004R",
             "https://example.com/x.zip", "x.zip",
-            "ce3fc169af61a4e7bc650e7e78186330", 1, "a.ttc",
+            "ce3fc169af61a4e7bc650e7e78186330", 1,
             fonts ?? [new DependencyFont("SourceHanSans.ttc", ["Source Han Sans SC", "Source Han Sans TC"])],
             groups ?? [new DependencyReplacementGroup("Source Han Sans SC", ["SimSun", "Microsoft YaHei"])]);
 
@@ -41,7 +41,6 @@ public class WineRegistryScriptBuilderTests
     {
         var script = WineRegistryScriptBuilder.Build(Manifest(
             fonts: [new DependencyFont("a\\b.ttc", ["Weird \"Name\""])]));
-
         Assert.Contains("\"Weird \\\"Name\\\"\"=\"a\\\\b.ttc\"", script);
     }
 
