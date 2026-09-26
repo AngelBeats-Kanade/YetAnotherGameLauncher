@@ -24,7 +24,7 @@ description: Use when writing or debugging Avalonia headless tests (Avalonia.Hea
 ```
 
 - 根目录 `global.json` 已声明 `"test": { "runner": "Microsoft.Testing.Platform" }`；`dotnet test` 直接可用。
-- 运行单个测试：`dotnet test --project <csproj> --filter-fqn "<完整类型名>.<方法名>"`。
+- 运行单个测试：`dotnet tests/<工程>/bin/Debug/net10.0/<程序集>.dll -method "<完整类型名>.<方法名>"`（直跑 DLL；`dotnet test --filter-fqn` 实测零匹配，`-method` 对部分用例名也会静默 Total:0——命中判定以全量运行 + `-xml` 为准，详见 §4）。
 
 ## 2. 命名空间冲突陷阱（CS0435）
 

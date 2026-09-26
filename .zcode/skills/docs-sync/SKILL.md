@@ -1,6 +1,6 @@
 ---
 name: docs-sync
-description: Use after large refactors or features, when documentation may have drifted from code, or periodically — audit every markdown doc against the actual code, fix all drift, and commit. 文档时效性审计（全量 markdown vs 代码逐条核验 → 修复 → 提交）。Run this after big changes; a scheduled automation also runs it weekly.
+description: Use after large refactors or features, when documentation may have drifted from code, or periodically — audit every markdown doc against the actual code, fix all drift, and commit. 文档时效性审计（全量 markdown vs 代码逐条核验 → 修复 → 提交）。Run this after big changes.
 ---
 
 # 文档时效性审计（docs-sync）
