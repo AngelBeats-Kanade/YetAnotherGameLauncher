@@ -57,6 +57,13 @@ public sealed class GameLauncherService(
             kv => Expand(kv.Value, exePath, installDir),
             StringComparer.Ordinal);
 
+        // 启动选项开关（Wayland/DLSS 升级/Proton 日志）注入：与用户自定义变量同键时开关优先
+        // （显式 UI 意图覆盖手写遗留；原生 umu 链在 GameItemViewModel 启动入口做同型合并）
+        foreach (var (key, value) in CompatTools.FeatureEnvironment(game.Launch, _logDirectory))
+        {
+            environment[key] = value;
+        }
+
         EnsurePrefixDirectories(environment);
 
         logger?.LogInformation("Launching {Game}: {File} {Args}", game.DisplayName, fileName, arguments);

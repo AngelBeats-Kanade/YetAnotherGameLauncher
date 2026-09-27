@@ -119,6 +119,8 @@ public sealed class NativeUmuCoreTests : IDisposable
         Assert.Equal(Path.GetFullPath(exe), env["EXE"]);
         Assert.False(string.IsNullOrEmpty(env["STEAM_COMPAT_APP_ID"]));
         Assert.Contains(Path.GetFullPath(proton), env["STEAM_COMPAT_TOOL_PATHS"]);
+        // 对齐上游/Steam 客户端：库路径指向安装目录（pressure-vessel 把游戏自带库挂进容器）
+        Assert.Equal(Path.GetFullPath(Path.GetDirectoryName(exe)!), env["STEAM_COMPAT_LIBRARY_PATHS"]);
     }
 
     [Fact]

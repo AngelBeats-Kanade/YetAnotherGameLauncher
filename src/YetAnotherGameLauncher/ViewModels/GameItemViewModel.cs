@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using YetAnotherGameLauncher.Core;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
@@ -832,9 +833,18 @@ public partial class GameItemViewModel(
             {
                 var proton = CompatTools.ResolveNativeProtonRequest(Game.Launch.Environment);
                 var progress = new Progress<string>(msg => StatusText = msg);
+                // 启动选项开关（Wayland/DLSS 升级/Proton 日志）经 FeatureEnvironment 注入；
+                // 与用户自定义变量同键时开关优先（模板直启链在 GameLauncherService.BuildPlan 同型合并）
+                var extraEnvironment = new Dictionary<string, string>(Game.Launch.Environment, StringComparer.Ordinal);
+                foreach (var (key, value) in CompatTools.FeatureEnvironment(
+                    Game.Launch, Path.Combine(AppPaths.DataDirectory, "logs")))
+                {
+                    extraEnvironment[key] = value;
+                }
+
                 await _nativeUmu.LaunchAsync(
                     Game.Id, _installDir, Game.Executable, proton,
-                    extraEnvironment: Game.Launch.Environment,
+                    extraEnvironment: extraEnvironment,
                     progress: progress,
                     cancellationToken: cancellationToken,
                     umuId: Game.Launch.UmuId);

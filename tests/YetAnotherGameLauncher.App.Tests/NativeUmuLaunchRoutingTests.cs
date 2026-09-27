@@ -1,5 +1,6 @@
 using Xunit;
 
+using YetAnotherGameLauncher.Core;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Services.Umu;
@@ -85,6 +86,10 @@ public class NativeUmuLaunchRoutingTests : IDisposable
         launchSettings.EnvironmentText = "PROTONPATH=DW-Proton\r\nCUSTOM_FLAG=hello";
         game.Game.Launch.UmuId = "umu-3513350";
         await launchSettings.SaveCommand.ExecuteAsync(null);
+        // 启动选项开关在保存后赋值（SaveAsyncCore 重建 LaunchOptions，开关由设置卡草稿承载——
+        // VM 侧行为归 LaunchSettings 测试；此处模拟"磁盘加载到开关注入"的启动链路）
+        game.Game.Launch.UseWayland = true;
+        game.Game.Launch.EnableProtonLog = true;
         Assert.False(launchSettings.Save.Failed);
 
         // 启动：路由到 NativeUmuLauncher 并落到 FakeProcessRunner
@@ -104,6 +109,10 @@ public class NativeUmuLaunchRoutingTests : IDisposable
         Assert.Equal("umu-3513350", env["GAMEID"]);
         Assert.Equal(Normalize(protonDir), Normalize(env["PROTONPATH"]));
         Assert.Equal("hello", env["CUSTOM_FLAG"]);
+        // 启动选项开关注入（FeatureEnvironment 单一事实源）：开关写入最终容器环境
+        Assert.Equal("1", env["PROTON_USE_WAYLAND"]);
+        Assert.Equal("1", env["PROTON_LOG"]);
+        Assert.Equal(Path.Combine(AppPaths.DataDirectory, "logs"), env["PROTON_LOG_DIR"]);
         // 配置里的代号不得泄漏到最终环境（已解析为绝对路径）
         Assert.NotEqual("DW-Proton", env["PROTONPATH"]);
     }

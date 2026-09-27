@@ -18,6 +18,25 @@ public sealed class LaunchOptions
     /// </summary>
     public string? UmuId { get; set; }
 
+    /// <summary>
+    /// 启用 Proton 的原生 Wayland 驱动（注入 PROTON_USE_WAYLAND=1，绕过 XWayland）。
+    /// 仅 Linux Proton 启动链有意义；DW/GE/UMU-Proton 均识别该变量
+    /// （DW-Proton 另接受 PROTON_ENABLE_WAYLAND 别名，两者映射同一 compat 选项）。
+    /// </summary>
+    public bool UseWayland { get; set; }
+
+    /// <summary>
+    /// 启动时把游戏内 DLSS 模型升级到 Proton 内置新版（注入 PROTON_DLSS_UPGRADE=1）。
+    /// 依赖 DXVK-NVAPI，映射会连带注入 PROTON_ENABLE_NVAPI=1；仅 NVIDIA 显卡生效。
+    /// </summary>
+    public bool UpgradeDlss { get; set; }
+
+    /// <summary>
+    /// 打印 Proton 运行日志（注入 PROTON_LOG=1 与 PROTON_LOG_DIR=应用日志目录），
+    /// 排查启动失败时与启动器自身的 launch-*.log 同目录可查。
+    /// </summary>
+    public bool EnableProtonLog { get; set; }
+
     /// <summary>附加环境变量（值同样支持 {installDir} 占位符）。</summary>
     public Dictionary<string, string> Environment { get; set; } = new();
 }

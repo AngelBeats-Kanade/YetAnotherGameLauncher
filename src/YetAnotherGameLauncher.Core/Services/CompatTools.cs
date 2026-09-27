@@ -1,6 +1,7 @@
 namespace YetAnotherGameLauncher.Core.Services;
 
 using System.Text.RegularExpressions;
+using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Utilities;
 
 /// <summary>Linux 下的启动方式（与 UI 的选择器一一对应）。</summary>
@@ -306,6 +307,41 @@ public static class CompatTools
         }
 
         return DefaultProtonFlavor;
+    }
+
+    /// <summary>
+    /// 启动选项开关 → Proton 环境变量映射（单一事实源：模板直启链与原生 umu 链共用）。
+    /// 变量名经本机 dwproton-11.0-13 proton 脚本 grep 实证：PROTON_USE_WAYLAND 与别名
+    /// PROTON_ENABLE_WAYLAND 同映射 compat_config "wayland"（proton 1966-1967 行）；
+    /// PROTON_DLSS_UPGRADE → protonfixes.setup_upscalers 的 "dlss"（2520 行），DLSS 依赖
+    /// NVAPI 故连带 PROTON_ENABLE_NVAPI=1；PROTON_LOG/PROTON_LOG_DIR 为调试日志开关。
+    /// 与用户自定义变量同键时由调用方决定覆盖顺序（两处调用点均为开关优先）。
+    /// </summary>
+    public static Dictionary<string, string> FeatureEnvironment(
+        LaunchOptions launch, string? logDirectory = null)
+    {
+        var environment = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (launch.UseWayland)
+        {
+            environment["PROTON_USE_WAYLAND"] = "1";
+        }
+
+        if (launch.UpgradeDlss)
+        {
+            environment["PROTON_DLSS_UPGRADE"] = "1";
+            environment["PROTON_ENABLE_NVAPI"] = "1";
+        }
+
+        if (launch.EnableProtonLog)
+        {
+            environment["PROTON_LOG"] = "1";
+            if (!string.IsNullOrWhiteSpace(logDirectory))
+            {
+                environment["PROTON_LOG_DIR"] = logDirectory;
+            }
+        }
+
+        return environment;
     }
 
     /// <summary>是否为 Proton 发行版代号（DW/GE/UMU-Proton 及 *-Latest 变体，忽略大小写）；

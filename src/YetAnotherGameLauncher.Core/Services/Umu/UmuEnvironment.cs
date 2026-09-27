@@ -89,6 +89,10 @@ public static class UmuEnvironment
             ["PROTON_VERB"] = verb,
             ["EXE"] = exe,
             ["STEAM_COMPAT_INSTALL_PATH"] = installDir,
+            // 上游 enable_steam_game_drive 的库路径探测（/proc/mounts + is_mount）未移植；
+            // 直接指向安装目录——与 STEAM_RUNTIME_LIBRARY_PATH 同意图，pressure-vessel
+            // 据此把游戏自带库挂进容器（dwproton-11.0-13 proton 脚本读取该键 2 处）
+            ["STEAM_COMPAT_LIBRARY_PATHS"] = installDir,
             ["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".steam", "steam"),
             ["STEAM_COMPAT_TOOL_PATHS"] = toolPaths,

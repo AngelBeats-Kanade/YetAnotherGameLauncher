@@ -96,6 +96,41 @@ public class GameLauncherServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task BuildPlan_FeatureToggles_MergeIntoEnvironment()
+    {
+        await CreateExecutable();
+        var logDir = _tempDir.FilePath("logs");
+        var game = Game("\"{exe}\"");
+        game.Launch.UseWayland = true;
+        game.Launch.UpgradeDlss = true;
+        game.Launch.EnableProtonLog = true;
+
+        var plan = Service(logDir: logDir).BuildPlan(game, _tempDir.Path, "bin/game.exe");
+
+        Assert.Equal("1", plan.Environment["PROTON_USE_WAYLAND"]);
+        Assert.Equal("1", plan.Environment["PROTON_DLSS_UPGRADE"]);
+        Assert.Equal("1", plan.Environment["PROTON_ENABLE_NVAPI"]);
+        Assert.Equal("1", plan.Environment["PROTON_LOG"]);
+        Assert.Equal(logDir, plan.Environment["PROTON_LOG_DIR"]);
+        // 既有用户变量不受开关注入影响
+        Assert.Equal(_tempDir.Path, plan.Environment["GAME_DIR"]);
+    }
+
+    [Fact]
+    public async Task BuildPlan_FeatureTogglesOff_NoFeatureKeysInjected()
+    {
+        await CreateExecutable();
+
+        var plan = Service().BuildPlan(Game("\"{exe}\""), _tempDir.Path, "bin/game.exe");
+
+        Assert.DoesNotContain("PROTON_USE_WAYLAND", plan.Environment.Keys);
+        Assert.DoesNotContain("PROTON_DLSS_UPGRADE", plan.Environment.Keys);
+        Assert.DoesNotContain("PROTON_ENABLE_NVAPI", plan.Environment.Keys);
+        Assert.DoesNotContain("PROTON_LOG", plan.Environment.Keys);
+        Assert.DoesNotContain("PROTON_LOG_DIR", plan.Environment.Keys);
+    }
+
+    [Fact]
     public async Task BuildPlan_WorkingDirectoryFallsBackToInstallDir()
     {
         await CreateExecutable();

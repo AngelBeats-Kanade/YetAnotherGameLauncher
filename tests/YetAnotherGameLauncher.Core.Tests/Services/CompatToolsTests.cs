@@ -1,4 +1,5 @@
 using Xunit;
+using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.TestSupport;
 
@@ -47,6 +48,66 @@ public class CompatToolsTests : IDisposable
 
         Assert.Contains(".steam", launch.CommandTemplate);
         Assert.True(launch.Environment.ContainsKey("STEAM_COMPAT_CLIENT_INSTALL_PATH"));
+    }
+}
+
+/// <summary>
+/// 启动选项开关 → Proton 环境变量的映射（CompatTools.FeatureEnvironment，两条启动链的单一事实源）。
+/// 变量名经本机 dwproton-11.0-13 proton 脚本 grep 实证：PROTON_USE_WAYLAND/PROTON_ENABLE_WAYLAND
+/// 双名映射 compat_config "wayland"（1966-1967 行）、PROTON_DLSS_UPGRADE → protonfixes.setup_upscalers
+/// "dlss"（2520 行）、PROTON_LOG/PROTON_LOG_DIR 为调试日志开关。
+/// </summary>
+public class CompatToolsFeatureEnvironmentTests
+{
+    [Fact]
+    public void AllOff_ProducesEmptyDictionary()
+    {
+        var environment = CompatTools.FeatureEnvironment(new LaunchOptions());
+
+        Assert.Empty(environment);
+    }
+
+    [Fact]
+    public void WaylandToggle_MapsProtonUseWayland()
+    {
+        var environment = CompatTools.FeatureEnvironment(new LaunchOptions { UseWayland = true });
+
+        Assert.Equal("1", environment["PROTON_USE_WAYLAND"]);
+    }
+
+    [Fact]
+    public void DlssToggle_MapsUpgradeAndNvapi()
+    {
+        // DLSS 升级依赖 NVAPI：DXVK-NVAPI 未启用时游戏拿不到 DLSS 接口，两键连带
+        var environment = CompatTools.FeatureEnvironment(new LaunchOptions { UpgradeDlss = true });
+
+        Assert.Equal("1", environment["PROTON_DLSS_UPGRADE"]);
+        Assert.Equal("1", environment["PROTON_ENABLE_NVAPI"]);
+    }
+
+    [Fact]
+    public void LogToggle_MapsLogAndDirectory()
+    {
+        var logDir = Path.Combine("data", "logs");
+
+        var environment = CompatTools.FeatureEnvironment(
+            new LaunchOptions { EnableProtonLog = true }, logDirectory: logDir);
+
+        Assert.Equal("1", environment["PROTON_LOG"]);
+        Assert.Equal(logDir, environment["PROTON_LOG_DIR"]);
+    }
+
+    [Fact]
+    public void MultipleToggles_CombineIntoSingleDictionary()
+    {
+        var environment = CompatTools.FeatureEnvironment(new LaunchOptions
+        {
+            UseWayland = true,
+            UpgradeDlss = true,
+            EnableProtonLog = true,
+        });
+
+        Assert.Equal(4, environment.Count);
     }
 }
 
