@@ -242,6 +242,26 @@ public class LaunchSettingsTests : IDisposable
     }
 
     [Fact]
+    public async Task PersistedGeneratedKeys_HiddenFromEditorOnReopen()
+    {
+        // 变异自查补钉（2026-09-28）：重开设置页时，配置里已持久化的生成键（WINEPREFIX/
+        // PROTONPATH 等）同样不进编辑框——显示过滤在构造期，而非只在首运推荐链路径
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        game.Game.Launch.Environment["WINEPREFIX"] = "/tmp/saved-prefix";
+        game.Game.Launch.Environment["PROTONPATH"] = "DW-Proton";
+        game.Game.Launch.CommandTemplate = "native-umu {exe}"; // 非 Direct，避开首运推荐链改写
+
+        var settings = new LaunchSettingsViewModel(
+            game.Game, game.InstallDirPath, _ctx.CatalogService, game.Loc, game,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            protonVersions: ["GE-Proton10-9"]);
+
+        Assert.DoesNotContain("WINEPREFIX", settings.EnvironmentText, StringComparison.Ordinal);
+        Assert.DoesNotContain("PROTONPATH", settings.EnvironmentText, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task UserTypedKey_OverridesManagedKeyOnSave()
     {
         // 用户在编辑框手输与托管键同名的键：保存时用户键覆盖托管键（显式覆盖能力保留）
