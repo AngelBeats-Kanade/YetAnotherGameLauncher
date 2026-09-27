@@ -63,6 +63,74 @@ public sealed class NativeUmuLauncherLaunchTests : IDisposable
             plan.Environment["WINEPREFIX"]);
     }
 
+    [Fact]
+    public void BuildPlan_UmuIdSet_LegacyEnvUmuIdDoesNotOverride()
+    {
+        // 2026-09-28 review P3：launch.umuId 显式设置时为 UMU_ID/GAMEID 权威值——配置 env 里的
+        // 同名键（首运托管残留/存量迁移遗留）不得反超。变异核对：去掉 BuildPlan 守卫本用例即红
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("BuildPlan 仅 Linux（守卫为纯字典逻辑，由 Linux 腿覆盖）");
+        }
+
+        var plan = BuildPlanWithExtraEnvironment(
+            new Dictionary<string, string>
+            {
+                ["UMU_ID"] = "umu-legacy",
+                ["GAMEID"] = "umu-legacy",
+            },
+            umuId: "umu-3513350");
+
+        Assert.Equal("umu-3513350", plan.Environment["UMU_ID"]);
+        Assert.Equal("umu-3513350", plan.Environment["GAMEID"]);
+    }
+
+    [Fact]
+    public void BuildPlan_UmuIdAbsent_LegacyEnvUmuIdStillOverrides()
+    {
+        // 守卫的另一半语义：launch.umuId 未设置时，env 覆盖通道保持原样（存量手工配置）
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("BuildPlan 仅 Linux（守卫为纯字典逻辑，由 Linux 腿覆盖）");
+        }
+
+        var plan = BuildPlanWithExtraEnvironment(
+            new Dictionary<string, string>
+            {
+                ["UMU_ID"] = "umu-legacy",
+                ["GAMEID"] = "umu-legacy",
+            },
+            umuId: null);
+
+        Assert.Equal("umu-legacy", plan.Environment["UMU_ID"]);
+        Assert.Equal("umu-legacy", plan.Environment["GAMEID"]);
+    }
+
+    /// <summary>BuildPlan 组装（守卫两腿共用）：假 Proton + steamrt4 运行时 + 真实 exe。</summary>
+    private UmuNativeLaunchPlan BuildPlanWithExtraEnvironment(
+        Dictionary<string, string> extraEnvironment, string? umuId)
+    {
+        var runner = new FakeProcessRunner();
+        var launcher = new NativeUmuLauncher(runner, provisioner: null, dataHome: _temp.Path);
+        var protonDir = CreateFakeProton();
+        var runtimeDir = UmuPaths.RuntimeDirectory("steamrt4", _temp.Path);
+        Directory.CreateDirectory(runtimeDir);
+        File.WriteAllText(Path.Combine(runtimeDir, "_v2-entry-point"), "#!/bin/sh\n");
+        File.WriteAllText(Path.Combine(runtimeDir, UmuPaths.InstallMarkerName), "ok");
+
+        var install = _temp.FilePath("game");
+        Directory.CreateDirectory(install);
+        File.WriteAllText(Path.Combine(install, "Game.exe"), "x");
+
+        var manifest = ToolManifest.Load(protonDir);
+        return launcher.BuildPlan(
+            "wuthering-waves", install, "Game.exe", protonDir, manifest,
+            SteamRuntimeCatalog.Default,
+            extraEnvironment: extraEnvironment,
+            dataHomeOverride: _temp.Path,
+            umuId: umuId);
+    }
+
     private static IReadOnlyList<string> BuildSampleEntry()
     {
         var dir = Path.Combine(Path.GetTempPath(), "yagl-native-umu-test-" + Guid.NewGuid().ToString("N"));

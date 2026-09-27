@@ -931,6 +931,12 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         var workingDirectoryChanged = !string.Equals(effectiveWorkingDirectory, _game.Launch.WorkingDirectory, StringComparison.Ordinal);
         var environmentDiff = EnvironmentDiffKeys(environment, _game.Launch.Environment);
 
+        // 启动选项开关对照替换前的旧值：必须在 _game.Launch 替换前快照（review P2 实锤——
+        // 曾在替换后拿草稿比新 Launch 自身，恒 false，仅开关变更的轻提示永不弹）
+        var optionsChanged = UseWaylandDraft != _game.Launch.UseWayland
+            || UpgradeDlssDraft != _game.Launch.UpgradeDlss
+            || EnableProtonLogDraft != _game.Launch.EnableProtonLog;
+
         // games.json 的 launch.umuId 不经设置卡编辑，重建 Launch 时必须保留（否则 UMU_ID 退化为 umu-{gameId}）
         var newLaunch = new LaunchOptions
         {
@@ -981,9 +987,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             RecomputeDirty(); // 落盘后草稿与已保存值一致，保存钮熄灭
             RaiseChangedToast(
                 installDirChanged, executableChanged, templateChanged, workingDirectoryChanged,
-                UseWaylandDraft != _game.Launch.UseWayland
-                || UpgradeDlssDraft != _game.Launch.UpgradeDlss
-                || EnableProtonLogDraft != _game.Launch.EnableProtonLog,
+                optionsChanged,
                 environmentDiff);
         }
         catch (OperationCanceledException)

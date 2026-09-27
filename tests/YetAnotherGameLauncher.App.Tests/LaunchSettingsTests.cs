@@ -148,6 +148,23 @@ public class LaunchSettingsTests : IDisposable
     }
 
     [Fact]
+    public async Task Save_ToggleOnlyChange_RaisesToastListingLaunchOptions()
+    {
+        // 2026-09-28 review P2：optionsChanged 曾在 _game.Launch 替换之后才比较（自身比自身恒
+        // false），仅开关变更时轻提示完全不弹。必须在替换前对照旧值快照。
+        await _ctx.Vm.InitializeAsync();
+        var settings = _ctx.Vm.Games[0].LaunchSettings;
+
+        settings.EnableProtonLogDraft = true;
+        await settings.SaveCommand.ExecuteAsync(null);
+        Assert.False(settings.Save.Failed);
+
+        var toast = Assert.Single(_ctx.Vm.Toasts);
+        Assert.Equal("已更新：启动选项", toast.Message);
+        Assert.Equal(ToastKind.Success, toast.Kind);
+    }
+
+    [Fact]
     public async Task Save_WithoutChanges_DoesNotRaiseToast()
     {
         await _ctx.Vm.InitializeAsync();
