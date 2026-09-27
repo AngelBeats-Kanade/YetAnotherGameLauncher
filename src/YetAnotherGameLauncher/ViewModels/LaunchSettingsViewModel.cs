@@ -206,7 +206,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     private string _executableDraft;
 
     /// <summary>启动设置草稿是否有未保存变更（评审 P2-5：保存钮随变更点亮，给草稿态可见性）。
-    /// 判定与 SaveAsyncCore 的逐字段快照对比同源；五个草稿字段变化与保存/回滚后重算。</summary>
+    /// 判定与 SaveAsyncCore 的逐字段快照对比同源；八个草稿字段变化与保存/回滚后重算。</summary>
     [ObservableProperty]
     private bool _isDirty;
 
@@ -789,7 +789,8 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     [ObservableProperty]
     private string _workingDirectory;
 
-    /// <summary>环境变量草稿（多行 KEY=VALUE 文本）。</summary>
+    /// <summary>环境变量草稿——只承载用户自定义变量（多行 KEY=VALUE 文本）；托管键不进此文本，
+    /// 由 <see cref="_managedEnvironment"/> 承载，保存时合并（用户键优先）。</summary>
     [ObservableProperty]
     private string _environmentText;
 

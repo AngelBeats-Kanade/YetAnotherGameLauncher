@@ -66,8 +66,11 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 |---|---|---|---|
 | `commandTemplate` | string | `"{exe}"` | 启动命令模板；含空格的路径请加引号，如 `wine "{exe}"` |
 | `workingDirectory` | string | `"{installDir}"` | 工作目录模板 |
-| `environment` | object | `{}` | 附加环境变量（值支持占位符），如 `{"WINEPREFIX": "~/prefix"}` |
-| `umuId` | string | | umu 启动用的 UMU_ID 覆盖（形如 `umu-3513350`，对齐 [umu 数据库](https://github.com/Open-Wine-Components/umu-database)规范 ID）；留空按 `umu-{游戏id}` 生成。仅影响 GAMEID/UMU_ID，prefix 路径不变 |
+| `environment` | object | `{}` | 附加环境变量（值支持占位符），如 `{"WINEPREFIX": "~/prefix"}`。设置页编辑框只显示/编辑这里**用户自定义**的键；推荐链生成的键（GAMEID/UMU_ID/WINEPREFIX/PROTONPATH/STEAM_COMPAT_* 等）由启动器托管、不在框内显示，保存时用户键与托管键合并、**同名时用户键优先** |
+| `umuId` | string | | umu 启动用的 UMU_ID 覆盖（形如 `umu-3513350`，对齐 [umu 数据库](https://github.com/Open-Wine-Components/umu-database)规范 ID）；留空按 `umu-{游戏id}` 生成。仅影响 GAMEID/UMU_ID，prefix 路径不变。显式设置时为 UMU_ID/GAMEID 的权威值（`environment` 里的同名残留不会反超） |
+| `useWayland` | bool | `false` | 注入 `PROTON_USE_WAYLAND=1` 启用 Proton 原生 Wayland 驱动（绕过 XWayland）。仅 Linux Proton 启动链；DW/GE/UMU-Proton 均识别（DW 另接受 PROTON_ENABLE_WAYLAND 别名）。设置页「启动选项 → 使用 Wayland」 |
+| `upgradeDlss` | bool | `false` | 注入 `PROTON_DLSS_UPGRADE=1`（连带 `PROTON_ENABLE_NVAPI=1`）：启动时由 protonfixes 把游戏内 DLSS 换成 Proton 内置新版。仅 NVIDIA 显卡生效。设置页「启动选项 → 升级 DLSS 模型」 |
+| `enableProtonLog` | bool | `false` | 注入 `PROTON_LOG=1` + `PROTON_LOG_DIR={应用日志目录}`，记录 Proton 运行日志。设置页「启动选项 → 打印 Proton 日志」 |
 
 可用占位符：
 
@@ -171,6 +174,14 @@ Steam Runtime 容器与 Proton，发行版三选一），由启动器自动生�
     "PROTONPATH": "DW-Proton",           // 发行版代号：DW-Proton / GE-Proton / UMU-Proton（缺失时按代号下载本机架构 latest）
     "SteamOS": "1"                       // 鸣潮过 ACE 反作弊需伪装 SteamOS；NVIDIA 卡再加 PROTON_ENABLE_NVAPI=1
   }
+}
+
+// 启动选项开关（设置页「启动选项」区；全为 bool、缺省 false，映射见 games[].launch 字段表）
+"launch": {
+  "commandTemplate": "native-umu \"{exe}\"",
+  "useWayland": true,                    // 注入 PROTON_USE_WAYLAND=1（原生 Wayland 驱动）
+  "upgradeDlss": true,                   // 注入 PROTON_DLSS_UPGRADE=1 + PROTON_ENABLE_NVAPI=1（NVIDIA）
+  "enableProtonLog": false               // 注入 PROTON_LOG=1 + PROTON_LOG_DIR=应用日志目录
 }
 
 // 手写 wine / Proton 直启仍受支持（设置页不再提供入口，模板照常执行）

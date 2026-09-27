@@ -31,10 +31,12 @@ dotnet tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLa
 - 保存：`frame.Save(path, new PngBitmapEncoderOptions())`。
 - 数据必须真实：用 `VmFactory` 样例数据（两个游戏、假渠道状态：已安装/有更新/预下载可用都摆出来）。
 - 截图窗口固定 1120×720（`UiScreenshotTests` 内写死，与主窗口默认 1464×720 无关，保证构图稳定）。
-- **清单（2026-09-27 实测；改动 UI 或新增导出后同步本清单）**：八个画面共 23 张——
-  01-15 + 02b + 16 + 17/18 + 10b + 19 + 20/21。归属：`Export_UiScreenshots_ForReview` 11 张；
-  `Export_LaunchErrorOverlay_ForReview` 5 张（10/10b/11/12/14，10b=CanRetry=true 覆盖层；
-  该导出同时覆盖启动失败覆盖层与 Linux 启动设置卡：umu 启动 + Proton 发行版下拉 + 检查更新按钮）；
+- **清单（2026-09-28 实测；改动 UI 或新增导出后同步本清单）**：八个画面共 24 张——
+  01-15 + 02b + 16 + 17/18 + 10b + 11b + 19 + 20/21。归属：`Export_UiScreenshots_ForReview` 11 张；
+  `Export_LaunchErrorOverlay_ForReview` 6 张（10/10b/11/11b/12/14，10b=CanRetry=true 覆盖层；
+  该导出同时覆盖启动失败覆盖层与 Linux 启动设置卡：umu 启动 + Proton 发行版下拉 + 检查更新按钮 +
+  启动选项开关区 + 环境变量留空框——11 用 1120×1080 专用窗口整卡入画且在 toast 注入前截，
+  11b=同卡亮色）；
   `Export_ProtonUpdateConfirm_ForReview` 1 张（Proton 更新确认覆盖层，内含纱罩压暗的像素级回归断言）；
   `Export_BootSplash_ForReview` 1 张（16-boot-splash 启动遮蔽层）；
   `Export_GameDependencies_ForReview` 2 张（20/21 游戏设置页依赖卡：暗=未安装灰点安装钮、

@@ -70,7 +70,7 @@ Currently supported games:
 | Proxy settings | Follow system / direct / manual |
 | Auto-start on boot | Windows registry / Linux XDG autostart |
 | Native Wayland | On Linux with a Wayland session (`WAYLAND_DISPLAY`), the experimental Avalonia 12.1 native Wayland backend is used: fractional scaling comes straight from the compositor (no Xft.dpi patch needed); set `YAGL_FORCE_XWAYLAND=1` to fall back to X11/XWayland (that path keeps EGL-first rendering and automatic DPI sync) |
-| Launch settings | A dedicated game settings sub-page (gear icon on the detail page): location / launch mode / launch arguments, with a save button that lights up on changes and saves back to the config file; a toast appears when settings actually change (listing changed fields; nothing pops when nothing changed or validation failed), server switching also toasts |
+| Launch settings | A dedicated game settings sub-page (gear icon on the detail page): location / launch mode / launch options / launch arguments, with a save button that lights up on changes and saves back to the config file; a toast appears when settings actually change (listing changed fields; nothing pops when nothing changed or validation failed), server switching also toasts |
 | Dependency install (Linux) | A "Dependencies" card in the game settings page: manually install optional components into the current game's Wine prefix. The first built-in is **CJK fonts (Source Han Sans)** — downloads the full Source Han Sans ttc (MD5-verified, resumable, globally cached and shared across games), drops it into `windows/Fonts`, and maps Simplified/Traditional/Japanese/Korean system font names (SimSun, YaHei, MS Gothic, …) onto it via `wine reg`, fixing garbled text under Wine; actionable hints instead of errors when the prefix is uninitialized (game never launched) or Proton is missing |
 | Visual storage paths | Change the install root in settings; each game's install directory can be changed individually in the game settings page "location" section, effective immediately on save |
 | Official icons | Official app icons for Wuthering Waves/Endfield (bundled by default as `avares://YetAnotherGameLauncher/Assets/game-icons/*.jpg`; the `icon` field still accepts URLs/local paths, URL icons get a disk cache and fall back to the initial letter on failure) |
@@ -140,8 +140,10 @@ Enter via the **gear** button at the bottom of the detail page; "Back to game" r
     starts the official default way, no compatibility layer needed
   - **Proton flavor** (Linux umu mode): DW-Proton (default) / GE-Proton / UMU-Proton — selection is saved instantly
   - **Check/download compat components** and **check for updates** (Linux umu mode): pre-download or upgrade Proton manually
+  - **Launch options** (Linux only): three toggles — **Use Wayland** (Proton native Wayland driver), **Upgrade DLSS model** (NVIDIA), **Print Proton log** — persisted with "Save Launch Options"
   - **Command template / working directory / environment variables** (all platforms): advanced customization with
-    `{exe}` and `{installDir}` placeholders
+    `{exe}` and `{installDir}` placeholders; the environment box holds **user-defined** variables only and starts
+    empty (built-in launch variables are injected automatically, no need to write them by hand)
 
 ![Linux launch settings](docs/images/screenshot-launch-settings-linux.png)
 

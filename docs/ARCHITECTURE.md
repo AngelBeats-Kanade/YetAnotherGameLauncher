@@ -153,8 +153,21 @@ UMU_ID 由 `launch.umuId` 覆盖（对齐 umu 数据库规范 ID：鸣潮 `umu-3
 3. `UmuPrefix.Setup` 布好 Proton 兼容 prefix（pfx 符号链接、shadercache、steamuser）
 4. `UmuEnvironment.Build` 写完整 STEAM_COMPAT_* / UMU_* 环境
    （与上游 umu_run.py 对齐：`STEAM_COMPAT_APP_ID` 恒为 prefix 路径 MD5、`STORE` 缺省空串；
-   配置里的 PROTONPATH 代号不覆盖已解析的绝对路径）
-5. 经 `{runtime}/_v2-entry-point --verb=… -- {proton}/proton <verb> {exe}` 启动（`IProcessRunner`，即启即走）
+   配置里的 PROTONPATH 代号不覆盖已解析的绝对路径；
+   `STEAM_COMPAT_LIBRARY_PATHS` = 安装目录——上游按 /proc/mounts 探测生成，
+   这里直接指向安装目录达到同一 gamedrive 挂载意图）
+5. 合并配置环境变量（`environment` + 启动选项开关）后经
+   `{runtime}/_v2-entry-point --verb=… -- {proton}/proton <verb> {exe}` 启动（`IProcessRunner`，即启即走）
+
+**启动选项开关 → 环境变量**的映射单一事实源是 `CompatTools.FeatureEnvironment`：
+`useWayland` → `PROTON_USE_WAYLAND=1`（DW 同时接受 PROTON_ENABLE_WAYLAND 别名，同一 compat 选项）；
+`upgradeDlss` → `PROTON_DLSS_UPGRADE=1` + `PROTON_ENABLE_NVAPI=1`（DLSS 依赖 NVAPI；由 protonfixes
+在启动时替换游戏内 nvngx_dlss.dll，仅 NVIDIA 生效）；`enableProtonLog` → `PROTON_LOG=1` +
+`PROTON_LOG_DIR={应用日志目录}`。两个启动链在各自入口做同型合并、开关键优先于用户同名配置：
+模板直启链在 `GameLauncherService.BuildPlan`，原生 umu 链在 `GameItemViewModel.LaunchAsync`
+（经 `extraEnvironment`）。原生链合并时 `UMU_ID`/`GAMEID` 在 `launch.umuId` 显式设置时不被
+配置 env 反超（首运托管的 `umu-{游戏id}` 残留曾使 umuId 覆盖静默失效）；`PROTONPATH`
+始终不反超（配置存代号、env 已解析为绝对路径）。
 
 外部 `umu-run` zipapp 路径（`UmuLauncherInstaller`）已整体移除；存量模板经 schemaVersion 5 迁移转入原生链。
 Wine prefix 统一在 `{数据目录}/yagl/prefixes/<游戏id>`（`STEAM_COMPAT_DATA_PATH` 同址），
