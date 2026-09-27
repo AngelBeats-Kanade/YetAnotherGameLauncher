@@ -4,6 +4,7 @@ using System.Globalization;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using YetAnotherGameLauncher.Channels.Kuro;
 using YetAnotherGameLauncher.Core;
 using YetAnotherGameLauncher.Core.Abstractions;
@@ -49,6 +50,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>系统 wine 发现委托（依赖区消费；null = 生产缺省 CompatTools.FindSystemWine）。</summary>
     internal Func<string?>? SystemWineResolver => _systemWineResolver;
+
+    /// <summary>依赖区失败日志（游戏设置页依赖区消费；null = 测试/未注入）。</summary>
+    internal ILogger? DependencySectionLogger => _dependencyLogger;
     private readonly NetworkProxyManager? _proxyManager;
 
     /// <summary>VM 实际持有的代理管理器；internal 供单测断言组合根装配（经 InternalsVisibleTo）。</summary>
@@ -74,6 +78,9 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>系统 wine 发现委托（游戏设置页依赖区消费；null = 生产走 CompatTools.FindSystemWine，
     /// 测试注入桩避免依赖真机 PATH）。</summary>
     private readonly Func<string?>? _systemWineResolver;
+
+    /// <summary>依赖区失败日志（游戏设置页依赖区消费；null = 测试/未注入，静默）。</summary>
+    private readonly ILogger? _dependencyLogger;
 
     /// <summary>持久化窗口状态（InitializeAsync 加载目录后可读；null = 未持久化过，窗口用 XAML 默认尺寸）。</summary>
     public int? PersistedWindowWidth => _catalogService.Catalog?.Settings.WindowWidth;
@@ -113,7 +120,8 @@ public partial class MainWindowViewModel : ViewModelBase
         NativeUmuLauncher? nativeUmu = null,
         IUmuComponentProvisioner? umuProvisioner = null,
         IDependencyInstaller? dependencyInstaller = null,
-        Func<string?>? systemWineResolver = null)
+        Func<string?>? systemWineResolver = null,
+        ILogger? dependencyLogger = null)
     {
         _catalogService = catalogService;
         _updateService = updateService;
@@ -137,6 +145,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _umuProvisioner = umuProvisioner;
         _dependencyInstaller = dependencyInstaller;
         _systemWineResolver = systemWineResolver;
+        _dependencyLogger = dependencyLogger;
         _platform = platformInfo ?? PlatformInfoFactory.Create();
         Loc = localization;
         _loc.PropertyChanged += OnLanguageChanged;

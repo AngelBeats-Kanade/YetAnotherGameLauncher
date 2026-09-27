@@ -221,6 +221,7 @@ public static class VmFactory
         YetAnotherGameLauncher.Core.Abstractions.IUmuComponentProvisioner? umuProvisioner = null,
         YetAnotherGameLauncher.Core.Dependencies.IDependencyInstaller? dependencyInstaller = null,
         Func<string?>? systemWineResolver = null,
+        Microsoft.Extensions.Logging.ILogger? dependencyLogger = null,
         NetworkProxyManager? proxyManager = null,
         KuroGachaService? gachaService = null)
     {
@@ -313,7 +314,8 @@ public static class VmFactory
             nativeUmu: nativeUmu,
             umuProvisioner: umuProvisioner,
             dependencyInstaller: dependencyInstaller,
-            systemWineResolver: systemWineResolver);
+            systemWineResolver: systemWineResolver,
+            dependencyLogger: dependencyLogger);
 
         return new Context
         {

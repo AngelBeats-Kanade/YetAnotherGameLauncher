@@ -21,7 +21,7 @@ public static class WinePrefixBuiltinRepair
     /// <summary>builtin 链接识别标记：目标含此段（Proton 根的 files/ 目录）即视为 builtin
     /// 组件链接，段后部分是在新旧 Proton 树之间的同相对路径键。取最后一个匹配——windows 树
     /// （lib/wine）、share/fonts、share/wine/fonts 等，以及 windows 之外的 Program Files
-    /// （iexplore/wordpad/OLE DB 等），全部由此统一覆盖（真机实锤 120+14 条悬空横跨各处）。</summary>
+    /// （iexplore/wordpad/OLE DB 等），全部由此统一覆盖（真机实锤全 prefix 1337 条悬空横跨各处）。</summary>
     private const string ProtonFilesMarker = "/files/";
 
     /// <summary>扫描整个 prefix（递归），把全部悬空的 builtin 链接重链到

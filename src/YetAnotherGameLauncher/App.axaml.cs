@@ -224,6 +224,8 @@ public partial class App : Application
                 nativeUmu: sp.GetRequiredService<NativeUmuLauncher>(),
                 umuProvisioner: sp.GetRequiredService<IUmuComponentProvisioner>(),
                 dependencyInstaller: sp.GetRequiredService<IDependencyInstaller>(),
+                dependencyLogger: sp.GetRequiredService<ILoggerFactory>()
+                    .CreateLogger<ViewModels.DependencySectionViewModel>(),
                 platformInfo: sp.GetRequiredService<IPlatformInfo>());
         });
 

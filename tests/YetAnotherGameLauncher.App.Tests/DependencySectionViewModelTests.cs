@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Xunit;
 using YetAnotherGameLauncher.Core.Dependencies;
 using YetAnotherGameLauncher.TestSupport;
@@ -48,12 +49,13 @@ public class DependencySectionViewModelTests : IDisposable
 
     /// <summary>构建 umu 配置 + 就绪环境 + 已注入安装器的上下文，并导航到游戏设置页返回依赖区。</summary>
     private async Task<(VmFactory.Context Ctx, DependencySectionViewModel Section)> BuildReadyUmuSectionAsync(
-        FakeDependencyInstaller installer)
+        FakeDependencyInstaller installer, CapturingLogger? logger = null)
     {
         var ctx = VmFactory.Build(
             configJson: UmuConfigJson,
             platformInfo: new FakePlatformInfo(isLinux: true),
-            dependencyInstaller: installer);
+            dependencyInstaller: installer,
+            dependencyLogger: logger);
         ScaffoldReadyUmuEnvironment(ctx.TempDir);
         await ctx.Vm.InitializeAsync();
         ctx.Vm.SelectedGame = ctx.Vm.Games[0];
@@ -188,6 +190,51 @@ public class DependencySectionViewModelTests : IDisposable
                 "prefix 组件链接失效（兼容组件升级遗留）且自动修复未完成：请更新兼容组件后重试，" +
                 "仍失败则删除该游戏 prefix 重建。",
                 section.Feedback.Message); // 红落此断言：当前落入 unexpected 兜底
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Install_Failure_LogsExceptionDetail()
+    {
+        // F49：分类文案不含细节，异常消息（退出码/stderr/不可修计数）必须落日志——
+        // 文案"请查看日志"不能是空话
+        var logger = new CapturingLogger();
+        _installer.FailKind = DependencyFailureKind.DownloadFailed;
+        var (ctx, section) = await BuildReadyUmuSectionAsync(_installer, logger);
+        try
+        {
+            var item = Assert.Single(section.Items);
+
+            await item.InstallCommand.ExecuteAsync(null);
+
+            Assert.True(section.Feedback.Failed);
+            Assert.True(logger.Has(LogLevel.Warning, "fake failure")); // 红落此断言：当前不落日志
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Install_UnexpectedFailure_LogsRawException()
+    {
+        // F49：分类学兜底的漏网异常同样要落日志（warn + 原始异常）
+        var logger = new CapturingLogger();
+        _installer.ThrowRaw = new InvalidOperationException("boom");
+        var (ctx, section) = await BuildReadyUmuSectionAsync(_installer, logger);
+        try
+        {
+            var item = Assert.Single(section.Items);
+
+            await item.InstallCommand.ExecuteAsync(null);
+
+            Assert.True(section.Feedback.Failed);
+            Assert.True(logger.Has(LogLevel.Warning, "boom")); // 红落此断言：当前不落日志
         }
         finally
         {

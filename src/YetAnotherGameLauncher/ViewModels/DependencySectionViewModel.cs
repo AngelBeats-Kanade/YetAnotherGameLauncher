@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using YetAnotherGameLauncher.Core.Dependencies;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Services;
@@ -18,19 +19,22 @@ public sealed partial class DependencySectionViewModel : ViewModelBase
     private readonly IDependencyInstaller? _installer;
     private readonly string? _dataHome;
     private readonly Func<string?> _systemWineResolver;
+    private readonly ILogger? _logger;
 
     public DependencySectionViewModel(
         GameItemViewModel game,
         MainWindowViewModel owner,
         IDependencyInstaller? installer,
         string? dataHome = null,
-        Func<string?>? systemWineResolver = null)
+        Func<string?>? systemWineResolver = null,
+        ILogger? logger = null)
     {
         _game = game;
         _loc = owner.Loc;
         _installer = installer;
         _dataHome = dataHome;
         _systemWineResolver = systemWineResolver ?? (() => CompatTools.FindSystemWine());
+        _logger = logger;
 
         if (installer is not null)
         {
@@ -149,6 +153,8 @@ public sealed partial class DependencySectionViewModel : ViewModelBase
         }
         catch (DependencyException ex)
         {
+            // 分类文案不含细节，日志必须承载排障线索（退出码/stderr/不可修计数），F49
+            _logger?.LogWarning(ex, "依赖安装失败（{Kind}）：{Message}", ex.Kind, ex.Message);
             Feedback.SetFailure(_loc[ErrorKey(ex.Kind)]);
         }
         catch (OperationCanceledException)
@@ -158,6 +164,7 @@ public sealed partial class DependencySectionViewModel : ViewModelBase
         catch (Exception ex)
         {
             // 分类学兜底：安装器升级漏网的原始异常不得静默（全局 handler 只记日志）
+            _logger?.LogWarning(ex, "依赖安装意外失败：{Message}", ex.Message);
             Feedback.SetFailure(_loc.Format("deps_error_unexpected", ex.Message));
         }
         finally

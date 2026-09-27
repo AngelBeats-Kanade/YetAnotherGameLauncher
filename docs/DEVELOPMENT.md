@@ -179,7 +179,7 @@ tests/
 
 ## 4. 测试布局要点
 
-- **共享替身**（TestSupport 项目）：`FakeDownloader`（URL→字节）、`StubHttpHandler`（可模拟 Range/瞬态故障/忽略 Range）、`FakePatchApplier`（预设输出/可失败/可损坏）、`FakeChannel`（可配置版本信息与清单）、`FakeProcessRunner`、`FakePlatformInfo`（IsLinux/NVIDIA 探测可控）、`FakeAutostartService`（启用状态可控/可编程写入失败）、`TempDir`、`TestZip`。
+- **共享替身**（TestSupport 项目）：`FakeDownloader`（URL→字节）、`StubHttpHandler`（可模拟 Range/瞬态故障/忽略 Range）、`FakePatchApplier`（预设输出/可失败/可损坏）、`FakeChannel`（可配置版本信息与清单）、`FakeProcessRunner`、`FakePlatformInfo`（IsLinux/NVIDIA 探测可控）、`FakeAutostartService`（启用状态可控/可编程写入失败）、`CapturingLogger`（内存捕获日志记录，"失败必须落日志"守卫用）、`TempDir`、`TestZip`。
 - **平台相关测试**：不依赖真机 OS——`VmFactory.Build` 缺省注入 Windows 假平台（确定性），
   Linux 分支经 `platformInfo:` / `linuxProtonVersions:` 参数注入；期望值按平台分支时照
   `InstallPathTests`/`SystemProcessRunnerTests` 的 `OperatingSystem.IsWindows() ? … : …` 惯例。

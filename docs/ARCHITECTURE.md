@@ -469,8 +469,9 @@ flowchart LR
   只需读写注册表；字体在游戏内最终生效以 umu 完整容器环境启动为准。
 - **真机事故与修复（2026-09-27，F46）**：用户两个游戏 prefix（dwproton-11.0-12 所建）在 provisioner
   升级到 11.0-13 并删除旧目录后 builtin 链接全悬空——依赖安装死在注册表阶段（退出码 53），游戏启动同灭
-  （9月22 起未启动故未暴露）。实证：120+14 条悬空链接横跨 windows 树与 Program Files（含 `files/share/
-  fonts` 的 CJK UI 字体链接）；`RepairDangling` 真机修复 1211+1211 条、0 不可修，`wine reg import` 复测
+  （9月22 起未启动故未暴露）。实证：每 prefix 1337 条悬空（system32/syswow64 1197、windows 根 6、
+  windows 树深部含 share 字体 120、Program Files 14；2026-09-27 分次修复运行输出合计）；`RepairDangling`
+  真机累计修复 1337+1337 条、0 不可修，`wine reg import` 复测
   退出码 0 且 `reg query` 可读回。残留暴露面：手改 `STEAM_COMPAT_DATA_PATH` 指向统一 prefix 根之外的
   自定义 prefix 不在 prune 迁移扫描范围（无法枚举，依赖安装预检仍可修）。
 

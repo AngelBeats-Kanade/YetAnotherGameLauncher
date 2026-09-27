@@ -159,7 +159,7 @@ public class WinePrefixBuiltinRepairTests : IDisposable
     }
 
     [Fact]
-    public void Repair_ScansAllWindowsTreeRecursively_IncludingShareFontTargets()
+    public void Repair_ScansWholePrefix_IncludingShareFontsAndNestedDirs()
     {
         // builtin 链接不止 system32/syswow64 的根层文件：windows 根（regedit 等 shell 程序）、
         // windows/Fonts（指向 Proton 的 files/share/fonts 与 files/share/wine/fonts）、
@@ -246,23 +246,28 @@ public class WinePrefixBuiltinRepairTests : IDisposable
     public void Repair_NeverRecursesIntoSymlinkedDirectories()
     {
         // dosdevices/z: 指向 /：递归扫描绝不能跟入符号链接目录——真机实锤跟进 z: 后
-        // 撞上 /proc/<死进程>/cwd 直接 IOException 崩掉整轮修复（wine 布局的常规形态）
+        // 撞上 /proc/<死进程>/cwd 直接 IOException 崩掉整轮修复（wine 布局的常规形态）。
+        // F47 变异实验：只放"悬空的 z:"杀不掉"跟入存活符号链接目录"的变异体——所以
+        // z: 指向**存活**的外部目录并放一条 builtin 形态的悬空链接，跟进它的实现必然
+        // 把外部链接计入修复统计，正确实现只见 prefix 本体（0/0）
         if (OperatingSystem.IsWindows())
         {
             Assert.Skip("符号链接创建需要特权（Windows）");
         }
 
-        // 构造"指向已消失目录的目录链接"（等效 /proc/<pid>/cwd）
-        var vanished = _temp.FilePath("vanished-target", "sub");
-        Directory.CreateDirectory(vanished);
-        MakePrefixLinkAt(Path.Combine("dosdevices", "z:"), vanished);
-        Directory.Delete(_temp.FilePath("vanished-target"), recursive: true);
-
+        var outside = _temp.FilePath("outside");
+        var externalTarget = Path.Combine(outside, "files", "lib", "wine", "x86_64-windows", "fake.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(externalTarget)!);
+        File.WriteAllText(externalTarget, "x");
+        var externalLink = Path.Combine(outside, "link.dll");
+        File.CreateSymbolicLink(externalLink, externalTarget);
+        File.Delete(externalTarget); // 外部悬空链接就绪；outside 本体保持存活
+        MakePrefixLinkAt(Path.Combine("dosdevices", "z:"), outside);
         var newRoot = MakeProtonTree("proton-new", "x86_64-windows", "kernel32.dll");
 
         var result = WinePrefixBuiltinRepair.RepairDangling(_temp.FilePath("prefix"), newRoot);
 
-        Assert.Equal(0, result.Repaired); // 红落此断言：当前实现跟进 z: 抛 IOException
+        Assert.Equal(0, result.Repaired); // 红落此断言：跟入 z: 的实现会计入外部悬空链接
         Assert.Equal(0, result.Unrepairable);
     }
 

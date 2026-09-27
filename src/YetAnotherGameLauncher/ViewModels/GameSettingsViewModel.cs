@@ -25,7 +25,8 @@ public partial class GameSettingsViewModel(GameItemViewModel game, MainWindowVie
     /// （null = 生产缺省 CompatTools.FindSystemWine，测试可注入桩避免真机 PATH 依赖）。
     /// </summary>
     public DependencySectionViewModel Dependencies { get; } =
-        new(game, owner, owner.DependencyInstaller, owner.LinuxDataHome, owner.SystemWineResolver);
+        new(game, owner, owner.DependencyInstaller, owner.LinuxDataHome, owner.SystemWineResolver,
+            owner.DependencySectionLogger);
 
     [RelayCommand]
     private void BackToGame() => owner.ShowGamesCommand.Execute(null);
