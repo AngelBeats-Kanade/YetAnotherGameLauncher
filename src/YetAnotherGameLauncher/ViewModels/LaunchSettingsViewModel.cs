@@ -662,9 +662,11 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 WorkingDirectory = originalLaunch.WorkingDirectory,
                 Environment = environment,
                 UmuId = originalLaunch.UmuId,
-                UseWayland = UseWaylandDraft,
-                UpgradeDlss = UpgradeDlssDraft,
-                EnableProtonLog = EnableProtonLogDraft,
+                // 窄通道只动 PROTONPATH：开关取已存值——未保存的开关草稿不得被即时保存静默带走
+                // （toast 也不会提及，2026-09-28 review F-A）
+                UseWayland = originalLaunch.UseWayland,
+                UpgradeDlss = originalLaunch.UpgradeDlss,
+                EnableProtonLog = originalLaunch.EnableProtonLog,
             };
 
             bool saved;
@@ -756,11 +758,21 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         {
             EnvironmentText = SerializeEnvironment(user);
         }
+
+        // 托管字典的合并不经过属性通知：末尾显式重算脏标记，否则脏状态停在合并前的旧值
+        // （umu→Direct→umu 往返滞留 true，2026-09-28 review F-B，有往返测试钉住）
+        RecomputeDirty();
     }
 
     /// <summary>切回直接启动等场景：清空托管环境变量（STEAM_COMPAT_*、umu 系列、WINEPREFIX、
     /// PROTONPATH 与游戏推荐项）；用户在编辑框手输的变量原样保留。</summary>
-    private void RemoveGeneratedEnvironment() => _managedEnvironment.Clear();
+    private void RemoveGeneratedEnvironment()
+    {
+        _managedEnvironment.Clear();
+        // 同 ApplyGenerated：托管清空不经属性通知（当前 UI 流上 CommandTemplate 变更会带动
+        // 重算，此处显式补位防未来 handler 顺序演化再引入空窗）
+        RecomputeDirty();
+    }
 
     /// <summary>宽松解析环境文本为字典（跳过无 "=" 的行，不报错）；行级解析复用严格版，保证切分规则单一。
     /// internal 供单测（经 InternalsVisibleTo）。</summary>

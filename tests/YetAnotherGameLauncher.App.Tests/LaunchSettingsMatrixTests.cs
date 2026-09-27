@@ -73,6 +73,30 @@ public class LaunchSettingsMatrixTests : IDisposable
     }
 
     [Fact]
+    public async Task DirectTemplateWithSavedGeneratedKeys_Reopen_ClearsManagedAndLightsDirty()
+    {
+        // 2026-09-28 review F-B：ApplyGenerated 的托管合并不经属性通知，脏重算曾发生在
+        // CommandTemplate 通知点（托管合并之前）——umu→Direct→umu 往返后草稿已与存档一致，
+        // 脏标却滞留 true。末尾显式 RecomputeDirty 后复位。
+        // 用终末地（Games[1]，无 SteamOS/NVAPI 推荐项）：往返可完全还原，判据才干净。
+        // 变异核对：去掉 ApplyGenerated 末尾的 RecomputeDirty 本用例即红。
+        await _ctx.Vm.InitializeAsync();
+        var endfield = _ctx.Vm.Games[1];
+        var settings = new LaunchSettingsViewModel(
+            endfield.Game, endfield.InstallDirPath, _ctx.CatalogService, endfield.Loc, endfield,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            protonVersions: ["GE-Proton10-9"]);
+        await settings.SaveCommand.ExecuteAsync(null); // 存档 = umu 推荐链（终末地无推荐 env）
+        Assert.False(settings.IsDirty);
+
+        settings.SelectedLaunchMode = settings.LaunchModes.First(m => m.Mode == LaunchMode.Direct);
+        Assert.True(settings.IsDirty); // 模板与生成键都变了
+        settings.SelectedLaunchMode = settings.LaunchModes.First(m => m.Mode == LaunchMode.NativeUmu);
+
+        Assert.False(settings.IsDirty, "往返后草稿与已存一致，脏标应复位（曾滞留 true）");
+    }
+
+    [Fact]
     public async Task NativeUmuStatus_ReflectsProtonAndRuntimeReadiness()
     {
         await _ctx.Vm.InitializeAsync();

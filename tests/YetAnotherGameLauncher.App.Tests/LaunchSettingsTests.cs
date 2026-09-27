@@ -351,4 +351,35 @@ public class LaunchSettingsTests : IDisposable
         Assert.Equal("已更新：Proton 发行版", toast.Message);
         Assert.Equal(ToastKind.Success, toast.Kind);
     }
+
+    [Fact]
+    public async Task ProtonFlavorSwitch_DoesNotCarryUnsavedToggleDrafts()
+    {
+        // 窄通道语义（2026-09-28 review F-A）：发行版即时保存只动 PROTONPATH——
+        // 未保存的开关草稿不得被静默带走（toast 也不会提及），脏标须保持点亮
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        var settings = new LaunchSettingsViewModel(
+            game.Game, game.InstallDirPath, _ctx.CatalogService, game.Loc, game,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            protonVersions: ["GE-Proton10-9"]);
+
+        await settings.SaveCommand.ExecuteAsync(null); // 初始态落盘
+        settings.UseWaylandDraft = true; // 草稿变更，未保存
+        settings.SelectedProtonFlavor = "GE-Proton"; // 即时保存窄通道
+
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline
+            && !File.ReadAllText(_ctx.ConfigPath).Contains("GE-Proton", StringComparison.Ordinal))
+        {
+            await Task.Delay(25);
+        }
+
+        var reloader = new YetAnotherGameLauncher.Core.Services.GameCatalogService(_ctx.ConfigPath);
+        await reloader.LoadAsync();
+        var launch = reloader.Catalog!.Games[0].Launch;
+        Assert.Equal("GE-Proton", launch.Environment.GetValueOrDefault("PROTONPATH"));
+        Assert.False(launch.UseWayland, "发行版窄通道不得把未保存的开关草稿一并落盘");
+        Assert.True(settings.IsDirty, "开关草稿仍未保存，脏标应保持点亮");
+    }
 }
