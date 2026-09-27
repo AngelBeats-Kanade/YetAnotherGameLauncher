@@ -38,7 +38,8 @@ src/
                     GameBackdropService（详情页背景远程解析 + 本地缓存编排：区域/游戏版本门控，版本一致零网络）、WindowsPlatformInfo / LinuxPlatformInfo（IPlatformInfo 双实现）+ PlatformInfoFactory（唯一的 OS 选择分支，DI 与各 ViewModel 缺省共用）
     Dependencies/   Wine prefix 依赖安装（管线细节见 docs/ARCHITECTURE.md §3.9）：DependencyManifest/DependencyCatalog（内嵌 catalog.json 清单：解析+校验+聚合错误）、
                     WineRegistryScriptBuilder（清单 → UTF-16LE .reg，供单次 wine reg import）、DependencyPaths（全局下载缓存 ~/.cache/yagl/deps + prefix 内 .yagl-deps 状态目录布局）、
-                    DependencyInstaller + IDependencyInstaller（下载→解压→字体落位→注册表导入→完成标记五阶段编排；zip 防御解压复用 PackageInstallerService）、
+                    DependencyInstaller + IDependencyInstaller（下载→解压→字体落位→注册表导入→完成标记五阶段编排；zip 防御解压复用 PackageInstallerService；安装前 builtin 链接预检修复）、
+                    WinePrefixBuiltinRepair（Proton 升级悬空 builtin 链接的检测/重链：RepairDangling 存量迁移 + RepointTree 换版即时迁移，prune 同用）、
                     WinePrefixTarget/DependencyException 等模型
     Utilities/      Hashing（MD5/SHA-256 hex）、Json（统一序列化选项）、FileUtilities（原子写入/只读目标容错/目录树尽力删除/启动日志唯一路径）
   YetAnotherGameLauncher.Channels.Kuro/         # 库洛渠道（鸣潮）

@@ -408,6 +408,90 @@ public class DependencyInstallerTests : IDisposable
         Assert.Contains(installer.Dependencies, d => d.Id == "cjk-fonts");
     }
 
+    /// <summary>造一个"可执行"的 wine 替身文件于指定路径（Linux 补执行位，Windows 存在即可）。</summary>
+    private string CreateWineExecutableAt(string path)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "#!/bin/sh\n");
+        if (OperatingSystem.IsLinux())
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        return path;
+    }
+
+    /// <summary>
+    /// 搭建 Proton 升级遗留现场：prefix 的 builtin kernel32 链接悬空指向已删除的旧 Proton，
+    /// 新 Proton 树（含 files/bin/wine）可选择带或不带同路径 builtin 文件。返回 prefix 目标。
+    /// </summary>
+    private (WinePrefixTarget Target, string NewTreeKernel32) MakeDanglingPrefixTarget(bool newTreeHasKernel32)
+    {
+        var protonRoot = _temp.FilePath("proton-new");
+        var wine = CreateWineExecutableAt(Path.Combine(protonRoot, "files", "bin", "wine"));
+        var newTreeKernel32 = Path.Combine(protonRoot, "files", "lib", "wine", "x86_64-windows", "kernel32.dll");
+        if (newTreeHasKernel32)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(newTreeKernel32)!);
+            File.WriteAllText(newTreeKernel32, "builtin");
+        }
+
+        // 旧树：建文件 → 建链 → 删树（链接悬空）
+        var oldKernel = Path.Combine(
+            _temp.FilePath("proton-old"), "files", "lib", "wine", "x86_64-windows", "kernel32.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(oldKernel)!);
+        File.WriteAllText(oldKernel, "old");
+        var sentinel = Path.Combine(Prefix, "drive_c", "windows", "system32", "kernel32.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(sentinel)!);
+        File.CreateSymbolicLink(sentinel, oldKernel);
+        Directory.Delete(_temp.FilePath("proton-old"), recursive: true);
+
+        InitPrefix();
+        return (new WinePrefixTarget(
+            wine, Prefix, Path.Combine(Prefix, "drive_c", "windows", "Fonts"), StateDir), newTreeKernel32);
+    }
+
+    [Fact]
+    public async Task Install_DanglingBuiltinLinks_AutoRepairedBeforeRegistry()
+    {
+        // Proton 升级删除旧目录后 prefix 的 builtin 链接悬空（wine 起不来）：
+        // 安装器必须在注册表阶段前把链接重链到当前 Proton 树，安装照常完成
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Skip("符号链接创建需要特权（Windows）");
+        }
+
+        var (target, newTreeKernel32) = MakeDanglingPrefixTarget(newTreeHasKernel32: true);
+        _downloader.Serve("https://example.com/fonts.zip", _archiveBytes);
+        _runner.Handler = _ => new ProcessResult(0, "", "");
+
+        await CreateInstaller().InstallAsync(target, BuildManifest());
+
+        var sentinel = Path.Combine(Prefix, "drive_c", "windows", "system32", "kernel32.dll");
+        Assert.Equal(newTreeKernel32, new FileInfo(sentinel).LinkTarget); // 红落此断言：预检未修复
+        Assert.True(File.Exists(Path.Combine(StateDir, "test-fonts.ok"))); // 安装照常走完
+    }
+
+    [Fact]
+    public async Task Install_DanglingLinksUnrepairable_FailsPrefixUnhealthyBeforeDownload()
+    {
+        // 新 Proton 树缺对应 builtin 文件（修复不可完成）：安装必须在下载 90MB 之前
+        // 按前缀不健康失败，不得浪费流量后再死在注册表阶段
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Skip("符号链接创建需要特权（Windows）");
+        }
+
+        var (target, _) = MakeDanglingPrefixTarget(newTreeHasKernel32: false);
+
+        var ex = await Assert.ThrowsAsync<DependencyException>(
+            () => CreateInstaller().InstallAsync(target, BuildManifest()));
+
+        Assert.Equal(DependencyFailureKind.PrefixUnhealthy, ex.Kind); // 红落此断言
+        Assert.Empty(_downloader.Requests); // 失败前置：未发起任何下载
+        Assert.False(Directory.Exists(StateDir)); // 未触碰任何安装产物
+    }
+
     private sealed class CancelledDownloader : IDownloader
     {
         public Task DownloadFileAsync(

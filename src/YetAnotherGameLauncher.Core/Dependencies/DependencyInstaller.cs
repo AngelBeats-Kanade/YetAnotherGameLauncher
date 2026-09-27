@@ -106,6 +106,29 @@ public sealed class DependencyInstaller(
                 $"Wine prefix 未初始化（缺 drive_c）：{target.WinePrefixDirectory}。请先启动一次游戏。");
         }
 
+        // Proton 升级删除旧目录会把 prefix 的 builtin 链接全部悬空（wine 任何 PE 进程起不来，
+        // 退出码 53 / c0000135）：注册表阶段前先把存量损坏迁到当前 Proton 树；迁不干净在
+        // 下载 90MB 级字体包之前就失败。系统 wine 模式（路径无 files/bin/wine 形态）无此损坏
+        // 形态，跳过
+        if (TryDeriveProtonRoot(target.WineExecutable) is { } protonRoot)
+        {
+            var repair = WinePrefixBuiltinRepair.RepairDangling(target.WinePrefixDirectory, protonRoot);
+            if (repair.Unrepairable > 0)
+            {
+                throw new DependencyException(
+                    DependencyFailureKind.PrefixUnhealthy,
+                    $"Wine prefix 内置组件链接失效且自动修复未完成（残留 {repair.Unrepairable} 个）："
+                    + $"{target.WinePrefixDirectory}（当前 Proton：{protonRoot}）");
+            }
+
+            if (repair.Repaired > 0)
+            {
+                logger?.LogInformation(
+                    "Relinked {Count} dangling builtin links in {Prefix} to {Proton}",
+                    repair.Repaired, target.WinePrefixDirectory, protonRoot);
+            }
+        }
+
         var installLock = InstallLocks.GetOrAdd(manifest.Id, _ => new SemaphoreSlim(1, 1));
         await installLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -336,6 +359,16 @@ public sealed class DependencyInstaller(
     }
 
     private static string MarkerContent(DependencyManifest manifest) => $"{manifest.Id}@{manifest.Version}";
+
+    /// <summary>从 wine 路径推导 Proton 根（…/files/bin/wine 形态，取该标记之前的部分）；
+    /// 非 Proton 布局（系统 wine、测试替身路径）返回 null。</summary>
+    private static string? TryDeriveProtonRoot(string wineExecutable)
+    {
+        var path = Path.GetFullPath(wineExecutable);
+        var marker = $"{Path.DirectorySeparatorChar}files{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}";
+        var index = path.LastIndexOf(marker, StringComparison.Ordinal);
+        return index < 0 ? null : path[..index];
+    }
 
     /// <summary>把下载器报的绝对字节数折算成 [0,1] 进度。</summary>
     private sealed class FractionProgress(long totalBytes, IProgress<DependencyProgress>? progress) : IProgress<long>

@@ -171,6 +171,31 @@ public class DependencySectionViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Install_PrefixUnhealthy_ShowsActionableRepairMessage()
+    {
+        // F46：内置组件链接失效必须映射到专属可操作文案（更新兼容组件/重建 prefix），
+        // 不得落入 deps_error_unexpected 兜底
+        _installer.FailKind = DependencyFailureKind.PrefixUnhealthy;
+        var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
+        try
+        {
+            var item = Assert.Single(section.Items);
+
+            await item.InstallCommand.ExecuteAsync(null);
+
+            Assert.True(section.Feedback.Failed);
+            Assert.Equal(
+                "prefix 组件链接失效（兼容组件升级遗留）且自动修复未完成：请更新兼容组件后重试，" +
+                "仍失败则删除该游戏 prefix 重建。",
+                section.Feedback.Message); // 红落此断言：当前落入 unexpected 兜底
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
+    }
+
+    [Fact]
     public async Task Install_SecondClickWhileBusy_Ignored_AndButtonsDisabled()
     {
         _installer.HangOnInstall = true; // 挂起首次安装，制造真实的长任务窗口

@@ -162,7 +162,10 @@ Wine prefix 统一在 `{数据目录}/yagl/prefixes/<游戏id>`（`STEAM_COMPAT_
 保留名单把 prefix/`compatdata` 列入纵深防御：prefix 内有注册表/着色器缓存/用户数据，误删即毁游戏环境）。
 本地解析同样按主机架构过滤（`FindInstalledProton` byName 与 `FindLatestLocalProton` 经 `MatchesHostArch`）：
 已装的错架构目录视同缺失、下次启动自动重装自愈。更新清理（`PruneOtherProtonVersions`）与安装共用
-`proton.lock`；更新确认覆盖层提示先退出运行中的游戏（删旧版会让运行中游戏的延迟加载失效）。
+`proton.lock`；**删除旧版前先把受管 prefix 指向它的 builtin 链接当场迁到新版**（`WinePrefixBuiltinRepair.RepointTree`
++ `RepairDangling` 全 prefix 递归重链——F46：Proton 型 prefix 的 builtin 文件全部链接进创建它的 Proton 目录，
+删被引用旧版 = 链接全悬空、wine 任何 PE 进程起不来）；迁不干净（新版缺同路径文件）则保留旧版并记日志。
+更新确认覆盖层提示先退出运行中的游戏（删旧版会让运行中游戏的延迟加载失效）。
 （唯一例外是首运配置生成：Linux 会把默认 `{exe}` 升级为推荐链再落盘，见 GAME_CONFIG.md。）
 
 ### 3.2 全量同步（文件式）
@@ -445,7 +448,10 @@ flowchart LR
   （`files/bin/wine`）挂 `<兼容数据根>/pfx`。prefix 未初始化（`drive_c` 缺失）是**可见状态**而非异常：
   提示先启动一次游戏。
 - **安装编排（Core `DependencyInstaller`，消费已解析的 `WinePrefixTarget`）**：前置校验（wine 可用、
-  prefix 已初始化——失败绝不发起下载）→ **按依赖 id 全局串行**（静态信号量；设置页重建换新 VM 后
+  prefix 已初始化——失败绝不发起下载）→ **builtin 链接预检修复**（Proton 兼容组件升级删除旧目录会把
+  prefix 全部 builtin 链接悬空——wine 任何 PE 进程报 `c0000135`/退出码 53；`WinePrefixBuiltinRepair.RepairDangling`
+  全 prefix 递归把悬空链接重链到当前 Proton 树，修不干净按 `PrefixUnhealthy` 在下载 90MB 级字体包**之前**
+  失败；系统 wine 模式无此损坏形态，跳过）→ **按依赖 id 全局串行**（静态信号量；设置页重建换新 VM 后
   IsBusy 门失效，锁 + 拿锁后重查标记保证并发第二次短路）→ 共享缓存下载（`~/.cache/yagl/deps`，
   size/MD5 双校验、断点续传、多 prefix 复用；缓存 TOCTOU 按"无效走重下"处理）→ 防御解压到 staging
   （复用 `PackageInstallerService.ExtractArchive`：穿越/链接/炸弹防线单一来源）→ 字体拷进
@@ -461,6 +467,12 @@ flowchart LR
   system.reg 28 条登记、user.reg 51 条替换全部落盘并可 `reg query` 读回。已知边界：**直调 Proton wine
   时其 freetype 库路径未配置，GDI 字体枚举不可用（查询时有告警）**——但注册表读写不受影响，依赖安装
   只需读写注册表；字体在游戏内最终生效以 umu 完整容器环境启动为准。
+- **真机事故与修复（2026-09-27，F46）**：用户两个游戏 prefix（dwproton-11.0-12 所建）在 provisioner
+  升级到 11.0-13 并删除旧目录后 builtin 链接全悬空——依赖安装死在注册表阶段（退出码 53），游戏启动同灭
+  （9月22 起未启动故未暴露）。实证：120+14 条悬空链接横跨 windows 树与 Program Files（含 `files/share/
+  fonts` 的 CJK UI 字体链接）；`RepairDangling` 真机修复 1211+1211 条、0 不可修，`wine reg import` 复测
+  退出码 0 且 `reg query` 可读回。残留暴露面：手改 `STEAM_COMPAT_DATA_PATH` 指向统一 prefix 根之外的
+  自定义 prefix 不在 prune 迁移扫描范围（无法枚举，依赖安装预检仍可修）。
 
 ## 4. 配置与状态的数据流
 

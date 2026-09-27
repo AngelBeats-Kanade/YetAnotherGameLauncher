@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using SharpCompress.Common;
 using SharpCompress.Compressors.Xz;
 using YetAnotherGameLauncher.Core.Abstractions;
+using YetAnotherGameLauncher.Core.Dependencies;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Services.Umu;
@@ -338,6 +339,19 @@ public sealed class UmuComponentProvisioner(
 
                 try
                 {
+                    // F46：换版即时迁移（2026-09-27 用户指令）——Proton 型 prefix 的 builtin
+                    // 链接指向创建它的 Proton 目录，直接删除被引用旧版 = 全部链接悬空，wine
+                    // 任何 PE 进程起不来（c0000135/退出码 53，依赖安装与游戏启动同灭）。删除前
+                    // 先把受管 prefix 的链接当场迁到 keep；迁不干净（keep 缺同路径文件）则保留
+                    // 旧版：此时删除即制造悬空
+                    if (!TryMigratePrefixesOff(dir, keep, out var unrepairable))
+                    {
+                        logger?.LogWarning(
+                            "旧版 Proton {Dir} 仍有 {Count} 条 builtin 链接无法迁移到 {Keep}，保留不删",
+                            dir, unrepairable, keep);
+                        continue;
+                    }
+
                     Directory.Delete(dir, recursive: true);
                     logger?.LogInformation("Pruned old Proton {Dir}", dir);
                 }
@@ -347,6 +361,35 @@ public sealed class UmuComponentProvisioner(
                 }
             }
         }
+    }
+
+    /// <summary>把所有受管 prefix 中指向 <paramref name="oldProtonDir"/> 的 builtin 链接迁到
+    /// <paramref name="keepDir"/>（有效或悬空都改指），并顺带把悬空 builtin 链接修到 keep；
+    /// 全部迁干净返回 true。统一 prefix 根之外的自定义 prefix（手改 STEAM_COMPAT_DATA_PATH）
+    /// 扫不到，不在保护范围。悬空修复的不可修项也计入——keep 缺文件说明该 prefix 还需要
+    /// 旧版树里的东西，此时删任何旧版都不安全。</summary>
+    private bool TryMigratePrefixesOff(string oldProtonDir, string keepDir, out int unrepairable)
+    {
+        var total = 0;
+        var prefixRoot = CompatTools.PrefixRoot(dataHome);
+        if (Directory.Exists(prefixRoot))
+        {
+            foreach (var game in Directory.EnumerateDirectories(prefixRoot))
+            {
+                var pfx = Path.Combine(game, "pfx");
+                if (!Directory.Exists(pfx))
+                {
+                    continue;
+                }
+
+                var repoint = WinePrefixBuiltinRepair.RepointTree(pfx, oldProtonDir, keepDir);
+                var dangling = WinePrefixBuiltinRepair.RepairDangling(pfx, keepDir);
+                total += repoint.Unrepairable + dangling.Unrepairable;
+            }
+        }
+
+        unrepairable = total;
+        return total == 0;
     }
 
     /// <summary>ELF e_machine 常量：x86-64 与 aarch64（Proton 的 wineserver 均为 64 位 ELF）。</summary>

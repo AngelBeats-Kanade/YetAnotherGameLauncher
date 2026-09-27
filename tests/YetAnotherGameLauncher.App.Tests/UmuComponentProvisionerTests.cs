@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using Xunit;
 using YetAnotherGameLauncher.Core.Abstractions;
+using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Services.Umu;
 using YetAnotherGameLauncher.Services;
 using YetAnotherGameLauncher.TestSupport;
@@ -501,6 +502,91 @@ public sealed class UmuComponentProvisionerTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateProtonAsync_MigratesReferencedPrefixLinks_ThenPrunesOldVersion()
+    {
+        // F46（artifacts/bugs.md）：Proton 型 prefix 的 builtin DLL 链接进创建它的 Proton 目录，
+        // 直接删除被引用的旧版本 = 全部链接悬空，wine 任何 PE 进程都起不来（c0000135/退出码 53，
+        // 依赖安装与游戏启动同灭，dwproton 11.0-12→13 实锤）。用户指令（2026-09-27）：换版时点
+        // 直接替换——清理删除旧版前先把受管 prefix 的链接当场迁到新版，迁完才删
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Skip("符号链接创建需要特权（Windows）");
+        }
+
+        var referencedOld = InstallReadyProton("GE-Proton10-9");
+        WriteBuiltinFile(referencedOld, "x86_64-windows", "kernel32.dll"); // 旧树带 builtin：链接有效
+        InstallReadyProton("GE-Proton10-8"); // 无引用旧版：照删
+        var sentinel = ScaffoldManagedPrefixBuiltinLink("GE-Proton10-9");
+        ServeGitHubRelease(UmuComponentProvisioner.GeProtonReleaseApi, "GE-Proton11-6", [
+            ("GE-Proton11-6-x86_64.tar.gz", "https://github.com/x/GE-Proton11-6-x86_64.tar.gz"),
+        ]);
+        _downloader.Serve(
+            "https://github.com/x/GE-Proton11-6-x86_64.tar.gz",
+            BuildProtonArchive("GE-Proton11-6-x86_64", wineserverElfMachine: ElfX86_64,
+                builtinFiles: ["files/lib/wine/x86_64-windows/kernel32.dll"]));
+
+        await NewProvisioner(Architecture.X64).UpdateProtonAsync("GE-Proton");
+
+        var root = UmuPaths.SteamCompatRoot(_tempDir.Path);
+        Assert.False(Directory.Exists(Path.Combine(root, "GE-Proton10-9"))); // 迁移完成后旧版照删
+        Assert.True(File.Exists(sentinel)); // 红落此断言：当前实现删树不迁链接 → 悬空
+        Assert.EndsWith(
+            NormalizeSeparators(Path.Combine(
+                "GE-Proton11-6", "files", "lib", "wine", "x86_64-windows", "kernel32.dll")),
+            NormalizeSeparators(new FileInfo(sentinel).LinkTarget!)); // 已当场改指新版
+        Assert.False(Directory.Exists(Path.Combine(root, "GE-Proton10-8"))); // 无引用不受保护
+    }
+
+    [Fact]
+    public async Task UpdateProtonAsync_MigrationIncomplete_KeepsReferencedOldVersion()
+    {
+        // 新版包缺同路径 builtin 文件：迁不动 → 旧版必须保留（此时删除 = 制造悬空）
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Skip("符号链接创建需要特权（Windows）");
+        }
+
+        var referencedOld = InstallReadyProton("GE-Proton10-9");
+        WriteBuiltinFile(referencedOld, "x86_64-windows", "kernel32.dll");
+        var sentinel = ScaffoldManagedPrefixBuiltinLink("GE-Proton10-9");
+        ServeGitHubRelease(UmuComponentProvisioner.GeProtonReleaseApi, "GE-Proton11-6", [
+            ("GE-Proton11-6-x86_64.tar.gz", "https://github.com/x/GE-Proton11-6-x86_64.tar.gz"),
+        ]);
+        _downloader.Serve(
+            "https://github.com/x/GE-Proton11-6-x86_64.tar.gz",
+            BuildProtonArchive("GE-Proton11-6-x86_64", wineserverElfMachine: ElfX86_64)); // 无 builtin
+
+        await NewProvisioner(Architecture.X64).UpdateProtonAsync("GE-Proton");
+
+        var root = UmuPaths.SteamCompatRoot(_tempDir.Path);
+        Assert.True(Directory.Exists(Path.Combine(root, "GE-Proton10-9"))); // 红落此断言：当前被删
+        Assert.True(File.Exists(sentinel)); // 链接仍可解析（红：当前悬空）
+        Assert.True(Directory.Exists(Path.Combine(root, "GE-Proton11-6"))); // keep 在
+    }
+
+    /// <summary>在统一 prefix 根下造一个受管游戏 prefix，其 builtin 哨兵（system32/kernel32.dll）
+    /// 链接进指定 Proton 版本目录，返回哨兵路径。</summary>
+    private string ScaffoldManagedPrefixBuiltinLink(string protonVersion)
+    {
+        var sentinel = Path.Combine(
+            CompatTools.PrefixRoot(_tempDir.Path), "some-game", "pfx",
+            "drive_c", "windows", "system32", "kernel32.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(sentinel)!);
+        File.CreateSymbolicLink(sentinel, Path.Combine(
+            UmuPaths.SteamCompatRoot(_tempDir.Path), protonVersion,
+            "files", "lib", "wine", "x86_64-windows", "kernel32.dll"));
+        return sentinel;
+    }
+
+    /// <summary>向 Proton 目录写入 builtin 占位文件（files/lib/wine/&lt;arch&gt;/&lt;file&gt;）。</summary>
+    private static void WriteBuiltinFile(string protonDir, string arch, string file)
+    {
+        var path = Path.Combine(protonDir, "files", "lib", "wine", arch, file);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "builtin");
+    }
+
+    [Fact]
     public void ParseSha256For_FindsMatchingArchiveLine()
     {
         const string sums = """
@@ -785,7 +871,8 @@ public sealed class UmuComponentProvisionerTests : IDisposable
     /// 供架构兜底校验测试。解压按魔数而非扩展名分发，故 DW 的 .tar.xz 资产名配 gzip 内容即可
     /// （SharpCompress 无 XZ 编码器，与 UmuArchiveExtractionTests 同一取舍）。
     /// </summary>
-    private static byte[] BuildProtonArchive(string topDir, ushort? wineserverElfMachine = null)
+    private static byte[] BuildProtonArchive(
+        string topDir, ushort? wineserverElfMachine = null, string[]? builtinFiles = null)
     {
         using var tarBuffer = new MemoryStream();
         using (var writer = new TarWriter(tarBuffer, TarEntryFormat.Pax, leaveOpen: true))
@@ -816,6 +903,15 @@ public sealed class UmuComponentProvisionerTests : IDisposable
                     DataStream = new MemoryStream(elf),
                 };
                 writer.WriteEntry(wineserver);
+            }
+
+            foreach (var builtin in builtinFiles ?? [])
+            {
+                var entry = new PaxTarEntry(TarEntryType.RegularFile, $"{topDir}/{builtin}")
+                {
+                    DataStream = new MemoryStream("builtin"u8.ToArray()),
+                };
+                writer.WriteEntry(entry);
             }
         }
 

@@ -203,6 +203,7 @@ public sealed partial class DependencySectionViewModel : ViewModelBase
     {
         DependencyFailureKind.WineMissing => "deps_status_unavailable_wine",
         DependencyFailureKind.PrefixMissing => "deps_status_unavailable_prefix",
+        DependencyFailureKind.PrefixUnhealthy => "deps_error_unhealthy",
         DependencyFailureKind.DownloadFailed => "deps_error_download",
         DependencyFailureKind.ExtractFailed => "deps_error_extract",
         DependencyFailureKind.FontCopyFailed => "deps_error_fontcopy",

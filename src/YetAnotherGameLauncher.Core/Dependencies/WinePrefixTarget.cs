@@ -21,6 +21,10 @@ public enum DependencyFailureKind
     /// <summary>Wine prefix 未初始化（drive_c 不存在，需先启动一次游戏）。</summary>
     PrefixMissing,
 
+    /// <summary>Wine prefix 的内置组件链接失效（Proton 兼容组件升级删除旧目录的遗留），
+    /// 自动修复后仍有残留——wine 在该 prefix 内无法启动任何 PE 进程。</summary>
+    PrefixUnhealthy,
+
     /// <summary>压缩包下载失败（含校验不过）。</summary>
     DownloadFailed,
 
