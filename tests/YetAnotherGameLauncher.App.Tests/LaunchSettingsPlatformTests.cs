@@ -17,7 +17,7 @@ public class LaunchSettingsPlatformTests : IDisposable
     public void Dispose() => _ctx.Dispose();
 
     [Fact]
-    public async Task LinuxMode_RecommendsNativeUmuWithSteamOsAndNvapi()
+    public async Task LinuxMode_RecommendsNativeUmu_SteamOsAndNvapiManagedNotShown()
     {
         await _ctx.Vm.InitializeAsync();
         var platform = new FakePlatformInfo(isLinux: true, nvidiaGpuPresent: true);
@@ -33,10 +33,10 @@ public class LaunchSettingsPlatformTests : IDisposable
             launchSettings.LaunchModes.Select(m => m.Mode));
         Assert.Equal(LaunchMode.NativeUmu, launchSettings.SelectedLaunchMode?.Mode);
         Assert.Contains("native-umu", launchSettings.CommandTemplate, StringComparison.Ordinal);
-        Assert.Contains("SteamOS=1", launchSettings.EnvironmentText, StringComparison.Ordinal);
-        Assert.Contains("PROTON_ENABLE_NVAPI=1", launchSettings.EnvironmentText, StringComparison.Ordinal);
         Assert.Equal("DW-Proton", launchSettings.SelectedProtonFlavor);
-        Assert.Contains("PROTONPATH=DW-Proton", launchSettings.EnvironmentText, StringComparison.Ordinal);
+        // 托管语义（2026-09-28）：推荐链生成键（SteamOS/NVAPI/PROTONPATH 等）不进编辑框文本，
+        // 由 VM 托管字典承载、保存时合并落盘——文本框只承载用户自定义变量，默认留空
+        Assert.Equal("", launchSettings.EnvironmentText.Trim());
     }
 
     [Fact]
@@ -76,7 +76,7 @@ public class LaunchSettingsPlatformTests : IDisposable
     }
 
     [Fact]
-    public async Task ProtonFlavorChange_RewritesProtonPathCodename()
+    public async Task ProtonFlavorChange_WritesManagedPathAndSavesInstantly()
     {
         await _ctx.Vm.InitializeAsync();
         var game = _ctx.Vm.Games[0];
@@ -87,8 +87,21 @@ public class LaunchSettingsPlatformTests : IDisposable
 
         launchSettings.SelectedProtonFlavor = "GE-Proton";
 
-        Assert.Contains("PROTONPATH=GE-Proton", launchSettings.EnvironmentText, StringComparison.Ordinal);
-        Assert.DoesNotContain("PROTONPATH=DW-Proton", launchSettings.EnvironmentText, StringComparison.Ordinal);
+        // 托管语义：PROTONPATH 不进编辑框文本；新代号经即时保存落盘（fire-and-forget，
+        // 以 games.json 出现新代号为完成信号）
+        Assert.DoesNotContain("PROTONPATH", launchSettings.EnvironmentText, StringComparison.Ordinal);
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline
+            && !File.ReadAllText(_ctx.ConfigPath).Contains("GE-Proton", StringComparison.Ordinal))
+        {
+            await Task.Delay(25);
+        }
+
+        var reloader = new GameCatalogService(_ctx.ConfigPath);
+        await reloader.LoadAsync();
+        Assert.Equal(
+            "GE-Proton",
+            reloader.Catalog!.Games[0].Launch.Environment.GetValueOrDefault("PROTONPATH"));
     }
 
     [Fact]

@@ -122,6 +122,16 @@ public sealed class NativeUmuLauncher(
                     continue;
                 }
 
+                // UMU_ID/GAMEID 由 launch.umuId 显式覆盖时为权威值：配置 env 里的同名键（首运托管残留/
+                // 存量迁移遗留）不得反超，否则 launch.umuId 覆盖静默失效（2026-09-28 托管语义实锤）；
+                // umuId 未设置时仍允许 env 覆盖（存量手工配置的覆盖通道保持原样）
+                if (!string.IsNullOrWhiteSpace(umuId)
+                    && (key.Equals("UMU_ID", StringComparison.OrdinalIgnoreCase)
+                        || key.Equals("GAMEID", StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
                 // 与 GameLauncherService.Expand 一致：环境值支持 {exe}/{installDir}
                 environment[key] = GameLauncherService.Expand(value, exe, installFullPath);
             }

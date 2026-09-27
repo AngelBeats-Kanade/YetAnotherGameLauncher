@@ -35,14 +35,19 @@ public class LaunchSettingsMatrixTests : IDisposable
     {
         await _ctx.Vm.InitializeAsync();
         var settings = NewSettings();
-        Assert.Contains("PROTONPATH", settings.EnvironmentText, StringComparison.Ordinal); // 前置：umu 态有生成 env
+        Assert.Equal("", settings.EnvironmentText.Trim()); // 前置：umu 态生成 env 已托管，编辑框为空
 
         settings.SelectedLaunchMode = settings.LaunchModes.First(m => m.Mode == LaunchMode.Direct);
+        await settings.SaveCommand.ExecuteAsync(null);
 
         Assert.Equal("{exe}", settings.CommandTemplate);
-        Assert.DoesNotContain("PROTONPATH", settings.EnvironmentText, StringComparison.Ordinal);
-        Assert.DoesNotContain("GAMEID", settings.EnvironmentText, StringComparison.Ordinal);
-        Assert.DoesNotContain("STEAM_COMPAT", settings.EnvironmentText, StringComparison.Ordinal);
+        // 托管键清空须落盘：持久层不再有 PROTONPATH/GAMEID/STEAM_COMPAT_*
+        var reloader = new GameCatalogService(_ctx.ConfigPath);
+        await reloader.LoadAsync();
+        var environment = reloader.Catalog!.Games[0].Launch.Environment;
+        Assert.DoesNotContain(environment, kv => kv.Key == "PROTONPATH");
+        Assert.DoesNotContain(environment, kv => kv.Key == "GAMEID");
+        Assert.DoesNotContain(environment.Keys, k => k.StartsWith("STEAM_COMPAT", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -57,7 +62,14 @@ public class LaunchSettingsMatrixTests : IDisposable
 
         Assert.Contains("native-umu {exe}", settings.CommandTemplate, StringComparison.Ordinal);
         Assert.Contains("MY_CUSTOM_VAR=keep-me", settings.EnvironmentText, StringComparison.Ordinal); // 用户变量保留
-        Assert.Contains("GAMEID=", settings.EnvironmentText, StringComparison.Ordinal); // 生成 env 重新合并
+        Assert.DoesNotContain("GAMEID", settings.EnvironmentText, StringComparison.Ordinal); // 生成 env 进托管字典，不进文本
+
+        // 保存后重新生成的托管键落盘
+        await settings.SaveCommand.ExecuteAsync(null);
+        var reloader = new GameCatalogService(_ctx.ConfigPath);
+        await reloader.LoadAsync();
+        Assert.False(string.IsNullOrWhiteSpace(
+            reloader.Catalog!.Games[0].Launch.Environment.GetValueOrDefault("GAMEID")));
     }
 
     [Fact]

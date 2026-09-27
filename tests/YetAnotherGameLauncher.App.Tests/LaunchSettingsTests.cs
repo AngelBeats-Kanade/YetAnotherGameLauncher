@@ -197,7 +197,8 @@ public class LaunchSettingsTests : IDisposable
     public async Task ProtonFlavorSwitch_PreservesHalfTypedEnvironmentLine()
     {
         // 回归（2026-09-20）：切发行版即时保存曾把编辑框按"解析→序列化"重写，
-        // 用户输入到一半、还没有 "=" 的半行被无声吞掉
+        // 用户输入到一半、还没有 "=" 的半行被无声吞掉。
+        // 托管语义（2026-09-28）：发行版写入托管字典即时落盘，编辑框文本完全不动
         await _ctx.Vm.InitializeAsync();
         var game = _ctx.Vm.Games[0];
         var settings = new LaunchSettingsViewModel(
@@ -209,10 +210,100 @@ public class LaunchSettingsTests : IDisposable
         settings.EnvironmentText = "SAVED_KEY=1\nWINEDLLOVERRIDES";
         settings.SelectedProtonFlavor = "GE-Proton";
 
-        // 半行原样保留、PROTONPATH 写入且已有键不动
+        // 半行与既有用户键原样保留；PROTONPATH 不再出现在编辑框文本（托管承载）
         Assert.Contains("WINEDLLOVERRIDES", settings.EnvironmentText, StringComparison.Ordinal);
-        Assert.Contains("PROTONPATH=GE-Proton", settings.EnvironmentText, StringComparison.Ordinal);
         Assert.Contains("SAVED_KEY=1", settings.EnvironmentText, StringComparison.Ordinal);
+        Assert.DoesNotContain("PROTONPATH", settings.EnvironmentText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ManagedKeys_HiddenFromEditor_ButPersistedOnSave()
+    {
+        // 托管语义核心：编辑框默认留空（生成/内置键不显示），保存时托管键照常落盘——
+        // 存量 wine/Proton 直启模板依赖已保存的 WINEPREFIX/STEAM_COMPAT_DATA_PATH，不能清
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        var settings = new LaunchSettingsViewModel(
+            game.Game, game.InstallDirPath, _ctx.CatalogService, game.Loc, game,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            protonVersions: ["GE-Proton10-9"]);
+
+        Assert.Equal("", settings.EnvironmentText.Trim());
+        await settings.SaveCommand.ExecuteAsync(null);
+        Assert.False(settings.Save.Failed);
+
+        var reloader = new YetAnotherGameLauncher.Core.Services.GameCatalogService(_ctx.ConfigPath);
+        await reloader.LoadAsync();
+        var environment = reloader.Catalog!.Games[0].Launch.Environment;
+        Assert.False(string.IsNullOrWhiteSpace(environment.GetValueOrDefault("GAMEID")));
+        Assert.False(string.IsNullOrWhiteSpace(environment.GetValueOrDefault("WINEPREFIX")));
+        Assert.False(string.IsNullOrWhiteSpace(environment.GetValueOrDefault("STEAM_COMPAT_DATA_PATH")));
+        Assert.Equal("DW-Proton", environment.GetValueOrDefault("PROTONPATH"));
+    }
+
+    [Fact]
+    public async Task UserTypedKey_OverridesManagedKeyOnSave()
+    {
+        // 用户在编辑框手输与托管键同名的键：保存时用户键覆盖托管键（显式覆盖能力保留）
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        var settings = new LaunchSettingsViewModel(
+            game.Game, game.InstallDirPath, _ctx.CatalogService, game.Loc, game,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            protonVersions: ["GE-Proton10-9"]);
+
+        settings.EnvironmentText = "PROTONPATH=My-Custom-Proton";
+        await settings.SaveCommand.ExecuteAsync(null);
+        Assert.False(settings.Save.Failed);
+
+        var reloader = new YetAnotherGameLauncher.Core.Services.GameCatalogService(_ctx.ConfigPath);
+        await reloader.LoadAsync();
+        Assert.Equal(
+            "My-Custom-Proton",
+            reloader.Catalog!.Games[0].Launch.Environment.GetValueOrDefault("PROTONPATH"));
+    }
+
+    [Fact]
+    public async Task LaunchOptionToggles_PersistOnSave()
+    {
+        // 启动选项三开关：草稿经"保存启动设置"落盘（与命令模板/环境变量同批）
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        var settings = new LaunchSettingsViewModel(
+            game.Game, game.InstallDirPath, _ctx.CatalogService, game.Loc, game,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            protonVersions: ["GE-Proton10-9"]);
+
+        settings.UseWaylandDraft = true;
+        settings.UpgradeDlssDraft = true;
+        settings.EnableProtonLogDraft = true;
+        await settings.SaveCommand.ExecuteAsync(null);
+        Assert.False(settings.Save.Failed);
+
+        var reloader = new YetAnotherGameLauncher.Core.Services.GameCatalogService(_ctx.ConfigPath);
+        await reloader.LoadAsync();
+        var launch = reloader.Catalog!.Games[0].Launch;
+        Assert.True(launch.UseWayland);
+        Assert.True(launch.UpgradeDlss);
+        Assert.True(launch.EnableProtonLog);
+    }
+
+    [Fact]
+    public async Task LaunchOptionToggle_Change_MarksDirtyThenClearsOnSave()
+    {
+        // 开关走草稿语义：变化点亮保存钮（IsDirty），保存后复位
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        var settings = new LaunchSettingsViewModel(
+            game.Game, game.InstallDirPath, _ctx.CatalogService, game.Loc, game,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            protonVersions: ["GE-Proton10-9"]);
+
+        settings.UseWaylandDraft = true;
+        Assert.True(settings.IsDirty);
+
+        await settings.SaveCommand.ExecuteAsync(null);
+        Assert.False(settings.IsDirty);
     }
 
     [Fact]

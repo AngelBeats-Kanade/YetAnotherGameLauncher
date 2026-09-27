@@ -15,7 +15,9 @@ namespace YetAnotherGameLauncher.ViewModels;
 /// Linux 启动方式二选一（umu 启动 / 直接运行）；umu 模式旁选 Proton 发行版
 /// （DW/GE/UMU-Proton，代号写入 PROTONPATH 并即时落盘，启动/组件准备只下载所选发行版）；
 /// 发行版旁可检查上游更新（有新版弹确认覆盖层，确认后更新并清理旧版本）。
-/// 环境变量以多行 KEY=VALUE 文本编辑（解析容错，错误行给出行内容提示）。
+/// 环境变量分两层：托管键（推荐链生成的 GAMEID/UMU_ID/WINEPREFIX/PROTONPATH 等）
+/// 不进编辑框，由 VM 托管字典承载；编辑框只显示/编辑用户自定义变量（多行 KEY=VALUE，
+/// 解析容错，错误行给出行内容提示），保存时用户键覆盖同名托管键。
 /// </summary>
 public partial class LaunchSettingsViewModel : ViewModelBase
 {
@@ -28,6 +30,15 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     private readonly IReadOnlyList<string> _protonVersions;
     private readonly string _dataHome;
     private readonly IUmuComponentProvisioner? _umuProvisioner;
+
+    /// <summary>
+    /// 托管环境变量：推荐链生成/内置的启动变量（<see cref="CompatTools.IsGeneratedEnvironmentKey"/>
+    /// 命中的键，如 PROTONPATH/WINEPREFIX/STEAM_COMPAT_*/GAMEID/UMU_ID/SteamOS）。持久层语义不变——
+    /// 保存时与用户键合并落盘；只是不再序列化进编辑框（此前全量显示被用户当成"启动命令列表"，
+    /// 2026-09-28 改为只显示用户自定义变量）。存量 wine/Proton 直启模板依赖已保存的
+    /// WINEPREFIX/STEAM_COMPAT_DATA_PATH，这些键必须保留在持久层，不能清。
+    /// </summary>
+    private readonly Dictionary<string, string> _managedEnvironment = new(StringComparer.Ordinal);
 
     /// <summary>语言切换处理器（存字段以支持退订，见 DetachEventSubscriptions）。</summary>
     private readonly PropertyChangedEventHandler _locPropertyChanged;
@@ -111,7 +122,14 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         _umuProvisioner = umuProvisioner;
         _commandTemplate = game.Launch.CommandTemplate;
         _workingDirectory = game.Launch.WorkingDirectory;
-        _environmentText = SerializeEnvironment(game.Launch.Environment);
+        // 编辑框只承载用户自定义变量；托管键（生成/内置启动变量）进托管字典
+        _managedEnvironment = game.Launch.Environment
+            .Where(kv => CompatTools.IsGeneratedEnvironmentKey(kv.Key))
+            .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+        _environmentText = SerializeEnvironment(UserEnvironment(game.Launch.Environment));
+        _useWaylandDraft = game.Launch.UseWayland;
+        _upgradeDlssDraft = game.Launch.UpgradeDlss;
+        _enableProtonLogDraft = game.Launch.EnableProtonLog;
         _selectedLaunchMode = DetectLaunchMode(game.Launch.CommandTemplate);
         var detectedFlavor = DetectProtonFlavor(game.Launch.Environment.GetValueOrDefault("PROTONPATH"));
         _selectedProtonFlavor = CompatTools.ProtonFlavors.FirstOrDefault(
@@ -224,13 +242,23 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             return;
         }
 
-        if (!TryParseEnvironment(EnvironmentText, out var environment, out _))
+        if (!TryParseEnvironment(EnvironmentText, out var userEnvironment, out _))
         {
             IsDirty = true;
             return;
         }
 
-        IsDirty = EnvironmentDiffKeys(environment, _game.Launch.Environment).Count > 0;
+        var environment = MergedEnvironment(_managedEnvironment, userEnvironment);
+        if (EnvironmentDiffKeys(environment, _game.Launch.Environment).Count > 0)
+        {
+            IsDirty = true;
+            return;
+        }
+
+        // 启动选项开关草稿（Wayland/DLSS 升级/Proton 日志）与已保存值比对
+        IsDirty = UseWaylandDraft != _game.Launch.UseWayland
+            || UpgradeDlssDraft != _game.Launch.UpgradeDlss
+            || EnableProtonLogDraft != _game.Launch.EnableProtonLog;
     }
 
     /// <summary>草稿字段变化统一重算脏标记。</summary>
@@ -247,6 +275,47 @@ public partial class LaunchSettingsViewModel : ViewModelBase
 
     /// <summary>草稿字段变化统一重算脏标记。</summary>
     partial void OnEnvironmentTextChanged(string value) => RecomputeDirty();
+
+    /// <summary>启动选项开关草稿（启用 Wayland 驱动）。</summary>
+    [ObservableProperty]
+    private bool _useWaylandDraft;
+
+    /// <summary>启动选项开关草稿（DLSS 模型升级）。</summary>
+    [ObservableProperty]
+    private bool _upgradeDlssDraft;
+
+    /// <summary>启动选项开关草稿（打印 Proton 日志）。</summary>
+    [ObservableProperty]
+    private bool _enableProtonLogDraft;
+
+    /// <summary>草稿字段变化统一重算脏标记。</summary>
+    partial void OnUseWaylandDraftChanged(bool value) => RecomputeDirty();
+
+    /// <summary>草稿字段变化统一重算脏标记。</summary>
+    partial void OnUpgradeDlssDraftChanged(bool value) => RecomputeDirty();
+
+    /// <summary>草稿字段变化统一重算脏标记。</summary>
+    partial void OnEnableProtonLogDraftChanged(bool value) => RecomputeDirty();
+
+    /// <summary>环境字典的用户自定义子集（过滤托管键，编辑框展示口径）。</summary>
+    private static Dictionary<string, string> UserEnvironment(IReadOnlyDictionary<string, string> environment) =>
+        environment
+            .Where(kv => !CompatTools.IsGeneratedEnvironmentKey(kv.Key))
+            .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+
+    /// <summary>托管键 ∪ 用户键的完整环境字典（用户键覆盖同名托管键——显式手输优先于内置生成，
+    /// 保留覆盖能力；保存与启动请求预览共用该合并规则）。</summary>
+    private static Dictionary<string, string> MergedEnvironment(
+        IReadOnlyDictionary<string, string> managed, Dictionary<string, string> user)
+    {
+        var environment = new Dictionary<string, string>(managed, StringComparer.Ordinal);
+        foreach (var (key, value) in user)
+        {
+            environment[key] = value;
+        }
+
+        return environment;
+    }
 
     /// <summary>当前系统是否为 Linux（决定是否显示兼容层选择；平台信息注入，测试可控）。</summary>
     public bool IsLinux => _platform.IsLinux;
@@ -280,9 +349,11 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     public bool CanPrepareUmuComponents =>
         IsNativeUmuMode && IsLinux && _umuProvisioner is not null && !IsPreparingUmuComponents;
 
-    /// <summary>解析原生 umu 用的 Proton 请求（与启动路径共用 CompatTools.ResolveNativeProtonRequest）。</summary>
+    /// <summary>解析原生 umu 用的 Proton 请求（与启动路径共用 CompatTools.ResolveNativeProtonRequest）。
+    /// PROTONPATH 是托管键，须从合并视图解析（编辑框文本里通常没有）。</summary>
     private string ResolveNativeProtonRequest() =>
-        CompatTools.ResolveNativeProtonRequest(ParseEnvironmentOrEmpty(EnvironmentText));
+        CompatTools.ResolveNativeProtonRequest(
+            MergedEnvironment(_managedEnvironment, ParseEnvironmentOrEmpty(EnvironmentText)));
 
     /// <summary>Proton 本地不存在或清单不可读时的回退 Runtime（steamrt4，最新 UMU/GE-Proton 所需）。</summary>
     private static (string Variant, string Name) FallbackRuntime =>
@@ -547,48 +618,21 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     [ObservableProperty]
     private string? _selectedProtonFlavor;
 
-    /// <summary>Proton 发行版变化时触发：代号写入环境草稿的 PROTONPATH 并即时落盘——
-    /// 启动链读的是已保存 env，只写草稿不保存会出现"显示 GE-Proton、实际按旧配置启动"的错位。</summary>
+    /// <summary>Proton 发行版变化时触发：代号写入托管字典的 PROTONPATH 并即时落盘——
+    /// 启动链读的是已保存 env，只写草稿不保存会出现"显示 GE-Proton、实际按旧配置启动"的错位。
+    /// PROTONPATH 是托管键，不进编辑框文本（用户在文本里手输同名键仍可在保存时覆盖）。</summary>
     partial void OnSelectedProtonFlavorChanged(string? value)
     {
         if (IsNativeUmuMode && !string.IsNullOrWhiteSpace(value))
         {
-            MergeEnvironmentVariable("PROTONPATH", value);
+            _managedEnvironment["PROTONPATH"] = value;
             RefreshNativeUmuStatus();
             _ = SaveSelectedFlavorAsync();
         }
     }
 
     /// <summary>
-    /// 把单个环境变量合并进编辑框草稿：可解析行按键合并（已存在原位覆盖、新键按输入顺序追加），
-    /// 无法解析的行（用户输入到一半、还没有 "=" 的半行）原样保留——即时落盘不得吞掉正在输入的内容
-    /// （2026-09-20 复审修复；此前 Serialize(Parse(text)) 会无声丢弃半行）。
-    /// </summary>
-    private void MergeEnvironmentVariable(string key, string value)
-    {
-        var merged = new Dictionary<string, string>(StringComparer.Ordinal);
-        var preserved = new List<string>();
-        foreach (var raw in EnvironmentText.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
-        {
-            if (TryParseEnvironment(raw, out var single, out _))
-            {
-                foreach (var (k, v) in single)
-                {
-                    merged[k] = v;
-                }
-            }
-            else
-            {
-                preserved.Add(raw);
-            }
-        }
-
-        merged[key] = value;
-        EnvironmentText = string.Join(
-            Environment.NewLine, merged.Select(kv => $"{kv.Key}={kv.Value}").Concat(preserved));
-    }
-
-    /// <summary>把发行版选择立即保存回 games.json（选择即生效）。走窄通道：只把
+    /// 把发行版选择立即保存回 games.json（选择即生效）。走窄通道：只把
     /// PROTONPATH 写进已保存的环境变量并落盘，不做整卡校验——环境草稿里的半行（输入到一半）
     /// 不得阻断发行版切换，否则下拉显示新发行版、PROTONPATH 仍是旧值，重启后选择回退，
     /// 正是"选择即保存"要消灭的显示与实际启动错位（2026-09-20 复审修复）。
@@ -618,6 +662,9 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 WorkingDirectory = originalLaunch.WorkingDirectory,
                 Environment = environment,
                 UmuId = originalLaunch.UmuId,
+                UseWayland = UseWaylandDraft,
+                UpgradeDlss = UpgradeDlssDraft,
+                EnableProtonLog = EnableProtonLogDraft,
             };
 
             bool saved;
@@ -641,7 +688,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 // RecomputeDirty；草稿里若还有其余未保存字段，这里按实际比对保持脏态）
                 RecomputeDirty();
                 // 变更恰好只有 PROTONPATH：沿用整卡保存的轻提示管线，按"Proton 发行版"汇报
-                RaiseChangedToast(false, false, false, false, ["PROTONPATH"]);
+                RaiseChangedToast(false, false, false, false, false, ["PROTONPATH"]);
             }
             else
             {
@@ -692,32 +739,28 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     private static (string CommandTemplate, Dictionary<string, string> Environment) Flatten(CompatLaunch launch) =>
         (launch.CommandTemplate, launch.Environment);
 
-    /// <summary>应用生成的启动配置：覆盖命令模板，生成的环境变量按 KEY 合并进现有文本。</summary>
+    /// <summary>应用生成的启动配置：覆盖命令模板，生成的环境变量进托管字典（不进编辑框文本）；
+    /// 文本中与生成键同名的旧用户行一并让位（生成即权威，对齐旧合并覆盖语义）。</summary>
     private void ApplyGenerated((string CommandTemplate, Dictionary<string, string> Environment) generated)
     {
         CommandTemplate = generated.CommandTemplate;
-        var merged = ParseEnvironmentOrEmpty(EnvironmentText);
         foreach (var (key, value) in generated.Environment)
         {
-            merged[key] = value;
+            _managedEnvironment[key] = value;
         }
 
-        EnvironmentText = SerializeEnvironment(merged);
-    }
-
-    /// <summary>从环境文本中移除全部由推荐生成的变量（STEAM_COMPAT_*、umu 系列、WINEPREFIX、PROTONPATH 与游戏推荐项；
-    /// 切回直接启动等场景调用，用户手动加的其它变量不受影响）。</summary>
-    private void RemoveGeneratedEnvironment()
-    {
-        var merged = ParseEnvironmentOrEmpty(EnvironmentText);
-        var keys = merged.Keys.Where(CompatTools.IsGeneratedEnvironmentKey).ToList();
-        foreach (var key in keys)
+        var user = ParseEnvironmentOrEmpty(EnvironmentText);
+        var removedAny = generated.Environment.Keys.Aggregate(
+            false, (removed, key) => user.Remove(key) | removed);
+        if (removedAny)
         {
-            merged.Remove(key);
+            EnvironmentText = SerializeEnvironment(user);
         }
-
-        EnvironmentText = SerializeEnvironment(merged);
     }
+
+    /// <summary>切回直接启动等场景：清空托管环境变量（STEAM_COMPAT_*、umu 系列、WINEPREFIX、
+    /// PROTONPATH 与游戏推荐项）；用户在编辑框手输的变量原样保留。</summary>
+    private void RemoveGeneratedEnvironment() => _managedEnvironment.Clear();
 
     /// <summary>宽松解析环境文本为字典（跳过无 "=" 的行，不报错）；行级解析复用严格版，保证切分规则单一。
     /// internal 供单测（经 InternalsVisibleTo）。</summary>
@@ -858,11 +901,14 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             return;
         }
 
-        if (!TryParseEnvironment(EnvironmentText, out var environment, out var badLine))
+        if (!TryParseEnvironment(EnvironmentText, out var userEnvironment, out var badLine))
         {
             Save.SetFailure(_loc.Format("launch_invalidEnvLine", badLine));
             return;
         }
+
+        // 完整环境 = 托管键 ∪ 用户键（用户键覆盖同名托管键）；持久层语义与既往一致
+        var environment = MergedEnvironment(_managedEnvironment, userEnvironment);
 
         var installDirChanged = !string.Equals(installDir, _owner.InstallDirPath, StringComparison.Ordinal);
         var executableChanged = !string.Equals(executable, _game.Executable, StringComparison.Ordinal);
@@ -879,6 +925,9 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             WorkingDirectory = effectiveWorkingDirectory,
             Environment = environment,
             UmuId = _game.Launch.UmuId,
+            UseWayland = UseWaylandDraft,
+            UpgradeDlss = UpgradeDlssDraft,
+            EnableProtonLog = EnableProtonLogDraft,
         };
 
         // 快照旧值：保存失败时回滚内存中的 GameDefinition，让内存与磁盘保持一致——
@@ -917,7 +966,12 @@ public partial class LaunchSettingsViewModel : ViewModelBase
 
             Save.SetSuccess(_loc["launch_saved"]);
             RecomputeDirty(); // 落盘后草稿与已保存值一致，保存钮熄灭
-            RaiseChangedToast(installDirChanged, executableChanged, templateChanged, workingDirectoryChanged, environmentDiff);
+            RaiseChangedToast(
+                installDirChanged, executableChanged, templateChanged, workingDirectoryChanged,
+                UseWaylandDraft != _game.Launch.UseWayland
+                || UpgradeDlssDraft != _game.Launch.UpgradeDlss
+                || EnableProtonLogDraft != _game.Launch.EnableProtonLog,
+                environmentDiff);
         }
         catch (OperationCanceledException)
         {
@@ -941,6 +995,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         bool executableChanged,
         bool templateChanged,
         bool workingDirectoryChanged,
+        bool optionsChanged,
         List<string> environmentDiff)
     {
         var labels = new List<string>();
@@ -962,6 +1017,11 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         if (workingDirectoryChanged)
         {
             labels.Add(_loc["launch_workingDirectory"]);
+        }
+
+        if (optionsChanged)
+        {
+            labels.Add(_loc["launch_options"]);
         }
 
         if (environmentDiff.Count > 0)

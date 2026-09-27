@@ -76,10 +76,13 @@ public class NativeUmuLaunchRoutingTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(installDir, "Game.exe"), "x");
 
         // 启动设置卡：native umu 模式 + 发行版代号 + 自定义环境变量 + umuId
+        // dataHome 与 NativeUmuLauncher 对齐：托管语义下首运生成的 WINEPREFIX/STEAM_COMPAT_DATA_PATH
+        // 会持久化并随 extraEnvironment 进入最终环境，两边 dataHome 不一致会互相覆盖
         var launchSettings = new LaunchSettingsViewModel(
             game.Game, game.InstallDirPath, ctx.CatalogService, game.Loc, game,
             platformInfo: new FakePlatformInfo(isLinux: true),
             protonVersions: ["GE-Proton10-9"],
+            dataHome: _temp.Path,
             umuProvisioner: provisioner);
         launchSettings.InstallDirDraft = installDir;
         launchSettings.ExecutableDraft = "Game.exe";

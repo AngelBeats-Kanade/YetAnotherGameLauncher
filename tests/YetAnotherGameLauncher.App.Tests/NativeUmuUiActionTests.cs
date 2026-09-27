@@ -276,9 +276,10 @@ public sealed class NativeUmuUiActionTests : IDisposable
         var settings = NewLinuxNativeUmuSettings(game.Game, game.InstallDirPath, provisioner);
         settings.SelectedProtonFlavor = "GE-Proton";
 
-        // 选择即落盘：草稿与模型同步更新（启动链读已保存 env，不再有草稿/存盘错位）
+        // 选择即落盘：模型同步更新（启动链读已保存 env，不再有草稿/存盘错位）；
+        // 托管语义（2026-09-28）：PROTONPATH 进托管字典即时保存，不进编辑框文本
         Assert.Equal("GE-Proton", game.Game.Launch.Environment.GetValueOrDefault("PROTONPATH"));
-        Assert.Contains("PROTONPATH=GE-Proton", settings.EnvironmentText, StringComparison.Ordinal);
+        Assert.DoesNotContain("PROTONPATH", settings.EnvironmentText, StringComparison.Ordinal);
     }
 
     [Fact]
