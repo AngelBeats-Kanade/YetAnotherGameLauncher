@@ -149,21 +149,29 @@
                             <StackPanel Spacing="8" IsVisible="{Binding LaunchSettings.IsLinux}">
                                 <TextBlock Text="{Binding Loc[launch_options]}" Classes="card-caption"/>
                                 <StackPanel Spacing="4">
+                                    <!-- On/Off 状态字置空：Fluent 默认渲染英文 On/Off，zh 文案下属英文残留 -->
                                     <ToggleSwitch Content="{Binding Loc[launch_useWayland]}"
+                                                  OnContent="" OffContent=""
                                                   IsChecked="{Binding LaunchSettings.UseWaylandDraft}"/>
+                                    <!-- 必须 Left：Stretch+MaxWidth 在 Avalonia 是约束居中而非左对齐（487px 缩进实锤） -->
                                     <TextBlock Text="{Binding Loc[launch_useWaylandHint]}" Classes="card-caption"
+                                               HorizontalAlignment="Left"
                                                TextWrapping="Wrap" MaxWidth="420"/>
                                 </StackPanel>
                                 <StackPanel Spacing="4">
                                     <ToggleSwitch Content="{Binding Loc[launch_upgradeDlss]}"
+                                                  OnContent="" OffContent=""
                                                   IsChecked="{Binding LaunchSettings.UpgradeDlssDraft}"/>
                                     <TextBlock Text="{Binding Loc[launch_upgradeDlssHint]}" Classes="card-caption"
+                                               HorizontalAlignment="Left"
                                                TextWrapping="Wrap" MaxWidth="420"/>
                                 </StackPanel>
                                 <StackPanel Spacing="4">
                                     <ToggleSwitch Content="{Binding Loc[launch_protonLog]}"
+                                                  OnContent="" OffContent=""
                                                   IsChecked="{Binding LaunchSettings.EnableProtonLogDraft}"/>
                                     <TextBlock Text="{Binding Loc[launch_protonLogHint]}" Classes="card-caption"
+                                               HorizontalAlignment="Left"
                                                TextWrapping="Wrap" MaxWidth="420"/>
                                 </StackPanel>
                             </StackPanel>

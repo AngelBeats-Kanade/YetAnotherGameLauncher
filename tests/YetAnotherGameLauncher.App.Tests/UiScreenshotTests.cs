@@ -282,11 +282,11 @@ public class UiScreenshotTests
             window.Show();
             window.UpdateLayout();
 
-            void Capture(string name)
+            void Capture(string name, MainWindow? source = null)
             {
                 Thread.Sleep(150);
                 Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
-                var frame = window.CaptureRenderedFrame();
+                var frame = (source ?? window).CaptureRenderedFrame();
                 if (frame is null)
                 {
                     captured.Add((name, null));
@@ -337,24 +337,44 @@ public class UiScreenshotTests
             Capture("10b-launch-error-retry-dark.png");
             wuwa.LaunchError = null; // 还原，避免影响后续 11/14 的画面状态
             window.UpdateLayout();
+            window.Close();
 
-            // 启动设置页：Linux 启动卡（umu 启动 + Proton 发行版下拉 + 组件状态卡），滚动到完整可见
+            // 启动设置页：Linux 启动卡（umu 启动 + Proton 发行版下拉 + 组件状态卡 + 启动选项开关区）。
+            // 启动选项区加入后整卡高约 900px，720 窗口装不下（judge 实锤：底部被视口硬裁）——
+            // 本节改用 1120×1080 专用窗口，BringIntoView 后整卡完整入画；
+            // 必须在 toast 注入前截（toast 是 VM 状态，跨窗口存活会盖住卡片右上角）
+            var tallWindow = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 1080 };
+            tallWindow.NavIndicatorAnimationEnabled = false;
+            tallWindow.Show();
+            tallWindow.UpdateLayout();
             ctx.Vm.ShowGameSettingsCommand.Execute(null);
-            window.UpdateLayout();
-            var launchCard = window.GetVisualDescendants()
+            tallWindow.UpdateLayout();
+            var launchCard = tallWindow.GetVisualDescendants()
                 .OfType<Border>()
                 .FirstOrDefault(b => b.Name == "LaunchCard");
             launchCard?.BringIntoView();
-            window.UpdateLayout();
-            Capture("11-launch-settings-linux-dark.png");
+            tallWindow.UpdateLayout();
+            Capture("11-launch-settings-linux-dark.png", tallWindow);
+
+            var lightTheme = ctx.Vm.ThemeModes.First(t => t.Mode == ThemeMode.Light);
+            ctx.Vm.SelectedTheme = lightTheme;
+            tallWindow.UpdateLayout();
+            Capture("11b-launch-settings-linux-light.png", tallWindow);
+            tallWindow.Close();
 
             // 轻提示：两条不同种类的 toast 叠在右上（状态变化时由 VM 自动弹出，此处手动注入）
+            var toastWindow = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
+            toastWindow.NavIndicatorAnimationEnabled = false;
+            toastWindow.Show();
+            toastWindow.UpdateLayout();
+            ctx.Vm.ShowGameSettingsCommand.Execute(null);
+            toastWindow.UpdateLayout();
             ctx.Vm.ShowToast("鸣潮", "检测到游戏文件，可直接启动", ToastKind.Success);
             ctx.Vm.ShowToast("鸣潮", "可预下载新版本，本地 3.6.0", ToastKind.Warning);
-            window.UpdateLayout();
-            Capture("14-toast-dark.png");
+            toastWindow.UpdateLayout();
+            Capture("14-toast-dark.png", toastWindow);
 
-            window.Close();
+            toastWindow.Close();
         }, CancellationToken.None);
 
         Assert.True(launchErrorShown, "启动预检失败未点亮覆盖层状态（截图会静默变成'无覆盖层'画面）");
