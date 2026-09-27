@@ -14,7 +14,8 @@ namespace YetAnotherGameLauncher.AppTests;
 /// 系统库探测注入恒 false：消除"机器装没装配套 FFmpeg 9.0"的分支差异，双平台 CI 确定性同路径。
 /// **盲区声明（DEVELOPMENT.md §3.6 规则 1）**：本类全部用例走"绑定失败"路径（夹具是假库字节），
 /// "绑定成功后目录预载/多库探测真正可用"无法离线覆盖（真绑定每进程一次）——该路径的验证方式
-/// 是真机冒烟（跑应用看 FFmpeg libraries ready + 解码器协商日志）；2026-09-24 P0 即从此盲区穿过。
+/// 是真机冒烟（跑应用看 FFmpeg libraries ready + `decoder output … (hardware|software)` 首帧
+/// 输出格式日志；`decoder opened` 只陈述设备挂载，不是硬解判据）；2026-09-24 P0 即从此盲区穿过。
 /// </summary>
 [Collection("sequential")]
 public class FfmpegLibraryResolverEnsureReadyTests : IDisposable

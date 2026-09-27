@@ -382,7 +382,9 @@ public sealed class FfmpegVideoBackdropPlayer(
             var aligningToStart = loopStartPts > 0;
             var loopEndReached = false;
             var prerollKicked = false;
-            var decoderModeLogged = false;
+            // F57：首帧硬解判定按 active 源实例去重（非会话级一次）——收编/回退重开的每个新
+            // 解码源首帧各记一条 verdict，会话中途驱动状态变化可从日志追踪
+            DecodeSource? decoderVerdictLoggedFor = null;
             var lastRenderedWidth = 0;
             var lastRenderedHeight = 0;
             double lastRenderedPts = -1;
@@ -644,12 +646,12 @@ public sealed class FfmpegVideoBackdropPlayer(
                     continue;
                 }
 
-                // 首帧成功解码 = get_format 已协商完毕：此处一次性记录硬解是否真正生效
-                // （打开瞬间 pix_fmt 恒 NONE 不可作判据；挂设备却协商软格式 = nvidia-vaapi-driver
-                // EGL 模式的特征信号）
-                if (!decoderModeLogged)
+                // 首帧成功解码 = get_format 已协商完毕：按源实例去重记录硬解是否真正生效（F57——
+                // 收编/回退重开的每个新源各记一条；打开瞬间 pix_fmt 恒 NONE 不可作判据，挂设备
+                // 却协商软格式 = nvidia-vaapi-driver EGL 模式的特征信号）
+                if (!ReferenceEquals(decoderVerdictLoggedFor, active))
                 {
-                    decoderModeLogged = true;
+                    decoderVerdictLoggedFor = active;
                     var negotiated = active.CodecContext->pix_fmt;
                     logger?.LogDebug(
                         "Video backdrop decoder output {Format} ({Mode})",
