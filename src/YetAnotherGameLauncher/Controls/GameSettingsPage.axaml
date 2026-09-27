@@ -144,6 +144,29 @@
                                 <TextBox Text="{Binding LaunchSettings.WorkingDirectory}"/>
                                 <TextBlock Text="{Binding Loc[launch_workingDirectoryHint]}" Classes="card-caption"/>
                             </StackPanel>
+                            <!-- 启动选项（仅 Linux）：开关变化走草稿语义（点亮下方保存钮），不即时落盘；
+                                 hint 限宽换行（长文案不设防会横穿窗口，judge 实锤条款） -->
+                            <StackPanel Spacing="8" IsVisible="{Binding LaunchSettings.IsLinux}">
+                                <TextBlock Text="{Binding Loc[launch_options]}" Classes="card-caption"/>
+                                <StackPanel Spacing="4">
+                                    <ToggleSwitch Content="{Binding Loc[launch_useWayland]}"
+                                                  IsChecked="{Binding LaunchSettings.UseWaylandDraft}"/>
+                                    <TextBlock Text="{Binding Loc[launch_useWaylandHint]}" Classes="card-caption"
+                                               TextWrapping="Wrap" MaxWidth="420"/>
+                                </StackPanel>
+                                <StackPanel Spacing="4">
+                                    <ToggleSwitch Content="{Binding Loc[launch_upgradeDlss]}"
+                                                  IsChecked="{Binding LaunchSettings.UpgradeDlssDraft}"/>
+                                    <TextBlock Text="{Binding Loc[launch_upgradeDlssHint]}" Classes="card-caption"
+                                               TextWrapping="Wrap" MaxWidth="420"/>
+                                </StackPanel>
+                                <StackPanel Spacing="4">
+                                    <ToggleSwitch Content="{Binding Loc[launch_protonLog]}"
+                                                  IsChecked="{Binding LaunchSettings.EnableProtonLogDraft}"/>
+                                    <TextBlock Text="{Binding Loc[launch_protonLogHint]}" Classes="card-caption"
+                                               TextWrapping="Wrap" MaxWidth="420"/>
+                                </StackPanel>
+                            </StackPanel>
                             <StackPanel Spacing="4">
                                 <TextBlock Text="{Binding Loc[launch_environment]}" Classes="card-caption"/>
                                 <!-- 必须 Wrap：NoWrap+AcceptsReturn 会让 Fluent 悬浮横滚条盖住最后一行变量，无法点选 -->
