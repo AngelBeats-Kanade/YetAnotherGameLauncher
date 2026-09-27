@@ -332,7 +332,9 @@ flowchart LR
   `EnsureReady_MissingLibraries_ResolveEachLibraryAtMostOnce`。
   **改本链（`FfmpegLibraryResolver`/FFmpeg 绑定/dlopen）必须真机冒烟**：绑定成功路径无法离线覆盖
   （测试夹具是假库字节，真绑定每进程只有一次机会），最低验证 = 跑应用看 `FFmpeg libraries ready`
-  日志 + 解码器协商 + 无 `Video backdrop playback failed`（DEVELOPMENT.md §3.6）。
+  日志 + 首帧输出格式日志（`decoder output … (hardware|software)`——硬解真正生效的判据；打开瞬间
+  pix_fmt 恒 AV_PIX_FMT_NONE 不可作判据，"hw device attached" 只说明设备挂载成功）+
+  无 `Video backdrop playback failed`（DEVELOPMENT.md §3.6）。
 - **无缝循环（v2，2026-09-21）**：`SeamAnalyzer` 把头/尾各约 3s 的帧缩为 64×36 **RGB** 缩略
   （纯灰度会漏掉同亮度不同色相的跳变），按综合分搜索循环点——三通道全局平均差 + 最差分块
   （8×4 网格）均值的加权惩罚（局部动作跳变不被全局平均淹没）+ 后续 2 帧的时序连续性项
@@ -346,7 +348,9 @@ flowchart LR
   分析结果在下一个循环边界（`RotateLoopPlan`）收编为计划首对；分析慢于首轮结束只会多整段
   循环一两圈，不阻塞出画。
   临近循环终点前 2s 由第二个解码源后台预解码下一循环开头 10 帧，经 `PrerollHandoff` 交接状态机
-  交接，到达终点时预卷源整体收编、先消费预解码帧，零间隙续播；收编时按接缝差自适应——低于硬切
+  交接（上一预卷任务未完成则跳过本次触发、本圈稍后帧重试——防新句柄覆盖旧句柄把在途任务从
+  Stop 的 join 中孤儿化，也避免同一硬解栈双预卷并发解码，F51），到达终点时预卷源整体收编、
+  先消费预解码帧，零间隙续播；收编时按接缝差自适应——低于硬切
   阈值（3.0，严于命中阈值）直接硬化切，否则淡化时长随差值线性映射 0.15~0.7s（固定 0.6s 长溶解
   本身就是醒目的循环信号）。预卷未就绪回退为重开全新解码源 + 最长交叉淡化。轮换只换切点不破坏
   配对：切口永远是"某候选的尾帧 → 该候选的头帧"，预卷按当圈头帧对齐、`RotateLoopPlan` 在
@@ -375,7 +379,7 @@ flowchart LR
   `avcodec_free_context` 赛跑——`vaDestroyContext` 打在已拆的 display 上偶发刷
   "Failed to destroy decode context 0x…: 1 (operation failed)"（出处 libavcodec/vaapi_decode.c
   `ff_vaapi_decode_uninit`，`VA_STATUS_ERROR_OPERATION_FAILED=1`；播放器内硬解源为主源+预卷源
-  两路，与报错两行吻合）。会话与预卷任务句柄现被捕获（`_runTask`/`_prerollTask`），`StopCore`
+  两路，与报错两行相容（亦可能为多播放器各自主源））。会话与预卷任务句柄现被捕获（`_runTask`/`_prerollTask`），`StopCore`
   在取消+放行门之后以共享截止时间（默认 2s，超时记警告照常放行不悬挂退出）join 二者——退出路径
   因此真正保证"原生释放先于平台拆除"；新起播入口的 `StopCore` 同理先等上一代源释放完，消除旧
   free 与新硬解设备创建的交错。循环点分析任务**刻意不 join**：纯软解无 VAAPI 面、不产生该报错，

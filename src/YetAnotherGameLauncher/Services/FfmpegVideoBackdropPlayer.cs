@@ -382,6 +382,7 @@ public sealed class FfmpegVideoBackdropPlayer(
             var aligningToStart = loopStartPts > 0;
             var loopEndReached = false;
             var prerollKicked = false;
+            var decoderModeLogged = false;
             var lastRenderedWidth = 0;
             var lastRenderedHeight = 0;
             double lastRenderedPts = -1;
@@ -444,16 +445,14 @@ public sealed class FfmpegVideoBackdropPlayer(
                 TryKickPreroll(ptsSeconds);
             }
 
-            // 距循环终点不足预卷窗口时启动一次预卷任务（每次循环至多一次）
+            // 距循环终点不足预卷窗口时启动一次预卷任务（每次循环至多一次）。上一预卷任务未完成
+            // 时跳过本帧（不置 prerollKicked，本圈稍后帧重试；F51 防句柄覆盖孤儿化 + 双预卷并发）
             void TryKickPreroll(double ptsSeconds)
             {
-                if (prerollKicked || double.IsNaN(ptsSeconds))
-                {
-                    return;
-                }
-
                 var loopEnd = loopEndPts > 0 ? loopEndPts : duration;
-                if (loopEnd <= 0 || loopEnd - ptsSeconds > PrerollTriggerSeconds)
+                if (!ShouldKickPreroll(
+                        prerollKicked, ptsSeconds, loopEnd, PrerollTriggerSeconds,
+                        Interlocked.CompareExchange(ref _prerollTask, null, null)))
                 {
                     return;
                 }
@@ -643,6 +642,19 @@ public sealed class FfmpegVideoBackdropPlayer(
                     }
 
                     continue;
+                }
+
+                // 首帧成功解码 = get_format 已协商完毕：此处一次性记录硬解是否真正生效
+                // （打开瞬间 pix_fmt 恒 NONE 不可作判据；挂设备却协商软格式 = nvidia-vaapi-driver
+                // EGL 模式的特征信号）
+                if (!decoderModeLogged)
+                {
+                    decoderModeLogged = true;
+                    var negotiated = active.CodecContext->pix_fmt;
+                    logger?.LogDebug(
+                        "Video backdrop decoder output {Format} ({Mode})",
+                        PixelFormatName(negotiated),
+                        DescribeDecoderOutputMode(negotiated, hwDeviceAttached: active.HwDevice is not null));
                 }
 
                 // 无 pts 帧的呈现时刻推算：回退 帧序号/平均帧率；NaN = 无节拍信息
@@ -1047,15 +1059,17 @@ public sealed class FfmpegVideoBackdropPlayer(
             throw new InvalidOperationException("Cannot open video decoder");
         }
 
-        // 设备创建成功 ≠ 硬解生效：解码器仍可能与驱动协商回软解格式（如 NVIDIA nvidia-vaapi-driver
-        // EGL 模式不支持解码），协商出的像素格式才是硬解真正工作的判据
+        // 打开瞬间像素格式尚未协商（h264 首帧 get_format 才定，此刻恒 AV_PIX_FMT_NONE）——
+        // 在这里判定 hardware/software 必然把所有解码器误标成 software；真实判据是首帧输出
+        // 格式日志（RunLoop 对首帧成功解码一次性记录），这里只陈述设备挂载事实
         if (!softwareOnly)
         {
-            var pixelFormat = context->pix_fmt;
             logger?.LogDebug(
-                "Video backdrop decoder negotiated {Width}x{Height} {Format} ({Mode})",
+                "Video backdrop decoder opened {Width}x{Height} ({Hw})",
                 context->width, context->height,
-                PixelFormatName(pixelFormat), IsHardwarePixelFormat(pixelFormat) ? "hardware" : "software");
+                context->hw_device_ctx is not null
+                    ? "hw device attached; pixel format negotiated at first frame"
+                    : "no hw device, software decode");
         }
 
         return context;
@@ -1082,6 +1096,46 @@ public sealed class FfmpegVideoBackdropPlayer(
         format is AVPixelFormat.AV_PIX_FMT_VAAPI
             or AVPixelFormat.AV_PIX_FMT_CUDA
             or AVPixelFormat.AV_PIX_FMT_D3D11;
+
+    /// <summary>预卷触发决策（纯函数，决策表单测）：距循环终点不足窗口且本圈尚未触发过。
+    /// 上一预卷任务未完成时跳过（F51：跳过不置 kicked，本圈稍后帧重试——否则新句柄覆盖旧句柄，
+    /// 旧任务从 Stop 的 join 中孤儿化，且同一硬解栈上双预卷并发解码）。</summary>
+    internal static bool ShouldKickPreroll(
+        bool kicked, double ptsSeconds, double loopEnd, double triggerWindowSeconds, Task? inFlightPreroll)
+    {
+        if (kicked || double.IsNaN(ptsSeconds))
+        {
+            return false;
+        }
+
+        if (loopEnd <= 0 || loopEnd - ptsSeconds > triggerWindowSeconds)
+        {
+            return false;
+        }
+
+        // F51：上一预卷任务仍在途（可能卡在不可取消的原生调用里）时跳过——不置 kicked，
+        // 本圈稍后帧重试；否则新句柄覆盖旧句柄，旧任务从 Stop 的 join 中孤儿化
+        if (inFlightPreroll is { IsCompleted: false })
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>解码器输出模式描述（纯函数，决策表单测）：hardware / software / 挂设备却协商软格式。
+    /// 后者是 nvidia-vaapi-driver EGL 模式不支持解码的特征信号，必须与无设备软解区分。</summary>
+    internal static string DescribeDecoderOutputMode(AVPixelFormat negotiatedFormat, bool hwDeviceAttached)
+    {
+        if (IsHardwarePixelFormat(negotiatedFormat))
+        {
+            return "hardware";
+        }
+
+        return hwDeviceAttached
+            ? "software (hw device attached but decoder negotiated a software format)"
+            : "software";
+    }
 
     /// <summary>读取并解码下一帧软帧：硬解输出回读系统内存，软解转移引用。<paramref name="ptsSeconds"/>
     /// 取自原始解码帧（硬解回读不拷贝时间戳属性，必须在回读前捕获）；返回 false = 流结束、取消或无法继续

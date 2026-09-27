@@ -41,33 +41,49 @@ public class VideoBackdropPlayerStopJoinTests : IDisposable
         using var gate = new ManualResetEventSlim(false);
         player.SessionStartGateForTests = gate;
         var notMedia = WriteNotMediaFile();
+        Task? sessionTask = null;
         try
         {
             // PlayAsync 在首个 await 前同步完成任务派生与句柄捕获：调用返回即句柄已就位
             var playTask = player.PlayAsync(notMedia);
-            var sessionTask = player.SessionTaskForTests;
+            sessionTask = player.SessionTaskForTests;
             Assert.NotNull(sessionTask);
 
+            var stopEntered = new ManualResetEventSlim(false);
             var stopReturned = new ManualResetEventSlim(false);
+            Exception? stopFailure = null;
             var stopTask = Task.Run(() =>
             {
-                player.Stop();
+                stopEntered.Set();
+                try
+                {
+                    player.Stop();
+                }
+                catch (Exception ex)
+                {
+                    stopFailure = ex;
+                }
+
                 stopReturned.Set();
             });
 
-            // 修复前 Stop 只 Cancel 即返回（无 join）→ 本断言红；修复后 Stop 阻塞在 join 上，
-            // 直到门放行、任务终止。200ms 内不得返回（泊车任务在门放行前不可能终止）
+            // 200ms 窗口以"Stop 已进入"为起点（消 stopTask 调度负载洞，F52）。修复前 Stop 只
+            // Cancel 即返回（无 join）→ 下一断言红；修复后 Stop 阻塞在 join 上，直到门放行、任务终止
+            Assert.True(stopEntered.Wait(TimeSpan.FromSeconds(10)), "Stop 应已开始执行");
             Assert.False(stopReturned.Wait(TimeSpan.FromMilliseconds(200)),
                 "Stop 必须等待会话任务终止（有界 join）后才返回");
 
             gate.Set();
             Assert.True(stopReturned.Wait(TimeSpan.FromSeconds(10)), "门放行后 join 应立即收敛");
+            Assert.Null(stopFailure);
             Assert.True(sessionTask.IsCompleted, "Stop 返回时会话任务必须已终止（原生释放随之完成）");
             Assert.False(await playTask);
         }
         finally
         {
+            // F53：先放行并等会话任务落定再拆门——任务仍嵌在 gate.Wait 内时 Dispose 门属未定义行为
             gate.Set();
+            sessionTask?.Wait(TimeSpan.FromSeconds(10));
             File.Delete(notMedia);
         }
     }
@@ -83,10 +99,11 @@ public class VideoBackdropPlayerStopJoinTests : IDisposable
             using var gate = new ManualResetEventSlim(false);
             player.SessionStartGateForTests = gate;
             var notMedia = WriteNotMediaFile();
+            Task? sessionTask = null;
             try
             {
                 var playTask = player.PlayAsync(notMedia);
-                var sessionTask = player.SessionTaskForTests;
+                sessionTask = player.SessionTaskForTests;
                 Assert.NotNull(sessionTask);
 
                 var sw = Stopwatch.StartNew();
@@ -102,7 +119,9 @@ public class VideoBackdropPlayerStopJoinTests : IDisposable
             }
             finally
             {
+                // F53：先放行并等会话任务落定再拆门
                 gate.Set();
+                sessionTask?.Wait(TimeSpan.FromSeconds(10));
                 File.Delete(notMedia);
             }
         }
