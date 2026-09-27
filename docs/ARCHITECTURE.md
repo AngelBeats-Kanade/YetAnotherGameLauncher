@@ -370,13 +370,26 @@ flowchart LR
   旧循环另受代际门双重约束：`PresentFrame` 过门后方可渲染，`RenderFrame` 在位图拷入后复查代际，
   失配即整帧丢弃、不投递通知（旧画面无从复活；清帧由 Stop 的 `ClearFrame` 在锁内完成）——过门后的
   PTS 等待/sws/拷贝窗口内发生的 `Stop` 也不会让旧画面点亮。
+  **有界 join（2026-09-27，退出偶发 VAAPI destroy 报错修复）**：解码源的原生释放在各解码任务
+  自己线程的 finally 里执行，`Stop` 若只取消不等待，退出钩子返回后的平台拆除会与
+  `avcodec_free_context` 赛跑——`vaDestroyContext` 打在已拆的 display 上偶发刷
+  "Failed to destroy decode context 0x…: 1 (operation failed)"（出处 libavcodec/vaapi_decode.c
+  `ff_vaapi_decode_uninit`，`VA_STATUS_ERROR_OPERATION_FAILED=1`；播放器内硬解源为主源+预卷源
+  两路，与报错两行吻合）。会话与预卷任务句柄现被捕获（`_runTask`/`_prerollTask`），`StopCore`
+  在取消+放行门之后以共享截止时间（默认 2s，超时记警告照常放行不悬挂退出）join 二者——退出路径
+  因此真正保证"原生释放先于平台拆除"；新起播入口的 `StopCore` 同理先等上一代源释放完，消除旧
+  free 与新硬解设备创建的交错。循环点分析任务**刻意不 join**：纯软解无 VAAPI 面、不产生该报错，
+  而全片软解秒级耗时，join 会把它拖进退出路径。`DecodeSource.Dispose` 的原生收尾段另有进程级
+  串行锁（libva/NVENC 对并发 destroy 不保证线程安全——主源/预卷源乃至多播放器实例的 free 互斥）。
   另：PlayAsync 后台任务的收尾只在**仍是本代**时清会话标志——被新一代起播抢先的过期任务
   不得把新会话标成失活（VM 续播快路径会因此误走重启，2026-09-21 修复）。
 - **起播与停止的生命周期（2026-09-20 复审补齐，2026-09-26 修复清账批更新）**：播放器侧 `PlayAsync` 收尾
   先摘共享 `_cts` 引用，**自然结束路径同样先 `Cancel` 再释放**——循环点分析后台任务持同一令牌顺序软解
   全片（预卷任务受 `PrerollFrames=10` 上限快速收敛），不取消则两者的解码都在白烧 CPU；且 CTS `Dispose`
   后 `Cancel` 抛 ODE（2026-09-26 探针仲裁，docs/PITFALLS.md §1），Cancel **必须前于** Dispose，`StopCore`
-  侧对摘除/释放竞态窗口的 `catch (ObjectDisposedException)` 是承重防御。预卷对齐丢弃起点之前的帧时，**无 pts
+  侧对摘除/释放竞态窗口的 `catch (ObjectDisposedException)` 是承重防御。会话与预卷任务句柄由弃元改
+  捕获（`_runTask`/`_prerollTask`），供 `StopCore` 的有界 join 消费（上条）——`PlayAsync` 入口的
+  `StopCore` 因此天然先等上一代会话原生释放完，再开新解码源。预卷对齐丢弃起点之前的帧时，**无 pts
   （NaN）帧同样丢弃**——不可对齐帧若入列会以队列头形态在接缝处呈现错位内容；VM 侧 `StartVideoAsync` 以起播
   代际标记——起播窗口内被后发起播抢先的旧调用失败时不再执行 VM 级 StopVideo 清场（否则会误杀新一代起播，
   视频层不再点亮直到离页再进），只有最新一次起播有权清理。
@@ -394,9 +407,9 @@ flowchart LR
   （直到被另一游戏页替换）。播放器侧续播经 `ManualResetEventSlim` 门与取消令牌
   `WaitAny`——暂停中 `Stop` 靠取消令牌正常唤醒退出，醒来重定 `PlaybackClock` 基线（暂停时长不计入
   时间轴）；无会话时 `Pause` 为 no-op（不得留下复位门，新会话启动时 `Set` 另有兜底）；
-  播放器 `Dispose` 时 `StopCore` 唤醒泊车线程后随即释放门（F37——不留内核等待句柄；
-  释放瞬间仍嵌在 `WaitAny` 里的微秒级窗口按"修复 + 声明"接受，观感上限为一次无害的
-  后台线程 ODE）。
+  播放器 `Dispose` 时 `StopCore` 唤醒泊车线程并**有界 join 至其退出**后才释放门（F37——不留内核
+  等待句柄；原先"释放瞬间任务仍嵌在 `WaitAny` 里"的微秒级窗口随 2026-09-27 的有界 join 闭合，
+  不再按"修复 + 声明"接受）。
   `StartVideoAsync` 的起播延迟窗口内离页放弃起播，不在页外隐形解码。
   关窗/程序性退出经 `StopBackdropVideo` 逐游戏全停（含暂停保活中的会话，退出期 GPU 栈必须
   先行静止）；installRoot 变更重建列表时旧 VM 的会话同样在 `RebuildGames` 内全停释放。

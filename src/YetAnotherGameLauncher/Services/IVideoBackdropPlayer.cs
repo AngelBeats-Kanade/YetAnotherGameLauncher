@@ -32,7 +32,10 @@ public interface IVideoBackdropPlayer
     Task<bool> PlayAsync(string videoPath, CancellationToken cancellationToken = default);
 
     /// <summary>停止播放、取消解码循环并清空帧缓冲（渲染层立即回到海报/渐变兜底；
-    /// 迟到的陈旧帧通知以空帧缓冲为证不再点亮视频层）。</summary>
+    /// 迟到的陈旧帧通知以空帧缓冲为证不再点亮视频层）。
+    /// join 契约（退出偶发 VAAPI destroy 报错修复）：返回前有界等待会话/预卷解码任务终止，
+    /// 解码源的原生释放随之完成——退出钩子经此保证 avcodec_free_context 先于平台拆除；
+    /// 等待有预算上限，超时放行不悬挂退出。</summary>
     void Stop();
 
     /// <summary>

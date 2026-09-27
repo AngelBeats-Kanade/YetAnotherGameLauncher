@@ -77,6 +77,12 @@ public sealed class FfmpegVideoBackdropPlayer(
     /// internal 供测试缩短；改小前先评估合成器帧延迟余量。</summary>
     internal static TimeSpan RetireGrace { get; set; } = TimeSpan.FromSeconds(2);
 
+    /// <summary>停止时有界等待解码任务终止的预算（internal 供测试缩短）：解码源的原生释放
+    /// 必须先于退出期平台拆除完成，否则 vaDestroyContext 打在已拆的 display 上偶发报错
+    /// （VAAPI "Failed to destroy decode context"）；但不得因病态原生调用悬挂退出——
+    /// 超时记警告后照常放行，任务最终仍会在自己的线程上完成释放。</summary>
+    internal static TimeSpan NativeReleaseJoinTimeout { get; set; } = TimeSpan.FromSeconds(2);
+
     /// <summary>测试缝：帧位图工厂（null = 生产构造）。测试注入计数工厂断言创建/释放配平。</summary>
     internal Func<PixelSize, WriteableBitmap>? FrameBitmapFactoryForTests { get; set; }
 
@@ -109,8 +115,23 @@ public sealed class FfmpegVideoBackdropPlayer(
     /// <summary>续播门测试观察缝（F37）：断言 Dispose 后 WaitHandle 抛 ObjectDisposedException。</summary>
     internal ManualResetEventSlim ResumeGateForTests => _resumeGate;
 
+    /// <summary>测试泊车缝：会话任务体起手在此等待（null = 生产零开销）。门等待不观察取消令牌——
+    /// 模拟任务卡在不可取消的原生调用里，供 join 契约与超时放行两路用例驱动。</summary>
+    internal ManualResetEventSlim? SessionStartGateForTests { get; set; }
+
+    /// <summary>测试观察点：最近捕获的会话任务句柄（Stop 的 join 以 Exchange 消费，其后为 null）。</summary>
+    internal Task? SessionTaskForTests => Interlocked.CompareExchange(ref _runTask, null, null);
+
     /// <summary>活动会话标志（0/1）：PlayAsync 启动置位、后台任务收尾归零；Pause/Resume 据此判定 no-op。</summary>
     private int _sessionActive;
+
+    /// <summary>当前会话解码任务句柄（原弃元改捕获）：Stop 的有界 join 消费——解码源的原生
+    /// 释放在任务自己线程的 finally 里执行，不等待就无法保证"先于平台拆除"完成。</summary>
+    private Task? _runTask;
+
+    /// <summary>当前预卷解码任务句柄（由 RunLoop 的 TryKickPreroll 捕获，join 语义同 _runTask：
+    /// 预卷源同样是硬解上下文，free 同样不得与平台拆除赛跑）。</summary>
+    private Task? _prerollTask;
 
     /// <inheritdoc/>
     public IImage? Frame
@@ -168,10 +189,12 @@ public sealed class FfmpegVideoBackdropPlayer(
         Interlocked.Exchange(ref _sessionActive, 1);
 
         var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _ = Task.Run(async () =>
+        var runTask = Task.Run(async () =>
         {
             try
             {
+                // 测试泊车缝（见属性注释）：置于任务体最前，用例得以在任务做任何实际工作前钉住它
+                SessionStartGateForTests?.Wait();
                 if (!libraryResolver.EnsureReady(cts.Token))
                 {
                     started.TrySetResult(false);
@@ -207,6 +230,7 @@ public sealed class FfmpegVideoBackdropPlayer(
                 cts.Dispose();
             }
         }, CancellationToken.None);
+        _ = Interlocked.Exchange(ref _runTask, runTask);
 
         return await started.Task;
     }
@@ -236,8 +260,8 @@ public sealed class FfmpegVideoBackdropPlayer(
     /// <summary>测试注入点：直接布置已释放的 cts，确定性复现 Stop 撞上悬挂引用的场景。</summary>
     internal CancellationTokenSource? CtsForTest { set => _cts = value; }
 
-    /// <summary>停止播放：取消解码循环、推进代际并清空帧缓冲（渲染层立即回到海报/渐变兜底；
-    /// 共享播放器切游戏时，迟到的陈旧帧通知以空帧缓冲为证不再点亮新页面）。</summary>
+    /// <summary>停止播放：取消解码循环、推进代际、有界等待解码任务终止后清空帧缓冲（渲染层
+    /// 立即回到海报/渐变兜底；共享播放器切游戏时，迟到的陈旧帧通知以空帧缓冲为证不再点亮新页面）。</summary>
     private void StopCore()
     {
         Interlocked.Increment(ref _generation);
@@ -260,7 +284,46 @@ public sealed class FfmpegVideoBackdropPlayer(
         // 陈旧标志会让续播判定误判（VM 侧另有 _videoSubscribed 双重守卫，此处收口契约）
         _resumeGate.Set();
         Interlocked.Exchange(ref _sessionActive, 0);
+
+        // 有界 join：解码源的原生释放在各任务自己线程的 finally 里，不等待就返回的话，退出
+        // 钩子返回后的平台拆除会与 avcodec_free_context 赛跑——vaDestroyContext 打在已拆的
+        // display 上偶发报错（VAAPI "Failed to destroy decode context 0x…: 1 (operation
+        // failed)"，出处 libavcodec/vaapi_decode.c ff_vaapi_decode_uninit，状态码
+        // VA_STATUS_ERROR_OPERATION_FAILED=1）。Exchange 置空消费：同一代任务只 join 一次；
+        // 新一代 PlayAsync 入口的 StopCore 也因此先等旧源释放完，消除旧 free 与新
+        // av_hwdevice_ctx_create 的交错。循环点分析任务（纯软解、无 VAAPI 面）不 join：
+        // 全片软解秒级耗时，join 会把它拖进退出路径，而其上下文不产生该报错
+        var deadlineMs = Environment.TickCount64 + (long)NativeReleaseJoinTimeout.TotalMilliseconds;
+        AwaitTaskTermination(Interlocked.Exchange(ref _runTask, null), deadlineMs);
+        AwaitTaskTermination(Interlocked.Exchange(ref _prerollTask, null), deadlineMs);
+
         ClearFrame();
+    }
+
+    /// <summary>有界等待单个后台解码任务终止（共享截止时间防多任务叠乘等待）。超时记警告照常
+    /// 放行——任务最终仍会在自己的线程上完成原生释放，只是不再受"先于平台拆除"保护。两个任务体
+    /// 各自全捕异常，Wait 理论上观察不到 fault；catch 兜未来收尾改动泄漏异常砸在调用线程（退出路径）。</summary>
+    private void AwaitTaskTermination(Task? task, long deadlineMs)
+    {
+        if (task is null || task.IsCompleted)
+        {
+            return;
+        }
+
+        try
+        {
+            var remainingMs = Math.Max(0, deadlineMs - Environment.TickCount64);
+            if (!task.Wait(TimeSpan.FromMilliseconds(remainingMs)))
+            {
+                logger?.LogWarning(
+                    "Video decode task did not terminate within {Timeout:F1}s; proceeding without native-release join",
+                    NativeReleaseJoinTimeout.TotalSeconds);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger?.LogInformation(ex, "Video decode task surfaced an exception while joining");
+        }
     }
 
     /// <summary>
@@ -399,7 +462,8 @@ public sealed class FfmpegVideoBackdropPlayer(
                 var handoff = new PrerollHandoff<PrerollPayload>(FreePrerollPayload);
                 preroll = handoff;
                 logger?.LogDebug("Video preroll kicked at {Pts:F2}/{End:F2}s", ptsSeconds, loopEnd);
-                _ = Task.Run(() => RunPreroll(path, loopStartPts, handoff, token), CancellationToken.None);
+                var prerollTask = Task.Run(() => RunPreroll(path, loopStartPts, handoff, token), CancellationToken.None);
+                _ = Interlocked.Exchange(ref _prerollTask, prerollTask);
             }
 
             // 循环终点处理：预卷就绪则零间隙收编（按接缝差选硬化切/自适应时长交叉淡化），
@@ -1598,6 +1662,10 @@ public sealed class FfmpegVideoBackdropPlayer(
     [ExcludeFromCodeCoverage]
     private sealed unsafe class DecodeSource : IDisposable
     {
+        /// <summary>原生释放串行锁（进程级）：libva/NVENC 的 destroy 调用不保证线程安全，主源与
+        /// 预卷源（乃至多个播放器实例）并发 free 同一硬解栈会偶发 vaDestroyContext 失败——收尾互斥。</summary>
+        private static readonly Lock NativeReleaseLock = new();
+
         /// <summary>输入格式上下文。</summary>
         public AVFormatContext* FormatContext;
 
@@ -1642,28 +1710,32 @@ public sealed class FfmpegVideoBackdropPlayer(
             DurationSeconds = durationSeconds;
         }
 
-        /// <summary>按依赖逆序释放全部原生资源（各指针释放后置 null，可安全重复调用）。</summary>
+        /// <summary>按依赖逆序释放全部原生资源（各指针释放后置 null，可安全重复调用）；
+        /// 原生收尾段进程级互斥（见 <see cref="NativeReleaseLock"/>）。</summary>
         public void Dispose()
         {
-            var codecContext = CodecContext;
-            if (codecContext is not null)
+            lock (NativeReleaseLock)
             {
-                CodecContext = null;
-                avcodec_free_context(&codecContext);
-            }
+                var codecContext = CodecContext;
+                if (codecContext is not null)
+                {
+                    CodecContext = null;
+                    avcodec_free_context(&codecContext);
+                }
 
-            var hwDevice = HwDevice;
-            if (hwDevice is not null)
-            {
-                HwDevice = null;
-                av_buffer_unref(&hwDevice);
-            }
+                var hwDevice = HwDevice;
+                if (hwDevice is not null)
+                {
+                    HwDevice = null;
+                    av_buffer_unref(&hwDevice);
+                }
 
-            var formatContext = FormatContext;
-            if (formatContext is not null)
-            {
-                FormatContext = null;
-                avformat_close_input(&formatContext);
+                var formatContext = FormatContext;
+                if (formatContext is not null)
+                {
+                    FormatContext = null;
+                    avformat_close_input(&formatContext);
+                }
             }
         }
     }

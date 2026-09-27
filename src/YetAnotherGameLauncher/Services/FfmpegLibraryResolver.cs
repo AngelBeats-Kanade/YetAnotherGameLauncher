@@ -47,8 +47,9 @@ public sealed partial class FfmpegLibraryResolver(
     /// 播放器同帧起播）串行进入——否则首运下载分钟级窗口内重复下载 60–70MB/竞态解压同一目录。
     /// 语义声明（M2，2026-09-24 review 立项）：Monitor 等待不可取消——下载窗口内并发进入的
     /// 调用方在锁上泊车至全程结束（≤15 分钟下载超时），期间其 cancellationToken 不被观察
-    /// （Stop 只取消令牌、不解锁 Monitor）。解码线程为后台线程、UI 不受阻，属已接受权衡；
-    /// 如需可取消，改为 Monitor.Wait 轮询 + token 检查的等待循环。</summary>
+    /// （Stop 取消令牌并做有界 join、不解锁 Monitor）。解码线程为后台线程；退出路径的 Stop
+    /// 至多等待一个 <see cref="FfmpegVideoBackdropPlayer.NativeReleaseJoinTimeout"/> 后放行，
+    /// 不悬挂退出，属已接受权衡；如需可取消，改为 Monitor.Wait 轮询 + token 检查的等待循环。</summary>
     private readonly object _ensureGate = new();
 
     /// <summary>下载源：与 FFmpeg.AutoGen 9.0.x 绑定配套的 FFmpeg 9.0 LGPL 共享构建（双平台）；
