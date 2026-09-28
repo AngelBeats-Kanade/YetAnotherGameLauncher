@@ -680,6 +680,16 @@ public sealed class UmuComponentProvisionerTests : IDisposable
     }
 
     [Fact]
+    public void IsLinkEscapingDestination_RootDestinationWithTrailingSeparator_LinksInsideAllowed()
+    {
+        // review F2：根本身以分隔符结尾（如 "/"）时前缀不得再拼一个——旧形态
+        // StartsWith("//") 恒假，根下一切合法链接被误判逃逸（无生产调用方，纯函数完备性）
+        Assert.False(UmuComponentProvisioner.IsLinkEscapingDestination("/", "x", "y"));
+        Assert.False(UmuComponentProvisioner.IsLinkEscapingDestination("/", "x", ".."));
+        Assert.True(UmuComponentProvisioner.IsLinkEscapingDestination("/", "x", "/etc"));
+    }
+
+    [Fact]
     public async Task UnsupportedCodename_EnglishUser_GetsEnglishMessage()
     {
         // F12（2026-09-24 迁移）：进度/错误文案曾硬编码中文直达启动失败覆盖层与设置卡

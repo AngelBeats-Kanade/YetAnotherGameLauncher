@@ -248,6 +248,9 @@ public sealed class UmuArchiveExtractionTests : IDisposable
         // prefix DLL（system32/d3d8.dll → ../../../../lib/wine/x86_64-windows/d3d8.dll），
         // dosdevices/c: → ../drive_c 同型。「含 .. 即拒」把这类合法链接全部静默丢弃，
         // proton 初始化 prefix 时 FileNotFoundError 崩溃、游戏无法启动。
+        // 目录链接用无冒号名：wine 实际叫 "c:"（POSIX 侧制品），Windows 文件名禁止冒号、
+        // 会被 TryCreateLink 的静默吞错跳过——被测机制（上跳相对链接落盘）与名字无关，
+        // 双平台真跑优先（docs/DEVELOPMENT.md §3.8）
         var archive = WriteTarGz(writer =>
         {
             var dll = new UstarTarEntry(TarEntryType.RegularFile, "top/files/lib/wine/d3d8.dll");
@@ -259,7 +262,7 @@ public sealed class UmuArchiveExtractionTests : IDisposable
             var dosdevices = new UstarTarEntry(TarEntryType.Directory, "top/pfx/dosdevices");
             writer.WriteEntry(dosdevices);
 
-            var cDrive = new UstarTarEntry(TarEntryType.SymbolicLink, "top/pfx/dosdevices/c:");
+            var cDrive = new UstarTarEntry(TarEntryType.SymbolicLink, "top/pfx/dosdevices/c");
             cDrive.LinkName = "../drive_c";
             writer.WriteEntry(cDrive);
 
@@ -271,14 +274,79 @@ public sealed class UmuArchiveExtractionTests : IDisposable
         var dest = _temp.FilePath("out");
         UmuComponentProvisioner.ExtractTarArchive(archive, dest);
 
-        // 根内相对上跳链接必须落盘：dosdevices/c: 可用（指向已解出的 drive_c 目录）
+        // 根内相对上跳链接必须落盘：dosdevices 链接可用（指向已解出的 drive_c 目录）
         Assert.True(
-            Directory.Exists(Path.Combine(dest, "top", "pfx", "dosdevices", "c:")),
-            "dosdevices/c: → ../drive_c 是合法根内链接，不应被丢弃");
+            Directory.Exists(Path.Combine(dest, "top", "pfx", "dosdevices", "c")),
+            "指向 ../drive_c 的根内链接不应被丢弃");
         // 硬链接退化的符号链接指向已解出的目标，内容经链接可读
         Assert.Equal(
             "dll",
             File.ReadAllText(Path.Combine(dest, "top", "pfx", "system32", "d3d8.dll")));
+    }
+
+    [Fact]
+    public void ExtractTarArchive_WineColonDeviceLink_IsCreated()
+    {
+        // review F3：wine 的设备链接实名是 "c:"（冒号在 POSIX 合法、Windows 文件名非法——
+        // TryCreateLink 会把 Windows 的创建失败静默吞掉）。冒号名走 Linux 腿保夹具保真，
+        // Windows 腿显式 Skip；机制本身由上一条无冒名用例双平台覆盖
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("冒号文件名仅 POSIX 合法；Windows 上创建必被静默吞错（跳过非伪装通过）");
+        }
+
+        var archive = WriteTarGz(writer =>
+        {
+            var driveC = new UstarTarEntry(TarEntryType.Directory, "top/pfx/drive_c");
+            writer.WriteEntry(driveC);
+            var dosdevices = new UstarTarEntry(TarEntryType.Directory, "top/pfx/dosdevices");
+            writer.WriteEntry(dosdevices);
+            var cDrive = new UstarTarEntry(TarEntryType.SymbolicLink, "top/pfx/dosdevices/c:");
+            cDrive.LinkName = "../drive_c";
+            writer.WriteEntry(cDrive);
+        });
+
+        var dest = _temp.FilePath("out");
+        UmuComponentProvisioner.ExtractTarArchive(archive, dest);
+
+        Assert.True(Directory.Exists(Path.Combine(dest, "top", "pfx", "dosdevices", "c:")));
+    }
+
+    [Fact]
+    public void ExtractTarArchive_CrossTopLevelLinks_AreNotCreated()
+    {
+        // review F1：落位只把顶层目录挪进最终位置——跨顶层/指向上级的链接 Move 后漂出
+        // 安装树（同级顶层文件、解压根），守卫须在创建阶段就拒绝
+        var archive = WriteTarGz(writer =>
+        {
+            var sibling = new UstarTarEntry(TarEntryType.RegularFile, "sibling.txt");
+            sibling.DataStream = new MemoryStream("outside-top"u8.ToArray());
+            writer.WriteEntry(sibling);
+
+            var top = new UstarTarEntry(TarEntryType.Directory, "Top");
+            writer.WriteEntry(top);
+            var inner = new UstarTarEntry(TarEntryType.SymbolicLink, "Top/inner");
+            inner.LinkName = "../sibling.txt";
+            writer.WriteEntry(inner);
+            var up = new UstarTarEntry(TarEntryType.SymbolicLink, "Top/up");
+            up.LinkName = "..";
+            writer.WriteEntry(up);
+
+            var keep = new UstarTarEntry(TarEntryType.RegularFile, "Top/keep.txt");
+            keep.DataStream = new MemoryStream("keep"u8.ToArray());
+            writer.WriteEntry(keep);
+        });
+
+        var dest = _temp.FilePath("out");
+        UmuComponentProvisioner.ExtractTarArchive(archive, dest);
+
+        Assert.False(
+            File.Exists(Path.Combine(dest, "Top", "inner")),
+            "跨顶层链接 Move 后漂出安装树，不应落盘");
+        Assert.False(
+            File.Exists(Path.Combine(dest, "Top", "up")),
+            "指向上级目录的链接 Move 后漂出安装树，不应落盘");
+        Assert.Equal("keep", File.ReadAllText(Path.Combine(dest, "Top", "keep.txt")));
     }
 
     /// <summary>用 System.Formats.Tar 造 tar.gz 包（与线上 .tar.gz 同为 ustar 条目）。</summary>

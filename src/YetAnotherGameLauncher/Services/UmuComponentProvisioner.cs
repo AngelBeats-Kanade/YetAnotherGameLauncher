@@ -1088,6 +1088,9 @@ public sealed class UmuComponentProvisioner(
     {
         Directory.CreateDirectory(destinationDir);
         var deferredLinks = new List<(string Key, string LinkName, TarEntryType Type)>();
+        // 顶层目录集：ExtractSingleTopLevel / 运行时落位只把顶层目录挪进最终位置（无顶层目录
+        // 的平铺包才整体挪根）——链接创建的合法边界因此是「顶层目录」而非解压根（review F1）
+        var topLevelDirs = new SortedSet<string>(StringComparer.Ordinal);
         using (var raw = File.OpenRead(archivePath))
         using (var decompressed = OpenDecompressedStream(raw))
         using (var reader = new TarReader(decompressed))
@@ -1099,6 +1102,16 @@ public sealed class UmuComponentProvisioner(
                 if (Path.IsPathRooted(key) || key.Split('/').Contains(".."))
                 {
                     continue;
+                }
+
+                var slash = key.IndexOf('/');
+                if (slash > 0)
+                {
+                    topLevelDirs.Add(key[..slash]);
+                }
+                else if (entry.EntryType == TarEntryType.Directory)
+                {
+                    topLevelDirs.Add(key);
                 }
 
                 switch (entry.EntryType)
@@ -1115,7 +1128,9 @@ public sealed class UmuComponentProvisioner(
                         // 链接目标按「链接所在目录 + 目标」词法归一后必须落在解压根内：绝对路径
                         // （含 Windows 盘符/UNC 形态）或上跳出根的相对目标可把后续普通文件条目
                         // 经链接写穿到目标目录外（同上游包被篡改时的纵深防御）；根内的相对上跳
-                        // 目标（wine prefix 内部链接）合法，见 IsLinkEscapingDestination 注释
+                        // 目标（wine prefix 内部链接）合法，见 IsLinkEscapingDestination 注释。
+                        // 绝对目标链接（如 wine 的 dosdevices/z: → /）仍被丢弃：11.0-12 在旧守卫
+                        // 下同样丢弃且工作正常（wine 启动时自建 dosdevices），非致命已实证
                         if (!IsLinkEscapingDestination(destinationDir, key, link))
                         {
                             deferredLinks.Add((key, entry.LinkName, entry.EntryType));
@@ -1127,10 +1142,33 @@ public sealed class UmuComponentProvisioner(
         }
 
         // 链接统一在普通文件全部落盘后创建：此时硬链接目标必然已解出（真缺失的条目由
-        // TryCreateLink 的存在性检查跳过），乱序包不再静默丢文件
+        // TryCreateLink 的存在性检查跳过），乱序包不再静默丢文件。
+        // 有顶层目录时合法边界收敛为「顶层目录」：落位只挪顶层目录，跨顶层/指向上级的
+        // 链接 Move 后会漂出安装树，直接不创建（反正落位时也会被丢弃）（review F1）
+        var installedRoot = topLevelDirs.Count > 0
+            ? Path.GetFullPath(Path.Combine(destinationDir, topLevelDirs.Min!))
+            : null;
         foreach (var (key, linkName, type) in deferredLinks)
         {
-            TryCreateLink(Path.Combine(destinationDir, key), linkName, type);
+            var linkPath = Path.Combine(destinationDir, key);
+            if (installedRoot is not null)
+            {
+                if (!key.Contains('/'))
+                {
+                    continue; // 根级散件不随顶层目录挪入，链接落了也会被丢弃
+                }
+
+                var linkDir = Path.GetDirectoryName(linkPath)!;
+                var resolved = Path.GetFullPath(
+                    Path.Combine(linkDir, linkName.Replace('\\', '/')));
+                var relativeToTop = Path.GetRelativePath(installedRoot, resolved);
+                if (relativeToTop.StartsWith("..", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+            }
+
+            TryCreateLink(linkPath, linkName, type);
         }
     }
 
@@ -1160,9 +1198,13 @@ public sealed class UmuComponentProvisioner(
 
         var linkDir = Path.GetDirectoryName(Path.Combine(destinationDir, entryName));
         var root = Path.GetFullPath(destinationDir);
+        // 根本身以分隔符结尾（如 "/"）时不得再拼一个：否则 StartsWith("//") 永假，所有链接被误判逃逸
+        var rootPrefix = root.Length > 0 && root[^1] == Path.DirectorySeparatorChar
+            ? root
+            : root + Path.DirectorySeparatorChar;
         var resolved = Path.GetFullPath(Path.Combine(linkDir ?? root, normalizedLink));
         return resolved != root
-            && !resolved.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal);
+            && !resolved.StartsWith(rootPrefix, StringComparison.Ordinal);
     }
 
     /// <summary>按魔数选择解压流：gzip → GZipStream，xz → XZStream，其余按未压缩 tar 原样透传。</summary>
