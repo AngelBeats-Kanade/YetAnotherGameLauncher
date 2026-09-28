@@ -241,6 +241,46 @@ public sealed class UmuArchiveExtractionTests : IDisposable
         Assert.Equal("pwned", File.ReadAllText(Path.Combine(dest, "top", "evil", "pwned.txt")));
     }
 
+    [Fact]
+    public void ExtractTarArchive_RelativeUpwardLinksInsideDestination_AreCreated()
+    {
+        // 2026-09-28 实锤回归：dwproton-11.0-13 的 default_pfx 以根内相对上跳符号链接承载
+        // prefix DLL（system32/d3d8.dll → ../../../../lib/wine/x86_64-windows/d3d8.dll），
+        // dosdevices/c: → ../drive_c 同型。「含 .. 即拒」把这类合法链接全部静默丢弃，
+        // proton 初始化 prefix 时 FileNotFoundError 崩溃、游戏无法启动。
+        var archive = WriteTarGz(writer =>
+        {
+            var dll = new UstarTarEntry(TarEntryType.RegularFile, "top/files/lib/wine/d3d8.dll");
+            dll.DataStream = new MemoryStream("dll"u8.ToArray());
+            writer.WriteEntry(dll);
+
+            var driveC = new UstarTarEntry(TarEntryType.Directory, "top/pfx/drive_c");
+            writer.WriteEntry(driveC);
+            var dosdevices = new UstarTarEntry(TarEntryType.Directory, "top/pfx/dosdevices");
+            writer.WriteEntry(dosdevices);
+
+            var cDrive = new UstarTarEntry(TarEntryType.SymbolicLink, "top/pfx/dosdevices/c:");
+            cDrive.LinkName = "../drive_c";
+            writer.WriteEntry(cDrive);
+
+            var link = new UstarTarEntry(TarEntryType.HardLink, "top/pfx/system32/d3d8.dll");
+            link.LinkName = "../../files/lib/wine/d3d8.dll";
+            writer.WriteEntry(link);
+        });
+
+        var dest = _temp.FilePath("out");
+        UmuComponentProvisioner.ExtractTarArchive(archive, dest);
+
+        // 根内相对上跳链接必须落盘：dosdevices/c: 可用（指向已解出的 drive_c 目录）
+        Assert.True(
+            Directory.Exists(Path.Combine(dest, "top", "pfx", "dosdevices", "c:")),
+            "dosdevices/c: → ../drive_c 是合法根内链接，不应被丢弃");
+        // 硬链接退化的符号链接指向已解出的目标，内容经链接可读
+        Assert.Equal(
+            "dll",
+            File.ReadAllText(Path.Combine(dest, "top", "pfx", "system32", "d3d8.dll")));
+    }
+
     /// <summary>用 System.Formats.Tar 造 tar.gz 包（与线上 .tar.gz 同为 ustar 条目）。</summary>
     private string WriteTarGz(Action<TarWriter> build)
     {

@@ -628,16 +628,18 @@ public sealed class UmuComponentProvisionerTests : IDisposable
     }
 
     [Theory]
-    [InlineData("/abs/evil")]        // Unix 绝对路径（旧防线已覆盖）
-    [InlineData("../evil")]          // 相对逃逸（旧防线已覆盖）
-    [InlineData("C:/evil")]          // Windows 盘符（F11：旧 StartsWith('/') 放行）
-    [InlineData("C:\\evil")]         // Windows 盘符反斜杠形态
-    [InlineData("//server/share/x")] // UNC 归一形态
-    [InlineData("dir/../../evil")]   // 多级 ".." 段
+    [InlineData("/abs/evil")]            // Unix 绝对路径（旧防线已覆盖）
+    [InlineData("../../../evil")]        // 相对上跳出解压根（2026-09-28 起 "../evil" 自 payload 只落到根内，属合法）
+    [InlineData("C:/evil")]              // Windows 盘符（F11：旧 StartsWith('/') 放行）
+    [InlineData("C:\\evil")]             // Windows 盘符反斜杠形态
+    [InlineData("//server/share/x")]     // UNC 归一形态
+    [InlineData("dir/../../../evil")]    // 多级 ".." 段上跳出解压根
     public void ExtractTarArchive_EscapingLinkTargets_AreSkipped(string linkName)
     {
         // F11 红绿：链接目标的穿越判定按跨平台口径（Linux 解包也拒 Windows 根形态——
-        // 该 tar 可能随后在 Windows 主机解出，写穿防御不能依赖当前平台）
+        // 该 tar 可能随后在 Windows 主机解出，写穿防御不能依赖当前平台）。
+        // 2026-09-28：判定从「含 .. 即拒」改为词法归一落点（IsLinkEscapingDestination），
+        // 根内的相对上跳链接（wine prefix 形态）合法，逃逸用例相应加深一级才真正出根
         var archive = Path.Combine(_tempDir.Path, "links.tar");
         using (var stream = File.Create(archive))
         using (var writer = new TarWriter(stream))
@@ -660,15 +662,21 @@ public sealed class UmuComponentProvisionerTests : IDisposable
     [Theory]
     [InlineData("target.txt", false)]        // 同目录裸文件名：正常链接
     [InlineData("sub/target.txt", false)]    // 目录内相对目标：正常链接
+    [InlineData("..", false)]                // 指向解压根本身（payload/.. = 根）：根内合法
+    [InlineData("a/../b", false)]            // 根内绕行：合法
+    [InlineData("../../outside", true)]      // 上跳出解压根：逃逸
     [InlineData("/abs/evil", true)]
     [InlineData("C:/evil", true)]
     [InlineData("C:\\evil", true)]
     [InlineData("//server/share/x", true)]
-    [InlineData("..", true)]
-    [InlineData("a/../b", true)]
-    public void IsEscapingLinkTarget_ClassifiesCrossPlatformRootForms(string link, bool expected)
+    public void IsLinkEscapingDestination_ClassifiesByResolvedLocation(string link, bool expected)
     {
-        Assert.Equal(expected, UmuComponentProvisioner.IsEscapingLinkTarget(link));
+        // 2026-09-28 语义修正：链接目标不再按「含 .. 即拒」（dwproton-11.0-13 default_pfx 的
+        // DLL 符号链接与 dosdevices/c: → ../drive_c 均为根内相对上跳，曾被静默丢弃致 proton
+        // 初始化 prefix 即崩），改为词法归一到解压根判定；绝对/盘符/UNC 目标维持一律逃逸
+        Assert.Equal(
+            expected,
+            UmuComponentProvisioner.IsLinkEscapingDestination("/data/dest", "payload/link", link));
     }
 
     [Fact]

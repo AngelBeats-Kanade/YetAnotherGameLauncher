@@ -1079,7 +1079,8 @@ public sealed class UmuComponentProvisioner(
     /// 按 tar 头还原 Unix 权限位（SharpCompress 的解压不保留执行位，Proton/Runtime 树离开执行位无法启动）；
     /// 符号链接按原样创建，硬链接条目无数据、退化为指向目标的符号链接；链接条目统一延迟到
     /// 普通文件全部落盘后创建（tar 允许硬链接先于目标出现，单趟形态会静默丢失链接路径——
-    /// 次级 suspect 第 9 轮）。穿越条目（绝对路径 / ".." / 逃逸链接目标）静默拒绝；普通文件与
+    /// 次级 suspect 第 9 轮）。逃逸链接条目（目标绝对路径 / 词法归一后落在解压根外）静默拒绝，
+    /// 根内的相对上跳链接照常创建（见 IsLinkEscapingDestination）；普通文件与
     /// 目录的 IO 失败照常抛出（由调用方按下载失败分类，非 tar -x 式全条目容错）。
     /// xz 容器仍用 SharpCompress 的 XZStream（BCL 无 XZ 解码）。
     /// </summary>
@@ -1111,11 +1112,11 @@ public sealed class UmuComponentProvisioner(
                     case TarEntryType.SymbolicLink:
                     case TarEntryType.HardLink:
                         var link = entry.LinkName.Replace('\\', '/');
-                        // 链接目标与条目名同等校验：绝对路径（跨平台口径含 Windows 盘符/UNC 形态——
-                        // Linux 上 StartsWith('/') 挡不住 "C:/evil"，而该 tar 可能随后在 Windows 解出）
-                        // 或 ".." 目标的链接可把后续普通文件条目经链接写穿到目标目录外（同上游包被
-                        // 篡改时的纵深防御）
-                        if (!IsEscapingLinkTarget(link))
+                        // 链接目标按「链接所在目录 + 目标」词法归一后必须落在解压根内：绝对路径
+                        // （含 Windows 盘符/UNC 形态）或上跳出根的相对目标可把后续普通文件条目
+                        // 经链接写穿到目标目录外（同上游包被篡改时的纵深防御）；根内的相对上跳
+                        // 目标（wine prefix 内部链接）合法，见 IsLinkEscapingDestination 注释
+                        if (!IsLinkEscapingDestination(destinationDir, key, link))
                         {
                             deferredLinks.Add((key, entry.LinkName, entry.EntryType));
                         }
@@ -1133,15 +1134,36 @@ public sealed class UmuComponentProvisioner(
         }
     }
 
-    /// <summary>tar 链接目标的穿越判定（纯函数，internal 供直测）：绝对路径（含 Windows
-    /// 盘符 <c>C:/…</c> 与 UNC <c>//server/…</c> 形态，按跨平台口径而非当前主机）或含 ".." 段
-    /// 即逃逸。F11（2026-09-24）：旧实现只挡 StartsWith('/')，盘符/UNC 目标在 Linux 上放行。</summary>
-    internal static bool IsEscapingLinkTarget(string normalizedLink) =>
-        normalizedLink.Length > 0 && normalizedLink[0] == '/'
-        || (normalizedLink.Length >= 2
-            && char.IsAsciiLetter(normalizedLink[0])
-            && normalizedLink[1] == ':')
-        || normalizedLink.Split('/').Contains("..");
+    /// <summary>tar 链接是否逃逸解压根（纯函数，internal 供直测）。绝对目标（POSIX /、
+    /// Windows 盘符 <c>C:\</c>、UNC <c>//</c>，按跨平台口径而非当前主机）一律逃逸；相对目标按
+    /// 「链接所在目录 + 目标」纯词法归一，落在解压根内即合法——含 ".." 但仍在根内的相对目标
+    /// 是 wine prefix 的正常形态（dosdevices/c: → ../drive_c、default_pfx DLL →
+    /// ../../../../lib/wine/…/x.dll），不得拒绝：F11 的「含 .. 即拒」曾把 dwproton-11.0-13
+    /// default_pfx 的全部 DLL 链接静默丢弃，proton 初始化 prefix 即崩（2026-09-28 实锤）。
+    /// <paramref name="normalizedLink"/> 须已做反斜杠归一（调用方口径）。</summary>
+    internal static bool IsLinkEscapingDestination(string destinationDir, string entryName, string normalizedLink)
+    {
+        if (normalizedLink.Length == 0)
+        {
+            return false;
+        }
+
+        if (normalizedLink[0] == '/')
+        {
+            return true;
+        }
+
+        if (normalizedLink.Length >= 2 && char.IsAsciiLetter(normalizedLink[0]) && normalizedLink[1] == ':')
+        {
+            return true;
+        }
+
+        var linkDir = Path.GetDirectoryName(Path.Combine(destinationDir, entryName));
+        var root = Path.GetFullPath(destinationDir);
+        var resolved = Path.GetFullPath(Path.Combine(linkDir ?? root, normalizedLink));
+        return resolved != root
+            && !resolved.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal);
+    }
 
     /// <summary>按魔数选择解压流：gzip → GZipStream，xz → XZStream，其余按未压缩 tar 原样透传。</summary>
     private static Stream OpenDecompressedStream(FileStream raw)
