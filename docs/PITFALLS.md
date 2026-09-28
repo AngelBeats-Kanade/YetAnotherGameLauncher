@@ -29,6 +29,8 @@
 - **直调 Proton 内置 wine（`<proton>/files/bin/wine`，不经 `proton run`/umu 容器）时 freetype 库路径未配置**：GDI 字体枚举不可用（每次 wine 调用打 "cannot find the FreeType font library" 告警），但**注册表读写（reg import/query）与 wineboot 前缀初始化不受影响**（2026-09-27 dwproton-11.0-13 真机实测）。依赖安装只需读写注册表与文件系统，故直调可行；需要字体渲染/GDI 的场景必须走 umu/Proton 完整容器环境。
 - **`WINEDLLOVERRIDES=mscoree,mshtml=`（等号结尾 = 禁用）防 wine 首次触碰 prefix 时弹 mono/gecko 安装框**：无人值守进程里弹框即挂起。依赖安装器对每次 wine 调用都带上，属纵深防御（prefix 已由游戏首启初始化时通常不会触发）。
 - **wine 拒绝在非本用户所有的目录创建 prefix**（"'/tmp' is not owned by you, refusing to create a configuration directory there"，owner 安全检查；sticky 目录即触发）——测试/脚本把 WINEPREFIX 指向 `/tmp` 会静默失败（exit 0 但 prefix 没建），必须放家目录或校验 `drive_c` 是否真的出现。
+- **umu/steamrt 容器内的 locale：宿主 LANG 原样穿透，且宿主 locale 数据在容器内可用**（2026-09-29 实测）——pressure-vessel 的 "Using glibc from provider system … Arbitrarily using provider locales" 警告只关乎混合架构 glibc 的选择面，**不代表宿主 locale 不可用**：容器内 `/usr/bin/locale -a` 实列 zh_CN.utf8 且全类别解析为 zh_CN。排查游戏内编码问题先经 `_v2-entry-point -- <命令>` 在容器内跑 `locale`/`printenv` 实测，不要望警告文生义。
+- **Wine 的运行时 ANSI/OEM 代码页由 glibc 生效 locale 推导，prefix 注册表里的 `Nls\CodePage`（ACP/OEMCP）与 `Nls\Language`/`Nls\Locale` 都是写出值而非读入值**（2026-09-29 实测：ntdll init_locale 经 `setlocale(LC_CTYPE/LC_MESSAGES)` → locale.nls 表映射，注册表只是同步落盘的 artifact；把 `Nls\Language`/`Nls\Locale` 0409 改 0804 对游戏行为无影响，对照实验见 bugs.md F58）。观测容器内 Wine 实际代码页的技巧：`wine cmd /c chcp` 的**消息语言与输出编码**是 locale/CP_ACP 的直接观测面（管道重向下打印的页码数字不可信）。
 
 ## 4. 研究与取证
 
