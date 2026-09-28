@@ -350,6 +350,38 @@ public sealed class UmuArchiveExtractionTests : IDisposable
     }
 
     [Fact]
+    public void ExtractTarArchive_RootLevelLink_IsSkipped()
+    {
+        // review F12：根级链接一律不创建（有顶层目录的包不随顶层挪入、平铺包整根挪，
+        // 两种落位取舍相反，保守不创建）。链接名单字符是有意的：去掉 continue 的变异下
+        // key[..-1] 对单字符名为空串、边界退化解压根，链接会被创建——测试才能红（变异可杀）
+        var archive = WriteTarGz(writer =>
+        {
+            var target = new UstarTarEntry(TarEntryType.RegularFile, "t.txt");
+            target.DataStream = new MemoryStream("root"u8.ToArray());
+            writer.WriteEntry(target);
+            var link = new UstarTarEntry(TarEntryType.SymbolicLink, "l");
+            link.LinkName = "t.txt";
+            writer.WriteEntry(link);
+
+            var top = new UstarTarEntry(TarEntryType.Directory, "Top");
+            writer.WriteEntry(top);
+            var keep = new UstarTarEntry(TarEntryType.RegularFile, "Top/keep.txt");
+            keep.DataStream = new MemoryStream("keep"u8.ToArray());
+            writer.WriteEntry(keep);
+        });
+
+        var dest = _temp.FilePath("out");
+        UmuComponentProvisioner.ExtractTarArchive(archive, dest);
+
+        Assert.False(
+            File.Exists(Path.Combine(dest, "l")),
+            "根级链接的落位取舍在两种包形态下相反，保守不创建");
+        Assert.Equal("root", File.ReadAllText(Path.Combine(dest, "t.txt")));
+        Assert.Equal("keep", File.ReadAllText(Path.Combine(dest, "Top", "keep.txt")));
+    }
+
+    [Fact]
     public void ExtractTarArchive_LinkInSecondTopLevel_IsCreated()
     {
         // review F6：链接合法边界按「自身所在顶层目录」判定（与落位挪动顺序无关）——
