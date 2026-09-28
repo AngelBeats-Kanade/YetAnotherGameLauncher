@@ -1079,18 +1079,16 @@ public sealed class UmuComponentProvisioner(
     /// 按 tar 头还原 Unix 权限位（SharpCompress 的解压不保留执行位，Proton/Runtime 树离开执行位无法启动）；
     /// 符号链接按原样创建，硬链接条目无数据、退化为指向目标的符号链接；链接条目统一延迟到
     /// 普通文件全部落盘后创建（tar 允许硬链接先于目标出现，单趟形态会静默丢失链接路径——
-    /// 次级 suspect 第 9 轮）。逃逸链接条目（目标绝对路径 / 词法归一后落在解压根外）静默拒绝，
-    /// 根内的相对上跳链接照常创建（见 IsLinkEscapingDestination）；普通文件与
-    /// 目录的 IO 失败照常抛出（由调用方按下载失败分类，非 tar -x 式全条目容错）。
+    /// 次级 suspect 第 9 轮）。三类链接条目静默拒绝：目标绝对路径、词法归一后落在解压根外、
+    /// 有顶层目录的包内跨顶层或指向上级（落位只挪顶层目录，这些链接 Move 后漂出安装树）；
+    /// 顶层内的相对上跳链接（wine prefix 形态）照常创建（见 IsLinkEscapingDestination）；
+    /// 普通文件与目录的 IO 失败照常抛出（由调用方按下载失败分类，非 tar -x 式全条目容错）。
     /// xz 容器仍用 SharpCompress 的 XZStream（BCL 无 XZ 解码）。
     /// </summary>
     internal static void ExtractTarArchive(string archivePath, string destinationDir)
     {
         Directory.CreateDirectory(destinationDir);
         var deferredLinks = new List<(string Key, string LinkName, TarEntryType Type)>();
-        // 顶层目录集：ExtractSingleTopLevel / 运行时落位只把顶层目录挪进最终位置（无顶层目录
-        // 的平铺包才整体挪根）——链接创建的合法边界因此是「顶层目录」而非解压根（review F1）
-        var topLevelDirs = new SortedSet<string>(StringComparer.Ordinal);
         using (var raw = File.OpenRead(archivePath))
         using (var decompressed = OpenDecompressedStream(raw))
         using (var reader = new TarReader(decompressed))
@@ -1102,16 +1100,6 @@ public sealed class UmuComponentProvisioner(
                 if (Path.IsPathRooted(key) || key.Split('/').Contains(".."))
                 {
                     continue;
-                }
-
-                var slash = key.IndexOf('/');
-                if (slash > 0)
-                {
-                    topLevelDirs.Add(key[..slash]);
-                }
-                else if (entry.EntryType == TarEntryType.Directory)
-                {
-                    topLevelDirs.Add(key);
                 }
 
                 switch (entry.EntryType)
@@ -1143,29 +1131,29 @@ public sealed class UmuComponentProvisioner(
 
         // 链接统一在普通文件全部落盘后创建：此时硬链接目标必然已解出（真缺失的条目由
         // TryCreateLink 的存在性检查跳过），乱序包不再静默丢文件。
-        // 有顶层目录时合法边界收敛为「顶层目录」：落位只挪顶层目录，跨顶层/指向上级的
-        // 链接 Move 后会漂出安装树，直接不创建（反正落位时也会被丢弃）（review F1）
-        var installedRoot = topLevelDirs.Count > 0
-            ? Path.GetFullPath(Path.Combine(destinationDir, topLevelDirs.Min!))
-            : null;
+        // 落位只挪顶层目录（平铺包才整根挪）：链接的合法边界取「自身所在顶层目录」——
+        // 与挪动顺序无关，跨顶层/指向上级/根级散件的链接 Move 后漂出安装树，不创建
+        // （review F1/F6）。逃逸判定按路径段（".." 开头的合法名如 "..foo" 不误拒）（review F5）
         foreach (var (key, linkName, type) in deferredLinks)
         {
             var linkPath = Path.Combine(destinationDir, key);
-            if (installedRoot is not null)
+            var slash = key.IndexOf('/');
+            if (slash <= 0)
             {
-                if (!key.Contains('/'))
-                {
-                    continue; // 根级散件不随顶层目录挪入，链接落了也会被丢弃
-                }
+                // 根级链接：有顶层目录的包不随顶层挪入（落了也丢）；平铺包不含根级链接的正常
+                // 形态——两种落位取舍相反，保守不创建（review F6）
+                continue;
+            }
 
-                var linkDir = Path.GetDirectoryName(linkPath)!;
-                var resolved = Path.GetFullPath(
-                    Path.Combine(linkDir, linkName.Replace('\\', '/')));
-                var relativeToTop = Path.GetRelativePath(installedRoot, resolved);
-                if (relativeToTop.StartsWith("..", StringComparison.Ordinal))
-                {
-                    continue;
-                }
+            var boundary = Path.Combine(destinationDir, key[..slash]);
+            var linkDir = Path.GetDirectoryName(linkPath)!;
+            var resolved = Path.GetFullPath(Path.Combine(linkDir, linkName.Replace('\\', '/')));
+            var relativeToBoundary = Path.GetRelativePath(boundary, resolved);
+            if (relativeToBoundary == ".."
+                || relativeToBoundary.StartsWith(
+                    ".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            {
+                continue;
             }
 
             TryCreateLink(linkPath, linkName, type);

@@ -316,7 +316,7 @@ public sealed class UmuArchiveExtractionTests : IDisposable
     public void ExtractTarArchive_CrossTopLevelLinks_AreNotCreated()
     {
         // review F1：落位只把顶层目录挪进最终位置——跨顶层/指向上级的链接 Move 后漂出
-        // 安装树（同级顶层文件、解压根），守卫须在创建阶段就拒绝
+        // 安装树，守卫须在创建阶段就拒绝
         var archive = WriteTarGz(writer =>
         {
             var sibling = new UstarTarEntry(TarEntryType.RegularFile, "sibling.txt");
@@ -348,6 +348,61 @@ public sealed class UmuArchiveExtractionTests : IDisposable
             "指向上级目录的链接 Move 后漂出安装树，不应落盘");
         Assert.Equal("keep", File.ReadAllText(Path.Combine(dest, "Top", "keep.txt")));
     }
+
+    [Fact]
+    public void ExtractTarArchive_LinkInSecondTopLevel_IsCreated()
+    {
+        // review F6：链接合法边界按「自身所在顶层目录」判定（与落位挪动顺序无关）——
+        // 多顶层包里非首个顶层内的链接不得因全局边界选了别的顶层而被误拒
+        var archive = WriteTarGz(writer =>
+        {
+            var dirA = new UstarTarEntry(TarEntryType.Directory, "A");
+            writer.WriteEntry(dirA);
+            var fileA = new UstarTarEntry(TarEntryType.RegularFile, "A/f");
+            fileA.DataStream = new MemoryStream("af"u8.ToArray());
+            writer.WriteEntry(fileA);
+            var linkA = new UstarTarEntry(TarEntryType.SymbolicLink, "A/lnk");
+            linkA.LinkName = "f";
+            writer.WriteEntry(linkA);
+
+            var dirB = new UstarTarEntry(TarEntryType.Directory, "B");
+            writer.WriteEntry(dirB);
+            var fileB = new UstarTarEntry(TarEntryType.RegularFile, "B/keep");
+            fileB.DataStream = new MemoryStream("keep"u8.ToArray());
+            writer.WriteEntry(fileB);
+            var linkB = new UstarTarEntry(TarEntryType.SymbolicLink, "B/x");
+            linkB.LinkName = "keep";
+            writer.WriteEntry(linkB);
+        });
+
+        var dest = _temp.FilePath("out");
+        UmuComponentProvisioner.ExtractTarArchive(archive, dest);
+
+        Assert.Equal("af", File.ReadAllText(Path.Combine(dest, "A", "lnk")));
+        Assert.Equal("keep", File.ReadAllText(Path.Combine(dest, "B", "x")));
+    }
+
+    [Fact]
+    public void ExtractTarArchive_LinkTargetStartingWithDotDot_IsCreated()
+    {
+        // review F5：相对落点判定按路径段——"..foo" 是合法 POSIX 文件名，不得因
+        // StartsWith("..") 被误判逃逸
+        var archive = WriteTarGz(writer =>
+        {
+            var target = new UstarTarEntry(TarEntryType.RegularFile, "Top/..foo");
+            target.DataStream = new MemoryStream("v"u8.ToArray());
+            writer.WriteEntry(target);
+            var link = new UstarTarEntry(TarEntryType.SymbolicLink, "Top/x");
+            link.LinkName = "..foo";
+            writer.WriteEntry(link);
+        });
+
+        var dest = _temp.FilePath("out");
+        UmuComponentProvisioner.ExtractTarArchive(archive, dest);
+
+        Assert.Equal("v", File.ReadAllText(Path.Combine(dest, "Top", "x")));
+    }
+
 
     /// <summary>用 System.Formats.Tar 造 tar.gz 包（与线上 .tar.gz 同为 ustar 条目）。</summary>
     private string WriteTarGz(Action<TarWriter> build)
