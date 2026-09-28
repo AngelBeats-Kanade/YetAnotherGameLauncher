@@ -186,7 +186,7 @@
   "deps_error_unexpected": "Install failed: {0}",
   "deps_error_unhealthy": "Prefix built-in links are broken (left over from a compat-tool upgrade) and auto-repair is incomplete: update the compat tool and retry, or delete this game's prefix to recreate it.",
   "deps_cjk-fonts_name": "CJK fonts (Source Han Sans)",
-  "deps_cjk-fonts_desc": "Installs Simplified/Traditional/Japanese/Korean Source Han Sans and maps system font names (SimSun, YaHei, MS Gothic, …) onto them to fix garbled text under Wine.",
+  "deps_cjk-fonts_desc": "Installs Simplified/Traditional/Japanese/Korean Source Han Sans and maps system font names (SimSun, YaHei, MS Gothic, …) onto them to fix tofu-box garbled text caused by missing glyphs under Wine.",
   "theme_dark": "Dark",
   "theme_light": "Light",
   "theme_system": "Follow System",
