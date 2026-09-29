@@ -99,12 +99,17 @@ public class HpatchzApplierTests : IDisposable
         // review P1（本批 F63 首版实锤）：无条件翻倍全部反斜杠后，.NET 分词器对非引号前的
         // `\\` 原样保留——`C:\old` 被传成 `C:\\old`（Windows 全路径形态必错）、尾随 `\`
         // 折叠成字面引号。正确算法 = 引号前的连续 `\` 翻倍、其余原样。
-        // 断言形态：分词还原（.NET Arguments 解析规则）后与原值相等
+        // 断言形态：分词还原后与原值相等。RoundTrip 是文档化分词语义的进程内复刻；
+        // 算法已经过真实启动链锚定（2026-09-29 集成探针：QuoteArg 产出经 Process.Start
+        // 启动子进程，五形态 argv 与输入逐字节一致——含 `C:\old`/`we"ird`/尾随 `\`/
+        // 含空格路径/`a\"b`），本用例为该锚定的回归钉
         Assert.Equal("\"C:\\old\"", HpatchzApplier.QuoteArg("C:\\old"));
         Assert.Equal("C:\\old", RoundTrip("C:\\old"));
         Assert.Equal("C:\\old trailing\\", RoundTrip("C:\\old trailing\\"));
         Assert.Equal("we\"ird", RoundTrip("we\"ird"));
         Assert.Equal("/tmp/plain", RoundTrip("/tmp/plain"));
+        Assert.Equal("/tmp/plain path", RoundTrip("/tmp/plain path"));
+        Assert.Equal("a\\\"b", RoundTrip("a\\\"b"));
     }
 
     /// <summary>.NET Arguments 分词还原（CommandLineToArgvW 完整语义）：引号开关；

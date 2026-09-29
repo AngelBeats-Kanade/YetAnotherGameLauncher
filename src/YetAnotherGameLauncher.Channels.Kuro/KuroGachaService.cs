@@ -50,9 +50,11 @@ public sealed partial class KuroGachaService(HttpClient httpClient, string? cach
     internal Action? BeforeSaveHookForTests { get; set; }
 
     /// <summary>跨实例串行化同一缓存文件的读-改-写（F62）：两个并发 MergeAndSave 各自
-    /// 载入-合并-整文件替换会互相覆盖丢更新。锁内固定名 .tmp 因此无撕裂面
-    /// （原 Guid 缝被串行化取代）。</summary>
-    private static readonly object CacheWriteLock = new();
+    /// 载入-合并-整文件替换会互相覆盖丢更新。按缓存目录分桶（review R12：进程级单锁会把
+    /// 不同目录的实例也过度串行化）；锁内固定名 .tmp 因此无撕裂面（原 Guid 缝被串行化取代）。</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, object> CacheWriteLocks = new(StringComparer.Ordinal);
+
+    private static object CacheLockFor(string cacheDirectory) => CacheWriteLocks.GetOrAdd(cacheDirectory, _ => new object());
 
     /// <summary>唤取记录页地址特征（出现在 Client.log 的行内）。</summary>
     [GeneratedRegex(@"https?://aki-gm-resources\.[^\s""`'/]+\.com/aki/gacha/index\.html[^\s""`']*")]
@@ -341,7 +343,7 @@ public sealed partial class KuroGachaService(HttpClient httpClient, string? cach
     {
         try
         {
-            lock (CacheWriteLock)
+            lock (CacheLockFor(CacheDirectory))
             {
                 Directory.CreateDirectory(CacheDirectory);
                 var merged = new Dictionary<string, GachaRecord>(StringComparer.Ordinal);
