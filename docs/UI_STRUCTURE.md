@@ -13,6 +13,8 @@
 - **整页与详情页大块均为 `Controls/` 下的 UserControl**（2026-09 提取：AboutPage/GachaPage/SettingsPage/GameSettingsPage/DetailActionDock/LaunchErrorOverlay；2026-09-29 增 GameDetailPage——MainWindow 内联的详情页模板整体迁出，五个页面模板全部一行引用，MainWindow 只留窗口骨架+侧栏）。提取约束：窗口骨架的具名元素不能动——`FindControl` 测试依赖 window namescope，UserControl 内名字只有视觉树搜索可见（GameDetailPage 的 PosterImage/ArtworkFallback/EmptyStateCard 全部走视觉树断言）。
 - **MainWindow 样式库在 `Themes/WindowStyles.axaml`**（2026-09-29 自 Window.Styles 迁出，经 `StyleInclude` 引用、作用域保持窗口级）：98 个选择器（按钮四态族/卡片/侧栏/覆盖层/导航动画等）；按钮/图标圆角 10 收敛为该字典 `Styles.Resources` 内的 `ButtonCornerRadius` 令牌（卡片/操作坞/chips 仍为字面 14）；四态按钮族的 presenter 下沉语义逐字保留（skills avalonia-ui 坑 9）。 MainWindow.axaml 只剩窗口骨架（291 行）。
 - XAML 引用 C# 常量须 `x:Static`，编译绑定不解析 const。
+- **应用背景层 `Controls/AppBackdrop`**（2026-09-29 补记）：四层 Panel——`AppBackdropBaseBrush` 主题渐变 → `AppBackdropGlowBrush` 光晕 → `AppBackdropGlowWarmBrush` 暖光晕（两光晕 Margin 由宿主 `GlowMargin` StyledProperty 决定，窗口骨架传 `0,46,0,0` 避开标题色带、页面板内缺省全出血）→ 自定义背景图 `UniformToFill`（`AppBackgroundImage` 非空时覆盖前二层）。窗口级与 BootSplash、页面板内各一枚。
+- **窗口自绘标题三钮**（2026-09-29 补记）：右上 `StackPanel`（Margin 0,4,8,0）内 `CaptionMinimize`/`CaptionMaximize`/`CaptionClose` 三钮，`caption-btn` 样式 46×34 圆角 8、透明底、hover `AppSidebarHover`（close hover 红 `#E81123` + 白前景）；`MaximizeIcon`/`RestoreIcon` 两个 Path 的可见性由 `IsWindowMaximized` 驱动、tooltip 随态切换（`window_maximize`/`window_restore`）。x:Name 五枚被代码后置与 headless 测试按 window namescope `FindControl` 引用——**留在窗口文件内，不得提取为 UserControl**。
 
 ## 2. 侧栏与导航指示点
 
@@ -66,3 +68,21 @@
 ## 6. 关于页
 
 - 信息卡带项目主页出口：`AboutViewModel.OpenProjectHomeCommand` → `IPlatformInfo.OpenInBrowser`（xdg-open/shell 关联），URL 常量 `AboutViewModel.ProjectHomeUrl`（评审 P3-15）。按钮为 GitHub 官方 mark 16px 幽灵图标钮（`ghost-home` 类复用 icon-btn 幽灵底：常态辅助色、hover 显微亮底转 accent；完整 URL 收进 ToolTip）——带底描边胶囊/整串 URL 文字两版均被用户否决（信息卡纯文本行内唯一带底控件即"突兀"，2026-09-25 用户定稿图标形态）。
+
+## 7. 应用设置页（Controls/SettingsPage.axaml）
+
+- 根 `Border.page` + `ScrollViewer` + `StackPanel MaxWidth=720 Spacing=16`，28px 页标题。五张 `card` 卡自上而下（2026-09-29 补记，结构快照）：
+  ①**外观**：主题/语言两个 ComboBox 并排（`*,*` ColumnSpacing 24），`ThemeModes`/`Languages` 选项带 DisplayName 模板；hint caption。
+  ②**应用背景**：只读 TextBox（`AppBackgroundPath`）+ 浏览/恢复两钮 + `AppBackgroundSave` 消息槽。
+  ③**下载**：安装根目录行（`InstallRootBox` + inline 浏览钮，`*,Auto` ColumnSpacing 12——评审 P2-5 与游戏设置页位置卡同款）+ `InstallRootSave` 槽；限速行（TextBox 宽 140 + 保存钮 + `SpeedLimitSave` 槽）；自启 ToggleSwitch（On/Off 文案本地化）+ `AutostartSave` 槽。**四槽互不复用**（各自 SaveMessageSlot 实例）。
+  ④**网络（代理）**：`ProxyCard` 具名（截图测试滚动定位）——三个 RadioButton（跟随系统/直连/手动，GroupName=proxy）+ 地址 TextBox（`ProxyAddressBox`，缩进 24，`IsEnabled=IsProxyAddressEnabled`）+ 保存钮 + `ProxySave` 槽。`InstallRootBox`/`ProxyAddressBox` 具名供窗口级 Enter 处理器按名分发。
+  ⑤**配置文件**：路径只读展示（13px 辅助色 Wrap）+ 打开所在目录钮。
+  底部"返回游戏" `back-btn`。
+
+## 8. 唤取记录页（Controls/GachaPage.axaml）
+
+- 根 `Border.page` + `ScrollViewer` + `StackPanel MaxWidth=760 Spacing=16`（2026-09-29 补记）。标题行：28px「唤取记录」+ 18px 游戏名（辅助色）。三块：
+  ①**拉取与筛选**条（card，Padding 16,12）：`*,Auto,Auto` 三列——StatusText（13px 辅助色 Wrap）/ 池子 ComboBox（MinWidth 170）/ 刷新钮（`glass-onart pressable`，插画上按钮族复用）。
+  ②**统计卡行**：`*,*,*,*` 四等分 card（Padding 16,8）——总计/五星/四星/距上次五星，数值 24px Bold；五星金 `AppGachaRare5`、四星紫 `AppGachaRare4`（对比度门禁管辖）。
+  ③**记录列表**：ItemsControl（`gacha-rare5/4` Classes 着色稀有度列宽 28，名称中列，时间右列 12px 辅助色）。
+  底部"返回游戏" `back-btn`（回详情页）。

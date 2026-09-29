@@ -101,7 +101,10 @@ public async Task Window_Shows_Items()
   （RunJobs 泵，先例 `BackgroundImageServiceTests.RunToCompletion`、
   `MainWindowChromeHeadlessTests.PersistedMaximizedState_AppliedWhenCatalogLoads`）。
 - `Progress<T>` 回调异步投递且**不保证顺序**：测试收集必须用 `ConcurrentQueue` + `SpinWait.SpinUntil`
-  等待期望值，禁止断言"最后一条"（本项目踩过的 flaky 根因）。
+  等待期望值，禁止断言"最后一条"（本项目踩过的 flaky 根因）。**终值断言要等"稳定期"**（2026-09-29
+  四次 flake 观测沉淀，`GameItemProgressTests`）：报告在**产生端**就乱序（并行下载线程的
+  Downloading 报告可晚于 Done 报告发出），迟到的中间态报告会把已落地的"完成"覆盖回下载文案——
+  只判"出现过终值"会被翻掉；正确形态 = 轮询直到终值**持续 200ms 不变**才断言，中途被覆盖则重置计时。
 - **xunit.v3 自带 runner 的 `-method`/`-class` 过滤器对部分用例名静默失灵（Total:0 假象）**（2026-09-25
   一次会话踩三次）：`-method "全名"` 返回 Total:0 但用例实际存在且全量可跑。判定"测试是否存在/被发现"
   以全量运行 + `-xml` 输出核对为准；为 Total:0 长时间推演（怀疑陈旧 bin、怀疑类重复）都是浪费。
