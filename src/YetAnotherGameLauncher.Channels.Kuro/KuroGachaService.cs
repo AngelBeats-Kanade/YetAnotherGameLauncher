@@ -360,7 +360,7 @@ public sealed partial class KuroGachaService(HttpClient httpClient, string? cach
                 var sorted = merged.Values.OrderByDescending(r => r.Time).ToList();
                 BeforeSaveHookForTests?.Invoke();
                 // 原子写：先写固定名 .tmp 再改名，写一半崩溃不损坏既有缓存（保持 Sync 语义：
-                // 调用方为同步管线）；固定名的并发撕裂面由 CacheWriteLock 串行化消除（F62）
+                // 调用方为同步管线）；固定名的并发撕裂面由缓存目录锁桶串行化消除（F62）
                 var cachePath = Path.Combine(CacheDirectory, CacheFileName);
                 var tempPath = cachePath + ".tmp";
                 try
