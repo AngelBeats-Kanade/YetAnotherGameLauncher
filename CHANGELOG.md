@@ -3,6 +3,22 @@
 所有对外可感知的变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.3] — 未发布
+
+### 新增
+
+（随批次填充。）
+
+---
+
+### English · 0.1.3 — unreleased
+
+**Added**
+
+(To be filled along with the release.)
+
+---
+
 ## [0.1.2] — 2026-09-21
 
 v0.1.1 之后的功能版本：背景视频体验全面改造（启动遮蔽预载、切页/切游戏保活不重启、
