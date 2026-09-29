@@ -4,7 +4,7 @@ using YetAnotherGameLauncher.Core.Services;
 
 namespace YetAnotherGameLauncher.Core.Tests.Services;
 
-/// <summary>代理管理器三态切换：System 走系统默认、None 直连、Manual 指定地址（非法地址退回 System）。</summary>
+/// <summary>代理管理器三态切换：System 走系统默认、None 直连、Manual 指定地址（非法地址按直连处理并告警，F75）。</summary>
 public class NetworkProxyManagerTests
 {
     [Fact]
@@ -42,13 +42,16 @@ public class NetworkProxyManagerTests
     }
 
     [Fact]
-    public void Apply_ManualWithInvalidAddress_FallsBackToSystem()
+    public void Apply_ManualWithInvalidAddress_FallsBackToDirectNotSystem()
     {
+        // F75 改判（原"退回 System"契约废弃）：Manual 且地址非法是用户意图不可读——
+        // 静默漂移成"跟随系统"是意图的反面（配置代理通常正是为了绕开系统代理），
+        // 按直连处理；SaveAsync 校验拦新写入，此处只兜存量坏值/手改
         var manager = new NetworkProxyManager();
 
         manager.Apply(new AppSettings { ProxyMode = ProxyMode.Manual, ProxyAddress = "not-a-proxy" });
 
-        Assert.True(manager.Handler.UseProxy);
+        Assert.False(manager.Handler.UseProxy);
         Assert.Null(manager.Handler.Proxy);
     }
 }

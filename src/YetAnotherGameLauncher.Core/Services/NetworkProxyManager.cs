@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.Extensions.Logging;
 using YetAnotherGameLauncher.Core.Models;
 
 namespace YetAnotherGameLauncher.Core.Services;
@@ -7,7 +8,7 @@ namespace YetAnotherGameLauncher.Core.Services;
 /// 出站网络代理管理器：持有全局唯一的 <see cref="SocketsHttpHandler"/>，按设置切换代理；
 /// HttpClient 可运行时改写 Proxy —— 设置保存后即时生效，无需重启（与限速的动态生效模式一致）。
 /// </summary>
-public sealed class NetworkProxyManager
+public sealed class NetworkProxyManager(ILogger? logger = null)
 {
     /// <summary>共享底层 handler：所有 HttpClient（版本/下载/背景/渠道）共用，保证代理一处生效。</summary>
     public SocketsHttpHandler Handler { get; } = new()
@@ -30,6 +31,15 @@ public sealed class NetworkProxyManager
                 && proxy.Scheme is "http" or "https":
                 Handler.Proxy = new WebProxy(proxy);
                 Handler.UseProxy = true;
+                break;
+            case ProxyMode.Manual:
+                // Manual 且地址非法（存量坏值/手改配置，SaveAsync 校验只拦新写入）：不得静默
+                // 漂移成 default 臂的"跟随系统"（F75）——按直连处理并留告警
+                logger?.LogWarning(
+                    "Invalid manual proxy address configured: {Address}; falling back to direct connection.",
+                    settings.ProxyAddress);
+                Handler.Proxy = null;
+                Handler.UseProxy = false;
                 break;
             default:
                 // System：交给系统默认解析（UseProxy=true 且不指定 Proxy）

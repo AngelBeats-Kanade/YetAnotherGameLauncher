@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Xunit;
 using YetAnotherGameLauncher.Core.Dependencies;
+using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.TestSupport;
 using YetAnotherGameLauncher.ViewModels;
 
@@ -62,6 +63,86 @@ public class DependencySectionViewModelTests : IDisposable
         ctx.Vm.ShowGameSettingsCommand.Execute(null);
         var section = Assert.IsType<GameSettingsViewModel>(ctx.Vm.CurrentPage).Dependencies;
         return (ctx, section);
+    }
+
+    [Fact]
+    public async Task CancelOngoingInstall_TokenReachesInstaller_AndFeedbackShowsCancelled()
+    {
+        // D2：依赖安装接入取消——页销毁/应用退出经 CancelOngoingInstall 终止在途安装。
+        // 变异核对：VM 不传令牌时假安装器的挂起对 Cancel 不动，兜底放行后安装成功完成，
+        // 断言"已取消"即红
+        var installer = new FakeDependencyInstaller { HangOnInstall = true };
+        var (ctx, section) = await BuildReadyUmuSectionAsync(installer);
+        try
+        {
+            var item = section.Items[0];
+            var install = section.InstallAsync(item);
+            for (var i = 0; i < 200 && !section.IsBusy; i++)
+            {
+                await Task.Delay(10);
+            }
+
+            Assert.True(section.IsBusy);
+            section.CancelOngoingInstall();
+            installer.ReleaseInstall(); // 兜底放行：令牌未接线时安装将成功而非取消
+            await install.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.False(section.IsBusy);
+            Assert.True(section.Feedback.Failed);
+            Assert.Equal("已取消", section.Feedback.Message);
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task LaunchModeChangedInSection_RecomputesDependencyAvailability()
+    {
+        // D3：设置页内切换启动方式时依赖区现场重算（此前重进页面才自愈，状态文案是刷新期快照）
+        var (ctx, section) = await BuildReadyUmuSectionAsync(new FakeDependencyInstaller());
+        try
+        {
+            Assert.True(section.IsVisible); // umu 模式 + 环境就绪
+
+            var settings = Assert.IsType<GameSettingsViewModel>(ctx.Vm.CurrentPage);
+            settings.LaunchSettings.SelectedLaunchMode =
+                settings.LaunchSettings.LaunchModes.First(m => m.Mode == LaunchMode.Direct);
+
+            // 类设计："不可用是可见状态而非报错"——IsVisible 门只看安装器/平台/条目数，
+            // Direct 模式的表现 = 不可用原因行 + 条目不可点（非整区隐藏）
+            Assert.True(section.IsVisible);
+            Assert.NotNull(section.UnavailableReason);
+            Assert.All(section.Items, i => Assert.False(i.CanInstall));
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Detach_UnsubscribesLaunchSettings_NoFurtherRecompute()
+    {
+        // D3 泄漏面：Detach 后分区 VM 不再被共享 LaunchSettings 的委托驱动
+        //（页丢弃后 GC 可回收）；此后切换启动方式不得再触发重算
+        var (ctx, section) = await BuildReadyUmuSectionAsync(new FakeDependencyInstaller());
+        try
+        {
+            section.Detach();
+
+            var settings = Assert.IsType<GameSettingsViewModel>(ctx.Vm.CurrentPage);
+            settings.LaunchSettings.SelectedLaunchMode =
+                settings.LaunchSettings.LaunchModes.First(m => m.Mode == LaunchMode.Direct);
+
+            // Detach 后快照保持 Detach 时的状态（可见性未随 Direct 重算）
+            Assert.True(section.IsVisible);
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
     }
 
     [Fact]

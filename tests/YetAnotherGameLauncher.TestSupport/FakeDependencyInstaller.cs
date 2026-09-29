@@ -50,8 +50,12 @@ public sealed class FakeDependencyInstaller : IDependencyInstaller
         if (HangOnInstall)
         {
             _hangGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            await _hangGate.Task;
+            // F50①/D2：挂起期间响应取消令牌（镜像真实安装器的可取消语义）——
+            // VM 未接线令牌时本等待对 Cancel 不动，取消测试据此变红
+            await _hangGate.Task.WaitAsync(cancellationToken);
         }
+
+        CancelledObserved = cancellationToken.IsCancellationRequested;
 
         if (ThrowRaw is { } raw)
         {
@@ -65,4 +69,7 @@ public sealed class FakeDependencyInstaller : IDependencyInstaller
 
         MarkInstalled = true;
     }
+
+    /// <summary>InstallAsync 收尾时观察到的令牌取消状态（D2 令牌接线断言用）。</summary>
+    public bool CancelledObserved { get; private set; }
 }

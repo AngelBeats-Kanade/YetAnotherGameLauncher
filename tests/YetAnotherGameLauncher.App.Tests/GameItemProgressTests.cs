@@ -61,24 +61,30 @@ public class GameItemProgressTests : IDisposable
 
         await wuwa.InstallOrUpdateCommand.ExecuteAsync(null);
 
-        // 排空等待：终值"完成"出现且历史连续两轮无新增（Progress 回调落地时机不定，等队列安静）
+        // 排空等待：终值"完成"出现且稳定 200ms 不被覆盖（F55 三次观测实锤：Progress 报告在
+        // 产生端乱序——并行文件的 Downloading 报告可晚于 Done 落地，把"完成"覆盖回下载文案；
+        // 只判"出现过完成"会被迟到的下载报告翻掉，须等稳定期）
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        var lastCount = -1;
+        var stableSince = DateTime.MinValue;
         while (DateTime.UtcNow < deadline)
         {
-            int count;
-            lock (phaseHistory)
+            if (wuwa.ProgressText == "完成")
             {
-                count = phaseHistory.Count;
+                if (stableSince == DateTime.MinValue)
+                {
+                    stableSince = DateTime.UtcNow;
+                }
+                else if (DateTime.UtcNow - stableSince >= TimeSpan.FromMilliseconds(200))
+                {
+                    break;
+                }
+            }
+            else
+            {
+                stableSince = DateTime.MinValue; // 被迟到的下载报告覆盖：重新计时
             }
 
-            if (wuwa.ProgressText == "完成" && count == lastCount)
-            {
-                break;
-            }
-
-            lastCount = count;
-            await Task.Delay(50);
+            await Task.Delay(25);
         }
 
         Assert.Equal("完成", wuwa.ProgressText);

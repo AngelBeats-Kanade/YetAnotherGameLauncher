@@ -238,6 +238,9 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>页面切换时触发：转发通知给依赖 CurrentPage 的侧栏高亮与选中项绑定，并驱动背景视频起停。
     /// 播放器按游戏独占，切页（游戏页 ↔ 游戏页 / 游戏页 ↔ 非游戏页）一律暂停保活——解码泊车、
     /// 帧保留，重进即时续播；只有保活淘汰（超上限）/关窗/退出/列表重建才全停清场。</summary>
+    /// <summary>当前打开的游戏设置页（D2+D3：离开该页时对其依赖区做生命周期收尾）。</summary>
+    private GameSettingsViewModel? _openSettingsPage;
+
     partial void OnCurrentPageChanged(object? value)
     {
         var gamePage = value as GameItemViewModel;
@@ -274,7 +277,24 @@ public partial class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsAboutNavActive));
         OnPropertyChanged(nameof(GameNavSelection));
         OnPropertyChanged(nameof(WindowTitle));
+
+        // D2+D3：离开游戏设置页时对其依赖区做生命周期收尾（取消在途安装 + 退订
+        // LaunchSettings 订阅）——分区 VM 随页丢弃，不得被共享 LaunchSettings 钉住
+        if (value is GameSettingsViewModel opened)
+        {
+            _openSettingsPage = opened;
+        }
+        else if (_openSettingsPage is { } leaving && !ReferenceEquals(value, leaving))
+        {
+            leaving.Dependencies.Detach();
+            _openSettingsPage = null;
+        }
     }
+
+    /// <summary>应用退出时取消在途依赖安装（D2 接线点）：下载/wine 子进程随令牌终止，
+    /// 副作用幂等；仅在设置页在途时存在可取消对象（安装入口只在设置页）。</summary>
+    public void CancelOngoingDependencyInstall() =>
+        (_openSettingsPage ?? CurrentPage as GameSettingsViewModel)?.Dependencies.CancelOngoingInstall();
 
     /// <summary>登记一个刚被暂停保活的游戏页并执行上限淘汰：最旧的保活会话被全停清场
     /// （帧位图/解码源释放；该游戏重进时凭已解析路径重新起播自愈）。</summary>

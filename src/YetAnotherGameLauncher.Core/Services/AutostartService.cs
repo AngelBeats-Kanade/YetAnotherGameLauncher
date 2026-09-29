@@ -1,4 +1,5 @@
 using YetAnotherGameLauncher.Core.Abstractions;
+using YetAnotherGameLauncher.Core.Utilities;
 
 namespace YetAnotherGameLauncher.Core.Services;
 
@@ -77,20 +78,21 @@ public sealed class LinuxAutostartService(
         Task.FromResult(File.Exists(DesktopFilePath(_home)));
 
     /// <inheritdoc/>
-    public Task SetEnabledAsync(bool enabled, CancellationToken cancellationToken = default)
+    public async Task SetEnabledAsync(bool enabled, CancellationToken cancellationToken = default)
     {
         var path = DesktopFilePath(_home);
         if (enabled)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(path, BuildDesktopContent(ExePath));
+            // 原子写（F74）：截断的 .desktop 会让自启静默失效，与全仓状态落盘防线对齐。
+            // 红测不可构造（原子性不可后验观测，故障注入缝不值得为 .desktop 搭建）——
+            // 按 F57 先例记为已接受验证面
+            await FileUtilities.WriteAtomicAsync(path, BuildDesktopContent(ExePath), cancellationToken).ConfigureAwait(false);
         }
         else if (File.Exists(path))
         {
             File.Delete(path);
         }
-
-        return Task.CompletedTask;
     }
 
     /// <summary>XDG autostart 桌面入口内容（纯函数便于测试）。</summary>

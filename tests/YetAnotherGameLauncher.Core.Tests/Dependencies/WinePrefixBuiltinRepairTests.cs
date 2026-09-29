@@ -121,6 +121,39 @@ public class WinePrefixBuiltinRepairTests : IDisposable
     }
 
     [Fact]
+    public void Repair_ConcurrentRacerFixedLinkBetweenDeleteAndCreate_CountsRepaired()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Skip("符号链接创建需要特权（Windows）");
+        }
+
+        // F50①：并发修复撞空——我们的 Delete 与建链之间，并发修复者已把链接改指新目标，
+        // 我们的建链 EEXIST 落入 catch。旧实现一律计 Unrepairable（伪报）→ 依赖安装预检
+        // 误报 PrefixUnhealthy；修复 = catch 内重查链接现状，已指向新目标按已修复计
+        var oldRoot = MakeProtonTree("proton-old", "x86_64-windows", "kernel32.dll");
+        var oldPath = Path.Combine(oldRoot, "files", "lib", "wine", "x86_64-windows", "kernel32.dll");
+        MakePrefixLink("system32", "kernel32.dll", oldPath);
+        Directory.Delete(oldRoot, recursive: true); // 悬空
+        var newRoot = MakeProtonTree("proton-new", "x86_64-windows", "kernel32.dll");
+        var candidate = Path.Combine(newRoot, "files", "lib", "wine", "x86_64-windows", "kernel32.dll");
+        WinePrefixBuiltinRepair.AfterLinkDeleteForTests = linkPath =>
+            File.CreateSymbolicLink(linkPath, candidate); // 并发者在竞态窗内抢先改指
+
+        try
+        {
+            var result = WinePrefixBuiltinRepair.RepairDangling(_temp.FilePath("prefix"), newRoot);
+
+            Assert.Equal(1, result.Repaired);
+            Assert.Equal(0, result.Unrepairable);
+        }
+        finally
+        {
+            WinePrefixBuiltinRepair.AfterLinkDeleteForTests = null;
+        }
+    }
+
+    [Fact]
     public void Repair_DanglingDirectoryTypeBuiltinLink_RelinksIntoCurrentTree()
     {
         if (OperatingSystem.IsWindows())

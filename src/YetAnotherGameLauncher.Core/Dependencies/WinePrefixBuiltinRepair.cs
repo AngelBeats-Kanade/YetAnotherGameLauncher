@@ -149,9 +149,15 @@ public static class WinePrefixBuiltinRepair
         return final is null || !final.Exists;
     }
 
+    /// <summary>测试缝：Delete 成功后、建链前调用（F50① 并发测试用它模拟并发修复者在
+    /// 竞态窗内抢先改指新目标）；生产为 null 零开销。</summary>
+    internal static Action<string>? AfterLinkDeleteForTests { get; set; }
+
     /// <summary>把链接重链到 root 下同相对路径（最后一个 /files/ 之后的部分不变）；
     /// 新目标存在才写（builtin 链接含目录形态——share/fonts 等段，须 File.Exists 与
-    /// Directory.Exists 同查，F73），重写期间的并发竞态按未修复计（消费方兜底方向安全）。</summary>
+    /// Directory.Exists 同查，F73）。并发修复撞空（Delete/建链竞态，F50①）：重查链接现状，
+    /// 已被并发者改指新目标按已修复计——撞空伪报 Unrepairable 会误触发 PrefixUnhealthy；
+    /// 仍非目标按未修复计（prune 侧保留旧版、安装器侧报可重试错误，兜底方向安全）。</summary>
     private static bool TryRewriteLink(string link, string oldTarget, string root)
     {
         var suffix = oldTarget[(oldTarget.LastIndexOf(ProtonFilesMarker, StringComparison.Ordinal)
@@ -165,13 +171,26 @@ public static class WinePrefixBuiltinRepair
         try
         {
             File.Delete(link);
+            AfterLinkDeleteForTests?.Invoke(link);
             File.CreateSymbolicLink(link, candidate);
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // 目标/目录不可写或并发修复撞空（Delete/建链竞态）：按未修复计——prune 侧保留
-            // 旧版、安装器侧报可重试错误，两个消费方向的兜底都是安全的
+            return AlreadyPointsAt(link, candidate);
+        }
+    }
+
+    /// <summary>链接当前是否已解析到目标（并发修复撞空后的现状复核）。</summary>
+    private static bool AlreadyPointsAt(string link, string candidate)
+    {
+        try
+        {
+            return File.ResolveLinkTarget(link, returnFinalTarget: true)?.FullName
+                == Path.GetFullPath(candidate);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
             return false;
         }
     }

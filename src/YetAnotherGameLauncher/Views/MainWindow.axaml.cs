@@ -173,6 +173,7 @@ public partial class MainWindow : Window
         {
             viewModel.PersistWindowState(Width, Height, _lastVisualMaximized == true);
             viewModel.StopBackdropVideo();
+            viewModel.CancelOngoingDependencyInstall(); // D2：退出终止在途依赖安装（副作用幂等）
         }
     }
 

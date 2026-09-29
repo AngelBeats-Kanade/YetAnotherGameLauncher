@@ -1126,9 +1126,12 @@ public partial class GameItemViewModel(
         {
             var summary = await updateService.PredownloadAsync(
                 _installDir, Game, SelectedServer, channel, Progress, cancellationToken);
-            // Core 短路（F66）返回 From==To 的空操作摘要：提示"已是目标版本"，
-            // 不显示"预下载完成…可随时应用"误导用户去找不存在的待应用预下载
-            message = summary.FromVersion == summary.ToVersion
+            // Core 短路（F66）返回空操作摘要：提示"已是目标版本"，不显示"预下载完成…可随时
+            // 应用"误导用户去找不存在的待应用预下载。判据与 Core 短路同口径（版本归一化比较，
+            // R8）——版本串形态漂移（"3.6" vs "3.6.0"）时字面不等仍属"本地已覆盖目标"；
+            // From 为空 = 未安装（Core 短路只对已安装触发），无"本地"可言，保持完成文案
+            message = summary.FromVersion.Length > 0
+                      && !VersionComparison.IsNewer(summary.ToVersion, summary.FromVersion)
                 ? Loc.Format("predownload_alreadyCurrent", summary.ToVersion)
                 : Loc.Format("predownload_done", summary.FromVersion, summary.ToVersion);
         }

@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
@@ -44,7 +45,36 @@ public sealed partial class DependencySectionViewModel : ViewModelBase
             }
         }
 
+        // D3：设置页内切换启动方式/发行版时依赖区现场重算（此前重进页面才自愈）；
+        // 退订在 Detach（页生命周期收尾），避免分区 VM 被共享 LaunchSettings 的委托钉住
+        _game.LaunchSettings.PropertyChanged += OnLaunchSettingsPropertyChanged;
+
         Refresh();
+    }
+
+    /// <summary>在途安装的取消令牌源（D2）；无安装在途时为 null。</summary>
+    private CancellationTokenSource? _installCts;
+
+    /// <summary>取消在途依赖安装（D2：页销毁/应用退出接线点）；无安装在途时为 no-op。
+    /// 安装副作用（下载缓存/字体拷贝/注册表导入）幂等，取消后重装安全。</summary>
+    public void CancelOngoingInstall() => _installCts?.Cancel();
+
+    /// <summary>页生命周期收尾（D2+D3）：取消在途安装并退订 LaunchSettings——
+    /// 分区 VM 随设置页丢弃，不得被共享 LaunchSettings 的委托钉住（D3 泄漏面）。</summary>
+    public void Detach()
+    {
+        CancelOngoingInstall();
+        _game.LaunchSettings.PropertyChanged -= OnLaunchSettingsPropertyChanged;
+    }
+
+    private void OnLaunchSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        // D3：启动方式/发行版变化重算依赖区可用性与状态文案（Refresh 为幂等快照重读）
+        if (e.PropertyName is nameof(LaunchSettingsViewModel.SelectedLaunchMode)
+            or nameof(LaunchSettingsViewModel.SelectedProtonFlavor))
+        {
+            Refresh();
+        }
     }
 
     /// <summary>依赖条目（每内置依赖一条）。</summary>
@@ -145,10 +175,12 @@ public sealed partial class DependencySectionViewModel : ViewModelBase
         Feedback.Clear();
         // 清掉上一轮的进度残留：Progress<T> 投递异步，新装首条报告到达前进度行不能闪旧文案
         OnProgress(new DependencyProgress(DependencyPhase.Done, null));
+        // D2：在途安装挂取消令牌（页销毁/应用退出经 CancelOngoingInstall 终止）
+        _installCts = new CancellationTokenSource();
         try
         {
             var progress = new Progress<DependencyProgress>(OnProgress);
-            await _installer.InstallAsync(target, item.Manifest, progress);
+            await _installer.InstallAsync(target, item.Manifest, progress, _installCts.Token);
             Feedback.SetSuccess(_loc.Format("deps_install_success", item.Title));
         }
         catch (DependencyException ex)
@@ -169,6 +201,8 @@ public sealed partial class DependencySectionViewModel : ViewModelBase
         }
         finally
         {
+            _installCts.Dispose();
+            _installCts = null;
             IsBusy = false;
             OnProgress(new DependencyProgress(DependencyPhase.Done, null));
             Refresh();
