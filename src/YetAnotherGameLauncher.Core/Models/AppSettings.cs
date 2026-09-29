@@ -30,6 +30,9 @@ public sealed class AppSettings
     /// <summary>手动代理服务器地址（ProxyMode=Manual 时生效，如 http://127.0.0.1:7890）。</summary>
     public string? ProxyAddress { get; set; }
 
+    /// <summary>标题栏关闭按钮行为：退出应用，或只隐藏窗口并驻留系统托盘（默认退出）。</summary>
+    public CloseAction CloseAction { get; set; } = CloseAction.Exit;
+
     /// <summary>配置结构版本：升级启动器时据此做一次性迁移（如补全新增的官方服务器）。</summary>
     public int SchemaVersion { get; set; }
 
@@ -54,4 +57,14 @@ public enum ProxyMode
 
     /// <summary>使用用户指定的代理服务器地址（http://host:port）。</summary>
     Manual,
+}
+
+/// <summary>标题栏关闭按钮行为。</summary>
+public enum CloseAction
+{
+    /// <summary>退出应用（默认，与未提供该设置前行为一致）。</summary>
+    Exit,
+
+    /// <summary>只隐藏窗口，应用驻留系统托盘（点击托盘图标可唤回；下载与依赖安装继续）。</summary>
+    HideToTray,
 }

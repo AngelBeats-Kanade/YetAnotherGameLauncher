@@ -42,6 +42,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `appBackgroundImage` | string | | 应用自有背景图（设置/关于页与侧栏底色）：本地文件路径或 http(s) URL；留空使用内置的主题感知渐变。可在设置页"应用背景"卡选择图片或恢复默认。游戏详情页背景不受此项影响 |
 | `proxyMode` | `"System" \| "None" \| "Manual"` | `"System"` | 出站网络代理：System 跟随系统代理 / None 直连 / Manual 使用 `proxyAddress` |
 | `proxyAddress` | string | | 手动代理地址（如 `http://127.0.0.1:7890`）；`proxyMode` 为 `"Manual"` 时必填且须为可解析的 http(s) URL，其余模式可有可无 |
+| `closeAction` | `"Exit" \| "HideToTray"` | `"Exit"` | 标题栏关闭按钮行为：`Exit` 退出应用 / `HideToTray` 只隐藏窗口并驻留系统托盘（托盘图标唤回，下载与依赖安装继续）。可在设置页切换 |
 | `schemaVersion` | int | `0` | 配置结构版本（内部使用）。旧版本配置首次被新版加载时自动迁移并写回版本号，仅执行一次：`3` 补齐内置模板中同一游戏新增的官方服务器与本地化名称；`4` 把 Linux 裸 `{exe}` 启动模板升级为推荐链；`5` 把存量 `umu-run {exe}` 模板（历史自动生成形态）升级为推荐链 |
 
 ### games[]（GameDefinition）

@@ -42,6 +42,7 @@ public class GameCatalogJsonTests
         var catalog = GameCatalogService.Parse("""{ "settings": { "installRoot": "~/Games" }, "games": [ { "id": "a", "displayName": "A", "channel": "kuro", "installDir": "A", "executable": "a.exe", "servers": [ { "id": "s1", "name": "S1" } ] } ] }""");
 
         Assert.Equal(ThemeMode.System, catalog.Settings.Theme);
+        Assert.Equal(CloseAction.Exit, catalog.Settings.CloseAction);
         Assert.Equal("{exe}", catalog.Games[0].Launch.CommandTemplate);
         Assert.Equal("{installDir}", catalog.Games[0].Launch.WorkingDirectory);
     }
@@ -145,6 +146,29 @@ public class GameCatalogJsonTests
     public void Deserialize_InvalidEnumValue_ThrowsValidationException()
     {
         var json = """{ "settings": { "theme": "Neon" }, "games": [] }""";
+
+        var ex = Assert.Throws<GameCatalogValidationException>(() => GameCatalogService.Parse(json));
+
+        Assert.NotEmpty(ex.Errors);
+    }
+
+    [Fact]
+    public void Deserialize_CloseAction_HideToTray_RoundTrips()
+    {
+        var catalog = GameCatalogService.Parse("""{ "settings": { "installRoot": "~/Games", "closeAction": "HideToTray" }, "games": [] }""");
+
+        Assert.Equal(CloseAction.HideToTray, catalog.Settings.CloseAction);
+
+        var json = GameCatalogService.Serialize(catalog);
+        Assert.Contains("\"closeAction\"", json);
+        Assert.Contains("\"HideToTray\"", json);
+        Assert.Equal(CloseAction.HideToTray, GameCatalogService.Parse(json).Settings.CloseAction);
+    }
+
+    [Fact]
+    public void Deserialize_InvalidCloseAction_ThrowsValidationException()
+    {
+        var json = """{ "settings": { "installRoot": "~/Games", "closeAction": "Nonsense" }, "games": [] }""";
 
         var ex = Assert.Throws<GameCatalogValidationException>(() => GameCatalogService.Parse(json));
 
