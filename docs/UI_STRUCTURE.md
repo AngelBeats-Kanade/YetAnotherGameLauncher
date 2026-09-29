@@ -10,7 +10,8 @@
 - 页面容器 `ContentCard` 挂 `content-card` 样式：所有页面统一全出血 + 左上 10px 圆角，Margin 0,46,0,0（`detail` 类已不存在）。
 - 内容卡左上圆角是侧栏与内容卡之间的**内部角**（色带垫色在圆弧缺口后），最大化也保留——`.maximized` 去圆角仅窗口外缘两角（侧栏左上/色带右上，贴屏幕边）。
 - 窗口 `Title` 绑定 `MainWindowViewModel.WindowTitle`：游戏页"名 · 应用名"、其余页应用名，经 `OnCurrentPageChanged` 通知。自绘游戏名标题已移除（2026-09-25 用户决定），识别职责由窗口 Title 与侧栏选中项承担。
-- **整页与详情页大块均为 `Controls/` 下的 UserControl**（2026-09 提取：AboutPage/GachaPage/SettingsPage/GameSettingsPage/DetailActionDock/LaunchErrorOverlay；MainWindow 只留窗口骨架+侧栏+详情页背景层，DataTemplate 一行引用）。提取约束：窗口骨架的具名元素不能动——`FindControl` 测试依赖 window namescope，UserControl 内名字只有视觉树搜索可见。
+- **整页与详情页大块均为 `Controls/` 下的 UserControl**（2026-09 提取：AboutPage/GachaPage/SettingsPage/GameSettingsPage/DetailActionDock/LaunchErrorOverlay；2026-09-29 增 GameDetailPage——MainWindow 内联的详情页模板整体迁出，五个页面模板全部一行引用，MainWindow 只留窗口骨架+侧栏）。提取约束：窗口骨架的具名元素不能动——`FindControl` 测试依赖 window namescope，UserControl 内名字只有视觉树搜索可见（GameDetailPage 的 PosterImage/ArtworkFallback/EmptyStateCard 全部走视觉树断言）。
+- **MainWindow 样式库在 `Themes/WindowStyles.axaml`**（2026-09-29 自 Window.Styles 迁出，经 `StyleInclude` 引用、作用域保持窗口级）：98 个选择器（按钮四态族/卡片/侧栏/覆盖层/导航动画等）；按钮/图标圆角 10 收敛为该字典 `Styles.Resources` 内的 `ButtonCornerRadius` 令牌（卡片/操作坞/chips 仍为字面 14）；四态按钮族的 presenter 下沉语义逐字保留（skills avalonia-ui 坑 9）。 MainWindow.axaml 只剩窗口骨架（291 行）。
 - XAML 引用 C# 常量须 `x:Static`，编译绑定不解析 const。
 
 ## 2. 侧栏与导航指示点
@@ -33,6 +34,8 @@
 - 动画时间线按墙钟推进：UI 线程被重活占住时剩余时间轴压缩成大跳步——切游戏起播曾挤压编舞，现 `GameItemViewModel.VideoStartDeferral` 把起播挪出迁移编舞窗口。同类症状先怀疑 UI 线程阻塞（诊断手法：环境变量门控临时插桩 + Render 优先级采样器逐帧记录变换值 + 脚本化自动切换，跑完即删）。
 
 ## 3. 详情页（方案 A「沉浸影院」）
+
+- 结构落点：`Controls/GameDetailPage.axaml`（2026-09-29 自 MainWindow 内联模板提取；x:DataType=GameItemViewModel）。本节常数与形态描述不变，回归测试引用同节。
 
 - 内容 Grid Margin `16,36,16,16`（操作坞通栏贴边：左右 16/距底 16，2026-09-23 刻度审计对齐 4pt）；Row0 为左对齐簇，簇左缩进 12 = 距内容卡左缘 28px。
 - chips 行：`Border.onart-chip` 胶囊（状态点+StatusText、已暂存徽章、版本 chip 四段 `VersionChipLead/Number/Mid/Target`）；`WrapPanel` `MaxWidth=640`、`ItemSpacing/LineSpacing=8`（2026-09-23 对齐 4pt/2pt 网格，放不下自动换行）；状态 chip 内 StatusText `MaxWidth=430 TextWrapping=Wrap`——启动预检的长提示不设防会横穿窗口被裁（judge 实锤）。

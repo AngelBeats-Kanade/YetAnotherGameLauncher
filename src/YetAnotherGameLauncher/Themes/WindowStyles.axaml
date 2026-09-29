@@ -1,0 +1,561 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:YetAnotherGameLauncher.ViewModels"
+        x:DataType="vm:MainWindowViewModel">
+    <!-- x:DataType：供样式内编译绑定（CaptionMaximize 的 ToolTip）取 MainWindowViewModel 数据类型 -->
+
+    <!-- MainWindow 样式库：自 MainWindow.axaml Window.Styles 迁出（2026-09-29，职责分离——
+         窗口文件只留骨架，样式经 StyleInclude 保持 Window 级作用域，不做 App 级提升以避免
+         全树样式优先级语义变化）。选择器结构与 presenter 下沉语义（skills avalonia-ui 坑 9）
+         逐字保留；按钮/图标圆角 10 收敛为 ButtonCornerRadius 令牌（desktop-ui-design §5：
+         卡片与操作坞 14、按钮/图标 10） -->
+    <Styles.Resources>
+        <CornerRadius x:Key="ButtonCornerRadius">10</CornerRadius>
+    </Styles.Resources>
+
+    <!-- 侧栏列表项：圆角、悬停/选中为弱化强调（左内边距给选中指示点留位，图标不贴点） -->
+    <Style Selector="ListBoxItem">
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="Padding" Value="16,8"/>
+        <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}"/>
+        <Setter Property="Margin" Value="0,2"/>
+    </Style>
+    <Style Selector="ListBoxItem /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent"/>
+    </Style>
+    <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppSidebarHover}"/>
+    </Style>
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppSidebarSelected}"/>
+    </Style>
+    <Style Selector="ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppSidebarSelected}"/>
+    </Style>
+
+    <!-- 状态点：默认灰，可启动绿，有更新强调蓝，预下载窗口琥珀（限时的可选动作） -->
+    <Style Selector="Ellipse.dot">
+        <Setter Property="Width" Value="10"/>
+        <Setter Property="Height" Value="10"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Fill" Value="{DynamicResource AppTextSecondary}"/>
+    </Style>
+    <Style Selector="Ellipse.dot.installed">
+        <Setter Property="Fill" Value="{DynamicResource AppStatusOk}"/>
+    </Style>
+    <Style Selector="Ellipse.dot.has-update">
+        <Setter Property="Fill" Value="{DynamicResource AppAccentBrush}"/>
+    </Style>
+    <Style Selector="Ellipse.dot.predownload">
+        <Setter Property="Fill" Value="{DynamicResource AppPredownloadBadge}"/>
+    </Style>
+
+    <!-- 玻璃卡片（浮在窗口背景上） -->
+    <Style Selector="Border.card">
+        <Setter Property="Background" Value="{DynamicResource AppCardBackground}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource AppCardBorder}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="14"/>
+        <Setter Property="Padding" Value="20"/>
+    </Style>
+    <Style Selector="TextBlock.card-caption">
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppTextSecondary}"/>
+    </Style>
+
+    <!-- 表单保存结果提示：绿色成功 / 红色失败（文本空白时由 HasMessage 隐藏） -->
+    <Style Selector="TextBlock.save-msg">
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppStatusOk}"/>
+    </Style>
+    <Style Selector="TextBlock.save-msg.failed">
+        <Setter Property="Foreground" Value="{DynamicResource AppErrorText}"/>
+    </Style>
+
+    <!-- 常用按钮规格：小号操作钮与返回钮 -->
+    <Style Selector="Button.btn-sm">
+        <Setter Property="Padding" Value="16,8"/>
+    </Style>
+    <Style Selector="Button.back-btn">
+        <Setter Property="Padding" Value="20,9"/>
+        <Setter Property="HorizontalAlignment" Value="Left"/>
+    </Style>
+
+    <!-- 设置卡片上的次级按钮：底色取悬停色与卡片明确区分（曾与卡片同色而"隐形"），描边沿用卡片边框色 -->
+    <Style Selector="Button.glass">
+        <Setter Property="Background" Value="{DynamicResource AppSidebarHover}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource AppCardBorder}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+    </Style>
+    <Style Selector="Button.glass /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppSidebarHover}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource AppCardBorder}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}"/>
+    </Style>
+    <Style Selector="Button.glass:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppSidebarSelected}"/>
+    </Style>
+
+    <!-- 插画上的玻璃按钮：固定暗色半透明底 + 浅色字（详情页暗遮罩方案，两主题一致）。
+         前景必须设在模板 presenter 层：Fluent 的 :pointerover/:pressed/:disabled 状态样式
+         都在 presenter 上写主题前景（亮色主题为黑/灰），会压过 Button 本体上的浅色字 -->
+    <Style Selector="Button.glass-onart">
+        <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
+    </Style>
+    <Style Selector="Button.glass-onart /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+        <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
+    </Style>
+    <Style Selector="Button.glass-onart:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppOnArtworkCardHover}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
+    </Style>
+    <Style Selector="Button.glass-onart:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
+    </Style>
+    <Style Selector="Button.glass-onart:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkSecondary}"/>
+    </Style>
+
+    <!-- 海报上的主题色主操作按钮：accent 底 + 白字；四态下沉 presenter（同 glass-onart 规则） -->
+    <Style Selector="Button.accent-onart">
+        <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.accent-onart /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
+        <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.accent-onart:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppAccentHoverBrush}"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.accent-onart:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppAccentHoverBrush}"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.accent-onart:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkSecondary}"/>
+    </Style>
+
+    <!-- 危险确认按钮（插画上语境，评审 P1-3）：红字 + 红描边 + 近实心暗底，不用红底大按钮——
+         破坏性操作（覆盖重装）不得与建设性主操作共用 accent 实心样式。
+         四态下沉 presenter（同 accent-onart 规则）；底必须近实心，否则透白海报红字不达门禁 -->
+    <Style Selector="Button.danger-onart">
+        <Setter Property="Background" Value="{DynamicResource AppOnArtworkCardStrong}"/>
+        <Setter Property="BorderBrush" Value="#8CFF8A7A"/>
+        <Setter Property="BorderThickness" Value="1.5"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkErrorBrush}"/>
+    </Style>
+    <Style Selector="Button.danger-onart /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppOnArtworkCardStrong}"/>
+        <Setter Property="BorderBrush" Value="#8CFF8A7A"/>
+        <Setter Property="BorderThickness" Value="1.5"/>
+        <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkErrorBrush}"/>
+    </Style>
+    <Style Selector="Button.danger-onart:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppOnArtworkCardStrong}"/>
+        <Setter Property="BorderBrush" Value="#FFFF8A7A"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkErrorBrush}"/>
+    </Style>
+    <Style Selector="Button.danger-onart:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="#FF202029"/>
+        <Setter Property="BorderBrush" Value="#FFFF8A7A"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkErrorBrush}"/>
+    </Style>
+    <Style Selector="Button.danger-onart:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkSecondary}"/>
+    </Style>
+
+    <!-- 危险确认按钮（错误卡语境，评审 P1-3）：红字红描边幽灵钮 + 悬停淡红染——
+         与 danger-onart 同语义，但底透出错误卡面（AppErrorCardBackground），前景走主题化 AppErrorText -->
+    <Style Selector="Button.danger-card">
+        <Setter Property="Padding" Value="24,8"/>
+        <Setter Property="MinHeight" Value="34"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource AppErrorText}"/>
+        <Setter Property="BorderThickness" Value="1.5"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppErrorText}"/>
+    </Style>
+    <Style Selector="Button.danger-card /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource AppErrorText}"/>
+        <Setter Property="BorderThickness" Value="1.5"/>
+        <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppErrorText}"/>
+    </Style>
+    <Style Selector="Button.danger-card:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppDangerWashHover}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource AppErrorText}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppErrorText}"/>
+    </Style>
+    <Style Selector="Button.danger-card:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppDangerWashPressed}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource AppErrorText}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppErrorText}"/>
+    </Style>
+    <Style Selector="Button.danger-card:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource AppErrorText}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppErrorText}"/>
+        <Setter Property="Opacity" Value="0.4"/>
+    </Style>
+
+    <!-- 预下载专用按钮：琥珀描边（AppPredownloadBadge 语义色，与已暂存徽章同源），
+         悬停染琥珀底——预下载窗口期内"弹出"提示，又不与启动/安装的实心 accent 抢主 CTA。
+         四态同样下沉 presenter 层（同 glass-onart 规则） -->
+    <Style Selector="Button.predownload-onart">
+        <Setter Property="Background" Value="#26000000"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource AppPredownloadBadge}"/>
+        <Setter Property="BorderThickness" Value="1.5"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
+    </Style>
+    <Style Selector="Button.predownload-onart /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="#26000000"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource AppPredownloadBadge}"/>
+        <Setter Property="BorderThickness" Value="1.5"/>
+        <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
+    </Style>
+    <Style Selector="Button.predownload-onart:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="#5CE8930C"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.predownload-onart:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="#80E8930C"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.predownload-onart:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkSecondary}"/>
+    </Style>
+
+    <!-- 唤取入口图标钮：常显玻璃底胶囊——次级功能但需要被看见，不与主 CTA 争夺 -->
+    <Style Selector="Button.gacha-onart">
+        <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+        <Setter Property="Padding" Value="10"/>
+        <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
+    </Style>
+    <Style Selector="Button.gacha-onart /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+        <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
+    </Style>
+    <Style Selector="Button.gacha-onart:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppOnArtworkCardHover}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
+    </Style>
+    <Style Selector="Button.gacha-onart:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
+    </Style>
+
+    <!-- 详情页底部操作坞：通栏玻璃条，收拢信息列与全部按钮（原按钮行/进度卡/页脚三行合并于此） -->
+    <Style Selector="Border.action-dock">
+        <Setter Property="Background" Value="{DynamicResource AppOnArtworkDockBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource AppOnArtworkCardBorder}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="14"/>
+        <Setter Property="Padding" Value="18,12"/>
+    </Style>
+    <Style Selector="TextBlock.dock-caption">
+        <!-- 方案 A .info i：12px 三级弱化标签，比值列暗一档撑起层级（11px 过小，评审 P2-7） -->
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkTertiary}"/>
+    </Style>
+
+    <!-- 详情页顶部 chips（方案 A）：插画上的胶囊族（状态/版本），自带 1px 轮廓 -->
+    <Style Selector="Border.onart-chip">
+        <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource AppOnArtworkCardBorder}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="14"/>
+        <Setter Property="Padding" Value="16,8"/>
+    </Style>
+
+    <!-- 唤取记录稀有度：五星金 / 四星紫（成对令牌，对比度门禁 ThemeTokenContrastTests 管辖） -->
+    <Style Selector="TextBlock.gacha-rare5">
+        <Setter Property="Foreground" Value="{DynamicResource AppGachaRare5}"/>
+    </Style>
+    <Style Selector="TextBlock.gacha-rare4">
+        <Setter Property="Foreground" Value="{DynamicResource AppGachaRare4}"/>
+    </Style>
+
+    <!-- 图标按钮 -->
+    <Style Selector="Button.icon-btn">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Padding" Value="8"/>
+        <Setter Property="CornerRadius" Value="9"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Button.icon-btn /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent"/>
+    </Style>
+    <Style Selector="Button.icon-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppSidebarHover}"/>
+    </Style>
+    <!-- 幽灵图标按钮（关于页项目主页出口）：信息卡纯文本行内的链接型出口——
+         无底无边框不打断文本节奏，辅助色常态、hover 显微亮底并转强调色（链接语义）；
+         前景写在 Button 上即可：内部 Path 的 Fill 显式绑定 $parent[Button].Foreground，
+         不走继承，不受 Fluent presenter 状态前景压制 -->
+    <Style Selector="Button.ghost-home">
+        <Setter Property="Padding" Value="2"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppTextSecondary}"/>
+    </Style>
+    <Style Selector="Button.ghost-home:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource AppAccentBrush}"/>
+    </Style>
+
+    <!-- 设置/关于导航项：当前页对应的入口与游戏列表同色高亮。
+         展开态内边距/左对齐必须走样式而非按钮本地值——本地值优先级压过下方收缩覆盖，
+         收缩态图标居中从未生效过（2026-09-25 实锤修复） -->
+    <Style Selector="Button.nav-item">
+        <Setter Property="Padding" Value="16,8"/>
+        <Setter Property="HorizontalContentAlignment" Value="Left"/>
+    </Style>
+    <Style Selector="Button.nav-item.selected /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppSidebarSelected}"/>
+    </Style>
+
+    <!-- 非游戏页时抑制游戏列表的选中高亮（导航高亮让位给设置/关于入口） -->
+    <Style Selector="ListBox.nav-inactive ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent"/>
+    </Style>
+    <Style Selector="ListBox.nav-inactive ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent"/>
+    </Style>
+
+    <!-- 按下微缩 -->
+    <Style Selector="Button.pressable">
+        <Setter Property="RenderTransform" Value="scale(1)"/>
+        <Setter Property="Transitions">
+            <Transitions>
+                <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.08"/>
+            </Transitions>
+        </Setter>
+        <Style Selector="^:pressed">
+            <Setter Property="RenderTransform" Value="scale(0.97)"/>
+        </Style>
+    </Style>
+
+    <!-- 侧栏收起态：条目与导航钮图标居中（Padding 3 对称、图标盒居中于侧栏中线）。
+         注意：选中高亮背景=ContentPresenter 区域，不随 Item 负 Margin 溢出扩展
+         （实测 Margin -6 只撑大 bounds、背景仍 44 宽）——指示点因此贴块内左缘、
+         与图标盒左缘相切（仅叠 2px），与展开态同一"点在块内"语言 -->
+    <Style Selector="Border.game-sidebar.collapsed ListBoxItem">
+        <Setter Property="Padding" Value="3"/>
+    </Style>
+    <Style Selector="Border.game-sidebar.collapsed Button.icon-btn">
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="Padding" Value="8"/>
+    </Style>
+
+    <!-- 页面切换：Store 式横滑过渡（前进自右滑入、后退自左滑入，配淡入）；
+         详情页根为 Panel 无边距，设置类页根为 Border.page 统一留边 -->
+
+    <!-- 设置类页面（设置/关于/游戏设置）的统一页边距（顶部避开 46px 标题色带） -->
+    <Style Selector="Border.page">
+        <Setter Property="Margin" Value="32,48,32,24"/>
+    </Style>
+    <Style Selector="ContentControl.nav-forward :is(Control).page">
+        <Style.Animations>
+            <Animation Duration="0:0:0.3" FillMode="Forward" Easing="CubicEaseOut">
+                <KeyFrame Cue="0%">
+                    <Setter Property="Opacity" Value="0"/>
+                    <Setter Property="TranslateTransform.X" Value="56"/>
+                </KeyFrame>
+                <KeyFrame Cue="100%">
+                    <Setter Property="Opacity" Value="1"/>
+                    <Setter Property="TranslateTransform.X" Value="0"/>
+                </KeyFrame>
+            </Animation>
+        </Style.Animations>
+    </Style>
+    <Style Selector="ContentControl.nav-back :is(Control).page">
+        <Style.Animations>
+            <Animation Duration="0:0:0.3" FillMode="Forward" Easing="CubicEaseOut">
+                <KeyFrame Cue="0%">
+                    <Setter Property="Opacity" Value="0"/>
+                    <Setter Property="TranslateTransform.X" Value="-56"/>
+                </KeyFrame>
+                <KeyFrame Cue="100%">
+                    <Setter Property="Opacity" Value="1"/>
+                    <Setter Property="TranslateTransform.X" Value="0"/>
+                </KeyFrame>
+            </Animation>
+        </Style.Animations>
+    </Style>
+
+    <!-- 圆角内容浮卡（游戏插画等全部裁剪在内）；左上圆角是侧栏与内容卡之间的内部角，
+         不贴屏幕边——最大化时也保留（去圆角仅窗口外缘两角做） -->
+    <!-- 内容容器：透明底——设置类页面直接浮在应用背景（渐变+光晕）上；
+         详情页的插画在页面模板内自带背景。仅负责裁剪与（详情态）圆角 -->
+    <!-- 页面板（所有页面统一，同详情页海报）：从色带下方开始、左上角 10px 圆角、
+         右/下/左贴边全出血（其余角由窗口圆角负责）；内部自带应用背景层，
+         设置/关于的半透明卡片浮在它上面，详情页海报照旧覆盖全板 -->
+    <Style Selector="Border.content-card">
+        <Setter Property="CornerRadius" Value="10,0,0,0"/>
+        <Setter Property="ClipToBounds" Value="True"/>
+        <Setter Property="Margin" Value="0,46,0,0"/>
+    </Style>
+    <!-- 标题拖拽区：覆盖色带整条（46px），所有页面一致 -->
+    <Style Selector="Border.title-drag">
+        <Setter Property="Height" Value="46"/>
+    </Style>
+
+    <!-- 窗口顶部两角圆角（左上=侧栏、右上=标题色带）；最大化时铺满屏幕应去掉 -->
+    <Style Selector="Border.game-sidebar">
+        <Setter Property="CornerRadius" Value="10,0,0,0"/>
+    </Style>
+    <Style Selector="Border.game-sidebar.maximized">
+        <Setter Property="CornerRadius" Value="0"/>
+    </Style>
+    <Style Selector="Border#TitleChrome">
+        <Setter Property="CornerRadius" Value="0,10,0,0"/>
+    </Style>
+    <Style Selector="Border#TitleChrome.maximized">
+        <Setter Property="CornerRadius" Value="0"/>
+    </Style>
+
+    <!-- 自绘标题栏按钮：最小化/最大化/关闭（关闭悬停红色，Win11 习惯） -->
+    <!-- 最大化钮 tooltip 随窗口态切换（window_restore 键此前是孤儿资源，2026-09-20 接线） -->
+    <Style Selector="Button#CaptionMaximize">
+        <Setter Property="ToolTip.Tip" Value="{Binding Loc[window_maximize]}"/>
+    </Style>
+    <Style Selector="Button#CaptionMaximize.maximized">
+        <Setter Property="ToolTip.Tip" Value="{Binding Loc[window_restore]}"/>
+    </Style>
+    <Style Selector="Button.caption-btn">
+        <Setter Property="Width" Value="46"/>
+        <Setter Property="Height" Value="34"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="CornerRadius" Value="8"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Button.caption-btn /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent"/>
+    </Style>
+    <Style Selector="Button.caption-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppSidebarHover}"/>
+    </Style>
+    <Style Selector="Button.caption-btn.close:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="#E81123"/>
+    </Style>
+    <Style Selector="Button.caption-btn.close:pointerover">
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+
+    <!-- ========== 轻提示气泡（右上角瞬态信息：版本检测结果/检测到游戏） ========== -->
+    <Style Selector="Border.toast-card">
+        <!-- 近实心专属底（方案 A toast .94）；不用共享 AppCardBackground（太透）。
+             层次靠 1px 描边 + 近实心底，不用 BoxShadow：真机渲染管线（原生 Wayland +
+             NVIDIA + HDR 输出）会把模糊阴影呈成边缘生硬的灰色矩形板（2026-09-17 实锤，
+             headless 截图反而正常）——细节见 AGENTS.md -->
+        <Setter Property="Background" Value="{DynamicResource AppToastBackground}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource AppCardBorder}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}"/>
+        <Setter Property="Padding" Value="14,12"/>
+        <Setter Property="MinWidth" Value="260"/>
+        <Setter Property="MaxWidth" Value="360"/>
+    </Style>
+    <Style Selector="Border.toast-card TextBlock.toast-title">
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+    <Style Selector="Border.toast-card TextBlock.toast-message">
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppTextSecondary}"/>
+        <Setter Property="LineHeight" Value="18"/>
+    </Style>
+    <Style Selector="Border.toast-card Ellipse.toast-dot">
+        <Setter Property="Fill" Value="{DynamicResource AppAccentBrush}"/>
+    </Style>
+    <Style Selector="Border.toast-card.toast-success Ellipse.toast-dot">
+        <Setter Property="Fill" Value="{DynamicResource AppStatusOk}"/>
+    </Style>
+    <Style Selector="Border.toast-card.toast-warning Ellipse.toast-dot">
+        <Setter Property="Fill" Value="{DynamicResource AppPredownloadBadge}"/>
+    </Style>
+    <!-- Toast 关闭钮：幽灵图标钮（透明圆底 + 线条 X，hover 浮现浅圆底，pressed 加深一档） -->
+    <Style Selector="Button.toast-close">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Width" Value="22"/>
+        <Setter Property="Height" Value="22"/>
+        <Setter Property="CornerRadius" Value="11"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppTextSecondary}"/>
+    </Style>
+    <Style Selector="Button.toast-close /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent"/>
+    </Style>
+    <Style Selector="Button.toast-close:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppSidebarHover}"/>
+    </Style>
+    <Style Selector="Button.toast-close:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppCardBorder}"/>
+    </Style>
+
+    <!-- ========== 启动失败覆盖层（详情页内）：纱罩 + 错误卡 + accent 关闭钮 ========== -->
+    <Style Selector="Border.launch-error-card">
+        <Setter Property="Background" Value="{DynamicResource AppErrorCardBackground}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource AppCardBorder}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="14"/>
+        <Setter Property="Padding" Value="20"/>
+        <!-- 无 BoxShadow：真机 HDR 路径会把模糊阴影呈成硬边矩形板（同 toast-card，见 AGENTS.md） -->
+    </Style>
+    <!-- 主操作钮走 accent：Fluent 在 presenter 层逐状态设背景，这里同样下沉覆盖（含前景） -->
+    <Style Selector="Button.launch-error-primary">
+        <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
+        <Setter Property="Foreground" Value="#FFFFFF"/>
+        <Setter Property="Padding" Value="24,8"/>
+        <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="MinHeight" Value="34"/>
+    </Style>
+    <Style Selector="Button.launch-error-primary /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
+        <Setter Property="Foreground" Value="#FFFFFF"/>
+        <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}"/>
+    </Style>
+    <Style Selector="Button.launch-error-primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppAccentHoverBrush}"/>
+        <Setter Property="Foreground" Value="#FFFFFF"/>
+    </Style>
+    <Style Selector="Button.launch-error-primary:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppAccentHoverBrush}"/>
+        <Setter Property="Foreground" Value="#FFFFFF"/>
+        <Setter Property="Opacity" Value="0.9"/>
+    </Style>
+    <Style Selector="Button.launch-error-primary:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
+        <Setter Property="Foreground" Value="#FFFFFF"/>
+        <Setter Property="Opacity" Value="0.4"/>
+    </Style>
+    <Style Selector="Button.launch-error-secondary">
+        <Setter Property="Padding" Value="16,8"/>
+        <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}"/>
+        <Setter Property="MinHeight" Value="34"/>
+    </Style>
+</Styles>

@@ -1658,7 +1658,7 @@ public sealed partial class AboutViewModel(MainWindowViewModel owner) : ViewMode
     /// <summary>第三方组件与许可声明。</summary>
     public IReadOnlyList<ThirdPartyItem> ThirdParty =>
     [
-        new("Avalonia UI 12.1.2", "MIT"),
+        new("Avalonia UI 12.1.3", "MIT"),
         new("CommunityToolkit.Mvvm 8.4.2", "MIT"),
         new(".NET 10 / Microsoft.Extensions.*", "MIT"),
         new("HDiffPatch (hpatchz)", "Apache-2.0"),
