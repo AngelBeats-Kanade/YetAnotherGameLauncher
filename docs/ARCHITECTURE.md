@@ -86,8 +86,10 @@ flowchart TD
   changelog/config/resources/resourcesBasePath/version 五键）——选中块无可用节点时回退 default 块的
   cdnList，仍无才拒收（2026-09-29 修复：此前对预载块直接抛 "cdnList has no usable node"）。
   增量清单的资源前缀按「条目自身 fromFolder > 列表第一个 fromFolder > 差分入口 baseUrl > 块
-  config.baseUrl > resourcesBasePath」回退（与参考实现 ww-manager 对齐，2026-09-29 真机实证：
-  差分入口 baseUrl 是差分包目录，作资源前缀三节点全 404）。
+  config.baseUrl > resourcesBasePath」回退。前两级与参考实现 ww-manager 一致；其后参考实现固定
+  回退 default 块 baseUrl、本实现取选中块（预载流程指向目标版本目录，2026-09-29 真机两形态等值）。
+  真机实证（同日）：预载条目的差分入口 baseUrl 是差分包目录（作资源前缀三节点全 404）；常规增量
+  条目 baseUrl=zip/ 资源目录且清单无 fromFolder，回退链产出与旧实现一致。
 - **包式（终末地）**：清单 = 压缩包（packs），下载解压即安装；无按版本差分，更新=请求新版本整包，预下载=响应 `patch` 节点。
 
 ## 3. 核心流程

@@ -6,7 +6,7 @@
 ## [0.1.3] — 未发布
 
 0.1.2 之后的功能版本：系统托盘驻留 + 关闭按钮行为设置（退出应用 / 关闭窗口驻留托盘，
-下载与依赖安装后台继续）。1130 个测试全绿，行覆盖 87%（2026-09-29 实测）。
+下载与依赖安装后台继续）。1131 个测试全绿，行覆盖 87%（2026-09-29 实测）。
 
 ### 新增
 
@@ -30,7 +30,7 @@
 
 A feature release after 0.1.2: system tray dwelling plus a close-button
 behavior setting (quit the app / close the window and dwell in the tray,
-with downloads and dependency installs kept running). 1130 tests green,
+with downloads and dependency installs kept running). 1131 tests green,
 line coverage 87% (measured 2026-09-29).
 
 **Added — system tray dwelling & close-button behavior**

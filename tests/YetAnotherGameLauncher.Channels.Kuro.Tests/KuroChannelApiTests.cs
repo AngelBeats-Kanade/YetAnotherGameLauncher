@@ -467,6 +467,48 @@ public class KuroChannelApiTests
     }
 
     [Fact]
+    public async Task GetIncrementalManifest_PredownloadBlockWithUnusableCdnList_FallsBackToDefaultCdn()
+    {
+        // R-TEST-1（2026-09-29 review 立案）：组合中间态——predownload 块带 cdnList 但全节点
+        // 不可用（K1≠1）与「无 cdnList」同样落 default 回退；两端用例（块缺失 / 可用自有）不覆盖此态
+        const string patchIndexFile = """
+            {
+              "resource": [
+                { "dest": "Client/Content/Paks/predownload.pak", "md5": "12341234123412341234123412341234", "size": 40 }
+              ]
+            }
+            """;
+        var indexJson = $$"""
+            {
+              "default": {
+                "version": "3.6.1",
+                "cdnList": [ { "P": 10, "K1": 1, "K2": 1, "url": "{{Cdn}}" } ],
+                "resourcesBasePath": "launcher/game/G152/10003/3.6.1/token/zip/",
+                "config": { "version": "3.6.1" }
+              },
+              "predownload": {
+                "version": "3.7.0",
+                "cdnList": [ { "P": 10, "K1": 0, "K2": 1, "url": "https://cdn-pre.example.com/" } ],
+                "resourcesBasePath": "launcher/game/G152/10003/3.7.0/token/zip/",
+                "config": {
+                  "version": "3.7.0",
+                  "patchConfig": [ { "version": "3.6.1", "indexFile": "resource/370/indexFile.json", "indexFileMd5": "{{Md5(patchIndexFile)}}" } ]
+                }
+              },
+              "predownloadSwitch": 1
+            }
+            """;
+        _downloader.Serve(Server().Options["indexUrl"], indexJson);
+        _downloader.Serve(Cdn + "resource/370/indexFile.json", patchIndexFile);
+
+        var manifest = await CreateApi().GetIncrementalManifestAsync(Server(), "3.6.1", "3.7.0");
+
+        Assert.NotNull(manifest);
+        // 自有节点全不可用（K1=0），CDN 取自 default 块而非放行不可用节点
+        Assert.StartsWith(Cdn, manifest.Files[0].Url);
+    }
+
+    [Fact]
     public async Task GetIncrementalManifest_FallsBackToOtherBlock_WhenSelectedBlockLacksEntry()
     {
         // 回归（2026-09-20 复审）：官方切版本窗口期差分条目与目标版本可能不同块——

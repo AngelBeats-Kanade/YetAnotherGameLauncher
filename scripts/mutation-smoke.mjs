@@ -141,6 +141,28 @@ const MUTATIONS = [
     dll: 'tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll',
     method: 'YetAnotherGameLauncher.AppTests.FfmpegLibraryMajorTests.LibraryDependencyOrder_SatisfiesBtbnRuntimeDeps',
   },
+  {
+    // 2026-09-29 预载窗口批（F82/R-F82-2）：predownload 块无 cdnList 时回退 default 块——
+    // 去掉回退后窗口期点「预下载」必抛 "cdnList has no usable node"（真机 3.7.0 实测形态）
+    id: 'M19-kuro-predownload-cdn-fallback',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
+    find: 'RequireCdn(block, index.Default)',
+    replace: 'RequireCdn(block)',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroChannelApiTests.GetIncrementalManifest_PredownloadBlockWithoutCdnList_FallsBackToDefaultCdn',
+  },
+  {
+    // 2026-09-29 预载窗口批（F83/R-F82-2）：无 fromFolder 资源条目回退「列表第一个
+    // fromFolder」——去掉后条目指向差分包目录 resources/（真机三节点全 404）
+    id: 'M20-kuro-incremental-resource-base',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
+    find: 'FirstFromFolder(patchIndexFile.Resource) ?? patchEntry.BaseUrl',
+    replace: 'patchEntry.BaseUrl',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroChannelApiTests.GetIncrementalManifest_ResourceWithoutFromFolder_FallsBackToFirstFromFolder',
+  },
 ];
 
 function run(cmd, args) {
