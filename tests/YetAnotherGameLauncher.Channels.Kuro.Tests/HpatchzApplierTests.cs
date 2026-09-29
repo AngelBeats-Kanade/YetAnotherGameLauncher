@@ -94,6 +94,61 @@ public class HpatchzApplierTests : IDisposable
     }
 
     [Fact]
+    public void QuoteArg_WindowsStylePathsWithBackslashes_SurviveTokenizerRoundTrip()
+    {
+        // review P1（本批 F63 首版实锤）：无条件翻倍全部反斜杠后，.NET 分词器对非引号前的
+        // `\\` 原样保留——`C:\old` 被传成 `C:\\old`（Windows 全路径形态必错）、尾随 `\`
+        // 折叠成字面引号。正确算法 = 引号前的连续 `\` 翻倍、其余原样。
+        // 断言形态：分词还原（.NET Arguments 解析规则）后与原值相等
+        Assert.Equal("\"C:\\old\"", HpatchzApplier.QuoteArg("C:\\old"));
+        Assert.Equal("C:\\old", RoundTrip("C:\\old"));
+        Assert.Equal("C:\\old trailing\\", RoundTrip("C:\\old trailing\\"));
+        Assert.Equal("we\"ird", RoundTrip("we\"ird"));
+        Assert.Equal("/tmp/plain", RoundTrip("/tmp/plain"));
+    }
+
+    /// <summary>.NET Arguments 分词还原（CommandLineToArgvW 完整语义）：引号开关；
+    /// 连续 n 个 `\` 后跟 `"` 时折叠为 n/2 个 `\`，n 为偶数切换引号态、奇数输出字面 `"`；
+    /// 其余反斜杠原样保留。</summary>
+    private static string RoundTrip(string value)
+    {
+        var arg = HpatchzApplier.QuoteArg(value);
+        var sb = new System.Text.StringBuilder();
+        var inQuotes = false;
+        var backslashes = 0;
+        foreach (var c in arg)
+        {
+            if (c == '\\')
+            {
+                backslashes++;
+                continue;
+            }
+
+            if (c == '"')
+            {
+                sb.Append('\\', backslashes / 2);
+                if (backslashes % 2 == 0)
+                {
+                    inQuotes = !inQuotes;
+                }
+                else
+                {
+                    sb.Append('"');
+                }
+
+                backslashes = 0;
+                continue;
+            }
+
+            sb.Append('\\', backslashes).Append(c);
+            backslashes = 0;
+        }
+
+        sb.Append('\\', backslashes);
+        return sb.ToString();
+    }
+
+    [Fact]
     public async Task ApplyAsync_CreatesOutputDirectory()
     {
         var applier = new HpatchzApplier(_runner, new HpatchzApplierOptions { HpatchzPath = StubTool() });

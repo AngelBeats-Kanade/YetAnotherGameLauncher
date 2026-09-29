@@ -10,6 +10,12 @@ public sealed class StubHttpHandler : HttpMessageHandler
 {
     private readonly Dictionary<string, (byte[] Content, string? ContentType)> _responses = new(StringComparer.Ordinal);
 
+    /// <summary>错位 206 的剩余配额（<see cref="Mismatched206FirstRequest"/> 的递减计数）。</summary>
+    private int _mismatchedRequestsRemaining;
+
+    /// <summary>错位配额的一次性初始化标志。</summary>
+    private int _mismatchedQuotaInitialized;
+
     public List<HttpRequestMessage> Requests { get; } = [];
 
     public int FailFirstN { get; set; }
@@ -22,6 +28,10 @@ public sealed class StubHttpHandler : HttpMessageHandler
     /// <summary>强制 206 响应声称的 Range 起始字节（F64：模拟畸形服务器对 Range 请求
     /// 回错误起点的 206；null = 按请求范围正常回）。</summary>
     public long? ForcedRangeStart { get; set; }
+
+    /// <summary>仅前 N 次 Range 请求回错位 206（起始字节取 <see cref="ForcedRangeStart"/>），
+    /// 其后恢复正常（F64 恢复腿）；null = 恒定错位。</summary>
+    public int? Mismatched206FirstRequest { get; set; }
 
     public void Map(string url, byte[] content, string? contentType = null) => _responses[url] = (content, contentType);
 
@@ -99,10 +109,21 @@ public sealed class StubHttpHandler : HttpMessageHandler
         var range = request.Headers.Range?.Ranges.FirstOrDefault();
         var ranged = range is not null && !IgnoreRangeAndReturnFull;
         var start = (int)(ranged ? range!.From ?? 0 : 0);
+        var forcedMismatch = false;
         if (ranged && ForcedRangeStart is { } forced)
         {
-            // F64：模拟畸形服务器——206 声称的起始字节与请求的 Range 起点不符
-            start = (int)forced;
+            // 错位配额一次性初始化（恒定错位 = 无限配额），此后每次 Range 请求递减
+            if (Interlocked.CompareExchange(ref _mismatchedQuotaInitialized, 1, 0) == 0)
+            {
+                _mismatchedRequestsRemaining = Mismatched206FirstRequest ?? int.MaxValue;
+            }
+
+            var misaligned = Interlocked.Decrement(ref _mismatchedRequestsRemaining) >= 0;
+            if (misaligned)
+            {
+                start = (int)forced;
+                forcedMismatch = start != (int)(range!.From ?? 0);
+            }
         }
 
         if (ranged && start >= content.Length)
@@ -112,7 +133,9 @@ public sealed class StubHttpHandler : HttpMessageHandler
         }
 
         var slice = start == 0 ? content : content[start..];
-        var response = new HttpResponseMessage(ranged && start > 0
+        // F64：错位形态强制回 206（携带错位 Content-Range）——否则 start=0 落回 200，
+        // 下载器按"服务器忽略 Range 重写"处理，畸形 206 防线永远不可达、测试空心
+        var response = new HttpResponseMessage((ranged && start > 0) || forcedMismatch
             ? HttpStatusCode.PartialContent
             : HttpStatusCode.OK)
         {

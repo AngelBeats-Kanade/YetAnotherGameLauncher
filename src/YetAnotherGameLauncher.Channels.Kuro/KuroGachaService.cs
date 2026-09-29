@@ -44,8 +44,9 @@ public sealed partial class KuroGachaService(HttpClient httpClient, string? cach
     /// 可重建缓存归数据目录（2026-09-22 迁移，与背景/图标/ffmpeg 同批；config 下旧缓存成遗留可手删）。</summary>
     internal string CacheDirectory => cacheDirectory ?? Path.Combine(AppPaths.DataDirectory, "gacha");
 
-    /// <summary>测试缝：写前钩子（载入+合并之后、落盘之前调用，F62 并发测试用它构造
-    /// 确定性交错）；生产为 null 零开销。</summary>
+    /// <summary>测试缝：写前钩子（载入+合并之后、落盘之前**同步调用**，F62 并发测试用它
+    /// 把调用方钉在写前构造确定性交错）；生产为 null 零开销。调用方在锁内被钩子阻塞时，
+    /// 其他 MergeAndSave 也被缓存锁挡住——这正是被测的互斥语义。</summary>
     internal Action? BeforeSaveHookForTests { get; set; }
 
     /// <summary>跨实例串行化同一缓存文件的读-改-写（F62）：两个并发 MergeAndSave 各自

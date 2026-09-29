@@ -34,7 +34,9 @@ public class KuroGachaServiceTests : IDisposable
     {
         // F62 并发半：两个 MergeAndSave 的读-改-写交错会丢更新——A 载入空缓存后停在写前，
         // B 载入同样为空、A 写入 {r1} 后 B 再写 {r2} 把 r1 冲掉（B 的载入发生在 A 写之前）。
-        // 修复 = Load→Merge→Write 全程持跨实例串行锁：B 在锁上等 A，载入时已含 {r1}
+        // 修复 = Load→Merge→Write 全程持跨实例串行锁：B 在锁上等 A，载入时已含 {r1}。
+        // review P2 修正：钩子是锁内同步调用（首版 async lambda → async void 根本不停，
+        // "停在写前"注释与机制不符）——测试侧改为同步阻塞钉住 A、显式断言 B 被锁挡在钩子外
         var recordA = new GachaRecord("2026-09-29 10:00:00", "角色A", 5, 1);
         var recordB = new GachaRecord("2026-09-29 11:00:00", "角色B", 4, 2);
         var parkedA = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -43,14 +45,24 @@ public class KuroGachaServiceTests : IDisposable
         var releaseB = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var serviceA = CreateService();
         var serviceB = CreateService();
-        serviceA.BeforeSaveHookForTests = async () => { parkedA.TrySetResult(); await releaseA.Task; };
-        serviceB.BeforeSaveHookForTests = async () => { parkedB.TrySetResult(); await releaseB.Task; };
+        serviceA.BeforeSaveHookForTests = () =>
+        {
+            parkedA.TrySetResult();
+            releaseA.Task.Wait(5000); // 同步阻塞：A 真停在写前（锁仍被 A 持有）
+        };
+        serviceB.BeforeSaveHookForTests = () =>
+        {
+            parkedB.TrySetResult();
+            releaseB.Task.Wait(5000);
+        };
 
         var taskA = Task.Run(() => serviceA.MergeAndSave([recordA]));
         await parkedA.Task.WaitAsync(TimeSpan.FromSeconds(5)); // A 载入空缓存后停在写前
         var taskB = Task.Run(() => serviceB.MergeAndSave([recordB]));
-        // 修复形态：B 在锁上等 A，300ms 内不会到达写前钩子；缺陷形态：B 与 A 一样停写
-        await parkedB.Task.WaitAsync(TimeSpan.FromMilliseconds(300));
+        // 修复形态：B 在缓存锁上等 A，300ms 内到不了写前钩子；缺陷形态（无锁）B 照样到达
+        var reachedB = await Task.WhenAny(parkedB.Task, Task.Delay(300)) == parkedB.Task;
+        Assert.False(reachedB, "B reached the pre-save hook while A held the cache lock - no mutual exclusion");
+
         releaseA.TrySetResult();
         await taskA.WaitAsync(TimeSpan.FromSeconds(5));
         releaseB.TrySetResult();

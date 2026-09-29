@@ -219,19 +219,22 @@ public class HttpFileDownloaderTests : IDisposable
     }
 
     [Fact]
-    public async Task DownloadFileAsync_Mismatched206RangeStart_RestartsCleanWithoutCorruption()
+    public async Task DownloadFileAsync_Mismatched206RangeStart_DiscardsTempAndRedownloads()
     {
         // F64：206 起始字节与请求不符（畸形服务器）时原实现照走续传——错位数据拼进 .temp，
-        // 无 MD5/size 清单时**静默落盘损坏文件**（有 MD5 也白白烧一次校验失败的整重下）。
-        // 修复 = 206 声称的 From ≠ 请求起点按校验失败丢弃 .temp 重下
+        // 无 MD5/size 清单时**静默落盘损坏文件**。修复 = 206 声称的 From ≠ 请求起点丢弃
+        // .temp 重下。错位只发生在带 Range 的续传请求上（删 temp 后的无 Range 请求必得
+        // 干净 200），因此自愈路径恒可达、不存在"重试耗尽"形态。
+        // 变异自查：击穿起点校验后本用例红（Actual=损坏字节落盘），防线真可达
         await File.WriteAllBytesAsync(_tempDir.FilePath("file.bin.temp"), "CORRUPT"u8.ToArray());
-        _handler.ForcedRangeStart = 0; // 请求 bytes=7- 却回 bytes=0- 的 206
+        _handler.ForcedRangeStart = 0; // Range 请求回 bytes=0- 的错位 206
+        _handler.Mismatched206FirstRequest = 1; // 仅首次错位（其后 Range 请求正常——本用例第二次请求已不带 Range）
         _handler.Map(Url, Content);
 
         await CreateDownloader().DownloadFileAsync(Request(), cancellationToken: Ct);
 
         Assert.Equal(Content, await File.ReadAllBytesAsync(_tempDir.FilePath("file.bin")));
-        Assert.False(File.Exists(_tempDir.FilePath("file.bin.temp"))); // 错位 .temp 已丢弃
+        Assert.False(File.Exists(_tempDir.FilePath("file.bin.temp")));
     }
 
     [Fact]

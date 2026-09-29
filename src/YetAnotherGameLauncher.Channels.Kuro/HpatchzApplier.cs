@@ -46,11 +46,40 @@ public sealed class HpatchzApplier(
         }
     }
 
-    /// <summary>按 .NET 命令行分词规则包裹参数（F63）：值内 `\` 翻倍、`"` 转义为 `\"` 后收引号内。
-    /// 手工引号拼接对路径含 `"`（Linux 合法字符）或尾随 `\`（Windows 盘根形态）会破坏引号配对，
-    /// hpatchz 收到错误 argv；无特殊字符的常规路径输出与直接包裹逐字节一致。</summary>
-    internal static string QuoteArg(string value) =>
-        $"\"{value.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"";
+    /// <summary>按 .NET 命令行分词规则（CommandLineToArgvW 语义）包裹参数（F63）：
+    /// 反斜杠仅在紧邻引号时才有转义语义——引号前的连续 `\` 翻倍后跟 `\"`、收尾闭合引号前的
+    /// 连续 `\` 翻倍，**其余位置的反斜杠原样保留**。首版实现曾无条件翻倍全部 `\`
+    /// （review P1 实锤：.NET 分词器对非引号前的 `\\` 原样保留，`C:\old` 被传成 `C:\\old`、
+    /// 尾随 `\` 折叠成字面引号——Windows 全路径形态必错）；手工引号拼接则对含 `"` 路径
+    /// 破坏引号配对。</summary>
+    internal static string QuoteArg(string value)
+    {
+        var sb = new System.Text.StringBuilder(value.Length + 8);
+        sb.Append('"');
+        var backslashes = 0;
+        foreach (var ch in value)
+        {
+            if (ch == '\\')
+            {
+                backslashes++;
+                continue;
+            }
+
+            if (ch == '"')
+            {
+                sb.Append('\\', backslashes * 2 + 1).Append('"');
+            }
+            else
+            {
+                sb.Append('\\', backslashes).Append(ch);
+            }
+
+            backslashes = 0;
+        }
+
+        sb.Append('\\', backslashes * 2).Append('"');
+        return sb.ToString();
+    }
 
     /// <summary>
     /// 预检补丁工具位置。全路径直接校验存在与可执行（Linux 含执行位要求，见
