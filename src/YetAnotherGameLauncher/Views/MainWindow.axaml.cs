@@ -171,10 +171,49 @@ public partial class MainWindow : Window
     {
         if (DataContext is MainWindowViewModel viewModel)
         {
+            // 驻留模式（closeAction=HideToTray）：取消关闭改为隐藏——下载/依赖安装继续、
+            // 视频暂停保活、尺寸照常持久化，托盘图标唤回。统一拦在 Closing：标题栏关闭钮、
+            // alt+F4/系统关闭同一语义；真退出（托盘"退出"）经 <see cref="_realCloseRequested"/> 放行
+            if (viewModel.IsCloseToTrayEnabled && !_realCloseRequested)
+            {
+                e.Cancel = true;
+                viewModel.OnWindowHiddenToTray(Width, Height, _lastVisualMaximized == true);
+                Hide();
+                return;
+            }
+
             viewModel.PersistWindowState(Width, Height, _lastVisualMaximized == true);
             viewModel.StopBackdropVideo();
             viewModel.CancelOngoingDependencyInstall(); // D2：退出终止在途依赖安装（副作用幂等）
         }
+    }
+
+    /// <summary>真关闭放行标志：托盘"退出"经 <see cref="RequestRealClose"/> 置位，
+    /// 绕过驻留拦截走既有退出清理（停视频/取消依赖安装/持久化）。</summary>
+    private bool _realCloseRequested;
+
+    /// <summary>托盘"显示主窗口"：还原最小化并重新显示。原生 Wayland 的 Activate 为 no-op
+    /// （上游未实现 xdg-activation），唤回不保证抢到焦点——接受该限制。</summary>
+    internal void ShowFromTray()
+    {
+        if (WindowState == WindowState.Minimized)
+        {
+            WindowState = WindowState.Normal;
+        }
+
+        Show();
+        Activate();
+        if (DataContext is MainWindowViewModel viewModel)
+        {
+            viewModel.OnWindowRestoredFromTray();
+        }
+    }
+
+    /// <summary>托盘"退出"：放行真关闭（仅此与程序性退出可越过驻留拦截）。</summary>
+    internal void RequestRealClose()
+    {
+        _realCloseRequested = true;
+        Close();
     }
 
     /// <summary>最近一次判定的视觉最大化（null=尚未判定）。状态与尺寸变化都触发重判：

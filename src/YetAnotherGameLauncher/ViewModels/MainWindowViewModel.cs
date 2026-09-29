@@ -529,6 +529,9 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>当前手动代理地址（设置页草稿初始化）。</summary>
     public string ProxyAddress => _catalogService.Catalog?.Settings.ProxyAddress ?? "";
 
+    /// <summary>当前关闭按钮行为（设置页 radio 初始化与失败回滚）。</summary>
+    public CloseAction CloseAction => _catalogService.Catalog?.Settings.CloseAction ?? CloseAction.Exit;
+
     /// <summary>
     /// 应用代理设置：写回 games.json 持久化，并对共享 SocketsHttpHandler 热改代理（保存即时生效）。
     /// </summary>
@@ -548,6 +551,24 @@ public partial class MainWindowViewModel : ViewModelBase
             ? address
             : null;
         _proxyManager?.Apply(catalog.Settings);
+        return await TrySaveCatalogAsync();
+    }
+
+    /// <summary>
+    /// 应用关闭按钮行为设置并持久化。驻留模式即时生效：下一次关闭即走隐藏路径。
+    /// 失败语义与代理设置一致：内存已生效、重启回退，调用方负责失败提示。
+    /// </summary>
+    /// <param name="action">关闭按钮行为。</param>
+    /// <returns>持久化是否成功。</returns>
+    public async Task<bool> ApplyCloseActionAsync(CloseAction action)
+    {
+        if (_catalogService.Catalog is not { } catalog)
+        {
+            return false;
+        }
+
+        catalog.Settings.CloseAction = action;
+        IsCloseToTrayEnabled = action == CloseAction.HideToTray;
         return await TrySaveCatalogAsync();
     }
 
@@ -583,6 +604,10 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>侧栏是否展开（持久化到 games.json，启动时恢复）。</summary>
     [ObservableProperty]
     private bool _isSidebarExpanded = true;
+
+    /// <summary>关闭按钮是否为"隐藏窗口驻留托盘"模式（窗口 Closing 拦截判定，目录加载时初始化）。</summary>
+    [ObservableProperty]
+    private bool _isCloseToTrayEnabled;
 
     /// <summary>侧栏当前宽度（展开/收起值二选一，驱动过渡动画）。</summary>
     public double SidebarWidth => IsSidebarExpanded ? SidebarExpandedWidth : SidebarCollapsedWidth;
@@ -751,6 +776,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _themeService.Apply(catalog.Settings.Theme);
         SelectedTheme = ThemeModes.FirstOrDefault(t => t.Mode == catalog.Settings.Theme) ?? ThemeModes[0];
         IsSidebarExpanded = catalog.Settings.SidebarExpanded;
+        IsCloseToTrayEnabled = catalog.Settings.CloseAction == CloseAction.HideToTray;
         _ = LoadAppBackgroundAsync();
 
         var unknownChannels = RebuildGames(catalog);
@@ -785,6 +811,29 @@ public partial class MainWindowViewModel : ViewModelBase
         foreach (var game in Games)
         {
             game.StopVideo();
+        }
+    }
+
+    /// <summary>
+    /// 窗口隐藏驻留托盘（closeAction=HideToTray 的关闭路径）：照常持久化窗口尺寸；
+    /// 当前在播背景视频暂停保活（隐藏窗口继续解码纯属浪费，托盘唤回即时续播）；
+    /// 刻意不取消下载与依赖安装——驻留的意义就是后台继续（真退出路径仍走
+    /// <see cref="StopBackdropVideo"/> + <see cref="CancelOngoingDependencyInstall"/>）。
+    /// </summary>
+    public void OnWindowHiddenToTray(double width, double height, bool maximized)
+    {
+        PersistWindowState(width, height, maximized);
+        _activeVideoPage?.SuspendVideo();
+    }
+
+    /// <summary>托盘唤回窗口：当前游戏页的保活视频续播（无会话则凭已解析路径重新起播）。
+    /// 非游戏页无需处理——其视频早在切页时已按既有机制泊车，返回游戏页时正常续播。</summary>
+    public void OnWindowRestoredFromTray()
+    {
+        if (CurrentPage is GameItemViewModel gamePage && ReferenceEquals(_activeVideoPage, gamePage))
+        {
+            _parkedVideoPages.Remove(gamePage);
+            gamePage.SetDetailActive(true);
         }
     }
 
@@ -1299,6 +1348,7 @@ public partial class SettingsViewModel : ViewModelBase
         // 避免出现"填了值却禁用"的误导观感（配置本体不受影响，切回自定义即恢复）
         _proxyAddressDraft = owner.ProxyMode == ProxyMode.Manual ? owner.ProxyAddress : "";
         ApplyModeToRadios(owner.ProxyMode);
+        ApplyCloseActionToRadios(owner.CloseAction);
     }
 
     /// <summary>把代理选择映射到三个 radio（构造与回显用，守卫避免级联）。</summary>
@@ -1484,6 +1534,53 @@ public partial class SettingsViewModel : ViewModelBase
 
     [RelayCommand]
     private Task ToggleAutostartAsync() => SetAutostartAsync(!IsAutostart);
+
+    /// <summary>关闭行为选择：退出应用（默认）。</summary>
+    [ObservableProperty]
+    private bool _isCloseActionExit = true;
+
+    /// <summary>关闭行为选择：关闭窗口并驻留系统托盘。</summary>
+    [ObservableProperty]
+    private bool _isCloseActionHide;
+
+    /// <summary>关闭行为保存结果提示（独立消息位）。</summary>
+    [ObservableProperty]
+    private SaveMessageSlot _closeActionSave = new();
+
+    /// <summary>把关闭行为映射到两个 radio（构造初始化与保存失败回滚用；
+    /// 绑定为 OneWay + 命令驱动，无双向级联，不需要代理 radio 的防重入守卫）。</summary>
+    private void ApplyCloseActionToRadios(CloseAction action)
+    {
+        IsCloseActionExit = action == CloseAction.Exit;
+        IsCloseActionHide = action == CloseAction.HideToTray;
+    }
+
+    /// <summary>选择"退出应用"并即时保存。</summary>
+    [RelayCommand]
+    private async Task SelectCloseActionExitAsync(CancellationToken cancellationToken) =>
+        await SetCloseActionAsync(CloseAction.Exit, cancellationToken);
+
+    /// <summary>选择"关闭窗口驻留托盘"并即时保存。</summary>
+    [RelayCommand]
+    private async Task SelectCloseActionHideAsync(CancellationToken cancellationToken) =>
+        await SetCloseActionAsync(CloseAction.HideToTray, cancellationToken);
+
+    /// <summary>应用关闭行为选择：成功刷新 radio；失败回滚 radio 到内存态并提示
+    /// （内存态已被 Apply 写入但重启回退，与代理保存失败语义一致）。</summary>
+    private async Task SetCloseActionAsync(CloseAction action, CancellationToken cancellationToken)
+    {
+        CloseActionSave.Clear();
+        if (await _owner.ApplyCloseActionAsync(action))
+        {
+            ApplyCloseActionToRadios(action);
+            CloseActionSave.SetSuccess(Loc["settings_closeSaved"]);
+        }
+        else
+        {
+            ApplyCloseActionToRadios(_owner.CloseAction);
+            CloseActionSave.SetFailure(Loc.Format("message_saveFailed", Loc["message_saveFailedGeneric"]));
+        }
+    }
 
     /// <summary>安装根目录保存结果提示。</summary>
     [ObservableProperty]

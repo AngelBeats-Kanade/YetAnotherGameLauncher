@@ -71,13 +71,14 @@
 
 ## 7. 应用设置页（Controls/SettingsPage.axaml）
 
-- 根 `Border.page` + `ScrollViewer` + `StackPanel MaxWidth=720 Spacing=16`，28px 页标题。五张 `card` 卡自上而下（2026-09-29 补记，结构快照）：
+- 根 `Border.page` + `ScrollViewer` + `StackPanel MaxWidth=720 Spacing=16`，28px 页标题。六张 `card` 卡自上而下（2026-09-29 补记，结构快照）：
   ①**外观**：主题/语言两个 ComboBox 并排（`*,*` ColumnSpacing 24），`ThemeModes`/`Languages` 选项带 DisplayName 模板；hint caption。
   ②**应用背景**：只读 TextBox（`AppBackgroundPath`）+ 浏览/恢复两钮 + `AppBackgroundSave` 消息槽。
   ③**下载**：安装根目录行（`InstallRootBox` + inline 浏览钮，`*,Auto` ColumnSpacing 12——评审 P2-5 与游戏设置页位置卡同款）+ `InstallRootSave` 槽；限速行（TextBox 宽 140 + 保存钮 + `SpeedLimitSave` 槽）；自启 ToggleSwitch（On/Off 文案本地化）+ `AutostartSave` 槽。**四槽互不复用**（各自 SaveMessageSlot 实例）。
-  ④**网络（代理）**：`ProxyCard` 具名（截图测试滚动定位）——三个 RadioButton（跟随系统/直连/手动，GroupName=proxy）+ 地址 TextBox（`ProxyAddressBox`，缩进 24，`IsEnabled=IsProxyAddressEnabled`）+ 保存钮 + `ProxySave` 槽。`InstallRootBox`/`ProxyAddressBox` 具名供窗口级 Enter 处理器按名分发。
-  ⑤**配置文件**：路径只读展示（13px 辅助色 Wrap）+ 打开所在目录钮。
-  底部"返回游戏" `back-btn`。
+  ④**关闭按钮**（2026-09-29 增，0.1.3）：`x:Name="CloseActionCard"` 具名（截图测试滚动定位）——两个 RadioButton（退出应用 / 关闭窗口驻留托盘，GroupName=closeAction，`IsChecked` OneWay + 命令即时应用，同自启开关交互）+ hint caption（Wrap）+ `CloseActionSave` 槽。
+  ⑤**网络（代理）**：`ProxyCard` 具名（截图测试滚动定位）——三个 RadioButton（跟随系统/直连/手动，GroupName=proxy）+ 地址 TextBox（`ProxyAddressBox`，缩进 24，`IsEnabled=IsProxyAddressEnabled`）+ 保存钮 + `ProxySave` 槽。`InstallRootBox`/`ProxyAddressBox` 具名供窗口级 Enter 处理器按名分发。
+  ⑥**配置文件**：路径只读展示（13px 辅助色 Wrap）+ 打开所在目录钮。
+  底部"返回游戏" `back-btn`。截图 `05-settings-dark`（滚动定位 ④卡）/`05b-settings-light`。
 
 ## 8. 唤取记录页（Controls/GachaPage.axaml）
 

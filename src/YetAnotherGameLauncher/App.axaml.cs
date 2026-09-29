@@ -38,7 +38,19 @@ public partial class App : Application
             var viewModel = services.GetRequiredService<MainWindowViewModel>();
             // 启动遮蔽：初始化与首个背景预载在遮蔽后进行，就绪/超时后放行（BootGate 纯决策）
             viewModel.BeginBootSplash();
-            desktop.MainWindow = new MainWindow { DataContext = viewModel };
+            var mainWindow = new MainWindow { DataContext = viewModel };
+            desktop.MainWindow = mainWindow;
+            // 系统托盘驻留：常驻图标（左键唤回/菜单显示/退出）。构造失败（无托盘环境等）
+            // 不致命：记日志继续——此时 closeAction=HideToTray 失去召回入口，但应用本体可用
+            try
+            {
+                new Services.TrayIconController(mainWindow, viewModel);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "托盘图标初始化失败，跳过系统托盘驻留");
+            }
+
             // 非"关窗"路径的程序性 Shutdown 也停视频（点 X 关闭已由窗口 Closing 覆盖）：
             // 播放器按游戏独占，须停掉全部会话（含暂停保活中的）；退出期平台拆除会弄坏
             // GPU 解码栈，解码循环必须先行停止

@@ -115,6 +115,27 @@
                     </StackPanel>
                 </Border>
 
+                <!-- 关闭按钮行为：退出应用 / 关闭窗口驻留系统托盘（同代理卡的 radio 模式，
+                     单一二选一即时应用，无草稿+保存两步；具名供截图测试滚动定位） -->
+                <Border Classes="card" x:Name="CloseActionCard">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="{Binding Loc[settings_close]}" FontSize="15" FontWeight="SemiBold"/>
+                        <StackPanel Spacing="6" Margin="0,4,0,0">
+                            <RadioButton GroupName="closeAction" Content="{Binding Loc[settings_close_exit]}"
+                                         IsChecked="{Binding IsCloseActionExit, Mode=OneWay}"
+                                         Command="{Binding SelectCloseActionExitCommand}"/>
+                            <RadioButton GroupName="closeAction" Content="{Binding Loc[settings_close_hide]}"
+                                         IsChecked="{Binding IsCloseActionHide, Mode=OneWay}"
+                                         Command="{Binding SelectCloseActionHideCommand}"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding Loc[settings_close_hint]}" Classes="card-caption" TextWrapping="Wrap"/>
+                        <TextBlock Classes="save-msg" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                   Text="{Binding CloseActionSave.Message}"
+                                   IsVisible="{Binding CloseActionSave.HasMessage}"
+                                   Classes.failed="{Binding CloseActionSave.Failed}"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- 网络（代理）：三个直白单选，去掉"模式"概念 -->
                 <Border Classes="card" x:Name="ProxyCard">
                     <StackPanel Spacing="8">

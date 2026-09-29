@@ -168,11 +168,18 @@ public class UiScreenshotTests
             ctx.Vm.ToggleSidebarCommand.Execute(null);
             window.UpdateLayout();
 
-            // 暗色 · 设置页（外观卡：主题 + 语言；滚动到网络代理卡展示单选组）
+            // 暗色 · 设置页（外观卡：主题 + 语言；滚动到关闭行为卡展示 0.1.3 新增单选组，
+            // 连带下方网络代理卡入画）
             ctx.Vm.ShowSettingsCommand.Execute(null);
             window.UpdateLayout();
-            BringCardIntoView(window, "ProxyCard");
+            BringCardIntoView(window, "CloseActionCard");
             Capture("05-settings-dark.png");
+
+            // 亮色 · 设置页（关闭行为卡同卡位亮色审查；2026-09-29 增）
+            ctx.Vm.SelectedTheme = light;
+            window.UpdateLayout();
+            Capture("05b-settings-light.png");
+            ctx.Vm.SelectedTheme = dark;
 
             // 暗色 · 关于页
             ctx.Vm.ShowAboutCommand.Execute(null);

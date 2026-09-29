@@ -7,15 +7,23 @@
 
 ### 新增
 
-（随批次填充。）
+**系统托盘驻留与关闭按钮行为**
+
+- 托盘图标常驻系统托盘（Linux 走 KDE 原生 StatusNotifierItem 协议、Windows 走 Shell_NotifyIcon，零第三方依赖）：左键唤回主窗口，菜单提供"显示主窗口 / 退出"。
+- 设置页新增「关闭按钮」卡：点击关闭按钮 = 退出应用（默认，与此前行为一致）或 关闭窗口并驻留系统托盘（`closeAction` 设置项，games.json 可直接配置）。
+- 驻留模式下点击关闭（含 alt+F4 / 系统关闭）只隐藏窗口：下载与依赖安装后台继续、背景视频暂停保活（托盘唤回即时续播）、窗口尺寸照常持久化；托盘"退出"走完整退出清理（停视频/取消依赖安装）。
+- 依赖桌面环境提供 StatusNotifierItem 托盘：KDE 开箱即用；GNOME 需安装托盘扩展；无托盘环境请保持"退出应用"模式。
 
 ---
 
 ### English · 0.1.3 — unreleased
 
-**Added**
+**Added — system tray dwelling & close-button behavior**
 
-(To be filled along with the release.)
+- A tray icon always dwells in the system tray (KDE-native StatusNotifierItem protocol on Linux, Shell_NotifyIcon on Windows, zero third-party dependencies): left click restores the main window; the menu offers "Show main window / Quit".
+- New "Close Button" card in Settings: clicking close quits the application (default, unchanged behavior) or closes the window and dwells in the system tray (`closeAction` setting, also configurable directly in games.json).
+- In dwelling mode, closing (including Alt+F4 / system close) only hides the window: downloads and dependency installs keep running in the background, the backdrop video pauses with keep-alive (instant resume on restore), and window geometry is persisted as usual; tray "Quit" runs the full shutdown cleanup (stop videos / cancel dependency installs).
+- Requires a StatusNotifierItem tray from the desktop environment: works out of the box on KDE; GNOME needs a tray extension; keep "quit" mode on tray-less environments.
 
 ---
 

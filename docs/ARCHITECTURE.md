@@ -512,6 +512,31 @@ flowchart LR
   退出码 0 且 `reg query` 可读回。残留暴露面：手改 `STEAM_COMPAT_DATA_PATH` 指向统一 prefix 根之外的
   自定义 prefix 不在 prune 迁移扫描范围（无法枚举，依赖安装预检仍可修）。
 
+### 3.10 系统托盘驻留与关闭按钮行为（2026-09-29，0.1.3）
+
+- **托盘机制**：Avalonia 12.1 内建 `TrayIcon` + `NativeMenu`——Linux 走 D-Bus
+  StatusNotifierItem（KDE 系统托盘原生协议，**与显示协议无关，原生 Wayland 下可用**），
+  Windows 走 Shell_NotifyIcon，零第三方依赖。接线收口在 `Services/TrayIconController`
+  （`[ExcludeFromCodeCoverage]`：只做装配，可判定逻辑在 `MainWindowViewModel`/`MainWindow`），
+  于 `App.OnFrameworkInitializationCompleted` 创建主窗口后构造（try/catch 记日志，无托盘
+  环境不致命）。图标常驻（左键唤回主窗口），菜单 = 显示主窗口 / 退出。
+- **关闭分流**（`MainWindow.OnWindowClosing` 统一拦截标题栏关闭钮 / alt+F4 / 系统关闭）：
+  `settings.closeAction`（settings 表见 GAME_CONFIG.md）= `HideToTray` 且非真退出请求 →
+  `e.Cancel` + `Hide()`；**隐藏路径** = 窗口尺寸照常持久化 + 当前在播背景视频
+  `SuspendVideo` 暂停保活（托盘唤回 `SetDetailActive(true)` 走续播快路径），**不**取消
+  下载与依赖安装（驻留的意义就是后台继续）；**真退出路径**（默认 `Exit` 模式，或托盘
+  "退出"经 `MainWindow.RequestRealClose` 置真关闭放行标志）= 既有清理链
+  `PersistWindowState` + `StopBackdropVideo` + `CancelOngoingDependencyInstall`。
+  会话注销（`ShutdownRequested`）不受拦截影响。
+- **线程规则**：SNI 菜单命令/图标点击回调到达 Tmds D-Bus 总线线程，直接触碰窗口/VM 会
+  段错误——所有回调统一 `Dispatcher.UIThread.Post`（同步 Action；NativeMenuItem 在 12.1.3
+  **无公开 Clicked 事件**，探针实证只有 `Command`，其执行线程同样无保证，故一律包裹）。
+- **已知限制**（上游）：`TrayIcon.IsVisible` 恒 true，无法探测托盘 host 是否存在；Plasma
+  重启后图标可能丢失（Avalonia #22225 open）；无 SNI host 的环境（GNOME 默认无托盘扩展）
+  图标不显示，此时 HideToTray 模式失去召回入口（README 已注明）；`Activate()` 在原生
+  Wayland 是 no-op（#21943，xdg-activation 未实现）——唤回窗口不保证抢到焦点。菜单文案
+  取构造时刻语言，运行中切换语言不回填（重启生效）。
+
 ## 4. 配置与状态的数据流
 
 - **配置（输入）**：`games.json`（渠道键、服务器选项、启动模板）→ `GameCatalogService` 解析 + 全量语义校验（错误集中返回）。

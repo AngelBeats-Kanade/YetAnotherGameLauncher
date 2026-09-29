@@ -58,6 +58,8 @@ src/
                     CompositorScaleParser（hyprctl monitors -j 的缩放解析纯函数，Xft.dpi 同步用，直测见 App.Tests）；
                     WindowStateMapper（视觉最大化判定：Wayland 实验后端把平铺误报 Maximized，
                     需校验客户区铺满工作区才去圆角；纯函数，决策表测试见 App.Tests）；
+                    TrayIconController（系统托盘驻留接线：TrayIcon+NativeMenu 装配与总线线程→UI 线程
+                    投递；关闭分流逻辑在 MainWindowViewModel/MainWindow，机制见 ARCHITECTURE.md §3.10）；
                     LocalizationService/ILocalizationService（JSON 资源本地化）；
                     FfmpegVideoBackdropPlayer/IVideoBackdropPlayer（FFmpeg 背景视频解码播放）+ FfmpegLibraryResolver（原生库准备/下载）；
                     SeamAnalyzer（循环接缝分析）+ PrerollHandoff（预卷零间隙交接状态机）实现无缝循环；

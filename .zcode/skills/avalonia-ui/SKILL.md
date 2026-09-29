@@ -72,6 +72,8 @@ Avalonia 12（本项目 12.1.2）+ .NET 10。跨平台 XAML（.axaml）UI 框架
 9. **Fluent 主题的状态样式在模板 presenter 层写前景**：`Button` 的 `:pointerover`/`:pressed`/`:disabled` 把主题前景直接设在 `ContentPresenter#PART_ContentPresenter` 上，会压过 Button 本体的任何 Foreground（含继承）。自定义按钮的固定前景必须同样下沉到 presenter 层逐状态覆盖（先例：`Button.glass-onart` 组，MainWindow.axaml）。
 10. **`Image` 的 `UniformToFill` 默认按控件对齐居中裁切**：需要保住某一边（如海报左缘完整贴侧栏）时，设 `HorizontalAlignment="Left"` + `VerticalAlignment="Top"`，让测量出的封面尺寸向右/下溢出，由外层 `ClipToBounds` 裁掉。
 11. **Animation API（2026-09-21 实测，本项目编舞已弃用之，改手写驱动——见 docs/UI_STRUCTURE.md §2.1）**：`RunAsync` 目标必须是控件（Visual）；keyframe 属性写 `TranslateTransform.YProperty`/`ScaleTransform.ScaleYProperty`；keyframe 缓动用 `KeySpline`（没有 `Easing` 属性），且 **KeySpline 作用于"进入该帧"的段落**（帧 i 的样条管 i-1→i 段）；一个 KeyFrame 带多个 Setter 与拆成多条单属性动画**功能等价**（真机 A/B 插桩实测，引擎源码 `Animation.InterpretKeyframes`/`TransformAnimator` 逐层核对）——不要用"两动画失步"解释卡顿。空闲渲染循环下 Animation 时钟无法自举的根因见 docs/ARCHITECTURE.md §3.7。
+12. **系统托盘（TrayIcon/SNI，2026-09-29 实证）**：Linux 托盘走 D-Bus StatusNotifierItem，KDE Wayland 原生可用（与显示协议无关）；但 **SNI 回调到达 Tmds 总线线程，直接碰窗口/VM 会 SIGSEGV**——必须 `Dispatcher.UIThread.Post` 同步 Action。`NativeMenuItem` 在 12.1.3 **无公开 Clicked 事件**（探针实证只有 `Command`），Command 执行线程同样无文档保证，一律包裹。`TrayIcon.IsVisible` 恒 true，无法探测托盘 host 是否存在；无 SNI host 的环境（GNOME 默认）图标不显示。机制与关闭分流见 docs/ARCHITECTURE.md §3.10。
+13. **原生 Wayland 的 `Activate()` 是 no-op**（上游 #21943，xdg-activation 未实现）：`Hide()`→`Show()` 唤回窗口本身可靠（重映射崩溃 bug 已随 12.1.1 修复），但唤回**不保证抢到焦点**；托盘唤回接受该限制。
 
 ## 写完 UI 后必做
 
