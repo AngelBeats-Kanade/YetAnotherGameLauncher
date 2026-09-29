@@ -60,12 +60,17 @@ public sealed class LinuxPlatformInfo : IPlatformInfo
     }
 
     /// <inheritdoc/>
-    public void OpenDirectoryInFileManager(string path) =>
-        Process.Start(CreateXdgOpenInfo(path));
+    public void OpenDirectoryInFileManager(string path)
+    {
+        // 即启即走（F76）：句柄用毕即释——释放不终止进程，仅回收 Process 对象的等待句柄
+        using var process = Process.Start(CreateXdgOpenInfo(path));
+    }
 
     /// <inheritdoc/>
-    public void OpenInBrowser(string url) =>
-        Process.Start(CreateXdgOpenInfo(url));
+    public void OpenInBrowser(string url)
+    {
+        using var process = Process.Start(CreateXdgOpenInfo(url));
+    }
 
     /// <summary>构造 xdg-open 调用信息（internal 供单测断言参数封装形态）。
     /// 必须走 ArgumentList 通道（.NET 自动转义，官方推荐）：双参构造把参数原样拼进 Arguments

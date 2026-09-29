@@ -77,6 +77,23 @@ public class HpatchzApplierTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyAsync_EscapesQuotesAndTrailingBackslashes()
+    {
+        // F63：手工引号拼接对路径含 `"`（Linux 合法字符）或尾随 `\`（Windows 盘根形态）不设防，
+        // 破坏引号配对 → hpatchz 收到错误 argv。修复 = .NET 命令行分词规则转义
+        //（`\` 翻倍 + `"` 转 \"）后再包裹引号；常规路径的输出与旧实现逐字节一致
+        var applier = new HpatchzApplier(_runner, new HpatchzApplierOptions { HpatchzPath = StubTool() });
+        var patch = _tempDir.FilePath("we\"ird.krpdiff"); // 仅作字符串值，不触盘
+        var oldDir = _tempDir.FilePath("trail") + Path.DirectorySeparatorChar; // 尾随分隔符形态
+
+        await applier.ApplyAsync(patch, oldDir, _tempDir.FilePath("new"));
+
+        var spec = Assert.Single(_runner.Specs);
+        Assert.Contains("we\\\"ird.krpdiff", spec.Arguments); // `"` → \"（且无裸引号断对）
+        Assert.Contains($"\"{oldDir.Replace("\\", "\\\\")}\"", spec.Arguments); // 尾随 `\` 翻倍后收引号内
+    }
+
+    [Fact]
     public async Task ApplyAsync_CreatesOutputDirectory()
     {
         var applier = new HpatchzApplier(_runner, new HpatchzApplierOptions { HpatchzPath = StubTool() });

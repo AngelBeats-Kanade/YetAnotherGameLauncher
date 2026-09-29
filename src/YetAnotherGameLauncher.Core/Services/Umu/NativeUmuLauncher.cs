@@ -122,6 +122,13 @@ public sealed class NativeUmuLauncher(
                     continue;
                 }
 
+                // PROTON_VERB 同为托管键：经 UmuEnvironment.Build 白名单校验/缺省回退，
+                // 用户 env 反超会产出残缺 --verb 命令（F70）
+                if (key.Equals("PROTON_VERB", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
                 // UMU_ID/GAMEID 由 launch.umuId 显式覆盖时为权威值：配置 env 里的同名键（首运托管残留/
                 // 存量迁移遗留）不得反超，否则 launch.umuId 覆盖静默失效（2026-09-28 托管语义实锤）；
                 // umuId 未设置时仍允许 env 覆盖（存量手工配置的覆盖通道保持原样）

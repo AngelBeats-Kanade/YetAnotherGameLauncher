@@ -32,7 +32,7 @@ public sealed class HpatchzApplier(
 
         Directory.CreateDirectory(newDir);
 
-        var arguments = $"-f \"{oldDir}\" \"{patchFilePath}\" \"{newDir}\"";
+        var arguments = $"-f {QuoteArg(oldDir)} {QuoteArg(patchFilePath)} {QuoteArg(newDir)}";
         logger?.LogDebug("Running {Exe} {Args}", tool, arguments);
 
         var result = await processRunner.RunAsync(
@@ -45,6 +45,12 @@ public sealed class HpatchzApplier(
                 $"hpatchz exited with code {result.ExitCode} (patch: {Path.GetFileName(patchFilePath)}): {result.StandardError}");
         }
     }
+
+    /// <summary>按 .NET 命令行分词规则包裹参数（F63）：值内 `\` 翻倍、`"` 转义为 `\"` 后收引号内。
+    /// 手工引号拼接对路径含 `"`（Linux 合法字符）或尾随 `\`（Windows 盘根形态）会破坏引号配对，
+    /// hpatchz 收到错误 argv；无特殊字符的常规路径输出与直接包裹逐字节一致。</summary>
+    internal static string QuoteArg(string value) =>
+        $"\"{value.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"";
 
     /// <summary>
     /// 预检补丁工具位置。全路径直接校验存在与可执行（Linux 含执行位要求，见

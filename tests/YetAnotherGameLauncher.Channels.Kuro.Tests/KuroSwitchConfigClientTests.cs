@@ -25,6 +25,47 @@ public class KuroSwitchConfigClientTests
         _handler.Map($"https://cdn.example.com/launcher/10003_H1/G152/background/HASH123/{lang}.json", backgroundJson);
     }
 
+    [Fact]
+    public async Task FetchAsync_StreamReadInterrupted_RetriesOnceThenReturnsNull()
+    {
+        // R7 回归钉（实证改判）：流读中断不会被裸穿——.NET 的 StreamContent 把响应体
+        // IOException 包装成 HttpRequestException，IsTransient 已按瞬态重试一次后静默 null。
+        // 原立案的"IOException 裸穿"前提被本用例证伪（红测未红），保留为该语义的回归钉
+        var client = new KuroSwitchConfigClient(new HttpClient(new ThrowingStreamHandler()));
+
+        Assert.Null(await client.FetchAsync(CnIndexUrl, "cn"));
+    }
+
+    /// <summary>响应体流在首次读取时抛 IOException（模拟连接重置截断响应体）。</summary>
+    private sealed class ThrowingStreamHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new ThrowingStream()),
+            };
+            return Task.FromResult(response);
+        }
+    }
+
+    private sealed class ThrowingStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new IOException("connection reset");
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            Task.FromException<int>(new IOException("connection reset"));
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
     private const string FullBackgroundJson = """
         {"functionSwitch":1,
          "backgroundFile":"https://cdn.example.com/bg.mp4",

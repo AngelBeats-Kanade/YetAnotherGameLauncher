@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using YetAnotherGameLauncher.Core;
+using YetAnotherGameLauncher.Core.Utilities;
 
 namespace YetAnotherGameLauncher.Channels.Kuro;
 
@@ -42,6 +43,15 @@ public sealed partial class KuroGachaService(HttpClient httpClient, string? cach
     /// <summary>缓存目录（internal 供路径策略直测；测试注入临时目录）：数据目录下的 gacha/——
     /// 可重建缓存归数据目录（2026-09-22 迁移，与背景/图标/ffmpeg 同批；config 下旧缓存成遗留可手删）。</summary>
     internal string CacheDirectory => cacheDirectory ?? Path.Combine(AppPaths.DataDirectory, "gacha");
+
+    /// <summary>测试缝：写前钩子（载入+合并之后、落盘之前调用，F62 并发测试用它构造
+    /// 确定性交错）；生产为 null 零开销。</summary>
+    internal Action? BeforeSaveHookForTests { get; set; }
+
+    /// <summary>跨实例串行化同一缓存文件的读-改-写（F62）：两个并发 MergeAndSave 各自
+    /// 载入-合并-整文件替换会互相覆盖丢更新。锁内固定名 .tmp 因此无撕裂面
+    /// （原 Guid 缝被串行化取代）。</summary>
+    private static readonly object CacheWriteLock = new();
 
     /// <summary>唤取记录页地址特征（出现在 Client.log 的行内）。</summary>
     [GeneratedRegex(@"https?://aki-gm-resources\.[^\s""`'/]+\.com/aki/gacha/index\.html[^\s""`']*")]
@@ -330,25 +340,37 @@ public sealed partial class KuroGachaService(HttpClient httpClient, string? cach
     {
         try
         {
-            Directory.CreateDirectory(CacheDirectory);
-            var merged = new Dictionary<string, GachaRecord>(StringComparer.Ordinal);
-            foreach (var record in LoadCached())
+            lock (CacheWriteLock)
             {
-                merged[Key(record)] = record;
-            }
+                Directory.CreateDirectory(CacheDirectory);
+                var merged = new Dictionary<string, GachaRecord>(StringComparer.Ordinal);
+                foreach (var record in LoadCached())
+                {
+                    merged[Key(record)] = record;
+                }
 
-            foreach (var record in fetched)
-            {
-                merged[Key(record)] = record;
-            }
+                foreach (var record in fetched)
+                {
+                    merged[Key(record)] = record;
+                }
 
-            var sorted = merged.Values.OrderByDescending(r => r.Time).ToList();
-            // 原子写：先写唯一名 .tmp 再改名，写一半崩溃不损坏既有缓存（保持 Sync 语义：调用方为同步管线）；
-            // tmp 名带 Guid：唤取页每次进入都新建 ViewModel，两个 RefreshAsync 并发写同一固定名会互相撕裂
-            var cachePath = Path.Combine(CacheDirectory, CacheFileName);
-            var tempPath = $"{cachePath}.{Guid.NewGuid():N}.tmp";
-            File.WriteAllText(tempPath, JsonSerializer.Serialize(new GachaCache(sorted), GachaJsonOptions));
-            File.Move(tempPath, cachePath, overwrite: true);
+                var sorted = merged.Values.OrderByDescending(r => r.Time).ToList();
+                BeforeSaveHookForTests?.Invoke();
+                // 原子写：先写固定名 .tmp 再改名，写一半崩溃不损坏既有缓存（保持 Sync 语义：
+                // 调用方为同步管线）；固定名的并发撕裂面由 CacheWriteLock 串行化消除（F62）
+                var cachePath = Path.Combine(CacheDirectory, CacheFileName);
+                var tempPath = cachePath + ".tmp";
+                try
+                {
+                    File.WriteAllText(tempPath, JsonSerializer.Serialize(new GachaCache(sorted), GachaJsonOptions));
+                    File.Move(tempPath, cachePath, overwrite: true);
+                }
+                finally
+                {
+                    // 任一环失败（写抛出/Move 失败）不留 .tmp 残留（F62）
+                    FileUtilities.DeleteQuiet(tempPath);
+                }
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

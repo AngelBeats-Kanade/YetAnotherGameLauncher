@@ -134,6 +134,17 @@ public sealed class HttpFileDownloader(
 
         // 仅当服务器确实按 Range 返回 206 时才算续传；返回 200 说明服务器忽略了 Range，需要重写
         var resume = response.StatusCode == HttpStatusCode.PartialContent && existingTempBytes > 0;
+        if (resume
+            && response.Content.Headers.ContentRange?.From is { } rangeStart
+            && rangeStart != existingTempBytes)
+        {
+            // 206 声称的起始字节与请求不符（畸形服务器/多段语义）：错位数据会被拼进 .temp，
+            // 无 MD5/size 清单时静默落盘损坏文件（F64）——按校验失败丢弃 .temp 整体重下
+            //（与 416 分支同语义，外层 catch 删除临时文件后重试）
+            throw new DownloadVerificationException(
+                $"Resume of {request.Url} served byte {rangeStart}, expected {existingTempBytes}; remote content may have changed.");
+        }
+
         if (!resume && File.Exists(tempPath))
         {
             File.Delete(tempPath);

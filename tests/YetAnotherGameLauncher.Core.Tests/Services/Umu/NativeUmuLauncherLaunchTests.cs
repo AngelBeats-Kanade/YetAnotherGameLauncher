@@ -106,6 +106,27 @@ public sealed class NativeUmuLauncherLaunchTests : IDisposable
         Assert.Equal("umu-legacy", plan.Environment["GAMEID"]);
     }
 
+    [Fact]
+    public void BuildPlan_ManagedProtonVerb_NotOverridableByUserEnvironment()
+    {
+        // F70：PROTON_VERB 是启动器托管键（UmuEnvironment.Build 白名单校验/缺省回退）——
+        // 用户 env 同名键不得反超，否则空串/非法动词产出残缺 --verb 命令
+        //（与 PROTONPATH/UMU_ID 的托管守卫同纪律）
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("BuildPlan 仅 Linux（守卫为纯字典逻辑，由 Linux 腿覆盖）");
+        }
+
+        var plan = BuildPlanWithExtraEnvironment(
+            new Dictionary<string, string>
+            {
+                ["PROTON_VERB"] = "runwiththeball",
+            },
+            umuId: null);
+
+        Assert.Equal(UmuLaunchRequest.DefaultVerb, plan.Environment["PROTON_VERB"]);
+    }
+
     /// <summary>BuildPlan 组装（守卫两腿共用）：假 Proton + steamrt4 运行时 + 真实 exe。</summary>
     private UmuNativeLaunchPlan BuildPlanWithExtraEnvironment(
         Dictionary<string, string> extraEnvironment, string? umuId)

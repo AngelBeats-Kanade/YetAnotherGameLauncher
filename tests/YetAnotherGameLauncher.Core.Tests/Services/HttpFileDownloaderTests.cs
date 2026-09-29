@@ -219,6 +219,22 @@ public class HttpFileDownloaderTests : IDisposable
     }
 
     [Fact]
+    public async Task DownloadFileAsync_Mismatched206RangeStart_RestartsCleanWithoutCorruption()
+    {
+        // F64：206 起始字节与请求不符（畸形服务器）时原实现照走续传——错位数据拼进 .temp，
+        // 无 MD5/size 清单时**静默落盘损坏文件**（有 MD5 也白白烧一次校验失败的整重下）。
+        // 修复 = 206 声称的 From ≠ 请求起点按校验失败丢弃 .temp 重下
+        await File.WriteAllBytesAsync(_tempDir.FilePath("file.bin.temp"), "CORRUPT"u8.ToArray());
+        _handler.ForcedRangeStart = 0; // 请求 bytes=7- 却回 bytes=0- 的 206
+        _handler.Map(Url, Content);
+
+        await CreateDownloader().DownloadFileAsync(Request(), cancellationToken: Ct);
+
+        Assert.Equal(Content, await File.ReadAllBytesAsync(_tempDir.FilePath("file.bin")));
+        Assert.False(File.Exists(_tempDir.FilePath("file.bin.temp"))); // 错位 .temp 已丢弃
+    }
+
+    [Fact]
     public async Task DownloadFileAsync_TempWriteFailure_TerminalSingleAttemptWithLocalReason()
     {
         // F65：本地写故障（.temp 落点被目录占用/磁盘满/只读）不是网络瞬态——原实现把一切

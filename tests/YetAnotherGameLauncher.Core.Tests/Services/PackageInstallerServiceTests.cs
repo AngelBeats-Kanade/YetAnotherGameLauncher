@@ -29,6 +29,16 @@ public class PackageInstallerServiceTests : IDisposable
         ],
     };
 
+    [Fact]
+    public void ExtractArchive_MissingArchive_ClassifiedAsUpdateException()
+    {
+        // D1：体量上限取 FileInfo(archivePath).Length 位于折算 try 之外——归档被删/路径拼错
+        // 的裸 FNFE 穿出（依赖链落 deps_error_unexpected），与"除取消外全部折算"的纪律不一致。
+        // FNFE ⊂ IOException，进 try 即被既有 catch 折算
+        Assert.Throws<UpdateException>(() => PackageInstallerService.ExtractArchive(
+            _tempDir.FilePath("missing.pkg"), _tempDir.FilePath("install"), "测试包"));
+    }
+
     private static readonly byte[] ZipBytes = TestZip.Create(("game.exe", "MZ-stub"), ("config.ini", "cfg=1"));
 
     [Fact]

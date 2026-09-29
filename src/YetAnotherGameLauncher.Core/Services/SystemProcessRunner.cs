@@ -288,7 +288,11 @@ public sealed class SystemProcessRunner(
         CreateNoWindow = true,
     };
 
-    /// <summary>即启即走 + 输出日志：等两个输出泵到 EOF 后写退出脚注、关闭日志并释放进程句柄。</summary>
+    /// <summary>即启即走 + 输出日志：等两个输出泵到 EOF（或宽限期到）后写退出脚注、关闭日志并释放进程句柄。
+    /// 宽限语义（F72）：游戏派生的常驻子进程继承管道写端时泵 EOF 永不到达——等满宽限即照写脚注并
+    /// 释放 writer/process，残留泵经"日志已关闭/流已释放"的收尾臂静默退出，句柄不再滞留至进程退出。</summary>
+    internal static TimeSpan PumpDrainGrace { get; set; } = TimeSpan.FromSeconds(2);
+
     private static void ObserveFireAndForgetExit(
         Process process,
         Task pumpStdout,
@@ -302,8 +306,9 @@ public sealed class SystemProcessRunner(
         LogFireAndForgetExit(process, startedTicks, file, logger);
         _ = Task.Run(async () =>
         {
-            // 管道在进程退出后到达 EOF，两个泵收尾后写退出脚注并关闭日志
-            await Task.WhenAll(pumpStdout, pumpStderr).ConfigureAwait(false);
+            // 管道在进程退出后到达 EOF（正常情形）；写端被常驻子进程继承时等满宽限即收尾（F72）
+            var pumps = Task.WhenAll(pumpStdout, pumpStderr);
+            await Task.WhenAny(pumps, Task.Delay(PumpDrainGrace)).ConfigureAwait(false);
             var seconds = AliveSeconds(process, startedTicks, out var exitCode);
             lock (gate)
             {
@@ -319,7 +324,7 @@ public sealed class SystemProcessRunner(
 
             try
             {
-                process.Dispose(); // 泵已结束，日志路径专用的句柄在此收尾
+                process.Dispose(); // 泵已结束（或宽限到点），日志路径专用的句柄在此收尾
             }
             catch (Exception)
             {
@@ -374,11 +379,12 @@ public sealed class SystemProcessRunner(
                 }
             }
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
         {
-            // 管道/日志盘读写失败（如日志分区写满 ENOSPC）：与"日志已关闭"同语义，泵正常
-            // 收尾返回——抛出会让泵任务 fault，WhenAll 异常落入 fire-and-forget 即 unobserved，
-            // 脚注不写、writer/process Dispose 全跳过（F22-1）
+            // IOException：管道/日志盘读写失败（如日志分区写满 ENOSPC）——与"日志已关闭"同语义，
+            // 泵正常收尾返回，抛出会让泵任务 fault（F22-1）。
+            // ObjectDisposedException：F72 宽限收尾释放了 process（连带 reader 流）时，挂起的
+            // ReadLineAsync 以 ODE 结束——残留泵静默退出，任务不 fault
         }
     }
 }

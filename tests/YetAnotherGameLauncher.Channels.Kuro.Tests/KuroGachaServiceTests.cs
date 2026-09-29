@@ -29,6 +29,51 @@ public class KuroGachaServiceTests : IDisposable
             AppPaths.ConfigDirectory + Path.DirectorySeparatorChar, StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task MergeAndSave_ConcurrentDistinctRecords_BothSurvive()
+    {
+        // F62 并发半：两个 MergeAndSave 的读-改-写交错会丢更新——A 载入空缓存后停在写前，
+        // B 载入同样为空、A 写入 {r1} 后 B 再写 {r2} 把 r1 冲掉（B 的载入发生在 A 写之前）。
+        // 修复 = Load→Merge→Write 全程持跨实例串行锁：B 在锁上等 A，载入时已含 {r1}
+        var recordA = new GachaRecord("2026-09-29 10:00:00", "角色A", 5, 1);
+        var recordB = new GachaRecord("2026-09-29 11:00:00", "角色B", 4, 2);
+        var parkedA = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var parkedB = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseA = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseB = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var serviceA = CreateService();
+        var serviceB = CreateService();
+        serviceA.BeforeSaveHookForTests = async () => { parkedA.TrySetResult(); await releaseA.Task; };
+        serviceB.BeforeSaveHookForTests = async () => { parkedB.TrySetResult(); await releaseB.Task; };
+
+        var taskA = Task.Run(() => serviceA.MergeAndSave([recordA]));
+        await parkedA.Task.WaitAsync(TimeSpan.FromSeconds(5)); // A 载入空缓存后停在写前
+        var taskB = Task.Run(() => serviceB.MergeAndSave([recordB]));
+        // 修复形态：B 在锁上等 A，300ms 内不会到达写前钩子；缺陷形态：B 与 A 一样停写
+        await parkedB.Task.WaitAsync(TimeSpan.FromMilliseconds(300));
+        releaseA.TrySetResult();
+        await taskA.WaitAsync(TimeSpan.FromSeconds(5));
+        releaseB.TrySetResult();
+        await taskB.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var cached = serviceB.LoadCached();
+        Assert.Contains(cached, r => r.Name == "角色A");
+        Assert.Contains(cached, r => r.Name == "角色B");
+    }
+
+    [Fact]
+    public void MergeAndSave_WriteFailure_NoTempResidue()
+    {
+        // F62 残留半：WriteAllText 成功后 Move 失败（缓存落点被同名目录占用）不删 .tmp——
+        // 带 Guid 的残留在缓存目录累积。修复 = WriteAtomicAsync 接管落盘（失败路径统一清理）
+        var cacheDir = _tempDir.FilePath("gacha");
+        Directory.CreateDirectory(Path.Combine(cacheDir, "wuthering-waves.json")); // 占住缓存落点
+
+        CreateService().MergeAndSave([new GachaRecord("2026-09-29 10:00:00", "角色A", 5, 1)]);
+
+        Assert.Empty(Directory.EnumerateFiles(cacheDir, "*.tmp"));
+    }
+
     private const string SampleUrl = "https://aki-gm-resources.aki-game.com/aki/gacha/index.html" +
         "#/record?svr_id=76xx&player_id=100000002&lang=zh-Hans&gacha_id=xx&gacha_type=1" +
         "&svr_area=cn&record_id=3dc48935abc&resources_id=0bd52af4&platform=PC";

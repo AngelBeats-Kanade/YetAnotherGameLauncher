@@ -34,6 +34,39 @@ public class SystemProcessRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_FireAndForgetWithLog_ResidentChildDoesNotStallExitFootnote()
+    {
+        // F72：游戏派生的常驻子进程继承管道写端时，输出泵 EOF 永不到达——脚注与
+        // writer/process 释放被无限期滞后。修复 = 宽限收尾（退出脚注在泵 EOF 或宽限后照写）。
+        // 形态：sh 派生 5s 孤儿 sleep 持住写端、主进程 0.15s 退出——脚注须在 3s 内落盘
+        //（旧实现要等 5s 泵 EOF）
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("POSIX shell 进程树语义（孤儿继承管道写端）");
+        }
+
+        using var tempDir = new TestSupport.TempDir();
+        var runner = new SystemProcessRunner();
+        var logPath = tempDir.FilePath("ff.log");
+        await runner.RunAsync(new ProcessStartSpec(
+            "/bin/sh", "-c 'sleep 5 & sleep 0.15'",
+            WaitForExit: false, OutputLogPath: logPath));
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        while (!cts.Token.IsCancellationRequested)
+        {
+            if (File.Exists(logPath) && File.ReadAllText(logPath).Contains("process exited"))
+            {
+                return; // 脚注已落盘：宽限收尾生效
+            }
+
+            await Task.Delay(50, cts.Token);
+        }
+
+        Assert.Fail($"exit footnote not written within 3s (resident child stalls pumps): {logPath}");
+    }
+
+    [Fact]
     public async Task RunAsync_FireAndForget_ReturnsBeforeProcessExits()
     {
         // 游戏启动场景：即启即走——不能等待长进程退出（否则 10 分钟超时会杀掉整个游戏进程树）

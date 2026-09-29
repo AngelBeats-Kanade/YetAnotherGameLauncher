@@ -18,10 +18,16 @@ public sealed class WindowsPlatformInfo : IPlatformInfo
     public IReadOnlyList<GpuVendor> GpuVendors => [];
 
     /// <inheritdoc/>
-    public void OpenDirectoryInFileManager(string path) =>
-        Process.Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = false });
+    public void OpenDirectoryInFileManager(string path)
+    {
+        // 即启即走（F76）：句柄用毕即释——释放不终止进程，仅回收 Process 对象的等待句柄
+        using var process = Process.Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = false });
+    }
 
     /// <inheritdoc/>
-    public void OpenInBrowser(string url) =>
-        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); // shell 关联解析默认浏览器
+    public void OpenInBrowser(string url)
+    {
+        // shell 关联解析默认浏览器
+        using var process = Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+    }
 }

@@ -19,6 +19,10 @@ public sealed class StubHttpHandler : HttpMessageHandler
 
     public bool IgnoreRangeAndReturnFull { get; set; }
 
+    /// <summary>强制 206 响应声称的 Range 起始字节（F64：模拟畸形服务器对 Range 请求
+    /// 回错误起点的 206；null = 按请求范围正常回）。</summary>
+    public long? ForcedRangeStart { get; set; }
+
     public void Map(string url, byte[] content, string? contentType = null) => _responses[url] = (content, contentType);
 
     public void Map(string url, string content, string? contentType = null) =>
@@ -95,6 +99,11 @@ public sealed class StubHttpHandler : HttpMessageHandler
         var range = request.Headers.Range?.Ranges.FirstOrDefault();
         var ranged = range is not null && !IgnoreRangeAndReturnFull;
         var start = (int)(ranged ? range!.From ?? 0 : 0);
+        if (ranged && ForcedRangeStart is { } forced)
+        {
+            // F64：模拟畸形服务器——206 声称的起始字节与请求的 Range 起点不符
+            start = (int)forced;
+        }
 
         if (ranged && start >= content.Length)
         {
@@ -109,6 +118,15 @@ public sealed class StubHttpHandler : HttpMessageHandler
         {
             Content = new ByteArrayContent(slice),
         };
+        if (ranged && ForcedRangeStart is { } forcedStart)
+        {
+            response.Content.Headers.ContentRange =
+                new System.Net.Http.Headers.ContentRangeHeaderValue(forcedStart, content.Length - 1)
+                {
+                    Unit = "bytes",
+                };
+        }
+
         if (contentType is not null)
         {
             response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);

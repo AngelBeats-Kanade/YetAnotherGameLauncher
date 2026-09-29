@@ -206,10 +206,12 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
     internal static void ExtractArchive(string archivePath, string installDir, string displayName,
         long? maxExtractBytes = null)
     {
-        var cap = maxExtractBytes ?? DeriveMaxExtractBytes(new FileInfo(archivePath).Length);
-        long declaredTotal = 0;
         try
         {
+            // 体量上限取归档尺寸置于折算 try 内（D1）：归档被删/路径拼错的 FNFE（⊂ IOException）
+            // 否则从 try 之前裸穿，与"除取消外全部折算"的分类纪律不一致
+            var cap = maxExtractBytes ?? DeriveMaxExtractBytes(new FileInfo(archivePath).Length);
+            long declaredTotal = 0;
             // 不用 ZipFile.ExtractToDirectory：它在 Unix 上把含 '\' 的条目名当字面文件名
             // （dotnet/runtime#98247），Windows 打包器产出的包会在 Linux 解成安装根目录下的
             // 一堆平铺垃圾文件。手动遍历统一归一 '/'，顺带做沙箱校验与只读属性处理。
