@@ -495,6 +495,26 @@ public class ConfigMigrationTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateInstallRoot_RebuildsGames_DisposesOldPlayers()
+    {
+        // F77：列表重建丢弃旧 VM 链时播放器必须 Dispose——FfmpegVideoBackdropPlayer.Dispose
+        // 负责释放懒建的 _resumeGate 内核等待句柄（F37 自述"per-game 实例废弃时不留内核等待
+        // 句柄"），生产路径此前从未接线，每批换根重建都滞留一批句柄
+        await _ctx.Vm.InitializeAsync();
+        Assert.NotEmpty(_ctx.Players);
+        var oldPlayers = _ctx.Players.ToList();
+        Assert.All(oldPlayers, p => Assert.Equal(0, p.DisposeCount));
+
+        var newRoot = _ctx.TempDir.FilePath("dispose-root").Replace(Path.DirectorySeparatorChar, '/');
+        Assert.True(await _ctx.Vm.UpdateInstallRootAsync(newRoot));
+
+        Assert.All(oldPlayers, p => Assert.Equal(1, p.DisposeCount));
+        // 新列表为每个游戏新建播放器且未被误释放
+        Assert.True(_ctx.Players.Count >= oldPlayers.Count);
+        Assert.All(_ctx.Players.Skip(oldPlayers.Count), p => Assert.Equal(0, p.DisposeCount));
+    }
+
+    [Fact]
     public async Task BrowseInstallRoot_PicksFolder_NormalizesAndSaves()
     {
         var picker = new FakeFilePicker { FolderResult = @"D:\Games\LauncherRoot" };

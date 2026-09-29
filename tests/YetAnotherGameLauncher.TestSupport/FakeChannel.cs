@@ -26,6 +26,12 @@ public sealed class FakeChannel : IGameChannelApi
     /// <summary>清单拉取注入的异常（非 null 时 GetManifestAsync 抛出）。</summary>
     public Exception? ManifestError { get; set; }
 
+    /// <summary>
+    /// 清单拉取处理器（设置后优先于 Manifests）：可注入挂起 Task 把拉清单窗口钉在真实
+    /// await 点上，构造"拉清单窗口内重复点击"的互斥门场景（F78）。
+    /// </summary>
+    public Func<GameServer, string, CancellationToken, Task<GameManifest>>? ManifestHandler { get; set; }
+
     /// <summary>增量清单拉取注入的异常（非 null 时 GetIncrementalManifestAsync 抛出）。</summary>
     public Exception? IncrementalManifestError { get; set; }
 
@@ -59,6 +65,11 @@ public sealed class FakeChannel : IGameChannelApi
     public Task<GameManifest> GetManifestAsync(GameServer server, string version, CancellationToken cancellationToken = default)
     {
         ManifestRequests.Add(version);
+        if (ManifestHandler is { } handler)
+        {
+            return handler(server, version, cancellationToken);
+        }
+
         return ManifestError is { } manifestError
             ? Task.FromException<GameManifest>(manifestError)
             : Task.FromResult(Manifests[version]);

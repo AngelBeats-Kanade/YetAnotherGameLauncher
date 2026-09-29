@@ -435,7 +435,8 @@ flowchart LR
   不再按"修复 + 声明"接受）。
   `StartVideoAsync` 的起播延迟窗口内离页放弃起播，不在页外隐形解码。
   关窗/程序性退出经 `StopBackdropVideo` 逐游戏全停（含暂停保活中的会话，退出期 GPU 栈必须
-  先行静止）；installRoot 变更重建列表时旧 VM 的会话同样在 `RebuildGames` 内全停释放。
+  先行静止）；installRoot 变更重建列表时旧 VM 的会话同样在 `RebuildGames` 内全停并 Dispose
+  （F77，2026-09-29——释放懒建内核等待句柄，废弃点与释放承诺对齐）。
 - **关键约束**：本机 BtbN FFmpeg n9.0 构建的 mov demuxer 上 `av_seek_frame` 后 `av_read_frame` 会提前
   `AVERROR_EOF`（新开 demuxer 或非 EOF 状态都可能），且 seek 返回 0 不报错——
   所有路径一律顺序读取 + 帧丢弃对齐，禁止带时间戳的 seek（循环点对齐即此方案）。

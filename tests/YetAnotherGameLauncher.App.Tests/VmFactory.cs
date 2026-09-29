@@ -123,7 +123,7 @@ public static class VmFactory
     }
 
     /// <summary>可编程的视频播放器假实现：记录起播/停止/暂停/恢复调用，帧事件由测试手动触发。</summary>
-    public sealed class FakeVideoPlayer : IVideoBackdropPlayer
+    public sealed class FakeVideoPlayer : IVideoBackdropPlayer, IDisposable
     {
         /// <summary>起播是否成功（默认 true）。</summary>
         public Func<string, bool>? PlayHandler { get; set; }
@@ -148,6 +148,13 @@ public static class VmFactory
 
         /// <summary>起播代际（与真实现同语义）：过期起播的失败收尾无权清会话标志。</summary>
         private int _playGeneration;
+
+        /// <summary>Dispose 调用次数（F77：列表重建丢弃旧 VM 链时播放器必须被释放，
+        /// 对应真实现 F37"不留内核等待句柄"的释放承诺）。</summary>
+        public int DisposeCount { get; private set; }
+
+        /// <summary>真实现 Dispose 语义的假体对应（释放等待句柄等），只计数不做别的。</summary>
+        public void Dispose() => DisposeCount++;
 
         /// <summary>帧位图（测试可注入假帧）。</summary>
         public IImage? Frame { get; set; }

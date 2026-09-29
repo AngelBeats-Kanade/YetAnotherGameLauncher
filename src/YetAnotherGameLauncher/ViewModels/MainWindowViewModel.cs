@@ -815,11 +815,17 @@ public partial class MainWindowViewModel : ViewModelBase
 
         // 旧列表整体废弃：先退订懒创建子 VM（LaunchSettings）对单例服务的事件订阅，
         // 否则旧 VM 链被单例委托钉住无法回收（2026-09-20 复审结构性消除）；
-        // 播放器按游戏独占后，旧 VM 的会话（含暂停保活中的）也须一并全停释放
+        // 播放器按游戏独占后，旧 VM 的会话（含暂停保活中的）也须一并全停释放；
+        // 释放后 Dispose（F77）：FfmpegVideoBackdropPlayer.Dispose 释放懒建的 _resumeGate
+        // 内核等待句柄（F37"per-game 实例废弃时不留内核等待句柄"），废弃点就在本方法
         foreach (var game in Games)
         {
             game.DetachEventSubscriptions();
             game.StopVideo();
+            if (game.VideoPlayer is IDisposable disposablePlayer)
+            {
+                disposablePlayer.Dispose();
+            }
         }
 
         _parkedVideoPages.Clear();
@@ -972,7 +978,9 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            ConfigError = true;
+            // F79：不置 ConfigError——该标志的其余写点全是配置加载/保存失败，驱动侧栏红字与
+            // BootGate 分支且仅 InitializeAsync 开头复位；自启失败误置会让全会话带"配置错误"
+            // 红标。失败语义 = 本操作失败：状态提示含原因即可
             StatusMessage = _loc.Format("message_saveFailed", ex.Message);
             return false;
         }

@@ -1005,7 +1005,10 @@ public partial class GameItemViewModel(
 
         if (IsInstalled && !HasUpdate && UsesPackageManifest)
         {
-            // 校验修复语义下的包式渠道：拉整包清单算体积，交确认条（拉不到清单给通用文案）
+            // 校验修复语义下的包式渠道：拉整包清单算体积，交确认条（拉不到清单给通用文案）。
+            // 拉清单是网络窗口，必须在 IsBusy 门内（F78）：与入口的 F33 互斥承诺对齐——
+            // 否则窗口内重复点击并发重复请求，LaunchAsync 等其余操作也未被挡
+            IsBusy = true;
             var version = new LocalStateService(_installDir).Load(Game.Id, SelectedServer.Id)?.Version ?? "";
             var totalBytes = 0L;
             try
@@ -1016,6 +1019,10 @@ public partial class GameItemViewModel(
             catch (Exception)
             {
                 // 尺寸仅用于确认文案，失败不阻断
+            }
+            finally
+            {
+                IsBusy = false;
             }
 
             RepairConfirmText = totalBytes > 0

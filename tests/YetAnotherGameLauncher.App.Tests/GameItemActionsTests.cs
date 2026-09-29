@@ -204,6 +204,42 @@ public class GameItemActionsTests : IDisposable
     }
 
     [Fact]
+    public async Task InstallOrUpdate_PackageVerifyFetchWindow_IsBusyGated()
+    {
+        // F78：包式校验修复分支在 IsBusy 门外拉整包清单——网络窗口内重复点击会并发重复请求
+        // 并重复弹确认条，与入口注释自述的 F33 互斥门承诺矛盾。拉清单窗口内 IsBusy 必须为真，
+        // 并发的第二次调用短路返回（既有四路径的"忙碌互斥"扩展到第五条路径）
+        SetupEndfieldUpToDate();
+        await _ctx.Vm.InitializeAsync();
+        var endfield = _ctx.Vm.Games[1];
+        await endfield.InstallOrUpdateCommand.ExecuteAsync(null);
+        Assert.True(endfield.IsInstalled);
+
+        var gate = new TaskCompletionSource<GameManifest>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _ctx.Gryphline.ManifestHandler = (_, _, _) => gate.Task;
+        var baseline = _ctx.Gryphline.ManifestRequests.Count; // 安装阶段已留一次清单请求
+
+        var first = endfield.InstallOrUpdateCommand.ExecuteAsync(null);
+        for (var i = 0; i < 500 && _ctx.Gryphline.ManifestRequests.Count <= baseline; i++)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.Equal(baseline + 1, _ctx.Gryphline.ManifestRequests.Count);
+        Assert.True(endfield.IsBusy); // 红：当前实现拉清单窗口 IsBusy=false
+
+        var second = endfield.InstallOrUpdateCommand.ExecuteAsync(null);
+        await Task.Delay(50); // 给未门控实现留出并发登记窗口（未门控时请求数已到 baseline+2）
+        Assert.Equal(baseline + 1, _ctx.Gryphline.ManifestRequests.Count); // 第二次点击短路，不再拉清单
+        Assert.False(endfield.ShowRepairConfirm); // 窗口内不得弹确认条
+
+        gate.SetResult(_ctx.Gryphline.Manifests["1.0.0"]);
+        await first;
+        await second;
+        Assert.True(endfield.ShowRepairConfirm); // 第一次调用正常交确认条
+    }
+
+    [Fact]
     public async Task Verify_OnFileChannel_ReportsRepairedCount()
     {
         SetupKuroUpToDate();

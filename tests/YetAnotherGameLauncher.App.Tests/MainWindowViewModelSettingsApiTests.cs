@@ -137,8 +137,12 @@ public class MainWindowViewModelSettingsApiTests : IDisposable
     }
 
     [Fact]
-    public async Task SetAutostartAsync_ServiceThrows_ReturnsFalseFlagsErrorWithReason()
+    public async Task SetAutostartAsync_ServiceThrows_ReturnsFalseWithoutConfigErrorFlag()
     {
+        // F79：自启切换失败不是"配置错误"——ConfigError 的其余写点全是配置加载/保存失败，
+        // 驱动侧栏红字与 BootGate 分支且仅 InitializeAsync 开头复位；误置会让全会话带
+        // "配置错误"红标直到重启。失败只置状态提示（含原因）并返回 false，ConfigError 不动
+        // （原用例钉住的"失败置 ConfigError"行为随本裁决废弃）
         var autostart = new FakeAutostartService { SetEnabledFailure = new IOException("注册表写入被拒绝") };
         using var ctx = VmFactory.Build(autostart: autostart);
         await ctx.Vm.InitializeAsync();
@@ -146,7 +150,7 @@ public class MainWindowViewModelSettingsApiTests : IDisposable
         var result = await ctx.Vm.SetAutostartAsync(true);
 
         Assert.False(result);
-        Assert.True(ctx.Vm.ConfigError);
+        Assert.False(ctx.Vm.ConfigError);
         Assert.Contains("注册表写入被拒绝", ctx.Vm.StatusMessage, StringComparison.Ordinal);
     }
 
