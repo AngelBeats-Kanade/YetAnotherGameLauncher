@@ -354,12 +354,15 @@ public class IncrementalUpdateServiceTests : IDisposable
     {
         // F67：ApplyGroupAsync 的 File.Copy 位于折算 try 之外——源文件拒读/被占用（POSIX 权限
         // 剥夺、Windows 杀软独占锁定）抛出的裸异常不经 UpdateException 包装穿出，与同方法
-        // "补丁失败统一折算 UpdateException"的分类纪律不一致
+        // "补丁失败统一折算 UpdateException"的分类纪律不一致。
+        // src 与 dst 必须是不同路径（Windows CI 首跑实锤：同路径时独占锁先在 ApplyAsync 前置的
+        // GroupAlreadyApplied→CheckFile→Md5Hex 读 dst 处爆裸 IOException，到不了被测的 File.Copy）
         var oldContent = "old-content"u8.ToArray();
         var newContent = "new-content"u8.ToArray();
         Directory.CreateDirectory(_tempDir.FilePath("data"));
-        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "file.dat"), oldContent);
-        var group = PrepareGroup("g1.krpdiff", [("data/file.dat", oldContent)], [("data/file.dat", newContent)]);
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "source.dat"), oldContent);
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "target.dat"), oldContent);
+        var group = PrepareGroup("g1.krpdiff", [("data/source.dat", oldContent)], [("data/target.dat", newContent)]);
         var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
         await CreateService().PredownloadAsync(_tempDir.Path, manifest);
 
@@ -367,7 +370,7 @@ public class IncrementalUpdateServiceTests : IDisposable
         {
             // 源文件独占锁（FileShare.None）：File.Copy 打不开源 → IOException
             await using var lockStream = new FileStream(
-                _tempDir.FilePath("data", "file.dat"), FileMode.Open, FileAccess.Read, FileShare.None);
+                _tempDir.FilePath("data", "source.dat"), FileMode.Open, FileAccess.Read, FileShare.None);
             await Assert.ThrowsAsync<UpdateException>(
                 () => CreateService().ApplyAsync(_tempDir.Path, manifest));
         }
@@ -379,7 +382,7 @@ public class IncrementalUpdateServiceTests : IDisposable
                 Assert.Skip("探针检出读权限检查被豁免（root/CAP_DAC_OVERRIDE 等能力豁免），拒读形态不可保证构造");
             }
 
-            new FileInfo(_tempDir.FilePath("data", "file.dat"))
+            new FileInfo(_tempDir.FilePath("data", "source.dat"))
             {
                 UnixFileMode = UnixFileMode.UserWrite | UnixFileMode.UserExecute,
             };

@@ -90,8 +90,16 @@ public class HpatchzApplierTests : IDisposable
 
         var spec = Assert.Single(_runner.Specs);
         Assert.Contains("we\\\"ird.krpdiff", spec.Arguments); // `"` → \"（且无裸引号断对）
-        Assert.Contains($"\"{oldDir.Replace("\\", "\\\\")}\"", spec.Arguments); // 尾随 `\` 翻倍后收引号内
+        // 尾随 `\` 按 CommandLineToArgvW 语义翻倍后收引号内（R9 修正：仅引号前的 `\` 翻倍，
+        // 中间 `\` 原样——原全翻倍断言按首版错误算法写成，Windows CI 实锤未更新）
+        Assert.Contains(ExpectedQuotedForm(oldDir), spec.Arguments);
+        Assert.DoesNotContain("\\\\\\\\", spec.Arguments); // 全翻倍语义不得复活
     }
+
+    /// <summary>oldDir 形态（末尾恰好一个 `\`）的期望包裹形态——由 CommandLineToArgvW
+    /// 语义独立推导（中间 `\` 原样、尾随 `\` 翻倍收引号），不调用被测函数（避免自证）。</summary>
+    private static string ExpectedQuotedForm(string value) =>
+        $"\"{(value.EndsWith("\\") ? value[..^1] + "\\\\" : value)}\"";
 
     [Fact]
     public void QuoteArg_WindowsStylePathsWithBackslashes_SurviveTokenizerRoundTrip()

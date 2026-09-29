@@ -249,8 +249,16 @@ public sealed class UmuArchiveExtractionTests : IDisposable
         // dosdevices/c: → ../drive_c 同型。「含 .. 即拒」把这类合法链接全部静默丢弃，
         // proton 初始化 prefix 时 FileNotFoundError 崩溃、游戏无法启动。
         // 目录链接用无冒号名：wine 实际叫 "c:"（POSIX 侧制品），Windows 文件名禁止冒号、
-        // 会被 TryCreateLink 的静默吞错跳过——被测机制（上跳相对链接落盘）与名字无关，
-        // 双平台真跑优先（docs/DEVELOPMENT.md §3.8）
+        // 会被 TryCreateLink 的静默吞错跳过——被测机制（上跳相对链接落盘）与名字无关。
+        // 原注"双平台真跑优先"（docs/DEVELOPMENT.md §3.8）在 Windows CI 首跑（2026-09-29）
+        // 被证伪：TryCreateLink 走 File.CreateSymbolicLink，Windows 上文件/目录符号链接是
+        // 分裂语义（file-symlink→目录的 Directory.Exists 判定不可靠），"dosdevices/c 可用"
+        // 断言在 Windows 不确定——被测生产路径（Native umu 的 tar 提取）仅 Linux 可达，
+        // Windows 腿确定性不足，按 Skip 惯例交 Linux 腿
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Skip("Windows 的 file/dir 符号链接分裂语义使目录链接断言不确定（生产路径仅 Linux 可达，Linux 腿确定性覆盖）");
+        }
         var archive = WriteTarGz(writer =>
         {
             var dll = new UstarTarEntry(TarEntryType.RegularFile, "top/files/lib/wine/d3d8.dll");
