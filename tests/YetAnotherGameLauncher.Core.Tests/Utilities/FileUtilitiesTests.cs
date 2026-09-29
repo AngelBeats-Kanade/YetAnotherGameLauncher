@@ -88,6 +88,21 @@ public class FileUtilitiesTests : IDisposable
     }
 
     [Fact]
+    public async Task WriteAtomicAsync_MoveFailure_NoTempResidue()
+    {
+        // F68：Move 失败后 .tmp 必须清理，否则与"原子写"承诺不符（games.json/state.json 等
+        // 全部落盘点永久残留垃圾）。复现形态：目标位置被同名目录占用——Move 恒失败且
+        // File.Exists(目录)=false，旧重试过滤器（要求 File.Exists(path)）不命中 → 裸异常穿出；
+        // 失败后该形态同样要走"解除只读（存在时）+ 重试 + 包进可操作错误 + 清 temp"全链
+        var path = _tempDir.FilePath("state.json");
+        Directory.CreateDirectory(path);
+
+        await Assert.ThrowsAnyAsync<Exception>(() => FileUtilities.WriteAtomicAsync(path, "content"));
+
+        Assert.False(File.Exists(path + ".tmp")); // 红：旧实现残留 .tmp
+    }
+
+    [Fact]
     public void IsExecutableFile_Windows_ExistingFileIsExecutable()
     {
         // Windows CI 腿（2026-09-19）：Windows 语义 = 文件存在即可执行（是否真可运行由

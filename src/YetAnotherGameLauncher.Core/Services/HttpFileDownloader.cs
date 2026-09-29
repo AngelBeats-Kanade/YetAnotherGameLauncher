@@ -145,13 +145,11 @@ public sealed class HttpFileDownloader(
         // CA2007 误报：await using 声明的 DisposeAsync 续体由编译器生成，无法对其追加 ConfigureAwait。
 #pragma warning disable CA2007
         await using var source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        await using var target = new FileStream(
-            tempPath,
-            resume ? FileMode.Append : FileMode.Create,
-            FileAccess.Write,
-            FileShare.None,
-            _options.BufferSize,
-            useAsync: true);
+
+        // 本地写路径三处（建流/写入/冲刷）单独折算（F65）：磁盘满/只读/占用不是网络瞬态，
+        // 重下多少遍都不会好——单次终止，消息指向本地文件而非 URL（与 ReplaceDestination 同纪律）。
+        // 网络读（source.ReadAsync）的 IOException 不在此列，保持瞬态重试语义
+        await using var target = CreateTempTarget(tempPath, resume, _options.BufferSize, cancellationToken);
 #pragma warning restore CA2007
 
         var written = startByte;
@@ -161,7 +159,16 @@ public sealed class HttpFileDownloader(
         int read;
         while ((read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
         {
-            await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                       && !cancellationToken.IsCancellationRequested)
+            {
+                throw LocalWriteFailure(tempPath, ex);
+            }
+
             written += read;
             progress?.Report(written);
 
@@ -172,8 +179,44 @@ public sealed class HttpFileDownloader(
             }
         }
 
-        await target.FlushAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await target.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                   && !cancellationToken.IsCancellationRequested)
+        {
+            throw LocalWriteFailure(tempPath, ex);
+        }
     }
+
+    /// <summary>创建 .temp 写入流；本地失败（落点被目录占用/只读/磁盘满）折算为终态
+    /// DownloadException，不落入网络瞬态重试（F65）。取消期间的 OCE 不在此列。</summary>
+    private static FileStream CreateTempTarget(
+        string tempPath, bool resume, int bufferSize, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return new FileStream(
+                tempPath,
+                resume ? FileMode.Append : FileMode.Create,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize,
+                useAsync: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                   && !cancellationToken.IsCancellationRequested)
+        {
+            throw LocalWriteFailure(tempPath, ex);
+        }
+    }
+
+    /// <summary>本地写失败的统一折算形态：消息指向本地临时文件并给出可操作建议，
+    /// 保留原始异常供日志排障。</summary>
+    private static DownloadException LocalWriteFailure(string tempPath, Exception ex) =>
+        new($"Could not write to temp file {tempPath}: {ex.Message}. " +
+            "Free disk space (or clear the file's write protection) and retry.", ex);
 
     /// <summary>
     /// 校验语义：期望尺寸 ≤ 0 或期望 MD5 为空表示"上游未提供校验信息"，跳过对应项而非按目标值比较。

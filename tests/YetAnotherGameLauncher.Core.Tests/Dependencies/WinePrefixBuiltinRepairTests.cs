@@ -121,6 +121,37 @@ public class WinePrefixBuiltinRepairTests : IDisposable
     }
 
     [Fact]
+    public void Repair_DanglingDirectoryTypeBuiltinLink_RelinksIntoCurrentTree()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Skip("符号链接创建需要特权（Windows）");
+        }
+
+        // F73：builtin 链接含目录形态（类注释自述覆盖 files/share/fonts 等目录段）——
+        // TryRewriteLink 原用 File.Exists 验证新目标，File.Exists 对目录恒 false → 目录型
+        // 链接恒判 Unrepairable，依赖安装预检误报 PrefixUnhealthy 而链接本身可重建。
+        // 旧树含目录型 builtin + 悬空链接，新树同相对路径目录在位 → 应重链成功
+        var oldRoot = _temp.FilePath("proton-old");
+        var oldDir = Path.Combine(oldRoot, "files", "share", "fonts", "truetype", "some-family");
+        Directory.CreateDirectory(oldDir);
+        var link = MakePrefixLinkAt(
+            Path.Combine("drive_c", "windows", "Fonts", "some-family"),
+            oldDir);
+        Directory.Delete(oldRoot, recursive: true);
+        var newRoot = _temp.FilePath("proton-new");
+        Directory.CreateDirectory(Path.Combine(newRoot, "files", "share", "fonts", "truetype", "some-family"));
+
+        var result = WinePrefixBuiltinRepair.RepairDangling(_temp.FilePath("prefix"), newRoot);
+
+        Assert.Equal(1, result.Repaired);
+        Assert.Equal(0, result.Unrepairable);
+        Assert.Equal(
+            Path.Combine(newRoot, "files", "share", "fonts", "truetype", "some-family"),
+            new FileInfo(link).LinkTarget);
+    }
+
+    [Fact]
     public void Repair_DanglingLinkMissingInNewTree_CountsUnrepairableAndLeavesLink()
     {
         if (OperatingSystem.IsWindows())

@@ -78,6 +78,19 @@ public sealed class GameUpdateService(
             throw new UpdateException("No predownload is currently open.");
         }
 
+        // 本地版本已达到/超过预下载目标（预下载已应用或正式更新已到位而服务器窗口未关）：
+        // 短路为幂等空操作（F66）——否则包式渠道落 GetPredownloadManifestAsync 无条件整包重下
+        // 数十 GB（Apply 后暂存已删、IsArchiveIntact 无缓存可命中），Kuro 侧落下方
+        // "no patch for local version V2"的自相矛盾文案（此时 local 就是 V2）。
+        // 未安装（localVersion null）不短路：全新安装前预下载是合法路径
+        if (localVersion is not null && !VersionComparison.IsNewer(info.PredownloadVersion, localVersion))
+        {
+            logger?.LogInformation(
+                "Predownload short-circuited: local version {Local} already covers target {Target}.",
+                localVersion, info.PredownloadVersion);
+            return new PredownloadSummary(localVersion, info.PredownloadVersion, 0);
+        }
+
         var plan = UpdatePlanner.Plan(localVersion, info.PredownloadVersion, info.PredownloadPatchSourceVersions);
         if (plan.Strategy == UpdateStrategy.Incremental)
         {

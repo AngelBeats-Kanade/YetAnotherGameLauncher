@@ -200,6 +200,31 @@ public class GameUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task PredownloadAsync_LocalAlreadyAtTarget_ShortCircuitsWithoutNetwork()
+    {
+        // F66：本地版本已等于预下载目标（预下载已应用/正式更新已到位而服务器窗口未关）时
+        // 再触发预下载——原实现落 FullSync：包式渠道无条件整包重下数十 GB（Apply 后暂存已删、
+        // IsArchiveIntact 无缓存可命中），Kuro 侧落"no patch for local version V2"自相矛盾文案。
+        // 短路 = 幂等空操作：零清单拉取、零下载、暂存区不动
+        await WriteLocalState("2.0.0");
+        _channel.VersionInfo = new ChannelVersionInfo
+        {
+            LatestVersion = "2.0.0",
+            PredownloadAvailable = true,
+            PredownloadVersion = "2.0.0",
+        };
+
+        var summary = await CreateService().PredownloadAsync(_tempDir.Path, _game, _server, _channel);
+
+        Assert.Equal("2.0.0", summary.FromVersion);
+        Assert.Equal("2.0.0", summary.ToVersion);
+        Assert.Equal(0, summary.TotalBytes);
+        Assert.Empty(_channel.PredownloadManifestRequests);
+        Assert.Empty(_downloader.Requests);
+        Assert.Null(IncrementalUpdateService.TryLoadStagedManifest(_tempDir.Path));
+    }
+
+    [Fact]
     public async Task PredownloadAsync_Available_StagesIncrementalContent()
     {
         var v1 = "v1"u8.ToArray();

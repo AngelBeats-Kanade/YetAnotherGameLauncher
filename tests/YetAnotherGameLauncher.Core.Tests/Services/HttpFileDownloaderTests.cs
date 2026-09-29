@@ -219,6 +219,25 @@ public class HttpFileDownloaderTests : IDisposable
     }
 
     [Fact]
+    public async Task DownloadFileAsync_TempWriteFailure_TerminalSingleAttemptWithLocalReason()
+    {
+        // F65：本地写故障（.temp 落点被目录占用/磁盘满/只读）不是网络瞬态——原实现把一切
+        // IOException 按网络错误重试 MaxAttempts 次（重下多少遍都不会好），真实原因沉底；
+        // .temp 只读的 UnauthorizedAccessException 甚至裸穿无分类。写盘路径单独折算：
+        // 单次终止、消息指向本地文件而非 URL。复现形态：.temp 位置被同名目录占用
+        // （Linux 开目录写 = EISDIR/IOException，Windows = UnauthorizedAccessException）
+        Directory.CreateDirectory(_tempDir.FilePath("file.bin.temp"));
+        _handler.Map(Url, Content);
+
+        var ex = await Assert.ThrowsAsync<DownloadException>(
+            () => CreateDownloader().DownloadFileAsync(Request(), cancellationToken: Ct));
+
+        Assert.DoesNotContain("Download failed (", ex.Message); // 不按网络瞬态包装
+        Assert.Contains("temp file", ex.Message, StringComparison.Ordinal);
+        Assert.Single(_handler.Requests); // 不重试
+    }
+
+    [Fact]
     public async Task DownloadFileAsync_RetriesTransientFailures()
     {
         _handler.Map(Url, Content);

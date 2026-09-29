@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Xunit;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Services.Umu;
@@ -56,16 +57,40 @@ public sealed class UmuPrefixIdempotencyTests : IDisposable
     }
 
     [Fact]
-    public void Setup_WrongTargetSymlink_Repaired()
+    public void Setup_ForeignHealthySymlink_PreservedAndWarned()
     {
-        // pfx 链接指向错误目标（非 "." / 非 root）：删除重建为正确链接
+        // F71（2026-09-29 用户拍板"保留并告警"）：pfx 指向健康外来目录（用户手工搬移 prefix
+        // 到大盘的非标准布局）时原样保留 + 日志告警——旧行为静默删除重建等效 prefix 重置，
+        // 游戏侧存档/环境"消失"且无告警；对齐上游 umu"只在缺失时创建、从不替换异构目标"。
+        // （原 Setup_WrongTargetSymlink_Repaired 钉住的"非 root 目标一律重建"即被本契约取代）
         var pfx = PfxPath();
         UmuPrefix.Setup(pfx, unixUserName: "tester");
         var pfxLink = Path.Combine(pfx, "pfx");
         Directory.Delete(pfxLink);
-        var other = _temp.FilePath("other-target");
-        Directory.CreateDirectory(other);
-        Directory.CreateSymbolicLink(pfxLink, other);
+        var foreign = _temp.FilePath("foreign-prefix");
+        Directory.CreateDirectory(foreign);
+        File.WriteAllText(Path.Combine(foreign, "user-data.txt"), "keep");
+        Directory.CreateSymbolicLink(pfxLink, foreign);
+        var logger = new CapturingLogger();
+
+        UmuPrefix.Setup(pfx, unixUserName: "tester", logger: logger);
+
+        var info = new DirectoryInfo(pfxLink);
+        Assert.Equal(foreign, info.LinkTarget); // 外来链接原样保留
+        Assert.True(File.Exists(Path.Combine(foreign, "user-data.txt"))); // 目标内容未动
+        Assert.True(logger.Has(LogLevel.Warning, pfxLink)); // 有告警，不再静默
+    }
+
+    [Fact]
+    public void Setup_SymlinkToFileTarget_Healed()
+    {
+        // F71 自愈面：pfx 指向普通文件（无效 prefix 形态）照旧删除重建为正确链接
+        var pfx = PfxPath();
+        UmuPrefix.Setup(pfx, unixUserName: "tester");
+        var pfxLink = Path.Combine(pfx, "pfx");
+        Directory.Delete(pfxLink);
+        File.WriteAllText(_temp.FilePath("stray-target"), "not a prefix");
+        Directory.CreateSymbolicLink(pfxLink, _temp.FilePath("stray-target"));
 
         UmuPrefix.Setup(pfx, unixUserName: "tester");
 

@@ -150,13 +150,14 @@ public static class WinePrefixBuiltinRepair
     }
 
     /// <summary>把链接重链到 root 下同相对路径（最后一个 /files/ 之后的部分不变）；
-    /// 新目标存在才写，重写期间的并发竞态按未修复计（消费方兜底方向安全）。</summary>
+    /// 新目标存在才写（builtin 链接含目录形态——share/fonts 等段，须 File.Exists 与
+    /// Directory.Exists 同查，F73），重写期间的并发竞态按未修复计（消费方兜底方向安全）。</summary>
     private static bool TryRewriteLink(string link, string oldTarget, string root)
     {
         var suffix = oldTarget[(oldTarget.LastIndexOf(ProtonFilesMarker, StringComparison.Ordinal)
             + ProtonFilesMarker.Length)..];
         var candidate = Path.Combine(root, "files", suffix);
-        if (!File.Exists(candidate))
+        if (!File.Exists(candidate) && !Directory.Exists(candidate))
         {
             return false;
         }

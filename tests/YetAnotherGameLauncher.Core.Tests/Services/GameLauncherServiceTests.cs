@@ -263,6 +263,26 @@ public class GameLauncherServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task LaunchAsync_LogWriteFailure_WrappedAsCategorizedError()
+    {
+        // F69：SystemProcessRunner 在启动进程前创建日志 StreamWriter——日志文件被上一会话的
+        // 编辑器占用/拒写时抛 IOException/UAE，原 catch 只收 Win32Exception，裸异常穿出；
+        // 同场景 NativeUmuLauncher 捕 IOException/UAE 折算 StartFailed，两条启动链表现不一致 → 对齐
+        await CreateExecutable();
+        var runner = new FakeProcessRunner
+        {
+            Handler = _ => throw new IOException("log file locked by another process"),
+        };
+
+        var ex = await Assert.ThrowsAsync<LaunchException>(
+            () => new GameLauncherService(runner, logDirectory: _tempDir.FilePath("logs"))
+                .LaunchAsync(Game("\"{exe}\""), _tempDir.Path, "bin/game.exe"));
+
+        Assert.Equal(LaunchFailureKind.StartFailed, ex.Kind);
+        Assert.NotNull(ex.LogPath);
+    }
+
+    [Fact]
     public async Task SanitizeGameId_UnsafeCharacters_ReplacedForLogFileName()
     {
         await CreateExecutable();

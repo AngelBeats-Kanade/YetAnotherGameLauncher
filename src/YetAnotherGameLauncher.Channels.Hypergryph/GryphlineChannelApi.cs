@@ -131,13 +131,13 @@ public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger =
 
         logger?.LogDebug("POST {Url}", $"{apiBase}/proxy/batch_proxy");
 
-        using var response = await httpClient.PostAsJsonAsync(
-            $"{apiBase}/proxy/batch_proxy", payload, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-
         GameVersionResponse gameResponse;
         try
         {
+            using var response = await httpClient.PostAsJsonAsync(
+                $"{apiBase}/proxy/batch_proxy", payload, cancellationToken).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+
             var batch = await response.Content.ReadFromJsonAsync<BatchProxyResponse>(cancellationToken).ConfigureAwait(false);
             var first = batch?.ProxyRsps is { Count: > 0 } rsps
                 ? rsps[0]
@@ -153,8 +153,13 @@ public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger =
                     ?? throw new UpdateException("GRYPHLINE get_latest_game_rsp is empty.")
                 : throw new UpdateException("GRYPHLINE get_latest_game_rsp is missing or not an object.");
         }
-        catch (JsonException ex)
+        catch (Exception ex) when (ex is JsonException or FormatException or NotSupportedException)
         {
+            // 协议逆向威胁模型下的三形态统一折算（F60）：畸形 JSON → JsonException（含 200+HTML
+            // 的 WAF 页——.NET 10 实测 ReadFromJsonAsync 不校验 content-type，HTML 走解析失败路径）；
+            // 畸形 apiBase 在 PostAsJsonAsync 构造请求时抛 UriFormatException（FormatException）；
+            // NotSupportedException 是文档记载的非 JSON content-type 形态（.NET 10 探针未复现，
+            // 显式收留防运行时行为回摆）
             throw new UpdateException($"Failed to parse GRYPHLINE response: {ex.Message}", ex);
         }
 

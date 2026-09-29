@@ -350,6 +350,45 @@ public class IncrementalUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyAsync_UnreadableSourceFile_ClassifiedAsUpdateException()
+    {
+        // F67：ApplyGroupAsync 的 File.Copy 位于折算 try 之外——源文件拒读/被占用（POSIX 权限
+        // 剥夺、Windows 杀软独占锁定）抛出的裸异常不经 UpdateException 包装穿出，与同方法
+        // "补丁失败统一折算 UpdateException"的分类纪律不一致
+        var oldContent = "old-content"u8.ToArray();
+        var newContent = "new-content"u8.ToArray();
+        Directory.CreateDirectory(_tempDir.FilePath("data"));
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "file.dat"), oldContent);
+        var group = PrepareGroup("g1.krpdiff", [("data/file.dat", oldContent)], [("data/file.dat", newContent)]);
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+
+        if (OperatingSystem.IsWindows())
+        {
+            // 源文件独占锁（FileShare.None）：File.Copy 打不开源 → IOException
+            await using var lockStream = new FileStream(
+                _tempDir.FilePath("data", "file.dat"), FileMode.Open, FileAccess.Read, FileShare.None);
+            await Assert.ThrowsAsync<UpdateException>(
+                () => CreateService().ApplyAsync(_tempDir.Path, manifest));
+        }
+        else
+        {
+            // root/CAP_DAC_READ_SEARCH 读豁免：拒读形态不可保证构造（DacExemptionProbe 同族前提）
+            if (!DacExemptionProbe.CanConstructDeniedFixture(_tempDir.Path))
+            {
+                Assert.Skip("探针检出读权限检查被豁免（root/CAP_DAC_OVERRIDE 等能力豁免），拒读形态不可保证构造");
+            }
+
+            new FileInfo(_tempDir.FilePath("data", "file.dat"))
+            {
+                UnixFileMode = UnixFileMode.UserWrite | UnixFileMode.UserExecute,
+            };
+            await Assert.ThrowsAsync<UpdateException>(
+                () => CreateService().ApplyAsync(_tempDir.Path, manifest));
+        }
+    }
+
+    [Fact]
     public async Task ApplyAsync_CancellationBeforeStagedFilePlacement_ThrowsOperationCanceled()
     {
         // 落位循环此前无取消检查点：大库逐文件 MD5 阶段取消无响应（2026-09-20 复审补齐）

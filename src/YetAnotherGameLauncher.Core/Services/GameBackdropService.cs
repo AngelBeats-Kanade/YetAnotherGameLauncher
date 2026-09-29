@@ -136,9 +136,15 @@ public sealed class GameBackdropService(
         {
             remote = await resolver.GetBackdropUrlAsync(request, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when ((ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
-            && !cancellationToken.IsCancellationRequested) // 用户主动取消要向上抛，网络失败/超时才回退缓存
+        catch (Exception ex) when ((ex is HttpRequestException or TaskCanceledException or InvalidOperationException
+                or JsonException or FormatException or IOException)
+            && !cancellationToken.IsCancellationRequested) // 用户主动取消要向上抛，网络失败/超时/畸形响应/读流中断才回退缓存
         {
+            // 畸形响应/读流中断也要回退缓存（F59）：JsonException（协议逆向端点回 200+HTML 的
+            // WAF/CDN 拦截页——.NET 10 实测它直接继承 Exception 而非 FormatException，须显式列出）、
+            // FormatException（畸形 URL 构造请求抛 UriFormatException）、IOException（读流中断）。
+            // 与 TryDownloadAsync 收 FormatException/IOException、KuroSwitchConfigClient.IsTransient
+            // 收 JsonException 的防线对齐，否则异常穿出 ResolveAsync、跳过下方缓存回退
             logger?.LogInformation("Backdrop resolve failed for {GameId}: {Message}", request.GameId, ex.Message);
             remote = null;
         }

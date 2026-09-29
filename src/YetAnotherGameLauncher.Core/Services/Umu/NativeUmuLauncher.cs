@@ -98,7 +98,7 @@ public sealed class NativeUmuLauncher(
 
         try
         {
-            UmuPrefix.Setup(prefix);
+            UmuPrefix.Setup(prefix, logger: logger);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or UpdateException)
         {

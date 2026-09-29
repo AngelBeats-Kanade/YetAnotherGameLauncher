@@ -95,7 +95,8 @@ public static class FileUtilities
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     private static extern bool GetFileInformationByHandle(
         Microsoft.Win32.SafeHandles.SafeFileHandle hFile, out ByHandleFileInformation information);
-    /// <summary>原子写入文本：先写同目录 .tmp 再 Move 覆盖，避免写入中途崩溃损坏目标文件。</summary>
+    /// <summary>原子写入文本：先写同目录 .tmp 再 Move 覆盖，避免写入中途崩溃损坏目标文件。
+    /// 失败路径不留 .tmp 残留（F68）：写出与落盘任一环失败都清理临时文件后再上抛。</summary>
     public static async Task WriteAtomicAsync(string path, string content, CancellationToken cancellationToken = default)
     {
         var directory = Path.GetDirectoryName(path);
@@ -105,26 +106,41 @@ public static class FileUtilities
         }
 
         var tempPath = path + ".tmp";
-        await File.WriteAllTextAsync(tempPath, content, cancellationToken).ConfigureAwait(false);
-
-        // Windows 语义坑：目标被占用（编辑器/杀软）或带只读属性时 Move 覆盖会抛
-        // IOException/UnauthorizedAccessException，而 Linux 的 rename() 总能成功。
-        // 只读是常见原因，就地解除后重试一次；仍失败则把真实原因包进可操作的错误里。
         try
         {
-            File.Move(tempPath, path, overwrite: true);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && File.Exists(path))
-        {
-            File.SetAttributes(path, File.GetAttributes(path) & ~FileAttributes.ReadOnly);
+            await File.WriteAllTextAsync(tempPath, content, cancellationToken).ConfigureAwait(false);
+
+            // Windows 语义坑：目标被占用（编辑器/杀软）或带只读属性时 Move 覆盖会抛
+            // IOException/UnauthorizedAccessException，而 Linux 的 rename() 总能成功。
+            // 只读是常见原因，就地解除后重试一次；仍失败则把真实原因包进可操作的错误里。
+            // 目标不存在的首写形态同样要走重试链（旧过滤器要求 File.Exists(path)，
+            // 把首写失败漏成裸异常，F68）
             try
             {
                 File.Move(tempPath, path, overwrite: true);
             }
-            catch (Exception retry) when (retry is IOException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                       && !cancellationToken.IsCancellationRequested)
             {
-                throw new IOException($"无法写入 {path}，文件可能正被其它程序占用：{retry.Message}", retry);
+                if (File.Exists(path))
+                {
+                    File.SetAttributes(path, File.GetAttributes(path) & ~FileAttributes.ReadOnly);
+                }
+
+                try
+                {
+                    File.Move(tempPath, path, overwrite: true);
+                }
+                catch (Exception retry) when (retry is IOException or UnauthorizedAccessException)
+                {
+                    throw new IOException($"无法写入 {path}，文件可能正被其它程序占用：{retry.Message}", retry);
+                }
             }
+        }
+        finally
+        {
+            // 任一环失败（写出抛出/Move 重试耗尽/取消）都不留 .tmp 残留
+            FileUtilities.DeleteQuiet(tempPath);
         }
     }
 

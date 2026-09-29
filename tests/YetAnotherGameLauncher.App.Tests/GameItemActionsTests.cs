@@ -153,6 +153,57 @@ public class GameItemActionsTests : IDisposable
     }
 
     [Fact]
+    public async Task PredownloadCue_HidesWhenLocalAlreadyAtPredownloadTarget()
+    {
+        // F66 UI 面（按钮门）：本地==预下载目标而服务器窗口未关时，预下载提示/按钮必须隐藏——
+        // 否则用户再点一次就是整包重下数十 GB（Core 侧 GameUpdateService 另有短路兜底）。
+        // 预下载目标版本未知的渠道保持既有可见性契约（仅版本已知才判等）
+        SetupKuroUpToDate();
+        await _ctx.Vm.InitializeAsync();
+        var wuwa = _ctx.Vm.Games[0];
+        await wuwa.InstallOrUpdateCommand.ExecuteAsync(null); // 本地 3.6.0
+        Assert.True(wuwa.IsInstalled);
+
+        wuwa.ResetVersionCheckCache();
+        _ctx.Kuro.VersionInfo = new ChannelVersionInfo
+        {
+            LatestVersion = "3.6.0",
+            PredownloadAvailable = true,
+            PredownloadVersion = "3.6.0", // 预下载目标 == 本地版本
+        };
+        await wuwa.RefreshAsync();
+
+        Assert.False(wuwa.HasUpdate);
+        Assert.False(wuwa.PredownloadAvailable);
+        Assert.False(wuwa.ShowPredownloadCue);
+    }
+
+    [Fact]
+    public async Task PredownloadCommand_LocalAlreadyAtTarget_ReportsNothingToDo()
+    {
+        // F66 UI 面（消息）：Core 短路返回 From==To 的空操作摘要时，结果提示必须说明
+        // "本地已是预下载目标版本"，不得显示"预下载完成（3.6.0 → 3.6.0），可随时应用"——
+        // 那会引导用户去找一个不存在的待应用预下载
+        SetupKuroUpToDate();
+        await _ctx.Vm.InitializeAsync();
+        var wuwa = _ctx.Vm.Games[0];
+        await wuwa.InstallOrUpdateCommand.ExecuteAsync(null); // 本地 3.6.0
+
+        wuwa.ResetVersionCheckCache();
+        _ctx.Kuro.VersionInfo = new ChannelVersionInfo
+        {
+            LatestVersion = "3.6.0",
+            PredownloadAvailable = true,
+            PredownloadVersion = "3.6.0",
+        };
+        await wuwa.RefreshAsync();
+
+        await wuwa.PredownloadCommand.ExecuteAsync(null);
+
+        Assert.Equal("本地已是预下载目标版本（3.6.0），无需重复预下载", wuwa.StatusText);
+    }
+
+    [Fact]
     public async Task Verify_OnFileChannel_ReportsRepairedCount()
     {
         SetupKuroUpToDate();

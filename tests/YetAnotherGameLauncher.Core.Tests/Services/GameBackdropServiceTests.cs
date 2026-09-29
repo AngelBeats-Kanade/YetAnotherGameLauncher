@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Xunit;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Services;
@@ -150,6 +151,42 @@ public class GameBackdropServiceTests : IDisposable
         var cached = await service.ResolveAsync(Request());
 
         resolver.Resolver = _ => null; // 模拟离线：远程解析不可用
+        var fallback = await service.ResolveAsync(Request());
+
+        Assert.Equal(cached, fallback);
+    }
+
+    [Fact]
+    public async Task Resolve_ResolverThrowsMalformedResponse_FallsBackToCachedFile()
+    {
+        // F59：协议逆向端点回 200+HTML（WAF/CDN 拦截页）→ resolver 内 JsonDocument.Parse
+        // 抛 JsonException，读流中断抛 IOException——两者都不是网络形态异常。ResolveCoreAsync
+        // 的过滤器漏收时异常穿出 ResolveAsync、跳过缓存回退（比干净 null 更糟）。
+        // 与同文件 TryDownloadAsync 收 FormatException/IOException 的防线、Kuro IsTransient 收
+        // JsonException 对齐。
+        _handler.Map("https://cdn.example.com/bg.png", [9]);
+        var url = "https://cdn.example.com/bg.png";
+        var resolver = new StubResolver(_ => new BackdropSource(url, BackdropKind.Image));
+        var service = CreateService(resolver);
+        var cached = await service.ResolveAsync(Request());
+
+        resolver.Resolver = _ => throw new JsonException("HTML error page is not JSON");
+        var fallback = await service.ResolveAsync(Request());
+
+        Assert.Equal(cached, fallback);
+    }
+
+    [Fact]
+    public async Task Resolve_ResolverThrowsReadInterrupted_FallsBackToCachedFile()
+    {
+        // F59 同族：读流中断（IOException）同样按"本次解析失败"回退缓存，不穿出服务层
+        _handler.Map("https://cdn.example.com/bg.png", [9]);
+        var url = "https://cdn.example.com/bg.png";
+        var resolver = new StubResolver(_ => new BackdropSource(url, BackdropKind.Image));
+        var service = CreateService(resolver);
+        var cached = await service.ResolveAsync(Request());
+
+        resolver.Resolver = _ => throw new IOException("connection reset while reading response body");
         var fallback = await service.ResolveAsync(Request());
 
         Assert.Equal(cached, fallback);

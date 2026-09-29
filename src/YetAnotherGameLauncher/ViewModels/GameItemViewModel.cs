@@ -369,7 +369,14 @@ public partial class GameItemViewModel(
         IsInstalled = state is not null;
         CanLaunch = ExecutableExists();
         HasUpdate = VersionComparison.IsNewer(info.LatestVersion, state?.Version);
-        PredownloadAvailable = info.PredownloadAvailable && !HasStagedPredownload;
+        // F66 UI 面：已安装且本地版本已达到预下载目标时不再提示/显示预下载按钮（服务器窗口
+        // 未关时再点就是整包重下数十 GB；Core 侧 GameUpdateService.PredownloadAsync 另有短路兜底）。
+        // 两个既有契约不动：未安装（state null）照旧可见（IsNewer 对 null local 恒 false，须显式放行）；
+        // 预下载目标版本未知的渠道照旧可见（仅版本已知才判等）
+        PredownloadAvailable = info.PredownloadAvailable && !HasStagedPredownload
+            && (state?.Version is null
+                || info.PredownloadVersion is null
+                || VersionComparison.IsNewer(info.PredownloadVersion, state.Version));
 
         SetVersionChip(state?.Version, info.LatestVersion, HasUpdate);
 
@@ -1112,7 +1119,11 @@ public partial class GameItemViewModel(
         {
             var summary = await updateService.PredownloadAsync(
                 _installDir, Game, SelectedServer, channel, Progress, cancellationToken);
-            message = Loc.Format("predownload_done", summary.FromVersion, summary.ToVersion);
+            // Core 短路（F66）返回 From==To 的空操作摘要：提示"已是目标版本"，
+            // 不显示"预下载完成…可随时应用"误导用户去找不存在的待应用预下载
+            message = summary.FromVersion == summary.ToVersion
+                ? Loc.Format("predownload_alreadyCurrent", summary.ToVersion)
+                : Loc.Format("predownload_done", summary.FromVersion, summary.ToVersion);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

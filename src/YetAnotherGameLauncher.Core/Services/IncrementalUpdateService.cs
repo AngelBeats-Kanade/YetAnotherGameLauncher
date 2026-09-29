@@ -246,7 +246,19 @@ public sealed class IncrementalUpdateService(
 
             var copied = SafeJoin(oldDir, src.Path);
             Directory.CreateDirectory(Path.GetDirectoryName(copied)!);
-            File.Copy(source, copied, overwrite: true);
+            try
+            {
+                File.Copy(source, copied, overwrite: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                       && !cancellationToken.IsCancellationRequested)
+            {
+                // 源文件拒读/被占用（Windows 杀软锁定、POSIX 权限剥夺）不是补丁本身失败，但同样
+                // 折算 UpdateException（F67）：File.Copy 原在下方折算 try 之外，裸异常会绕开
+                // "补丁失败统一折算"的分类纪律直穿调用方
+                throw new UpdateException(
+                    $"Source file {src.Path} of patch group {group.PatchFile} could not be read: {ex.Message}", ex);
+            }
         }
 
         try

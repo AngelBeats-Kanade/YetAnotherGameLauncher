@@ -247,6 +247,11 @@ flowchart TD
     F --> G[(保存 state.json 版本)]
 ```
 
+`PredownloadAsync` 在本地版本已达到/超过预下载目标时**短路为幂等空操作**（F66，2026-09-29）：
+否则包式渠道会无条件整包重下数十 GB、Kuro 侧给出"no patch for local version V2"的自相矛盾文案
+（此时 local 就是 V2）；UI 预下载入口同步按本地版本隐藏（预下载目标版本未知的渠道保持旧可见性），
+短路返回的 From==To 摘要以 `predownload_alreadyCurrent` 文案提示"无需重复预下载"。
+
 ### 3.6 主题切换
 
 ```mermaid
@@ -275,7 +280,8 @@ flowchart LR
   两渠道一致的单级回退模型：视频不可用时首帧/静态图兜底，解析失败返回 null 交上层处理，不再探测
   本机官方启动器缓存或本地帧序列。
   `GameBackdropService` 把远程背景流式下载缓存到 `%DataDirectory%/backdrops/<gameId>/`
-  （`backdrop.*` + `poster.*` + `meta.json`），地址未变不重复下载，离线/下载失败回退上次缓存。
+  （`backdrop.*` + `poster.*` + `meta.json`），地址未变不重复下载，离线/下载失败/解析到畸形响应
+  （如 WAF 拦截页的 200+HTML，F59）回退上次缓存。
   **版本门控**（产品决策：背景严格跟随游戏版本，卡池轮换等与版本无关的运营投放不触发刷新）：
   `meta.json` 记录 `region`/`gameVersion`，`ResolveAsync(request, gameVersion)` 在区域与版本均未变化、
   文件在盘时直接返回缓存、不调解析器；版本变化后的解析若地址未变则仅升级元数据不重下。

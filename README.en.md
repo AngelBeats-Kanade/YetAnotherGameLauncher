@@ -119,7 +119,7 @@ the game's state:
 - **Install Game** → becomes **Launch Game** once installed; becomes **Update Now** when the official side has an update
 - **Verify & Repair**: available any time after install; automatically repairs missing/corrupted files (saves are kept)
 - **Register version**: appears when Endfield detects an already-installed game — zero downloads
-- **Preload Next Version / Apply Preload**: appear during the official pre-download window; stage first, apply in one click
+- **Preload Next Version / Apply Preload**: appear during the official pre-download window (hidden once the local version already matches); stage first, apply in one click
 - **Convene History** (Wuthering Waves only): gacha records and pity statistics
 - Launch failures show an error card: **retry**, **open the log folder**; on Linux with Proton missing you can
   switch to a locally installed Proton right there

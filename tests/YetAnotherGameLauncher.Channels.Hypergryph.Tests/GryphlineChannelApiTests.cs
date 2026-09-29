@@ -54,6 +54,33 @@ public class GryphlineChannelApiTests
     }
 
     [Fact]
+    public async Task GetVersionInfo_NonJsonContentType_ThrowsUpdateException()
+    {
+        // F60 回归钉：逆向协议端点被 WAF/CDN 拦截时可能回 200 + text/html——协议逆向威胁
+        // 模型下必须折算 UpdateException（F40/6664197 同纪律）。.NET 10 实测 ReadFromJsonAsync
+        // 不再校验 content-type（探针：text/html 直接走 JsonException；文档记载的
+        // NotSupportedException 在本运行时不出现），故本用例经 JSON 解析失败路径到达同一终点；
+        // catch 仍显式收 NotSupportedException 防运行时行为回摆
+        _handler.Map(BatchProxyUrl, "<html><body>blocked by waf</body></html>", "text/html");
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => CreateApi().GetVersionInfoAsync(Server()));
+
+        Assert.Contains("GRYPHLINE", ex.Message);
+    }
+
+    [Fact]
+    public async Task GetVersionInfo_MalformedApiBase_ThrowsUpdateException()
+    {
+        // F60 同族：畸形 apiBase（配置错误）在 PostAsJsonAsync 构造请求时抛 UriFormatException
+        // （FormatException 子类），原本发生在 try 之外同样裸穿 → 统一折算 UpdateException
+        var dict = new Dictionary<string, string> { ["apiBase"] = "http://in valid host with spaces" };
+
+        await Assert.ThrowsAsync<UpdateException>(
+            () => CreateApi().GetVersionInfoAsync(new GameServer { Id = "bad", Name = "坏配置", Options = dict }));
+    }
+
+    [Fact]
     public async Task GetVersionInfo_PredownloadAvailable_WhenPatchHasVersion()
     {
         RegisterBatchResponse("""

@@ -8,7 +8,7 @@ namespace YetAnotherGameLauncher.TestSupport;
 /// </summary>
 public sealed class StubHttpHandler : HttpMessageHandler
 {
-    private readonly Dictionary<string, byte[]> _responses = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (byte[] Content, string? ContentType)> _responses = new(StringComparer.Ordinal);
 
     public List<HttpRequestMessage> Requests { get; } = [];
 
@@ -19,9 +19,10 @@ public sealed class StubHttpHandler : HttpMessageHandler
 
     public bool IgnoreRangeAndReturnFull { get; set; }
 
-    public void Map(string url, byte[] content) => _responses[url] = content;
+    public void Map(string url, byte[] content, string? contentType = null) => _responses[url] = (content, contentType);
 
-    public void Map(string url, string content) => Map(url, System.Text.Encoding.UTF8.GetBytes(content));
+    public void Map(string url, string content, string? contentType = null) =>
+        Map(url, System.Text.Encoding.UTF8.GetBytes(content), contentType);
 
     private readonly Dictionary<string, FirstRequestGate> _firstRequestGates = new(StringComparer.Ordinal);
 
@@ -78,16 +79,18 @@ public sealed class StubHttpHandler : HttpMessageHandler
         }
 
         var url = request.RequestUri!.ToString();
-        if (!_responses.TryGetValue(url, out var content))
+        if (!_responses.TryGetValue(url, out var mapped))
         {
             // 带 cache-buster 时间戳（…switch.json?_t=…）等动态 query 的请求：回退按无 query 的 URL 匹配
             var query = request.RequestUri.Query;
             var bare = query.Length > 0 ? url[..^query.Length] : null;
-            if (bare is null || !_responses.TryGetValue(bare, out content))
+            if (bare is null || !_responses.TryGetValue(bare, out mapped))
             {
                 return new HttpResponseMessage(HttpStatusCode.NotFound);
             }
         }
+
+        var (content, contentType) = mapped;
 
         var range = request.Headers.Range?.Ranges.FirstOrDefault();
         var ranged = range is not null && !IgnoreRangeAndReturnFull;
@@ -106,6 +109,11 @@ public sealed class StubHttpHandler : HttpMessageHandler
         {
             Content = new ByteArrayContent(slice),
         };
+        if (contentType is not null)
+        {
+            response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+        }
+
         return response;
     }
 }

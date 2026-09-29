@@ -90,6 +90,7 @@
   "message_saveFailedGeneric": "配置未能写入磁盘",
   "message_serversAdded": "已从内置模板补充新内容：{0}",
   "message_unknownChannels": "以下游戏使用了未注册的渠道，已跳过：{0}",
+  "predownload_alreadyCurrent": "本地已是预下载目标版本（{0}），无需重复预下载",
   "predownload_done": "预下载完成（{0} → {1}），可随时应用",
   "predownload_failed": "预下载失败：{0}",
   "progress_checking": "正在检查文件…",

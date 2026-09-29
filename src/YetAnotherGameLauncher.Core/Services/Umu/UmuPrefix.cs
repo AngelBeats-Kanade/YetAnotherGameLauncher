@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Utilities;
 
@@ -15,7 +16,8 @@ public static class UmuPrefix
     /// </summary>
     /// <param name="prefixRoot">WINEPREFIX 绝对路径（如 ~/.local/share/yagl/prefixes/gameId）。</param>
     /// <param name="unixUserName">当前 Unix 用户名（Linux）；null 时尝试从环境 USER 推断。</param>
-    public static void Setup(string prefixRoot, string? unixUserName = null)
+    /// <param name="logger">可选日志：检测到非标准布局（外来 pfx 目标）时告警（F71）。</param>
+    public static void Setup(string prefixRoot, string? unixUserName = null, ILogger? logger = null)
     {
         if (string.IsNullOrWhiteSpace(prefixRoot))
         {
@@ -31,7 +33,7 @@ public static class UmuPrefix
         using var _ = AcquireLock(Path.Combine(root, "pfx.lock"));
 
         var pfx = Path.Combine(root, "pfx");
-        EnsurePfxSymlink(root, pfx);
+        EnsurePfxSymlink(root, pfx, logger);
 
         Directory.CreateDirectory(Path.Combine(root, "shadercache"));
         Directory.CreateDirectory(Path.Combine(root, "gstreamer-1.0"));
@@ -91,7 +93,7 @@ public static class UmuPrefix
         }
     }
 
-    private static void EnsurePfxSymlink(string root, string pfx)
+    private static void EnsurePfxSymlink(string root, string pfx, ILogger? logger)
     {
         if (Directory.Exists(pfx) && !IsSymlink(pfx))
         {
@@ -105,6 +107,19 @@ public static class UmuPrefix
             if (string.Equals(target, ".", StringComparison.Ordinal) ||
                 string.Equals(target, root, StringComparison.Ordinal))
             {
+                return;
+            }
+
+            // F71（2026-09-29 用户拍板"保留并告警"）：健康外来目标（存在的目录，如用户手工
+            // 搬移到大盘的 prefix 布局）原样保留——静默删除重建等效 prefix 重置，游戏侧存档/
+            // 环境"消失"且无告警；对齐上游 umu"只在缺失时创建、从不替换异构目标"的行为。
+            // 悬空链接与指向文件的坏链照旧自愈
+            var resolved = ResolveAbsoluteTarget(pfx, target);
+            if (resolved is not null && Directory.Exists(resolved))
+            {
+                logger?.LogWarning(
+                    "Non-standard prefix layout: {Pfx} points to external directory {Target}; keeping it as-is.",
+                    pfx, resolved);
                 return;
             }
 
@@ -232,6 +247,28 @@ public static class UmuPrefix
             return Path.IsPathRooted(target)
                 ? Path.GetFullPath(target)
                 : Path.GetRelativePath(root, Path.GetFullPath(Path.Combine(root, target)));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>把链接目标解析为绝对路径（ResolveSymlinkTarget 对相对目标返回相对形态，
+    /// 不能直接用于存在性判断——相对解析以进程 CWD 为基准会判错）。解析失败按 null 处理
+    /// （走自愈方向，与 DeleteDanglingLink 的兜底方向一致）。</summary>
+    private static string? ResolveAbsoluteTarget(string pfx, string? target)
+    {
+        if (string.IsNullOrEmpty(target))
+        {
+            return null;
+        }
+
+        try
+        {
+            return Path.IsPathRooted(target)
+                ? Path.GetFullPath(target)
+                : Path.GetFullPath(Path.Combine(Path.GetDirectoryName(pfx)!, target));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

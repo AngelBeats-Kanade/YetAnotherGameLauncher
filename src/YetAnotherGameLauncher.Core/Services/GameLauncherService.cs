@@ -87,12 +87,18 @@ public sealed class GameLauncherService(
             var result = await processRunner.RunAsync(spec, cancellationToken).ConfigureAwait(false);
             return new LaunchResult(result.ExitCode, logPath);
         }
-        catch (Win32Exception ex)
+        catch (Exception ex) when (ex is Win32Exception or IOException or UnauthorizedAccessException)
         {
             logger?.LogWarning(ex, "Process start failed: {File}", plan.FileName);
+            // IOException/UAE：SystemProcessRunner 在启动进程前创建日志 StreamWriter，日志文件
+            // 被占用/拒写时在此折算（F69）——与 NativeUmuLauncher 对 IOException/UAE 的
+            // StartFailed 分类对齐，两条启动链同故障同表现
+            var detail = ex is Win32Exception win32
+                ? $"{win32.Message}（错误码 {win32.NativeErrorCode}）"
+                : ex.Message;
             throw new LaunchException(
                 LaunchFailureKind.StartFailed,
-                $"无法启动进程「{plan.FileName}」：{ex.Message}（错误码 {ex.NativeErrorCode}）。",
+                $"无法启动进程「{plan.FileName}」：{detail}。",
                 ex,
                 logPath);
         }
