@@ -6,7 +6,7 @@
 ## [0.1.3] — 未发布
 
 0.1.2 之后的功能版本：系统托盘驻留 + 关闭按钮行为设置（退出应用 / 关闭窗口驻留托盘，
-下载与依赖安装后台继续）。1127 个测试全绿，行覆盖 87%（2026-09-29 实测）。
+下载与依赖安装后台继续）。1130 个测试全绿，行覆盖 87%（2026-09-29 实测）。
 
 ### 新增
 
@@ -17,13 +17,20 @@
 - 驻留模式下点击关闭（含 alt+F4 / 系统关闭）只隐藏窗口：下载与依赖安装后台继续、背景视频暂停保活（托盘唤回即时续播）、窗口尺寸照常持久化；托盘"退出"走完整退出清理（停视频/取消依赖安装）。
 - 依赖桌面环境提供 StatusNotifierItem 托盘：KDE 开箱即用；GNOME 需安装托盘扩展；无托盘环境请保持"退出应用"模式。
 
+### 修复
+
+**鸣潮预下载（2026-09-29 预载窗口期不可用）**
+
+- 官方 index.json 的 `predownload` 块不携带 `cdnList`（仅随 `default` 块下发），获取预载增量清单时误在该块上拒收——点「预下载下一版本」必报「Kuro index.json cdnList has no usable node」；现缺节点时回退 `default` 块的 cdnList。
+- 增量清单资源文件的下载前缀误用差分入口的 `baseUrl`（差分包目录，CDN 上不存在资源文件），修复后按「条目 fromFolder > 清单第一个 fromFolder > 差分入口 baseUrl」回退——否则 cdnList 修复后仍会在首个文件 404。
+
 ---
 
 ### English · 0.1.3 — unreleased
 
 A feature release after 0.1.2: system tray dwelling plus a close-button
 behavior setting (quit the app / close the window and dwell in the tray,
-with downloads and dependency installs kept running). 1127 tests green,
+with downloads and dependency installs kept running). 1130 tests green,
 line coverage 87% (measured 2026-09-29).
 
 **Added — system tray dwelling & close-button behavior**
@@ -32,6 +39,11 @@ line coverage 87% (measured 2026-09-29).
 - New "Close Button" card in Settings: clicking close quits the application (default, unchanged behavior) or closes the window and dwells in the system tray (`closeAction` setting, also configurable directly in games.json).
 - In dwelling mode, closing (including Alt+F4 / system close) only hides the window: downloads and dependency installs keep running in the background, the backdrop video pauses with keep-alive (instant resume on restore), and window geometry is persisted as usual; tray "Quit" runs the full shutdown cleanup (stop videos / cancel dependency installs).
 - Requires a StatusNotifierItem tray from the desktop environment: works out of the box on KDE; GNOME needs a tray extension; keep "quit" mode on tray-less environments.
+
+**Fixed — Wuthering Waves predownload (broken during the 2026-09-29 predownload window)**
+
+- The official index.json `predownload` block carries no `cdnList` (it is only published on the `default` block), yet the predownload incremental-manifest fetch rejected on that block — clicking "Predownload next version" always failed with "Kuro index.json cdnList has no usable node"; the default block's cdnList is now used as a fallback.
+- Resource-file URL prefixes in incremental manifests wrongly used the patch entry's `baseUrl` (a patch-package directory with no resource files on the CDN); they now fall back per "entry fromFolder > first fromFolder in the manifest > patch-entry baseUrl" — otherwise the cdnList fix would still 404 on the first file.
 
 ---
 

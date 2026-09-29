@@ -82,6 +82,12 @@ flowchart TD
   index.json 是双块结构：live→live 的差分入口在 `default` 块、预下载（live→predownload）的差分入口在
   `predownload` 块——`GetIncrementalManifestAsync` 按目标版本选块（2026-09-20 修复：此前只查 default 块，
   预下载窗口期必失败）。预下载可用性 = `predownloadSwitch` 开启且 predownload 块带 `config`。
+  CDN 节点表 `cdnList` **仅随 default 块下发、两块共用**（2026-09-29 真机实测：预载块只有
+  changelog/config/resources/resourcesBasePath/version 五键）——选中块无可用节点时回退 default 块的
+  cdnList，仍无才拒收（2026-09-29 修复：此前对预载块直接抛 "cdnList has no usable node"）。
+  增量清单的资源前缀按「条目自身 fromFolder > 列表第一个 fromFolder > 差分入口 baseUrl > 块
+  config.baseUrl > resourcesBasePath」回退（与参考实现 ww-manager 对齐，2026-09-29 真机实证：
+  差分入口 baseUrl 是差分包目录，作资源前缀三节点全 404）。
 - **包式（终末地）**：清单 = 压缩包（packs），下载解压即安装；无按版本差分，更新=请求新版本整包，预下载=响应 `patch` 节点。
 
 ## 3. 核心流程

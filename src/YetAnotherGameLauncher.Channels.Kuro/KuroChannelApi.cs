@@ -83,7 +83,9 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
                 continue;
             }
 
-            var cdn = RequireCdn(block);
+            // cdnList 官方仅随 default 块下发、两块共用（2026-09-29 真机实测 predownload 块无
+            // cdnList 字段）；选中块缺可用节点时回退 default 块，仍无才拒收
+            var cdn = RequireCdn(block, index.Default);
 
             var patchIndexJson = await FetchTextAsync(
                 KuroUrlBuilder.BuildFileUrl(cdn, null, patchEntry.IndexFile),
@@ -96,7 +98,7 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
                 Version = toVersion,
                 Files = ToManifestFiles(
                     patchIndexFile.Resource, cdn,
-                    folder: patchEntry.BaseUrl ?? config.BaseUrl ?? block.ResourcesBasePath),
+                    folder: FirstFromFolder(patchIndexFile.Resource) ?? patchEntry.BaseUrl ?? config.BaseUrl ?? block.ResourcesBasePath),
                 Groups = ToGroups(patchIndexFile.GroupInfos, cdn, patchEntry.BaseUrl, config.BaseUrl, block.ResourcesBasePath),
             };
         }
@@ -168,6 +170,13 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
                 KuroUrlBuilder.BuildPatchUrl(cdn, patchBaseUrl, defaultBaseUrl, group.Dest)))];
     }
 
+    /// <summary>取资源列表中第一个非空 fromFolder 作为无 fromFolder 条目的回退目录。
+    /// 参考实现（ww-manager incremental.py）语义 + 2026-09-29 真机实证：官方增量清单常带少量
+    /// fromFolder 条目指向目标版本 zip/ 目录、其余条目共用；patchEntry.baseUrl 是差分包目录
+    /// （真机 .../3.6.1/resources/ 三个 CDN 节点全 404），不得优先于它作资源前缀。</summary>
+    private static string? FirstFromFolder(IEnumerable<KuroResourceEntry> entries) =>
+        entries.Select(entry => entry.FromFolder).FirstOrDefault(folder => !string.IsNullOrWhiteSpace(folder));
+
     private static IReadOnlyList<string> GetPatchSourceVersions(KuroResourceConfig? config) =>
         config?.PatchConfig is null
             ? []
@@ -189,8 +198,10 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
             : version;
     }
 
-    private static string RequireCdn(KuroResourceBlock block) =>
+    /// <summary>取 CDN 基址：优先本块 cdnList；本块无可用节点且 fallback 非空时回退 fallback 块，仍无才拒收。</summary>
+    private static string RequireCdn(KuroResourceBlock block, KuroResourceBlock? fallback = null) =>
         KuroCdnSelector.SelectCdn(block.CdnList)
+        ?? (fallback is null ? null : KuroCdnSelector.SelectCdn(fallback.CdnList))
         ?? throw new UpdateException("Kuro index.json cdnList has no usable node (K1/K2).");
 
     private static KuroResourceConfig RequireConfig(KuroResourceBlock block) =>

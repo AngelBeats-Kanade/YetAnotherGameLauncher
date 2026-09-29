@@ -25,7 +25,8 @@ public class KuroChannelApiTests
         },
     };
 
-    /// <summary>构造 index.json 与全量清单 fixture 并注册到假下载器。predownloadSwitch 传 JSON 字面量（"1"/"0"/"null"）。</summary>
+    /// <summary>构造 index.json 与全量清单 fixture 并注册到假下载器。predownloadSwitch 传 JSON 字面量（"1"/"0"/"null"）；
+    /// predownload 块不带 cdnList（对齐 2026-09-29 真机形态，CDN 回退由 FallsBackToDefaultCdn 用例守护）。</summary>
     private (string IndexJson, string IndexFileJson) RegisterFullFixture(
         bool includePredownload = true,
         string predownloadSwitch = "1")
@@ -46,7 +47,6 @@ public class KuroChannelApiTests
               ,
               "predownload": {
                 "version": "3.7.0",
-                "cdnList": [ { "P": 10, "K1": 1, "K2": 1, "url": "{{Cdn}}" } ],
                 "resourcesBasePath": "launcher/game/G152/10003/3.7.0/token/zip/",
                 "config": {
                   "version": "3.7.0",
@@ -324,6 +324,146 @@ public class KuroChannelApiTests
         Assert.Equal(
             Cdn + "launcher/game/G152/10003/3.7.0/token/zip/Client/Content/Paks/predownload.pak",
             manifest.Files[0].Url);
+    }
+
+    [Fact]
+    public async Task GetIncrementalManifest_PredownloadBlockWithoutCdnList_FallsBackToDefaultCdn()
+    {
+        // 回归（2026-09-29 真机实测，CN 服 3.7.0 预载窗口）：官方 index.json 的 predownload 块
+        // 不携带 cdnList（仅 changelog/config/resources/resourcesBasePath/version 五键），cdnList
+        // 只随 default 块下发、两块共用；旧实现 RequireCdn(选中块) 对 predownload 块抛
+        // "cdnList has no usable node"，预载窗口期点「预下载」必失败。fixture 对齐真机形态。
+        const string patchIndexFile = """
+            {
+              "resource": [
+                { "dest": "Client/Content/Paks/predownload.pak", "md5": "12341234123412341234123412341234", "size": 40 }
+              ]
+            }
+            """;
+        var indexJson = $$"""
+            {
+              "default": {
+                "version": "3.6.1",
+                "cdnList": [ { "P": 10, "K1": 1, "K2": 1, "url": "{{Cdn}}" } ],
+                "resourcesBasePath": "launcher/game/G152/10003/3.6.1/token/zip/",
+                "config": { "version": "3.6.1" }
+              },
+              "predownload": {
+                "version": "3.7.0",
+                "resourcesBasePath": "launcher/game/G152/10003/3.7.0/token/zip/",
+                "config": {
+                  "version": "3.7.0",
+                  "patchConfig": [ { "version": "3.6.1", "indexFile": "resource/370/indexFile.json", "indexFileMd5": "{{Md5(patchIndexFile)}}" } ]
+                }
+              },
+              "predownloadSwitch": 1
+            }
+            """;
+        _downloader.Serve(Server().Options["indexUrl"], indexJson);
+        _downloader.Serve(Cdn + "resource/370/indexFile.json", patchIndexFile);
+
+        var manifest = await CreateApi().GetIncrementalManifestAsync(Server(), "3.6.1", "3.7.0");
+
+        Assert.NotNull(manifest);
+        Assert.Equal("3.7.0", manifest.Version);
+        // CDN 回退自 default 块；差分入口与资源目录解析自 predownload 块
+        Assert.Equal(
+            Cdn + "launcher/game/G152/10003/3.7.0/token/zip/Client/Content/Paks/predownload.pak",
+            manifest.Files[0].Url);
+    }
+
+    [Fact]
+    public async Task GetIncrementalManifest_PredownloadBlockWithOwnCdnList_PrefersIt()
+    {
+        // 回退语义的另一半：predownload 块自带可用 cdnList 时优先自有节点、不落 default——
+        // 真机 2026-09-29 只随 default 下发，但按"自有优先、缺失回退"双向兼容官方形态变化
+        const string patchIndexFile = """
+            {
+              "resource": [
+                { "dest": "Client/Content/Paks/predownload.pak", "md5": "12341234123412341234123412341234", "size": 40 }
+              ]
+            }
+            """;
+        var indexJson = $$"""
+            {
+              "default": {
+                "version": "3.6.1",
+                "cdnList": [ { "P": 10, "K1": 1, "K2": 1, "url": "{{Cdn}}" } ],
+                "resourcesBasePath": "launcher/game/G152/10003/3.6.1/token/zip/",
+                "config": { "version": "3.6.1" }
+              },
+              "predownload": {
+                "version": "3.7.0",
+                "cdnList": [ { "P": 1, "K1": 1, "K2": 1, "url": "https://cdn-pre.example.com/" } ],
+                "resourcesBasePath": "launcher/game/G152/10003/3.7.0/token/zip/",
+                "config": {
+                  "version": "3.7.0",
+                  "patchConfig": [ { "version": "3.6.1", "indexFile": "resource/370/indexFile.json", "indexFileMd5": "{{Md5(patchIndexFile)}}" } ]
+                }
+              },
+              "predownloadSwitch": 1
+            }
+            """;
+        _downloader.Serve(Server().Options["indexUrl"], indexJson);
+        _downloader.Serve("https://cdn-pre.example.com/resource/370/indexFile.json", patchIndexFile);
+
+        var manifest = await CreateApi().GetIncrementalManifestAsync(Server(), "3.6.1", "3.7.0");
+
+        Assert.NotNull(manifest);
+        Assert.StartsWith("https://cdn-pre.example.com/", manifest.Files[0].Url);
+    }
+
+    [Fact]
+    public async Task GetIncrementalManifest_ResourceWithoutFromFolder_FallsBackToFirstFromFolder()
+    {
+        // 回归（2026-09-29 真机实测，CN 服 3.7.0/3.6.1 增量清单 + 参考实现 ww-manager
+        // incremental.py 语义）：清单 resource 列表常带少量 fromFolder 条目指向目标版本
+        // zip/ 目录（真机 11 条），无 fromFolder 的条目共用该前缀；patchEntry.baseUrl
+        // 是差分包目录（真机 .../3.6.1/resources/ 三个 CDN 节点全 404，zip/ 206），
+        // 作资源前缀时排在「列表第一个 fromFolder」之后。
+        const string patchIndexFile = """
+            {
+              "resource": [
+                { "dest": "Client/Content/Paks/with-folder.pak", "md5": "11111111111111111111111111111111", "size": 10,
+                  "fromFolder": "launcher/game/G152/10003/3.7.0/token/zip/" },
+                { "dest": "Client/Content/Paks/plain.pak", "md5": "22222222222222222222222222222222", "size": 20 }
+              ]
+            }
+            """;
+        var indexJson = $$"""
+            {
+              "default": {
+                "version": "3.6.1",
+                "cdnList": [ { "P": 10, "K1": 1, "K2": 1, "url": "{{Cdn}}" } ],
+                "resourcesBasePath": "launcher/game/G152/10003/3.6.1/token/zip/",
+                "config": { "version": "3.6.1" }
+              },
+              "predownload": {
+                "version": "3.7.0",
+                "resourcesBasePath": "launcher/game/G152/10003/3.7.0/token/zip/",
+                "config": {
+                  "version": "3.7.0",
+                  "patchConfig": [ { "version": "3.6.1", "indexFile": "resource/370/indexFile.json", "indexFileMd5": "{{Md5(patchIndexFile)}}",
+                                     "baseUrl": "launcher/game/G152/10003/3.7.0/token/resource/3.6.1/resources/" } ]
+                }
+              },
+              "predownloadSwitch": 1
+            }
+            """;
+        _downloader.Serve(Server().Options["indexUrl"], indexJson);
+        _downloader.Serve(Cdn + "resource/370/indexFile.json", patchIndexFile);
+
+        var manifest = await CreateApi().GetIncrementalManifestAsync(Server(), "3.6.1", "3.7.0");
+
+        Assert.NotNull(manifest);
+        // 带 fromFolder 的条目用自身目录（既有语义不变）
+        Assert.Equal(
+            Cdn + "launcher/game/G152/10003/3.7.0/token/zip/Client/Content/Paks/with-folder.pak",
+            manifest.Files[0].Url);
+        // 无 fromFolder 的条目回退「列表第一个 fromFolder」，不得指向差分包目录 resources/
+        Assert.Equal(
+            Cdn + "launcher/game/G152/10003/3.7.0/token/zip/Client/Content/Paks/plain.pak",
+            manifest.Files[1].Url);
     }
 
     [Fact]
