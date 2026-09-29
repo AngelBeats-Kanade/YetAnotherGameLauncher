@@ -90,7 +90,7 @@
                                 HorizontalAlignment="Stretch"
                                 ToolTip.Tip="{Binding Loc[common_settings]}">
                             <StackPanel Orientation="Horizontal" Spacing="12">
-                                <Path Data="{StaticResource GearIconGeo}"
+                                <Path Data="{StaticResource AppGearIconGeo}"
                                       Fill="{Binding $parent[Button].Foreground}"
                                       Stretch="Uniform" Width="18" Height="18"
                                       HorizontalAlignment="Left"/>

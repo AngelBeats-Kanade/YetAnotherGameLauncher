@@ -33,14 +33,7 @@
                     <Binding Path="!HasBackgroundVideo"/>
                 </MultiBinding>
             </Grid.IsVisible>
-            <Border>
-                <Border.Background>
-                    <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                        <GradientStop Color="#232B3A" Offset="0"/>
-                        <GradientStop Color="#0D1017" Offset="1"/>
-                    </LinearGradientBrush>
-                </Border.Background>
-            </Border>
+            <Border Background="{StaticResource AppArtworkFallbackBrush}"/>
             <Image Source="{Binding GameIcon}" IsVisible="{Binding HasGameIcon}"
                    Stretch="Uniform" MaxWidth="380" MaxHeight="380"
                    HorizontalAlignment="Right" VerticalAlignment="Bottom"

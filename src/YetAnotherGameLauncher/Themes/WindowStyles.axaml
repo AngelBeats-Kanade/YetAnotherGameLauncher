@@ -125,20 +125,20 @@
     <!-- 海报上的主题色主操作按钮：accent 底 + 白字；四态下沉 presenter（同 glass-onart 规则） -->
     <Style Selector="Button.accent-onart">
         <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
-        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="Foreground" Value="{StaticResource AppAccentForeground}"/>
     </Style>
     <Style Selector="Button.accent-onart /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
         <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}"/>
-        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="Foreground" Value="{StaticResource AppAccentForeground}"/>
     </Style>
     <Style Selector="Button.accent-onart:pointerover /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource AppAccentHoverBrush}"/>
-        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="Foreground" Value="{StaticResource AppAccentForeground}"/>
     </Style>
     <Style Selector="Button.accent-onart:pressed /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource AppAccentHoverBrush}"/>
-        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="Foreground" Value="{StaticResource AppAccentForeground}"/>
     </Style>
     <Style Selector="Button.accent-onart:disabled /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
@@ -150,25 +150,25 @@
          四态下沉 presenter（同 accent-onart 规则）；底必须近实心，否则透白海报红字不达门禁 -->
     <Style Selector="Button.danger-onart">
         <Setter Property="Background" Value="{DynamicResource AppOnArtworkCardStrong}"/>
-        <Setter Property="BorderBrush" Value="#8CFF8A7A"/>
+        <Setter Property="BorderBrush" Value="{StaticResource AppDangerOnArtBorder}"/>
         <Setter Property="BorderThickness" Value="1.5"/>
         <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkErrorBrush}"/>
     </Style>
     <Style Selector="Button.danger-onart /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource AppOnArtworkCardStrong}"/>
-        <Setter Property="BorderBrush" Value="#8CFF8A7A"/>
+        <Setter Property="BorderBrush" Value="{StaticResource AppDangerOnArtBorder}"/>
         <Setter Property="BorderThickness" Value="1.5"/>
         <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}"/>
         <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkErrorBrush}"/>
     </Style>
     <Style Selector="Button.danger-onart:pointerover /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource AppOnArtworkCardStrong}"/>
-        <Setter Property="BorderBrush" Value="#FFFF8A7A"/>
+        <Setter Property="BorderBrush" Value="{StaticResource AppDangerOnArtBorderHover}"/>
         <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkErrorBrush}"/>
     </Style>
     <Style Selector="Button.danger-onart:pressed /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="#FF202029"/>
-        <Setter Property="BorderBrush" Value="#FFFF8A7A"/>
+        <Setter Property="Background" Value="{StaticResource AppOnArtworkCardPressed}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource AppDangerOnArtBorderHover}"/>
         <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkErrorBrush}"/>
     </Style>
     <Style Selector="Button.danger-onart:disabled /template/ ContentPresenter#PART_ContentPresenter">
@@ -217,25 +217,25 @@
          悬停染琥珀底——预下载窗口期内"弹出"提示，又不与启动/安装的实心 accent 抢主 CTA。
          四态同样下沉 presenter 层（同 glass-onart 规则） -->
     <Style Selector="Button.predownload-onart">
-        <Setter Property="Background" Value="#26000000"/>
+        <Setter Property="Background" Value="{StaticResource AppPredownloadOnArtBackground}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource AppPredownloadBadge}"/>
         <Setter Property="BorderThickness" Value="1.5"/>
         <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
     </Style>
     <Style Selector="Button.predownload-onart /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="#26000000"/>
+        <Setter Property="Background" Value="{StaticResource AppPredownloadOnArtBackground}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource AppPredownloadBadge}"/>
         <Setter Property="BorderThickness" Value="1.5"/>
         <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}"/>
         <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
     </Style>
     <Style Selector="Button.predownload-onart:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="#5CE8930C"/>
-        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="Background" Value="{StaticResource AppPredownloadOnArtHover}"/>
+        <Setter Property="Foreground" Value="{StaticResource AppAccentForeground}"/>
     </Style>
     <Style Selector="Button.predownload-onart:pressed /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="#80E8930C"/>
-        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="Background" Value="{StaticResource AppPredownloadOnArtPressed}"/>
+        <Setter Property="Foreground" Value="{StaticResource AppAccentForeground}"/>
     </Style>
     <Style Selector="Button.predownload-onart:disabled /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
@@ -457,10 +457,10 @@
         <Setter Property="Background" Value="{DynamicResource AppSidebarHover}"/>
     </Style>
     <Style Selector="Button.caption-btn.close:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="#E81123"/>
+        <Setter Property="Background" Value="{StaticResource AppCaptionCloseHoverBackground}"/>
     </Style>
     <Style Selector="Button.caption-btn.close:pointerover">
-        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="Foreground" Value="{StaticResource AppAccentForeground}"/>
     </Style>
 
     <!-- ========== 轻提示气泡（右上角瞬态信息：版本检测结果/检测到游戏） ========== -->
@@ -528,7 +528,7 @@
     <!-- 主操作钮走 accent：Fluent 在 presenter 层逐状态设背景，这里同样下沉覆盖（含前景） -->
     <Style Selector="Button.launch-error-primary">
         <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
-        <Setter Property="Foreground" Value="#FFFFFF"/>
+        <Setter Property="Foreground" Value="{StaticResource AppAccentForeground}"/>
         <Setter Property="Padding" Value="24,8"/>
         <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
@@ -536,21 +536,21 @@
     </Style>
     <Style Selector="Button.launch-error-primary /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
-        <Setter Property="Foreground" Value="#FFFFFF"/>
+        <Setter Property="Foreground" Value="{StaticResource AppAccentForeground}"/>
         <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}"/>
     </Style>
     <Style Selector="Button.launch-error-primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource AppAccentHoverBrush}"/>
-        <Setter Property="Foreground" Value="#FFFFFF"/>
+        <Setter Property="Foreground" Value="{StaticResource AppAccentForeground}"/>
     </Style>
     <Style Selector="Button.launch-error-primary:pressed /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource AppAccentHoverBrush}"/>
-        <Setter Property="Foreground" Value="#FFFFFF"/>
+        <Setter Property="Foreground" Value="{StaticResource AppAccentForeground}"/>
         <Setter Property="Opacity" Value="0.9"/>
     </Style>
     <Style Selector="Button.launch-error-primary:disabled /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
-        <Setter Property="Foreground" Value="#FFFFFF"/>
+        <Setter Property="Foreground" Value="{StaticResource AppAccentForeground}"/>
         <Setter Property="Opacity" Value="0.4"/>
     </Style>
     <Style Selector="Button.launch-error-secondary">
