@@ -51,10 +51,15 @@ public partial class App : Application
                 logger.LogWarning(ex, "托盘图标初始化失败，跳过系统托盘驻留");
             }
 
-            // 非"关窗"路径的程序性 Shutdown 也停视频（点 X 关闭已由窗口 Closing 覆盖）：
+            // 非"关窗"路径的程序性 Shutdown（含会话注销触发的关闭）也停视频（点 X 关闭已由窗口 Closing 覆盖）：
             // 播放器按游戏独占，须停掉全部会话（含暂停保活中的）；退出期平台拆除会弄坏
-            // GPU 解码栈，解码循环必须先行停止
-            desktop.ShutdownRequested += (_, _) => viewModel.StopBackdropVideo();
+            // GPU 解码栈，解码循环必须先行停止。先置真关闭放行标志再停视频——驻留拦截
+            // 只应拦用户主动关窗，不得挡住程序性 Shutdown（0.1.3 review F2）
+            desktop.ShutdownRequested += (_, _) =>
+            {
+                mainWindow.AllowRealClose();
+                viewModel.StopBackdropVideo();
+            };
             // fire-and-forget 启动序列：初始化完成后跑启动门控撤遮蔽；
             // 除方法内部的分类处理外，仍可能逃逸的异常至少留日志尾巴
             _ = RunBootSequenceAsync(viewModel, logger);

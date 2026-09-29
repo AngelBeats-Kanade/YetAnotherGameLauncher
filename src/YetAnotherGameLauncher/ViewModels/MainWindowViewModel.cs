@@ -605,9 +605,9 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isSidebarExpanded = true;
 
-    /// <summary>关闭按钮是否为"隐藏窗口驻留托盘"模式（窗口 Closing 拦截判定，目录加载时初始化）。</summary>
-    [ObservableProperty]
-    private bool _isCloseToTrayEnabled;
+    /// <summary>关闭按钮是否为"隐藏窗口驻留托盘"模式（窗口 Closing 拦截判定，
+    /// 目录加载与设置应用时更新；无绑定消费方，仅窗口命令式读取）。</summary>
+    public bool IsCloseToTrayEnabled { get; private set; }
 
     /// <summary>侧栏当前宽度（展开/收起值二选一，驱动过渡动画）。</summary>
     public double SidebarWidth => IsSidebarExpanded ? SidebarExpandedWidth : SidebarCollapsedWidth;
@@ -816,14 +816,21 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// 窗口隐藏驻留托盘（closeAction=HideToTray 的关闭路径）：照常持久化窗口尺寸；
-    /// 当前在播背景视频暂停保活（隐藏窗口继续解码纯属浪费，托盘唤回即时续播）；
+    /// 仅当前页为活跃游戏页时挂起在播背景视频（隐藏窗口继续解码纯属浪费，托盘唤回
+    /// 即时续播）。已泊车页（切去非游戏页后）不得再挂第二次：<see cref="GameItemViewModel.SuspendVideo"/>
+    /// 会清待播路径——泊车期间重解析（区域/版本翻转）写入的 pending 被抹掉后，重进
+    /// 详情页会走续播快路径复活旧视频、新路径永不消费（F27 同族，0.1.3 review F1）。
     /// 刻意不取消下载与依赖安装——驻留的意义就是后台继续（真退出路径仍走
     /// <see cref="StopBackdropVideo"/> + <see cref="CancelOngoingDependencyInstall"/>）。
+    /// 挂起/唤回的页级判定与 <see cref="OnWindowRestoredFromTray"/> 对称。
     /// </summary>
     public void OnWindowHiddenToTray(double width, double height, bool maximized)
     {
         PersistWindowState(width, height, maximized);
-        _activeVideoPage?.SuspendVideo();
+        if (CurrentPage is GameItemViewModel gamePage && ReferenceEquals(_activeVideoPage, gamePage))
+        {
+            gamePage.SuspendVideo();
+        }
     }
 
     /// <summary>托盘唤回窗口：当前游戏页的保活视频续播（无会话则凭已解析路径重新起播）。

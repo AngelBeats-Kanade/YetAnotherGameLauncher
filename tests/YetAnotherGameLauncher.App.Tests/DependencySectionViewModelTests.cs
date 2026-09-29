@@ -98,6 +98,57 @@ public class DependencySectionViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task TrayHide_DoesNotCancelOngoingInstall_ButRealQuitPathDoes()
+    {
+        // 0.1.3 review F3：驻留隐藏（closeAction=HideToTray 的关窗路径）刻意不取消在途
+        // 依赖安装——"后台继续"是驻留与真退出的语义差分，此处锁死两个方向
+        var installer = new FakeDependencyInstaller { HangOnInstall = true };
+        var (ctx, section) = await BuildReadyUmuSectionAsync(installer);
+        try
+        {
+            // 第一轮：在途安装下走驻留隐藏 → 放行后安装完整跑完、令牌未被取消
+            var item = section.Items[0];
+            var install = section.InstallAsync(item);
+            for (var i = 0; i < 200 && !section.IsBusy; i++)
+            {
+                await Task.Delay(10);
+            }
+
+            Assert.True(section.IsBusy);
+            ctx.Vm.OnWindowHiddenToTray(800, 600, false);
+            installer.ReleaseInstall();
+            await install.WaitAsync(TimeSpan.FromSeconds(5));
+            // 差分判据用 Feedback（fake 的 CancelledObserved 只在"未取消完成"路径写入，
+            // 取消路径 WaitAsync 直接抛 OCE 跳过赋值，无法判别）：隐藏若误触取消，
+            // 此处将是"已取消"失败态而非安装成功
+            Assert.False(section.Feedback.Failed); // 安装成功收尾而非"已取消"
+            Assert.True(installer.MarkInstalled); // 假安装器仅在完整跑完后置已安装
+
+            // 第二轮：真退出路径（OnWindowClosing 清理链的 VM 侧入口）→ 取消令牌到达安装器。
+            // 第一轮成功把假安装器置为已安装（条目 CanInstall=false 会让 InstallAsync 早退），
+            // 须重置安装态并刷新条目
+            installer.MarkInstalled = false;
+            section.Refresh();
+            var second = section.InstallAsync(item);
+            for (var i = 0; i < 200 && !section.IsBusy; i++)
+            {
+                await Task.Delay(10);
+            }
+
+            Assert.True(section.IsBusy);
+            ctx.Vm.CancelOngoingDependencyInstall();
+            installer.ReleaseInstall();
+            await second.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(section.Feedback.Failed);
+            Assert.Equal("已取消", section.Feedback.Message);
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
+    }
+
+    [Fact]
     public async Task LaunchModeChangedInSection_RecomputesDependencyAvailability()
     {
         // D3：设置页内切换启动方式时依赖区现场重算（此前重进页面才自愈，状态文案是刷新期快照）

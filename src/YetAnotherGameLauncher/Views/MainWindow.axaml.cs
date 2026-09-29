@@ -212,9 +212,14 @@ public partial class MainWindow : Window
     /// <summary>托盘"退出"：放行真关闭（仅此与程序性退出可越过驻留拦截）。</summary>
     internal void RequestRealClose()
     {
-        _realCloseRequested = true;
+        AllowRealClose();
         Close();
     }
+
+    /// <summary>置真关闭放行标志但不立即关窗：供程序性 Shutdown 路径（App 的
+    /// ShutdownRequested，含会话注销）先行放行——驻留拦截只应拦用户主动关窗，
+    /// 不得挡住非用户发起的关闭（0.1.3 review F2）。</summary>
+    internal void AllowRealClose() => _realCloseRequested = true;
 
     /// <summary>最近一次判定的视觉最大化（null=尚未判定）。状态与尺寸变化都触发重判：
     /// 后端先报 Maximized、客户区随后才铺开的序列中，两处时机缺一不可。</summary>

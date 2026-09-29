@@ -108,6 +108,30 @@ public class CloseToTrayHeadlessTests : IDisposable
         Assert.Equal(720, settings.WindowHeight);
     }
 
+    [Fact]
+    public async Task AllowRealClose_ThenUserClose_InHideMode_ClosesForReal()
+    {
+        // 0.1.3 review F2：程序性 Shutdown（App.ShutdownRequested，含会话注销）先经
+        // AllowRealClose 置放行标志——之后的关闭（含用户再点关闭钮）不得再被驻留拦截
+        await _ctx.Vm.InitializeAsync();
+        var closed = false;
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            window.Show();
+            window.UpdateLayout();
+            window.Closed += (_, _) => closed = true;
+
+            window.AllowRealClose();
+            CloseViaCaptionButton(window);
+
+            Assert.True(closed);
+        }, CancellationToken.None);
+
+        Assert.True(closed);
+    }
+
     /// <summary>经真实指针点击标题栏关闭钮（命中链路断裂测不出——先例：toast 关闭钮）。</summary>
     private static void CloseViaCaptionButton(MainWindow window)
     {

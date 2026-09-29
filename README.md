@@ -67,7 +67,7 @@
 | 界面语言 | 简体中文 / English，跟随系统可选，切换即时生效（设置页调整） |
 | 代理设置 | 跟随系统 / 直连 / 手动三选 |
 | 开机自启动 | Windows 注册表 / Linux XDG autostart |
-| 系统托盘驻留 | 托盘图标常驻（左键唤回主窗口，菜单含"显示主窗口 / 退出"）；关闭按钮行为可在设置页二选一：退出应用（默认）/ 关闭窗口驻留系统托盘（驻留时下载与依赖安装后台继续）。依赖桌面环境提供 StatusNotifierItem 托盘：KDE 开箱即用，GNOME 需安装托盘扩展，无托盘环境请保持"退出应用"模式 |
+| 系统托盘驻留 | 托盘图标常驻（左键唤回主窗口，菜单含"显示主窗口 / 退出"）；关闭按钮行为可在设置页二选一：退出应用（默认）/ 关闭窗口驻留系统托盘（驻留时下载与依赖安装后台继续）。依赖桌面环境提供 StatusNotifierItem 托盘：KDE 开箱即用，GNOME 需安装托盘扩展，无托盘环境请保持"退出应用"模式。驻留期间再次启动应用会打开新实例（暂无单实例保护） |
 | 原生 Wayland | Linux 上检测到 Wayland 会话（`WAYLAND_DISPLAY`）即走 Avalonia 12.1 原生 Wayland 后端（实验性）：合成器直供分数缩放（无需 Xft.dpi 补丁）；出问题可 `YAGL_FORCE_XWAYLAND=1` 退回 X11/XWayland（该路径仍保留 EGL 优先渲染与自动 DPI 同步） |
 | 启动设置 | 独立的游戏设置次页（从详情页齿轮进入）：位置 / 启动方式 / 启动选项 / 启动参数，保存钮随变更点亮、保存回配置文件；设置项实际变更保存成功即弹右上角轻提示（列出变更字段，无变更/校验失败不弹），切换服务器亦有提示 |
 | 依赖安装（Linux） | 游戏设置页「依赖」卡：为当前游戏的 Wine prefix 手动安装可选组件。首版内置 **CJK 字体（思源黑体）**——下载思源黑体全量 ttc（MD5 校验、断点续传、全局缓存多游戏复用）装入 `windows/Fonts`，并经 `wine reg` 把宋体/雅黑/MS Gothic 等简繁日韩系统字体名整体映射到思源黑体，修复 Wine 下缺字形导致的方块（豆腐块）乱码；注意游戏内登录窗（KRSDK）协议正文乱码属文本解码层问题、与字体无关（2026-09-29 判别实验定论）；prefix 未初始化（未启动过游戏）或缺 Proton 时给可操作提示而非报错 |
@@ -185,7 +185,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（1123 个，2026-09-29 实测）
+### 运行测试（1127 个，2026-09-29 实测）
 
 ```bash
 # 4 个测试工程分别运行编译产物（Windows 亦可直接跑 .exe；本机 dotnet test 可能发现 0 个测试）：

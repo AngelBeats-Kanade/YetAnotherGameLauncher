@@ -16,7 +16,7 @@ namespace YetAnotherGameLauncher.Services;
 /// <para>
 /// <b>线程规则</b>：SNI 菜单命令/图标点击回调到达 Tmds D-Bus 总线线程，直接触碰窗口/VM
 /// 会段错误（2026-09 调研实锤）——所有回调必须先 <see cref="Dispatcher.UIThread"/> 投递回
-/// UI 线程，且只投递同步 Action（禁 <c>Dispatch(async</c> 发射后不管形态，CI grep 守卫）；
+/// UI 线程，且只投递同步 Action（<c>Dispatch(async</c> 禁用形态——发射后不管吞断言，CI grep 守卫）；
 /// NativeMenuItem 走 Command（12.1.3 无公开 Clicked 事件，探针实证），执行线程同样
 /// 未经上游文档保证，统一包裹。
 /// </para>
@@ -57,10 +57,11 @@ internal sealed class TrayIconController
         TrayIcon.SetIcons(Application.Current!, new TrayIcons { icon });
     }
 
-    /// <summary>从嵌入资源加载应用图标（与窗口标题栏/关于页同源的 app-icon.png）。</summary>
+    /// <summary>从嵌入资源加载托盘图标：专用 48px 源（自 app-icon.png 高质量缩放派生）——
+    /// SNI 托盘按 ~22-48px 显示，预缩放避免把 256px 大图交给合成器缩放。</summary>
     private static WindowIcon LoadAppIcon()
     {
-        using var stream = AssetLoader.Open(new Uri("avares://YetAnotherGameLauncher/Assets/app-icon.png"));
+        using var stream = AssetLoader.Open(new Uri("avares://YetAnotherGameLauncher/Assets/tray-icon-48.png"));
         return new WindowIcon(stream);
     }
 }

@@ -522,12 +522,16 @@ flowchart LR
   环境不致命）。图标常驻（左键唤回主窗口），菜单 = 显示主窗口 / 退出。
 - **关闭分流**（`MainWindow.OnWindowClosing` 统一拦截标题栏关闭钮 / alt+F4 / 系统关闭）：
   `settings.closeAction`（settings 表见 GAME_CONFIG.md）= `HideToTray` 且非真退出请求 →
-  `e.Cancel` + `Hide()`；**隐藏路径** = 窗口尺寸照常持久化 + 当前在播背景视频
-  `SuspendVideo` 暂停保活（托盘唤回 `SetDetailActive(true)` 走续播快路径），**不**取消
-  下载与依赖安装（驻留的意义就是后台继续）；**真退出路径**（默认 `Exit` 模式，或托盘
+  `e.Cancel` + `Hide()`；**隐藏路径** = 窗口尺寸照常持久化 + 仅当当前页为活跃游戏页时
+  `SuspendVideo` 暂停保活（已泊车页不得二次挂起——`SuspendVideo` 会清待播路径，抹掉泊车
+  期间重解析的 pending 会让重进时复活旧视频，F27 同族，回归见 `TrayHideVideoTests`），
+  **不**取消下载与依赖安装（驻留的意义就是后台继续，差分守卫见
+  `DependencySectionViewModelTests.TrayHide_*`）；**真退出路径**（默认 `Exit` 模式，或托盘
   "退出"经 `MainWindow.RequestRealClose` 置真关闭放行标志）= 既有清理链
   `PersistWindowState` + `StopBackdropVideo` + `CancelOngoingDependencyInstall`。
-  会话注销（`ShutdownRequested`）不受拦截影响。
+  程序性 Shutdown（含会话注销触发的关闭）经 `ShutdownRequested` 回调先
+  `AllowRealClose()` 置放行标志再停视频——驻留拦截只拦用户主动关窗；Wayland 侧合成器
+  注销可能不经优雅 Closing 直接断连接，注销行为以真机验收为准。
 - **线程规则**：SNI 菜单命令/图标点击回调到达 Tmds D-Bus 总线线程，直接触碰窗口/VM 会
   段错误——所有回调统一 `Dispatcher.UIThread.Post`（同步 Action；NativeMenuItem 在 12.1.3
   **无公开 Clicked 事件**，探针实证只有 `Command`，其执行线程同样无保证，故一律包裹）。
