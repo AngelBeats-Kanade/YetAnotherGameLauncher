@@ -79,6 +79,46 @@ public class LaunchSettingsTests : IDisposable
     }
 
     [Fact]
+    public async Task ResourceQuality_DraftSaveAndReset()
+    {
+        // 鸣潮资源包档位（2026-10-02）：未设置 → 默认档（空串 = 跟随游戏内设置）；
+        // 改选点亮脏标 → 保存落 games.json 且轻提示归入"启动选项"组；改回默认档落 null
+        await _ctx.Vm.InitializeAsync();
+        var settings = _ctx.Vm.Games[0].LaunchSettings;
+        var game = _ctx.Vm.Games[0];
+
+        Assert.Equal("", settings.SelectedResourceQuality!.Tier);
+        Assert.False(settings.IsDirty);
+
+        settings.SelectedResourceQuality = settings.ResourceQualities.First(q => q.Tier == "uhd");
+        Assert.True(settings.IsDirty);
+
+        await settings.SaveCommand.ExecuteAsync(null);
+        Assert.False(settings.Save.Failed);
+        Assert.Equal("uhd", game.Game.Launch.ResourceQualityTier);
+        Assert.Equal("已更新：启动选项", Assert.Single(_ctx.Vm.Toasts).Message);
+        Assert.False(settings.IsDirty);
+
+        settings.SelectedResourceQuality = settings.ResourceQualities.First(q => q.Tier == "");
+        await settings.SaveCommand.ExecuteAsync(null);
+        Assert.Null(game.Game.Launch.ResourceQualityTier);
+    }
+
+    [Fact]
+    public async Task ResourceQuality_PersistedTier_RestoredOnConstruction()
+    {
+        // 已保存档位（games.json 手改/上次保存）在设置卡重建时反推选中项——
+        // 集合内实例（ComboBox 引用匹配），白名单外回默认档
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        game.Game.Launch.ResourceQualityTier = "sd";
+
+        var settings = game.LaunchSettings; // 构造期快照在首次访问时完成（_launchSettings 惰性）
+
+        Assert.Equal("sd", settings.SelectedResourceQuality!.Tier);
+    }
+
+    [Fact]
     public async Task BrowseInstallDir_PicksFolder_NormalizesAndSaves()
     {
         var picker = new FakeFilePicker { FolderResult = @"E:\Games\Endfield" };

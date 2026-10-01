@@ -65,6 +65,47 @@ public class GameCatalogServiceTests : IDisposable
     }
 
     [Theory]
+    [InlineData("hd", true)]
+    [InlineData("sd", true)]
+    [InlineData("uhd", true)]
+    [InlineData(null, true)]    // 未设置 = 跟随游戏内设置（不传参）
+    [InlineData("", true)]      // 空串与 null 同义（手改 games.json 常见形态）
+    [InlineData("4k", false)]   // 非白名单档位
+    [InlineData("HD", false)]   // 大写形态拒收（参数以小写传递，避免静默变形）
+    public async Task LoadAsync_ValidatesResourceQualityTier(string? tier, bool valid)
+    {
+        var json = $$"""
+            {
+              "settings": { "installRoot": "~/Games", "theme": "Light" },
+              "games": [
+                {
+                  "id": "test-game",
+                  "displayName": "测试游戏",
+                  "channel": "kuro",
+                  "installDir": "TestGame",
+                  "executable": "game.exe"{{(tier is null ? "" : $", \"launch\": {{ \"resourceQualityTier\": \"{tier}\" }}")}},
+                  "servers": [ { "id": "s1", "name": "服务器1" } ]
+                }
+              ]
+            }
+            """;
+        await File.WriteAllTextAsync(_configPath, json, TestContext.Current.CancellationToken);
+        var service = new GameCatalogService(_configPath);
+
+        if (valid)
+        {
+            await service.LoadAsync(TestContext.Current.CancellationToken);
+            var catalog = service.Catalog;
+            Assert.Equal(tier ?? "", catalog!.Games[0].Launch.ResourceQualityTier ?? "");
+        }
+        else
+        {
+            await Assert.ThrowsAsync<GameCatalogValidationException>(
+                () => service.LoadAsync(TestContext.Current.CancellationToken));
+        }
+    }
+
+    [Theory]
     [InlineData("umu-3513350", true)]   // 鸣潮：umu 数据库规范 ID（Steam AppId 形式）
     [InlineData("umu-endfield", true)]  // 终末地：umu 数据库规范 ID（slug 形式）
     [InlineData("3513350", false)]      // 缺 umu- 前缀

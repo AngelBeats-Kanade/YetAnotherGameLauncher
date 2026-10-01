@@ -107,6 +107,36 @@ public sealed class NativeUmuLauncherLaunchTests : IDisposable
     }
 
     [Fact]
+    public void BuildEntryCommand_GameArgument_AppendedAfterExe()
+    {
+        // 鸣潮资源包档位（2026-10-02）：游戏自身命令行参数（-krqlv=<tier>）追加在 argv 尾部
+        //（exe 之后）——两条 return 形态（host runtime 直连 / 容器 entry）都要带上；
+        // null 不追加。纯逻辑跨平台可测（BuildPlan 仅 Linux）。
+        var dir = _temp.Path;
+        var manifestDir = Path.Combine(dir, "manifest");
+        Directory.CreateDirectory(manifestDir);
+        File.WriteAllText(Path.Combine(manifestDir, "toolmanifest.vdf"), """
+            "manifest"
+            {
+              "commandline" "/proton %verb%"
+              "compatmanager_layer_name" "proton"
+            }
+            """);
+        var manifest = ToolManifest.Load(manifestDir);
+        var host = SteamRuntimeCatalog.Host;
+
+        var argv = NativeUmuLauncher.BuildEntryCommand(
+            manifest, host, "run", "/g/a.exe", gameArgument: "-krqlv=uhd");
+
+        Assert.Equal("-krqlv=uhd", argv[^1]);
+        Assert.Equal("/g/a.exe", argv[^2]);
+
+        var noArg = NativeUmuLauncher.BuildEntryCommand(
+            manifest, host, "run", "/g/a.exe", gameArgument: null);
+        Assert.Equal("/g/a.exe", noArg[^1]);
+    }
+
+    [Fact]
     public void BuildPlan_ManagedProtonVerb_NotOverridableByUserEnvironment()
     {
         // F70：PROTON_VERB 是启动器托管键（UmuEnvironment.Build 白名单校验/缺省回退）——

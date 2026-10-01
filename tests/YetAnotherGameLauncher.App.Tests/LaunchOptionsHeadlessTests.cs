@@ -24,6 +24,46 @@ public class LaunchOptionsHeadlessTests : IDisposable
     public void Dispose() => _ctx.TempDir.Dispose();
 
     [Fact]
+    public async Task ResourceQualityCombo_VisibleForKuro_HiddenForOtherChannels()
+    {
+        // 鸣潮资源包档位（2026-10-02）：-krqlv 下拉仅鸣潮渠道显示（Game.IsKuro 门控，
+        // HasGachaEntry 先例）；终末地设置页不出现。断言在 Dispatch 之外（Dispatch 三规则②）。
+        await _ctx.Vm.InitializeAsync();
+
+        var kuroVisible = false;
+        var endfieldVisible = true;
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm, Width = 1120, Height = 720 };
+            window.Show();
+            window.UpdateLayout();
+
+            _ctx.Vm.ShowGameSettingsCommand.Execute(null);
+            window.UpdateLayout();
+            kuroVisible = window.GetVisualDescendants()
+                .OfType<ComboBox>()
+                .Any(c => c.IsEffectivelyVisible
+                    && c.ItemsSource?.Cast<object>().FirstOrDefault() is ResourceQualityOption);
+
+            // 切到终末地（Games[1]，hypergryph 渠道）再进其设置页
+            _ctx.Vm.ShowGamesCommand.Execute(null);
+            window.UpdateLayout();
+            _ctx.Vm.SelectedGame = _ctx.Vm.Games[1];
+            window.UpdateLayout();
+            _ctx.Vm.ShowGameSettingsCommand.Execute(null);
+            window.UpdateLayout();
+            endfieldVisible = window.GetVisualDescendants()
+                .OfType<ComboBox>()
+                .Any(c => c.IsEffectivelyVisible
+                    && c.ItemsSource?.Cast<object>().FirstOrDefault() is ResourceQualityOption);
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.True(kuroVisible, "鸣潮设置页应显示资源包档位下拉");
+        Assert.False(endfieldVisible, "终末地设置页不应显示资源包档位下拉");
+    }
+
+    [Fact]
     public async Task WindowsPlatform_TogglesHidden()
     {
         await _ctx.Vm.InitializeAsync();

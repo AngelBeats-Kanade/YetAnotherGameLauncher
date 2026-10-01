@@ -45,6 +45,14 @@ public sealed class GameLauncherService(
         }
 
         var command = Expand(template, exePath, installDir);
+        // 鸣潮资源包档位（2026-10-02）：以 -krqlv=<tier> 追加在命令尾部（模板自带参数时自然拼接，
+        // SplitCommand 引号感知拆分）；null/空 = 跟随游戏内设置，不追加
+        var qualityTier = game.Launch.ResourceQualityTier;
+        if (!string.IsNullOrWhiteSpace(qualityTier))
+        {
+            command += $" -krqlv={qualityTier.Trim()}";
+        }
+
         var (fileName, arguments) = SplitCommand(command);
         ValidateCommand(fileName);
 

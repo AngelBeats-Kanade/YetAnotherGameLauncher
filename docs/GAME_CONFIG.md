@@ -72,6 +72,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `useWayland` | bool | `false` | 注入 `PROTON_USE_WAYLAND=1` 启用 Proton 原生 Wayland 驱动（绕过 XWayland）。仅 Linux Proton 启动链；DW/GE/UMU-Proton 均识别（DW 另接受 PROTON_ENABLE_WAYLAND 别名）。设置页「启动选项 → 使用 Wayland」 |
 | `upgradeDlss` | bool | `false` | 注入 `PROTON_DLSS_UPGRADE=1`（连带 `PROTON_ENABLE_NVAPI=1`）：启动时由 protonfixes 把游戏内 DLSS 换成 Proton 内置新版。仅 NVIDIA 显卡生效。设置页「启动选项 → 升级 DLSS 模型」 |
 | `enableProtonLog` | bool | `false` | 注入 `PROTON_LOG=1` + `PROTON_LOG_DIR={应用日志目录}`，记录 Proton 运行日志。设置页「启动选项 → 打印 Proton 日志」 |
+| `resourceQualityTier` | string | | 鸣潮资源包档位：`hd` / `sd` / `uhd` 之一（白名单外/大写拒收），启动时以 `-krqlv=<tier>` 命令行参数传给游戏（官方启动器同款参数，两条启动链均生效）；留空 = 跟随游戏内设置、不追加参数。非鸣潮游戏忽略。设置页「资源包档位」下拉（鸣潮专属显示，2026-10-02 增） |
 
 可用占位符：
 
@@ -220,6 +221,7 @@ Steam Runtime 容器与 Proton，发行版三选一），由启动器自动生�
 - `games[].id` 非空、无非法字符、全局唯一（忽略大小写）
 - `displayName` / `channel` / `installDir` / `executable` / `launch.commandTemplate` 非空
 - `launch.umuId` 非空时须形如 `umu-<slug>`（后缀仅字母/数字/`-`/`_`）
+- `launch.resourceQualityTier` 非空时须为 `hd` / `sd` / `uhd` 之一
 - `servers` 至少 1 个；服务器 `id` 唯一且非空、`name` 非空
 - JSON 语法错误 / 未知枚举值 → 归一为校验异常提示
 

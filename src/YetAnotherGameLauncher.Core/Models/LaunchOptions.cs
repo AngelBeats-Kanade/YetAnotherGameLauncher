@@ -37,6 +37,13 @@ public sealed class LaunchOptions
     /// </summary>
     public bool EnableProtonLog { get; set; }
 
+    /// <summary>
+    /// 鸣潮资源包档位（2026-10-02）：hd / sd / uhd 三档之一，启动时以 -krqlv=&lt;tier&gt;
+    /// 命令行参数传给游戏（官方启动器同款参数）；null/空 = 跟随游戏内设置、不追加参数。
+    /// 渠道语义字段，非鸣潮游戏忽略；白名单校验见 GameCatalogService（拒绝大写与未知值）。
+    /// </summary>
+    public string? ResourceQualityTier { get; set; }
+
     /// <summary>附加环境变量（值同样支持 {installDir} 占位符）。</summary>
     public Dictionary<string, string> Environment { get; set; } = new();
 }

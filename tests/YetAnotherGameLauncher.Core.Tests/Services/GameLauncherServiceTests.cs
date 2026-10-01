@@ -43,6 +43,30 @@ public class GameLauncherServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task BuildPlan_ResourceQualityTier_AppendsKrqlvArgument()
+    {
+        // 鸣潮资源包档位（2026-10-02 用户需求）：档位设置以 -krqlv=<tier> 启动参数传给游戏
+        //（官方启动器同款参数）；null/空 = 跟随游戏内设置，不追加任何参数
+        var exePath = await CreateExecutable();
+        var game = Game("\"{exe}\"");
+        game.Launch.ResourceQualityTier = "hd";
+
+        var plan = Service().BuildPlan(game, _tempDir.Path, "bin/game.exe");
+
+        Assert.Equal("-krqlv=hd", plan.Arguments);
+    }
+
+    [Fact]
+    public async Task BuildPlan_ResourceQualityTierNull_NoArgumentAppended()
+    {
+        var exePath = await CreateExecutable();
+
+        var plan = Service().BuildPlan(Game("\"{exe}\""), _tempDir.Path, "bin/game.exe");
+
+        Assert.Equal("", plan.Arguments);
+    }
+
+    [Fact]
     public async Task BuildPlan_ExpandsExePlaceholder()
     {
         var exePath = await CreateExecutable();

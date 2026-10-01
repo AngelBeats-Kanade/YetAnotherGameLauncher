@@ -267,6 +267,13 @@ public sealed class GameCatalogService
                 $"{field}.launch.umuId must look like \"umu-<slug>\" (letters, digits, '-', '_' after the umu- prefix).");
         }
 
+        if (!string.IsNullOrWhiteSpace(game.Launch.ResourceQualityTier)
+            && !ValidResourceQualityTiers.Contains(game.Launch.ResourceQualityTier))
+        {
+            errors.Add(
+                $"{field}.launch.resourceQualityTier must be one of: {string.Join(", ", ValidResourceQualityTiers)} (or omitted).");
+        }
+
         if (game.Servers.Count == 0)
         {
             errors.Add($"{field}.servers requires at least one server.");
@@ -301,4 +308,8 @@ public sealed class GameCatalogService
         umuId.StartsWith("umu-", StringComparison.Ordinal)
         && umuId.Length > "umu-".Length
         && umuId["umu-".Length..].All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_');
+
+    /// <summary>鸣潮资源包档位白名单（2026-10-02）：以 -krqlv=&lt;tier&gt; 小写参数原样传递，
+    /// 大写/未知值拒收（避免静默变形）。</summary>
+    private static readonly string[] ValidResourceQualityTiers = ["hd", "sd", "uhd"];
 }

@@ -854,7 +854,8 @@ public partial class GameItemViewModel(
                     extraEnvironment: extraEnvironment,
                     progress: progress,
                     cancellationToken: cancellationToken,
-                    umuId: Game.Launch.UmuId);
+                    umuId: Game.Launch.UmuId,
+                    resourceQualityTier: Game.Launch.ResourceQualityTier);
             }
             else
             {

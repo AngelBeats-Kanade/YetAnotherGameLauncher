@@ -84,6 +84,13 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             }
         }
 
+        // 资源包档位选项同样整体重建并重指集合内实例（ComboBox 引用匹配；record 值相等
+        // 短路会让"集合已换、选中仍指旧实例"悬空成空白下拉——与 LaunchModes 同坑）
+        var selectedTier = SelectedResourceQuality?.Tier;
+        _resourceQualities = BuildResourceQualities();
+        OnPropertyChanged(nameof(ResourceQualities));
+        SelectedResourceQuality = DetectResourceQuality(selectedTier);
+
         RefreshNativeUmuStatus();
     }
 
@@ -131,6 +138,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         _upgradeDlssDraft = game.Launch.UpgradeDlss;
         _enableProtonLogDraft = game.Launch.EnableProtonLog;
         _selectedLaunchMode = DetectLaunchMode(game.Launch.CommandTemplate);
+        _selectedResourceQuality = DetectResourceQuality(game.Launch.ResourceQualityTier);
         var detectedFlavor = DetectProtonFlavor(game.Launch.Environment.GetValueOrDefault("PROTONPATH"));
         _selectedProtonFlavor = CompatTools.ProtonFlavors.FirstOrDefault(
             f => string.Equals(f, detectedFlavor, StringComparison.Ordinal)) ?? CompatTools.DefaultProtonFlavor;
@@ -255,10 +263,11 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             return;
         }
 
-        // 启动选项开关草稿（Wayland/DLSS 升级/Proton 日志）与已保存值比对
+        // 启动选项开关草稿（Wayland/DLSS 升级/Proton 日志）与已保存值比对；资源包档位同款
         IsDirty = UseWaylandDraft != _game.Launch.UseWayland
             || UpgradeDlssDraft != _game.Launch.UpgradeDlss
-            || EnableProtonLogDraft != _game.Launch.EnableProtonLog;
+            || EnableProtonLogDraft != _game.Launch.EnableProtonLog
+            || (SelectedResourceQuality?.Tier ?? "") != (_game.Launch.ResourceQualityTier ?? "").Trim();
     }
 
     /// <summary>草稿字段变化统一重算脏标记。</summary>
@@ -297,6 +306,9 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     /// <summary>草稿字段变化统一重算脏标记。</summary>
     partial void OnEnableProtonLogDraftChanged(bool value) => RecomputeDirty();
 
+    /// <summary>草稿字段变化统一重算脏标记（资源包档位下拉）。</summary>
+    partial void OnSelectedResourceQualityChanged(ResourceQualityOption? value) => RecomputeDirty();
+
     /// <summary>环境字典的用户自定义子集（过滤托管键，编辑框展示口径）。</summary>
     private static Dictionary<string, string> UserEnvironment(IReadOnlyDictionary<string, string> environment) =>
         environment
@@ -328,6 +340,29 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         new(LaunchMode.NativeUmu, _loc["launch_mode_native_umu"]),
         new(LaunchMode.Direct, _loc["launch_mode_direct"]),
     ];
+
+    /// <summary>资源包档位选项取词（鸣潮 hd/sd/uhd，2026-10-02；Tier 空串 = 跟随游戏内设置、
+    /// 不传 -krqlv 参数）。与启动方式同款：注入文案惰性构建，语言切换整体重建。</summary>
+    private IReadOnlyList<ResourceQualityOption> BuildResourceQualities() =>
+    [
+        new("", _loc["launch_resourceQualityAuto"]),
+        new("hd", _loc["launch_resourceQualityHd"]),
+        new("sd", _loc["launch_resourceQualitySd"]),
+        new("uhd", _loc["launch_resourceQualityUhd"]),
+    ];
+
+    /// <summary>从已保存档位反推选中项；白名单外/未设置回默认档（返回集合内实例——
+    /// ComboBox 的 SelectedItem 按引用匹配，游离实例显示空白）。</summary>
+    private ResourceQualityOption DetectResourceQuality(string? savedTier) =>
+        ResourceQualities.FirstOrDefault(q => q.Tier == (savedTier ?? "").Trim(), ResourceQualities[0]);
+
+    private IReadOnlyList<ResourceQualityOption>? _resourceQualities;
+
+    /// <summary>资源包档位选项（默认档在前）。语言切换时整体重建。</summary>
+    public IReadOnlyList<ResourceQualityOption> ResourceQualities => _resourceQualities ??= BuildResourceQualities();
+
+    [ObservableProperty]
+    private ResourceQualityOption? _selectedResourceQuality;
 
     private IReadOnlyList<LaunchModeOption>? _launchModes;
 
@@ -662,11 +697,12 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 WorkingDirectory = originalLaunch.WorkingDirectory,
                 Environment = environment,
                 UmuId = originalLaunch.UmuId,
-                // 窄通道只动 PROTONPATH：开关取已存值——未保存的开关草稿不得被即时保存静默带走
+                // 窄通道只动 PROTONPATH：开关与资源档位取已存值——未保存的草稿不得被即时保存静默带走
                 // （toast 也不会提及，2026-09-28 review F-A）
                 UseWayland = originalLaunch.UseWayland,
                 UpgradeDlss = originalLaunch.UpgradeDlss,
                 EnableProtonLog = originalLaunch.EnableProtonLog,
+                ResourceQualityTier = originalLaunch.ResourceQualityTier,
             };
 
             bool saved;
@@ -932,10 +968,12 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         var environmentDiff = EnvironmentDiffKeys(environment, _game.Launch.Environment);
 
         // 启动选项开关对照替换前的旧值：必须在 _game.Launch 替换前快照（review P2 实锤——
-        // 曾在替换后拿草稿比新 Launch 自身，恒 false，仅开关变更的轻提示永不弹）
+        // 曾在替换后拿草稿比新 Launch 自身，恒 false，仅开关变更的轻提示永不弹）；
+        // 资源包档位变更并入同一提示组（同属启动选项卡的草稿字段）
         var optionsChanged = UseWaylandDraft != _game.Launch.UseWayland
             || UpgradeDlssDraft != _game.Launch.UpgradeDlss
-            || EnableProtonLogDraft != _game.Launch.EnableProtonLog;
+            || EnableProtonLogDraft != _game.Launch.EnableProtonLog
+            || (SelectedResourceQuality?.Tier ?? "") != (_game.Launch.ResourceQualityTier ?? "").Trim();
 
         // games.json 的 launch.umuId 不经设置卡编辑，重建 Launch 时必须保留（否则 UMU_ID 退化为 umu-{gameId}）
         var newLaunch = new LaunchOptions
@@ -947,6 +985,8 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             UseWayland = UseWaylandDraft,
             UpgradeDlss = UpgradeDlssDraft,
             EnableProtonLog = EnableProtonLogDraft,
+            // 空串归一为 null（不传参语义；LaunchOptions 契约 null/空白等价，这里保持落盘形态干净）
+            ResourceQualityTier = string.IsNullOrEmpty(SelectedResourceQuality?.Tier) ? null : SelectedResourceQuality!.Tier,
         };
 
         // 快照旧值：保存失败时回滚内存中的 GameDefinition，让内存与磁盘保持一致——
@@ -1108,6 +1148,9 @@ public partial class LaunchSettingsViewModel : ViewModelBase
 
 /// <summary>启动方式选项（模式 + 已本地化文案）。</summary>
 public sealed record LaunchModeOption(LaunchMode Mode, string Name);
+
+/// <summary>资源包档位选项（Tier 空串 = 跟随游戏内设置；显示名已本地化）。</summary>
+public sealed record ResourceQualityOption(string Tier, string DisplayName);
 
 /// <summary>Proton 更新检查状态（检查按钮文案与可用性的驱动源）。</summary>
 public enum ProtonUpdateCheckState

@@ -81,7 +81,8 @@ public sealed class NativeUmuLauncher(
         IReadOnlyDictionary<string, string>? extraEnvironment = null,
         string? store = null,
         string? dataHomeOverride = null,
-        string? umuId = null)
+        string? umuId = null,
+        string? resourceQualityTier = null)
     {
         EnsureLinux();
 
@@ -145,7 +146,10 @@ public sealed class NativeUmuLauncher(
         }
 
         var entry = BuildEntryCommand(
-            manifest, runtime, environment["PROTON_VERB"], exe, dataHomeOverride ?? dataHome);
+            manifest, runtime, environment["PROTON_VERB"], exe, dataHomeOverride ?? dataHome,
+            gameArgument: string.IsNullOrWhiteSpace(resourceQualityTier)
+                ? null
+                : $"-krqlv={resourceQualityTier!.Trim()}");
         var arguments = QuoteArgs(entry.Skip(1));
 
         logger?.LogInformation(
@@ -162,7 +166,8 @@ public sealed class NativeUmuLauncher(
             manifest);
     }
 
-    /// <summary>解析组件 → 构建计划 → 即启即走启动，返回日志路径。umuId 覆盖 UMU_ID（空 = umu-{gameId}）。</summary>
+    /// <summary>解析组件 → 构建计划 → 即启即走启动，返回日志路径。umuId 覆盖 UMU_ID（空 = umu-{gameId}）；
+    /// resourceQualityTier（鸣潮 hd/sd/uhd）以 -krqlv=&lt;tier&gt; 追加在游戏 exe 之后，空 = 不追加。</summary>
     public async Task<LaunchResult> LaunchAsync(
         string gameId,
         string installDir,
@@ -172,13 +177,14 @@ public sealed class NativeUmuLauncher(
         string? store = null,
         IProgress<string>? progress = null,
         CancellationToken cancellationToken = default,
-        string? umuId = null)
+        string? umuId = null,
+        string? resourceQualityTier = null)
     {
         var (protonPath, manifest, runtime) = await ResolveComponentsAsync(
             protonRequest, progress, cancellationToken).ConfigureAwait(false);
         var plan = BuildPlan(
             gameId, installDir, executablePath, protonPath, manifest, runtime,
-            extraEnvironment, store, umuId: umuId);
+            extraEnvironment, store, umuId: umuId, resourceQualityTier: resourceQualityTier);
 
         var logDirectory = Path.Combine(AppPaths.DataDirectory, "logs");
         Directory.CreateDirectory(logDirectory);
@@ -209,20 +215,23 @@ public sealed class NativeUmuLauncher(
 
     /// <summary>
     /// 组装最终命令：
-    /// {runtime}/_v2-entry-point --verb=… -- {proton}/proton {verb} {exe}
-    /// host runtime（无容器）时直接调 proton。
+    /// {runtime}/_v2-entry-point --verb=… -- {proton}/proton {verb} {exe} [gameArgument]
+    /// host runtime（无容器）时直接调 proton；gameArgument（如鸣潮 -krqlv=hd）追加在 argv
+    /// 尾部（exe 之后）——null 不追加。
     /// </summary>
     public static IReadOnlyList<string> BuildEntryCommand(
         ToolManifest manifest,
         SteamRuntimeInfo runtime,
         string verb,
         string exePath,
-        string? dataHome = null)
+        string? dataHome = null,
+        string? gameArgument = null)
     {
         var protonArgv = manifest.BuildEntryCommand(verb);
+        string[] tail = gameArgument is null ? [exePath] : [exePath, gameArgument];
         if (runtime.Name == "host" || string.IsNullOrEmpty(runtime.Variant))
         {
-            return [.. protonArgv, exePath];
+            return [.. protonArgv, .. tail];
         }
 
         var runtimeRoot = UmuPaths.RuntimeDirectory(runtime.Variant, dataHome);
@@ -232,7 +241,7 @@ public sealed class NativeUmuLauncher(
             entry = Path.Combine(runtimeRoot, "umu");
         }
 
-        return [entry, $"--verb={verb}", "--", .. protonArgv, exePath];
+        return [entry, $"--verb={verb}", "--", .. protonArgv, .. tail];
     }
 
     private string? ResolveProtonLocally(string protonRequest)

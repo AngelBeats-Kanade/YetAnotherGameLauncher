@@ -175,6 +175,25 @@
                                                TextWrapping="Wrap" MaxWidth="420"/>
                                 </StackPanel>
                             </StackPanel>
+                            <!-- 资源包档位（鸣潮专属，2026-10-02）：以 -krqlv=<tier> 启动参数传给游戏；
+                                 与平台无关（不套 IsLinux 门控），渠道可见性走 Game.IsKuro（HasGachaEntry 先例）；
+                                 草稿语义随保存钮落盘。设计依据：UI_STRUCTURE §4——选项区组距 8、ComboBox
+                                 MinWidth=220 与启动方式下拉同宽、hint 必须 Left + MaxWidth=420 Wrap -->
+                            <StackPanel Spacing="4" IsVisible="{Binding Game.IsKuro}">
+                                <TextBlock Text="{Binding Loc[launch_resourceQuality]}" Classes="card-caption"/>
+                                <ComboBox ItemsSource="{Binding LaunchSettings.ResourceQualities}"
+                                          SelectedItem="{Binding LaunchSettings.SelectedResourceQuality}"
+                                          MinWidth="220">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:ResourceQualityOption">
+                                            <TextBlock Text="{Binding DisplayName}"/>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <TextBlock Text="{Binding Loc[launch_resourceQualityHint]}" Classes="card-caption"
+                                           HorizontalAlignment="Left"
+                                           TextWrapping="Wrap" MaxWidth="420"/>
+                            </StackPanel>
                             <StackPanel Spacing="4">
                                 <TextBlock Text="{Binding Loc[launch_environment]}" Classes="card-caption"/>
                                 <!-- 必须 Wrap：NoWrap+AcceptsReturn 会让 Fluent 悬浮横滚条盖住最后一行变量，无法点选 -->
