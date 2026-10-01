@@ -103,6 +103,16 @@ public sealed class GameInstallService(
         Report(progress, UpdatePhase.Downloading, state, null);
 
         var gate = new object();
+        // 字节级实时进度：并行下载的 per-file 字节回调换算为全局增量，100ms 节流投递
+        //（2026-10-02 用户点名"进度条随时更新"；此前 per-file 回调被丢弃、只在文件完成时整量跳变）
+        var aggregator = new ByteProgressAggregator(TimeSpan.FromMilliseconds(100), bytes =>
+        {
+            lock (gate)
+            {
+                state.DownloadedBytes = bytes;
+                Report(progress, UpdatePhase.Downloading, state, null);
+            }
+        });
         await Parallel.ForEachAsync(
             files,
             new ParallelOptions
@@ -116,28 +126,24 @@ public sealed class GameInstallService(
 
                 var destination = ManifestVerifier.ResolveSafe(installDir, file.Path);
 
-                // 并行下载共享计数：per-file 字节回调只在 lock 内读累计值，
-                // 文件完成时才累加并上报（避免每字节回调高频打散 UI 进度条）
-                var perFile = new Progress<long>(_ =>
-                {
-                    lock (gate)
-                    {
-                        Report(progress, UpdatePhase.Downloading, state, file.Path);
-                    }
-                });
+                var perFile = aggregator.CreateFileProgress();
 
                 await downloader.DownloadFileAsync(
                     new DownloadRequest(file.Url, destination, file.Size, file.Md5),
                     perFile,
                     token).ConfigureAwait(false);
 
+                // 下载器零回调/回调与声明 size 有差时兜底补齐（负 delta 为重下回退的修正）——
+                // 完成时全局恰好 +file.Size，分母分子同口径
+                aggregator.Add(file.Size - perFile.ConsumedBytes);
+                aggregator.ForceReport();
+
                 lock (gate)
                 {
-                    state.DownloadedBytes += file.Size;
                     state.FilesDone++;
+                    state.DownloadedBytes = aggregator.Bytes;
+                    Report(progress, UpdatePhase.Downloading, state, file.Path);
                 }
-
-                Report(progress, UpdatePhase.Downloading, state, file.Path);
             }).ConfigureAwait(false);
     }
 

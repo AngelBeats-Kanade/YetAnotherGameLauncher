@@ -75,6 +75,57 @@ public class IncrementalUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task PredownloadAsync_RerunSkipsAlreadyStagedFiles()
+    {
+        // 回归（2026-10-02 用户两次重跑实证）：预载失败后重跑不得清空暂存重来——
+        // 完好暂存文件按 size+MD5 条目级核验跳过（.temp 由下载器 Range 续传），
+        // 只补缺失部分（ww-manager download_incremental 同语义）。
+        var group = PrepareGroup("g1.krpdiff", [("old.dat", "old-content"u8.ToArray())], [("new.dat", "new-content"u8.ToArray())]);
+        var brandNew = "brand"u8.ToArray();
+        var manifest = new GameManifest
+        {
+            Version = "2.0.0",
+            Groups = [group],
+            Files = [FileEntry("brand-new.pak", brandNew)],
+        };
+        _downloader.Responses[Url("brand-new.pak")] = brandNew;
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+        Assert.Equal(2, _downloader.Requests.Count); // 首跑：1 组 + 1 文件全下载
+
+        _downloader.Requests.Clear();
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+
+        // 重跑：全部条目已在暂存且校验通过 → 零网络请求
+        Assert.Empty(_downloader.Requests);
+        Assert.NotNull(IncrementalUpdateService.TryLoadStagedManifest(_tempDir.Path));
+        var staging = IncrementalUpdateService.PredownloadDir(_tempDir.Path);
+        Assert.True(File.Exists(Path.Combine(staging, "patches", "g1.krpdiff")));
+        Assert.True(File.Exists(Path.Combine(staging, "files", "brand-new.pak")));
+    }
+
+    [Fact]
+    public async Task PredownloadAsync_ReportsIntermediateByteProgress()
+    {
+        // 回归（2026-10-02 用户点名"进度条随时更新"）：进度不再按条目完成跳变——
+        // 下载器字节级回调经聚合器实时换算进全局（分块假下载器模拟 64KB 粒度回调）。
+        var content = new byte[100];
+        new Random(42).NextBytes(content);
+        _downloader.Responses[Url("big.bin")] = content;
+        _downloader.ReportProgressInChunks = true;
+        var manifest = new GameManifest
+        {
+            Version = "2.0.0",
+            Files = [new ManifestFile("big.bin", content.Length, Md5(content), Url("big.bin"))],
+        };
+        var progress = new UpdateProgressCollector();
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest, progress);
+
+        var downloading = progress.Frames.Where(f => f.Phase == UpdatePhase.Downloading).ToList();
+        Assert.Contains(downloading, f => f.DownloadedBytes > 0 && f.DownloadedBytes < content.Length);
+        Assert.Equal(content.Length, downloading[^1].DownloadedBytes); // 收尾帧 = 全量（同口径）
+    }
+
+    [Fact]
     public async Task PredownloadAsync_ManifestPathEscapingSandbox_Rejected()
     {
         // 暂存路径与安装目录同样不可信：../ 拒绝（Windows 上 ..\ 亦然，平台不对称统一按穿越处理）
@@ -424,7 +475,8 @@ public class IncrementalUpdateServiceStagedManifestTests : IDisposable
         // 回归（2026-09-20 复审）：manifest.json 读不了（占用/无权限）按"暂存未知"处理返回 null，
         // 与 LocalStateService.Load 同语义——只捕 JsonException 会让异常穿出 RefreshAsync
         // 的弃元调用点，静默丢失状态刷新与完成提示
-        var staging = IncrementalUpdateService.ResetStaging(_tempDir.Path);
+        var staging = IncrementalUpdateService.PredownloadDir(_tempDir.Path);
+        Directory.CreateDirectory(staging);
         var manifestPath = Path.Combine(staging, "manifest.json");
         File.WriteAllText(manifestPath, "{}");
         if (!OperatingSystem.IsWindows())

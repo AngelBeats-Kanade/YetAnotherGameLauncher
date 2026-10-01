@@ -95,7 +95,7 @@
   "predownload_failed": "预下载失败：{0}",
   "progress_checking": "正在检查文件…",
   "progress_cleaning": "正在清理…",
-  "progress_downloading": "{0} / {1}（{2}/{3} 个文件）",
+  "progress_downloading": "{0} / {1}（{2}/{3} 个文件）· {4}",
   "progress_failed": "失败：{0}",
   "progress_finished": "完成",
   "progress_patching": "正在应用差分补丁…",

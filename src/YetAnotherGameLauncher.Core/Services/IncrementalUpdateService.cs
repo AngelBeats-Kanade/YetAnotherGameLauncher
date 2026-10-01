@@ -27,19 +27,6 @@ public sealed class IncrementalUpdateService(
     public static string PredownloadDir(string installDir) =>
         Path.Combine(installDir, LocalStateService.StateDirName, PredownloadDirName);
 
-    /// <summary>重建预下载暂存目录（清掉上次中断的残留）。</summary>
-    /// <param name="installDir">游戏安装目录。</param>
-    /// <returns>新建好的暂存目录路径。</returns>
-    public static string ResetStaging(string installDir)
-    {
-        var staging = PredownloadDir(installDir);
-        // Windows 上残留文件被占用（游戏运行中/杀软扫描）时整树删除会抛异常并卡死本次预下载，
-        // 尽力清理即可：残留文件随后会被同名覆盖或按暂存清单核对
-        FileUtilities.TryDeleteDirectory(staging);
-        Directory.CreateDirectory(staging);
-        return staging;
-    }
-
     /// <summary>把暂存对应的清单写入暂存目录（应用预下载时按此核对）；增量与包式预下载链路共用。
     /// 原子写：数十 GB 预下载完成后 manifest.json 写到一半被杀（断电/占用截断）会让全部预下载
     /// 作废（读回即损坏 → Apply 报"No preloaded update found"）（2026-09-20 复审修复）。</summary>
@@ -72,32 +59,56 @@ public sealed class IncrementalUpdateService(
         return Path.Combine(basePath, normalized.Replace('/', Path.DirectorySeparatorChar));
     }
 
-    /// <summary>阶段一：把差分包与新文件下载到暂存目录（MD5/大小校验），并写入暂存清单供 Apply 使用。</summary>
+    /// <summary>阶段一：把差分包与新文件下载到暂存目录（MD5/大小校验），并写入暂存清单供 Apply 使用。
+    /// 重跑语义（2026-10-02 对齐 ww-manager）：暂存不再整树重置——完好文件按条目核验跳过、
+    /// .temp 由下载器 Range 续传，失败后重跑只补缺失部分（此前整树清空会把已下载的几十 GB
+    /// 全部作废重下）。清单版本切换后的孤儿残留由 Apply 成功时的整目录清理回收。</summary>
     public async Task PredownloadAsync(
         string installDir,
         GameManifest incrementalManifest,
         IProgress<UpdateProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        var staging = ResetStaging(installDir);
+        var staging = PredownloadDir(installDir);
+        Directory.CreateDirectory(staging);
 
         var totalBytes = incrementalManifest.Files.Sum(f => f.Size)
                          + incrementalManifest.Groups.Sum(g => g.PatchSize);
         var totalItems = incrementalManifest.Files.Count + incrementalManifest.Groups.Count;
         var done = 0;
-        var bytes = 0L;
+        var current = (string?)null;
+
+        // 字节级实时进度：下载器 64KB 粒度回调 → 全局增量 → 100ms 节流投递
+        //（进度口径 = 本地已就绪字节，续传起点含在下载器首回调的 delta 里）
+        var aggregator = new ByteProgressAggregator(TimeSpan.FromMilliseconds(100), bytes =>
+            progress?.Report(new UpdateProgress(UpdatePhase.Downloading, totalBytes, bytes, done, totalItems, current)));
 
         progress?.Report(new UpdateProgress(UpdatePhase.Downloading, totalBytes, 0, 0, totalItems, null));
 
         // 两类暂存条目（直下新文件 / 差分包）下载流程一致：同一本地函数处理并聚合进度
-        // （下载为顺序执行，无并发访问，计数无需加锁）
+        //（下载为顺序执行，无并发访问，计数无需加锁）
         async Task DownloadStagedAsync(string url, long size, string? md5, string relativeTarget, string displayName)
         {
             var target = SafeJoin(staging, relativeTarget);
-            await downloader.DownloadFileAsync(new DownloadRequest(url, target, size, md5), null, cancellationToken).ConfigureAwait(false);
-            bytes += size;
+            current = displayName;
+
+            if (IsAlreadyStaged(target, size, md5))
+            {
+                logger?.LogDebug("Staged file already complete, skipping download: {Target}", target);
+                done++;
+                aggregator.Add(size);
+                aggregator.ForceReport();
+                return;
+            }
+
+            var fileProgress = aggregator.CreateFileProgress();
+            await downloader.DownloadFileAsync(
+                new DownloadRequest(url, target, size, md5), fileProgress, cancellationToken).ConfigureAwait(false);
             done++;
-            progress?.Report(new UpdateProgress(UpdatePhase.Downloading, totalBytes, bytes, done, totalItems, displayName));
+            // 下载器零回调（替身实现）/期望与实收有差时兜底补齐；回调过量（重下回退）时负修正
+            //——完成时全局恰好 +size，与分母同口径
+            aggregator.Add(size - fileProgress.ConsumedBytes);
+            aggregator.ForceReport();
         }
 
         foreach (var file in incrementalManifest.Files)
@@ -117,7 +128,33 @@ public sealed class IncrementalUpdateService(
         await WriteStagedManifestAsync(staging, incrementalManifest, cancellationToken).ConfigureAwait(false);
 
         logger?.LogInformation("Predownload finished: {Groups} patch groups, {Files} files", incrementalManifest.Groups.Count, incrementalManifest.Files.Count);
-        progress?.Report(new UpdateProgress(UpdatePhase.Done, totalBytes, bytes, totalItems, totalItems, null));
+        progress?.Report(new UpdateProgress(UpdatePhase.Done, totalBytes, aggregator.Bytes, totalItems, totalItems, null));
+    }
+
+    /// <summary>暂存条目是否已完整就绪：存在 + size 匹配 + MD5 匹配（期望缺失的项跳过对应校验，
+    /// 与 <see cref="HttpFileDownloader"/> 的 Verify 同语义）。拒读/占用按未就绪处理，
+    /// 交回下载路径由其折算可操作错误。</summary>
+    private static bool IsAlreadyStaged(string path, long size, string? md5)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return false;
+            }
+
+            if (size > 0 && new FileInfo(path).Length != size)
+            {
+                return false;
+            }
+
+            return string.IsNullOrEmpty(md5)
+                || string.Equals(Hashing.Md5Hex(path), md5, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     /// <summary>读取暂存清单；没有已预下载内容时返回 null。文件被占用/无权限同样按

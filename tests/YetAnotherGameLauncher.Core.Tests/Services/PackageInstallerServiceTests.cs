@@ -55,6 +55,23 @@ public class PackageInstallerServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Predownload_Downloads_ReportIntermediateByteProgress()
+    {
+        // 回归（2026-10-02 用户点名"进度条随时更新"）：包式下载同样按字节实时推进
+        //（此前给下载器传 null 进度，只在整包完成时跳变——几十 GB 的包期间进度条纹丝不动）。
+        var zip = TestZip.Create(("game.exe", "MZ-stub-payload-0123456789abcdefgh"));
+        _downloader.Responses[ZipUrl] = zip;
+        _downloader.ReportProgressInChunks = true;
+        var progress = new UpdateProgressCollector();
+
+        await new PackageInstallerService(_downloader).PredownloadAsync(_tempDir.Path, ManifestFor(zip), progress);
+
+        var downloading = progress.Frames.Where(f => f.Phase == UpdatePhase.Downloading).ToList();
+        Assert.Contains(downloading, f => f.DownloadedBytes > 0 && f.DownloadedBytes < zip.Length);
+        Assert.Equal(zip.Length, downloading[^1].DownloadedBytes);
+    }
+
+    [Fact]
     public async Task Predownload_StagesArchiveWithoutExtracting()
     {
         _downloader.Responses[ZipUrl] = ZipBytes;

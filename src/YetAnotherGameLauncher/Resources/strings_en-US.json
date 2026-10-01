@@ -95,7 +95,7 @@
   "predownload_failed": "Preload failed: {0}",
   "progress_checking": "Checking files…",
   "progress_cleaning": "Cleaning up…",
-  "progress_downloading": "{0} / {1} ({2}/{3} files)",
+  "progress_downloading": "{0} / {1} ({2}/{3} files) · {4}",
   "progress_failed": "Failed: {0}",
   "progress_finished": "Done",
   "progress_patching": "Applying binary patches…",

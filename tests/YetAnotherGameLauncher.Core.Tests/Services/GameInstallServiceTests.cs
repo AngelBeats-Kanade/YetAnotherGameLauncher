@@ -166,6 +166,25 @@ public class GameInstallServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task SyncAsync_Downloads_ReportIntermediateByteProgress()
+    {
+        // 回归（2026-10-02 用户点名"进度条随时更新"）：全量下载同样按字节实时推进——
+        // 并行下载的 per-file 字节回调换算为全局增量（此前回调被丢弃、只在文件完成时整量跳变）。
+        var content = new byte[100];
+        new Random(7).NextBytes(content);
+        _downloader.Responses[Url("big.bin")] = content;
+        _downloader.ReportProgressInChunks = true;
+        var service = new GameInstallService(_downloader);
+        var progress = new UpdateProgressCollector();
+
+        await service.SyncAsync(_tempDir.Path, Manifest(FileEntry("big.bin", content)), progress);
+
+        var downloading = progress.Frames.Where(f => f.Phase == UpdatePhase.Downloading).ToList();
+        Assert.Contains(downloading, f => f.DownloadedBytes > 0 && f.DownloadedBytes < content.Length);
+        Assert.Equal(content.Length, downloading[^1].DownloadedBytes);
+    }
+
+    [Fact]
     public async Task SyncAsync_ReportsDoneProgress()
     {
         var a = "content-a"u8.ToArray();

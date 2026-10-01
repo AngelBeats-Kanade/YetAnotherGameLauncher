@@ -166,12 +166,22 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
     {
         Directory.CreateDirectory(packagesDir);
         var totalBytes = packageManifest.Files.Sum(f => f.Size);
-        var downloaded = 0L;
         var staged = new List<(ManifestFile, string)>();
         var seenTargets = new HashSet<string>(StagedPathComparer);
 
+        // 字节级实时进度（2026-10-02 用户点名"进度条随时更新"）：整包下载期间进度条按字节推进，
+        // 不再只在包完成时跳变（此前给下载器传 null 进度）。回调读循环内更新的当前条目局部变量。
+        ManifestFile? currentFile = null;
+        var currentIndex = 0;
+        var aggregator = new ByteProgressAggregator(
+            TimeSpan.FromMilliseconds(100),
+            bytes => progress?.Report(new UpdateProgress(
+                UpdatePhase.Downloading, totalBytes, bytes, currentIndex, packageManifest.Files.Count, currentFile?.Path)));
+
         foreach (var (file, index) in packageManifest.Files.Select((f, i) => (f, i)))
         {
+            currentFile = file;
+            currentIndex = index;
             ManifestChecks.EnsureDownloadUrl(file.Url, "Package entry", file.Path);
 
             var archivePath = StagedArchivePath(packagesDir, file);
@@ -183,15 +193,19 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
                     $"Two package entries share the staged file name \"{file.Path}\"; refusing to silently overwrite one with the other.");
             }
 
-            progress?.Report(new UpdateProgress(UpdatePhase.Downloading, totalBytes, downloaded, index, packageManifest.Files.Count, file.Path));
-
             if (!IsArchiveIntact(archivePath, file))
             {
+                var perFile = aggregator.CreateFileProgress();
                 await downloader.DownloadFileAsync(
-                    new DownloadRequest(file.Url, archivePath, file.Size, file.Md5), null, cancellationToken).ConfigureAwait(false);
+                    new DownloadRequest(file.Url, archivePath, file.Size, file.Md5), perFile, cancellationToken).ConfigureAwait(false);
+                aggregator.Add(file.Size - perFile.ConsumedBytes); // 零回调/差额兜底，完成时恰好 +size
+                aggregator.ForceReport();
+            }
+            else
+            {
+                aggregator.Add(file.Size); // 已就绪的整包计入全局进度
             }
 
-            downloaded += file.Size;
             staged.Add((file, archivePath));
         }
 

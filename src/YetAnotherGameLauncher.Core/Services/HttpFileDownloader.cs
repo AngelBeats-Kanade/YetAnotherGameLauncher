@@ -130,6 +130,16 @@ public sealed class HttpFileDownloader(
                 $"Resume of {request.Url} from byte {existingTempBytes} rejected by server (416); remote content may have changed.");
         }
 
+        // 4xx（除 408/429）是永久失败：资源不存在/无权限等，重试同 URL 不会好转——
+        // 单次终止并把状态码带进消息（2026-10-02 用户 404×3 重试实证）；408/429 与
+        // 5xx 是瞬态，交由外层网络错误重试。DownloadException 不匹配瞬态 catch 直穿上抛。
+        if ((int)response.StatusCode is >= 400 and < 500
+            && response.StatusCode is not (HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests))
+        {
+            throw new DownloadException(
+                $"Server returned {(int)response.StatusCode} ({response.StatusCode}) for {request.Url}; not retrying.");
+        }
+
         response.EnsureSuccessStatusCode();
 
         // 仅当服务器确实按 Range 返回 206 时才算续传；返回 200 说明服务器忽略了 Range，需要重写

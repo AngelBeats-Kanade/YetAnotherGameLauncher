@@ -12,6 +12,10 @@ public sealed class FakeDownloader : IDownloader
 
     public HashSet<string> FailUrls { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>分块上报进度（按 8 字节一块逐块 Report 累计值），模拟真实下载器的字节级回调；
+    /// 默认单次 Report 全量长度（既有测试语义）。</summary>
+    public bool ReportProgressInChunks { get; set; }
+
     public void Serve(string url, string content) => Responses[url] = System.Text.Encoding.UTF8.GetBytes(content);
 
     public void Serve(string url, byte[] content) => Responses[url] = content;
@@ -27,7 +31,20 @@ public sealed class FakeDownloader : IDownloader
         var content = Responses[request.Url];
         Directory.CreateDirectory(Path.GetDirectoryName(request.DestinationPath)!);
         File.WriteAllBytes(request.DestinationPath, content);
-        progress?.Report(content.Length);
+        if (ReportProgressInChunks && content.Length > 0)
+        {
+            var written = 0;
+            while (written < content.Length)
+            {
+                written = Math.Min(written + 8, content.Length);
+                progress?.Report(written);
+            }
+        }
+        else
+        {
+            progress?.Report(content.Length);
+        }
+
         return Task.CompletedTask;
     }
 }

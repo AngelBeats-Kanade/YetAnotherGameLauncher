@@ -2,6 +2,7 @@ using Xunit;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Utilities;
+using YetAnotherGameLauncher.ViewModels;
 using YetAnotherGameLauncher.TestSupport;
 
 namespace YetAnotherGameLauncher.AppTests;
@@ -264,5 +265,43 @@ public class GameItemProgressTests : IDisposable
         await wuwa.LaunchAsync();
 
         Assert.Equal(0, wuwa.ProgressPercent); // 红落此断言：当前保持 100
+    }
+
+    [Fact]
+    public void SpeedComputation_SamplesAndEdgeCases()
+    {
+        // 首样本直接取瞬时值；后续样本 EMA 平滑（新样本权重 0.4）
+        Assert.Equal(100, GameItemViewModel.ComputeSpeedBytesPerSecond(0, 100, 1.0, 0));
+        Assert.Equal(0.6 * 100 + 0.4 * 200, GameItemViewModel.ComputeSpeedBytesPerSecond(100, 300, 1.0, 100));
+        // 间隔非正/字节回退（重下回退）保持上一个有效速度
+        Assert.Equal(80, GameItemViewModel.ComputeSpeedBytesPerSecond(100, 200, 0, 80));
+        Assert.Equal(80, GameItemViewModel.ComputeSpeedBytesPerSecond(300, 100, 1.0, 80));
+    }
+
+    [Fact]
+    public async Task Install_DownloadTextCarriesSpeedSlot()
+    {
+        // 2026-10-02 用户点名"下载时显示速度"：下载文案格式串带速度段（瞬时完成的假下载
+        // 采样间隔不足 0.4s，速度样本无效 → 占位符"—"；算法正确性由纯函数测试覆盖）
+        SetupKuroUpToDate();
+        await _ctx.Vm.InitializeAsync();
+        var wuwa = _ctx.Vm.Games[0];
+
+        var downloadTexts = new List<string>();
+        wuwa.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(wuwa.ProgressText)
+                && wuwa.ProgressText.Contains("·", StringComparison.Ordinal))
+            {
+                lock (downloadTexts)
+                {
+                    downloadTexts.Add(wuwa.ProgressText);
+                }
+            }
+        };
+
+        await wuwa.InstallOrUpdateCommand.ExecuteAsync(null);
+
+        Assert.Contains(downloadTexts, t => t.EndsWith("—", StringComparison.Ordinal));
     }
 }

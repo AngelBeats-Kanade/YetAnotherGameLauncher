@@ -424,4 +424,24 @@ public class HttpFileDownloaderLockedDestinationTests : IDisposable
         Assert.Contains("replace", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Single(_handler.Requests); // 不进网络重试：单次请求即终止
     }
+
+    [Fact]
+    public async Task Download_NonSuccessStatusCode_SingleAttemptWithStatusInMessage()
+    {
+        // 回归（2026-10-02 用户 404×3 实证）：404/403 等 4xx（除 408/429）是永久失败——
+        // 同 URL 重试不会好转，重试 3 次只是把失败拖长三倍；必须单次终止并带状态码。
+        // 408/429 与 5xx 保持瞬态重试语义（未映射 URL 由桩回 404）。
+        var downloader = new HttpFileDownloader(new HttpClient(_handler), new HttpFileDownloaderOptions
+        {
+            MaxAttempts = 3,
+            RetryBaseDelay = TimeSpan.FromMilliseconds(1),
+        });
+
+        var ex = await Assert.ThrowsAsync<DownloadException>(
+            () => downloader.DownloadFileAsync(new DownloadRequest(
+                "https://cdn.example.com/not-mapped.bin", _tempDir.FilePath("f.bin"), null, null)));
+
+        Assert.Contains("404", ex.Message, StringComparison.Ordinal);
+        Assert.Single(_handler.Requests); // 永久失败不重试：单次请求即终止
+    }
 }
