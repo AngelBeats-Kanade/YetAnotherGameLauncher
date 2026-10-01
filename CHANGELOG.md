@@ -7,7 +7,7 @@
 
 0.1.2 之后的功能版本：系统托盘驻留 + 关闭按钮行为设置（退出应用 / 关闭窗口驻留托盘，
 下载与依赖安装后台继续）；资源包档位、实时下载进度与速度；鸣潮 krpdiff 增量更新链
-终局修复。1159 个测试全绿（2026-10-02 实测）。
+终局修复。1160 个测试全绿（2026-10-02 实测）。
 
 ### 新增
 
@@ -51,7 +51,7 @@ behavior setting (quit the app / close the window and dwell in the tray,
 with downloads and dependency installs kept running); resource quality
 tier selection; real-time byte-granular download progress with a speed
 readout; and the definitive fix for the Wuthering Waves krpdiff
-incremental-update chain. 1159 tests green (measured 2026-10-02).
+incremental-update chain. 1160 tests green (measured 2026-10-02).
 
 **Added — resource quality tier (Wuthering Waves)**
 
