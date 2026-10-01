@@ -37,7 +37,9 @@ Currently supported games:
 - 🎮 **One-click launch** — Command templates with `{exe}` / `{installDir}` placeholders + environment variable injection; pre-launch checks report categorized, localized errors; game output is captured to a launch log; failures show a themed error card (with an open-log-folder button)
 - 🐧 **Native Linux umu launch chain** — No external umu-run required: Proton and Steam Runtime are downloaded automatically per the Proton toolmanifest, with container and prefix set up for you; choose between DW-Proton (default) / GE-Proton / UMU-Proton — **selection is saved instantly**, download assets match the host architecture (x86_64/aarch64); each flavor ships a "check for updates" action that upgrades and cleans up old versions
 - ⬇️ **Full download + resume** — Per-file manifest sync (Wuthering Waves) / archive extraction (Endfield) with size+MD5 verification; `.temp` files + HTTP Range resume; linear-backoff retries for transient network errors; adjustable download speed limit
+- 📊 **Real-time byte progress + speed** — Download progress advances per byte (no more per-file jumps) with an EMA-smoothed speed readout; failed pre-downloads/updates resume by re-verifying intact staged files (size+MD5 skip, Range resume); permanent HTTP 4xx errors fail fast without retries
 - 🩹 **Incremental updates + pre-download** — Wuthering Waves uses official krpdiff patch packages applied via native `hpatchz` (HDiffPatch) with `.yagl-bak` backup rollback; two-phase pre-download (stage first, apply when official servers open); package-based channels can register an already-installed game with zero downloads
+- 🎚️ **Resource quality tier (Wuthering Waves)** — Pick HD / SD / UHD in game settings; passed to the game as the official `-krqlv` launch argument; defaults to following in-game settings
 - 🧰 **Verify & repair** — Post-install manifest verification (MD5) that automatically repairs missing/corrupted files and cleans orphaned files (keeping `Saved/` game saves)
 - 🖥️ **One-click server switching** — Wuthering Waves CN/Bilibili/Global, Endfield CN/Global/Bilibili, all configuration-driven
 - 🎞️ **Poster-style detail page + video backdrop** — Official artwork/video fills the main area; FFmpeg hardware decoding (D3D11VA on Windows / VAAPI→NVDEC on Linux) with seamless loop points; switching games or pages keeps the video alive (paused, instantly resumed — no restart, no poster flash)
@@ -203,7 +205,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### Running tests (1131 tests, measured 2026-09-29)
+### Running tests (1159 tests, measured 2026-10-02)
 
 ```bash
 # Run the 4 test projects' compiled binaries directly (on Windows you can run the .exe;

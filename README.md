@@ -34,7 +34,9 @@
 - 🎮 **一键启动** — 命令模板 `{exe}` / `{installDir}` 占位符 + 环境变量注入；启动预检给出类目化中文错误，游戏输出落盘启动日志，失败弹主题化错误卡（含打开日志目录）
 - 🐧 **Linux 原生 umu 启动链** — 无需外部 umu-run：按 Proton 的 toolmanifest 自动下载 Proton 与 Steam Runtime 并搭建容器与 prefix；DW-Proton（默认）/ GE-Proton / UMU-Proton 发行版可选，**选择即保存**，下载资产按主机架构（x86_64/aarch64）匹配；发行版带「检查更新」，确认后升级并自动清理旧目录
 - ⬇️ **全量下载 + 断点续传** — 官方清单逐文件同步（鸣潮）/ 压缩包整包解压（终末地），size+MD5 双校验；`.temp` 临时文件 + HTTP Range 续传，瞬态网络错误线性退避重试，下载限速可调
+- 📊 **字节级实时进度 + 下载速度** — 下载进度按字节实时推进（不再按文件跳变），EMA 平滑显示实时下载速度；预载/更新失败重跑只补缺失部分（完好暂存按 size+MD5 核验跳过、断点续传）；HTTP 4xx 永久错误不重试
 - 🩹 **增量更新 + 预下载** — 鸣潮走官方 krpdiff 差分包，调用原生 `hpatchz`（HDiffPatch）合成，`.yagl-bak` 备份回滚；两段式预更新先暂存后一键应用；包式渠道检测到本机已装游戏可零下载直接登记
+- 🎚️ **资源包档位（鸣潮）** — 游戏设置页选择 HD / SD / UHD 资源包档位，启动时以官方 `-krqlv` 参数传给游戏；默认跟随游戏内设置
 - 🧰 **校验修复** — 按清单事后校验（MD5），自动修复缺失/损坏文件，清理游离文件（保留 `Saved/` 存档）
 - 🖥️ **多服务器一键切换** — 鸣潮 国服/B服/国际服、终末地 国服/国际服/B服，全部配置驱动
 - 🎞️ **海报式详情页 + 背景视频** — 官方当期海报/视频全幅铺满主区域，FFmpeg 硬解（Windows D3D11VA / Linux VAAPI→NVDEC）+ 智能循环点无缝续播；切游戏、切设置/关于再回来，视频都暂停保活、即时续播（不重启、无静态图过渡）
@@ -185,7 +187,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（1131 个，2026-09-29 实测）
+### 运行测试（1159 个，2026-10-02 实测）
 
 ```bash
 # 4 个测试工程分别运行编译产物（Windows 亦可直接跑 .exe；本机 dotnet test 可能发现 0 个测试）：

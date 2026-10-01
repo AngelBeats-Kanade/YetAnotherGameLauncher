@@ -204,8 +204,9 @@ public sealed class KuroSwitchConfigClient(HttpClient httpClient, ILogger<KuroSw
         return KuroSwitchConfig.FromJson(doc.RootElement);
     }
 
-    /// <summary>判定可重试的瞬态失败（网络/解析/超时）；用户主动取消不重试。</summary>
-    private static bool IsTransient(Exception ex, CancellationToken cancellationToken) =>
-        ex is HttpRequestException or JsonException or TaskCanceledException or InvalidOperationException
+    /// <summary>判定可重试的瞬态失败（网络/解析/超时/畸形地址 FormatException）；用户主动取消不重试。</summary>
+    internal static bool IsTransient(Exception ex, CancellationToken cancellationToken) =>
+        ex is HttpRequestException or JsonException or TaskCanceledException
+            or InvalidOperationException or FormatException
         && !cancellationToken.IsCancellationRequested;
 }

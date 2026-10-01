@@ -6,9 +6,20 @@
 ## [0.1.3] — 未发布
 
 0.1.2 之后的功能版本：系统托盘驻留 + 关闭按钮行为设置（退出应用 / 关闭窗口驻留托盘，
-下载与依赖安装后台继续）。1131 个测试全绿，行覆盖 87%（2026-09-29 实测）。
+下载与依赖安装后台继续）；资源包档位、实时下载进度与速度；鸣潮 krpdiff 增量更新链
+终局修复。1159 个测试全绿（2026-10-02 实测）。
 
 ### 新增
+
+**资源包档位（鸣潮）**
+
+- 游戏设置页新增「资源包档位」下拉（HD / SD / UHD / 跟随游戏内设置，仅鸣潮显示）：启动时以官方 `-krqlv=<hd|sd|uhd>` 参数传给游戏，umu 与直启两条启动链均生效；`games.json` 的 `launch.resourceQualityTier` 可直接配置（白名单校验）。
+
+**实时下载进度与速度**
+
+- 下载进度按字节实时推进（增量差分包 / 全量同步 / 包式三条链统一），不再按文件完成跳变——大文件下载期间进度条纹丝不动的问题消除。
+- 进度文案附带 EMA 平滑的实时下载速度（中英双语）。
+- 预载/更新失败后重跑只补缺失部分：完好暂存文件按 size+MD5 核验跳过、`.temp` 断点续传（此前重跑会清空暂存从头重下）。
 
 **系统托盘驻留与关闭按钮行为**
 
@@ -24,14 +35,33 @@
 - 官方 index.json 的 `predownload` 块不携带 `cdnList`（仅随 `default` 块下发），获取预载增量清单时误在该块上拒收——点「预下载下一版本」必报「Kuro index.json cdnList has no usable node」；现缺节点时回退 `default` 块的 cdnList。
 - 增量清单资源文件的下载前缀误用差分入口的 `baseUrl`（差分包目录，CDN 上不存在资源文件），修复后按「条目 fromFolder > 清单第一个 fromFolder > 差分入口 baseUrl」回退——否则 cdnList 修复后仍会在首个文件 404。
 
+**鸣潮增量更新 krpdiff 404 终局修复（2026-10-02）**
+
+- 上项前缀修复仍会 404 的真根因：官方增量清单的 `resource` 列表同时登记直下文件与 krpdiff 差分文件（后者与 `groupInfos` 一一同名），krpdiff 被误当直下文件套上 zip/ 前缀——真机实测 38/38 全 404（用户报障的 404 URL 即此形态）；现 krpdiff 只经差分组表达（URL 用差分入口 baseUrl，实测全 206），并消灭了同文件下载两遍、应用时被搬进游戏目录两个连带缺陷。
+- 差分组的 size/MD5 此前恒空（官方组层不带此二键）——现从 `resource` 同名条目回填，krpdiff 下载恢复 MD5 校验、进度总量不再漏算。
+- 官方清单点名的废弃文件（`deleteFiles`，残留会被 UE 挂载覆盖新文件、热更卡死）此前被静默忽略——现应用更新前按清单删除（失败即中止且不动任何游戏文件，可安全重试）。
+- HTTP 404 等永久错误（4xx，除 408/429）不再按网络瞬态重试三次——单次终止并在错误信息携带状态码。
+
 ---
 
 ### English · 0.1.3 — unreleased
 
 A feature release after 0.1.2: system tray dwelling plus a close-button
 behavior setting (quit the app / close the window and dwell in the tray,
-with downloads and dependency installs kept running). 1131 tests green,
-line coverage 87% (measured 2026-09-29).
+with downloads and dependency installs kept running); resource quality
+tier selection; real-time byte-granular download progress with a speed
+readout; and the definitive fix for the Wuthering Waves krpdiff
+incremental-update chain. 1159 tests green (measured 2026-10-02).
+
+**Added — resource quality tier (Wuthering Waves)**
+
+- New "Resource quality tier" dropdown in game settings (HD / SD / UHD / follow in-game settings, shown for Wuthering Waves only): passed to the game as the official `-krqlv=<hd|sd|uhd>` launch argument on both the umu and direct launch chains; configurable directly in games.json via `launch.resourceQualityTier` (whitelist-validated).
+
+**Added — real-time download progress & speed**
+
+- Download progress now advances per byte across all three download chains (incremental patches / full sync / package installs) instead of jumping per completed file — no more frozen progress bars during large-file downloads.
+- The progress line carries an EMA-smoothed speed readout (Chinese and English).
+- Failed pre-downloads/updates resume on rerun: intact staged files are verified (size+MD5) and skipped, `.temp` files resume via HTTP Range (previously a rerun wiped the staging directory and restarted from scratch).
 
 **Added — system tray dwelling & close-button behavior**
 
@@ -44,6 +74,13 @@ line coverage 87% (measured 2026-09-29).
 
 - The official index.json `predownload` block carries no `cdnList` (it is only published on the `default` block), yet the predownload incremental-manifest fetch rejected on that block — clicking "Predownload next version" always failed with "Kuro index.json cdnList has no usable node"; the default block's cdnList is now used as a fallback.
 - Resource-file URL prefixes in incremental manifests wrongly used the patch entry's `baseUrl` (a patch-package directory with no resource files on the CDN); they now fall back per "entry fromFolder > first fromFolder in the manifest > patch-entry baseUrl" — otherwise the cdnList fix would still 404 on the first file.
+
+**Fixed — Wuthering Waves incremental update krpdiff 404 (definitive, 2026-10-02)**
+
+- The real root cause behind the prefix fix above still 404-ing: the official incremental manifest's `resource` list registers both direct files and krpdiff patch files (the latter one-to-one with `groupInfos`), and krpdiff entries were mistakenly treated as direct files with the zip/ prefix — 38/38 URLs 404 on the live CDN (exactly the user-reported 404 URL). krpdiff is now expressed solely through patch groups (URL from the patch-entry baseUrl, all 206 when measured), which also eliminates downloading each patch twice and moving it into the game directory at apply time.
+- Patch-group size/MD5 were always empty (the official group entries carry neither) — now backfilled from the same-name `resource` entry, restoring MD5 verification for krpdiff downloads and correct progress totals.
+- Obsolete files named by the manifest (`deleteFiles` — leftovers get mounted by UE over new files and stall hot-updates) were silently ignored — they are now deleted before applying the update (a failed delete aborts before any game file is touched, leaving a clean retryable state).
+- Permanent HTTP errors (4xx other than 408/429) no longer retry three times as if transient — a single attempt terminates with the status code in the message.
 
 ---
 

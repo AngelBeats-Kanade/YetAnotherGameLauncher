@@ -85,11 +85,17 @@ flowchart TD
   CDN 节点表 `cdnList` **仅随 default 块下发、两块共用**（2026-09-29 真机实测：预载块只有
   changelog/config/resources/resourcesBasePath/version 五键）——选中块无可用节点时回退 default 块的
   cdnList，仍无才拒收（2026-09-29 修复：此前对预载块直接抛 "cdnList has no usable node"）。
-  增量清单的资源前缀按「条目自身 fromFolder > 列表第一个 fromFolder > 差分入口 baseUrl > 块
-  config.baseUrl > resourcesBasePath」回退。前两级与参考实现 ww-manager 一致；其后参考实现固定
-  回退 default 块 baseUrl、本实现取选中块（预载流程指向目标版本目录，2026-09-29 真机两形态等值）。
-  真机实证（同日）：预载条目的差分入口 baseUrl 是差分包目录（作资源前缀三节点全 404）；常规增量
-  条目 baseUrl=zip/ 资源目录且清单无 fromFolder，回退链产出与旧实现一致。
+  增量清单的 **krpdiff 差分条目只经 Groups 表达**（2026-10-02 修复 + 真机实证：清单 resource[] 同时登记
+  直下文件与 krpdiff、后者与 groupInfos[].dest 一一同名；留在 Files 会给 krpdiff 套 fromFolder 前缀
+  zip/——真机 38/38 全 404，即用户报障的 404 URL——且下载两遍、apply 时被搬进游戏目录）。组的
+  PatchSize/PatchMd5 从 resource[] 同名条目回填（真机组层无此二键）；krpdiff URL =
+  「差分入口 baseUrl > 块 config.baseUrl > cdn+resources/」三级链（ww-manager `_build_krpdiff_url`
+  一致）。**直下文件**的前缀按「条目自身 fromFolder > 列表第一个 fromFolder > 差分入口 baseUrl >
+  选中块 config.baseUrl > resourcesBasePath」回退——第 1–3 级与参考实现一致；第 4 级（配置基址）
+  参考实现固定取 default 块、本实现取选中块（2026-09-29 真机两形态等值）。真机实证：预载条目的
+  差分入口 baseUrl 是差分包目录（作资源前缀三节点全 404）；常规增量条目 baseUrl=zip/ 资源目录且
+  清单无 fromFolder，回退链产出与旧实现一致。清单顶层 `deleteFiles`（废弃文件，2026-10-02 真机 6 条
+  旧 pak/sig）建模进 GameManifest，Apply 组循环前删除（残留会被 UE 挂载覆盖新文件、热更卡死）。
 - **包式（终末地）**：清单 = 压缩包（packs），下载解压即安装；无按版本差分，更新=请求新版本整包，预下载=响应 `patch` 节点。
 
 ## 3. 核心流程
@@ -259,6 +265,12 @@ flowchart TD
 否则包式渠道会无条件整包重下数十 GB、Kuro 侧给出"no patch for local version V2"的自相矛盾文案
 （此时 local 就是 V2）；UI 预下载入口同步按本地版本隐藏（预下载目标版本未知的渠道保持旧可见性），
 短路返回的 From==To 摘要以 `predownload_alreadyCurrent` 文案提示"无需重复预下载"。
+预载暂存**重跑不重置**（2026-10-02）：完好暂存文件按 size+MD5 条目级核验跳过、`.temp` 由下载器
+Range 续传（此前整树清空会把已下载的几十 GB 全部作废重下）；清单版本切换的孤儿残留由 Apply 成功时
+的整目录清理回收。下载进度为**字节级实时**（下载器 64KB 回调 → `ByteProgressAggregator` 全局增量 →
+100ms 节流投递，三条链共用；进度口径 = 本地已就绪字节，含续传起点），UI 端 `GameItemViewModel`
+按 ≥0.4s 采样 EMA 平滑显示下载速度。HTTP 4xx（除 408/429/416 特判）为永久失败、单次终止带状态码
+（404 重试三次只是拖长失败，2026-10-02 用户 log 实证）。
 
 ### 3.6 主题切换
 

@@ -215,4 +215,18 @@ public class KuroSwitchConfigClientTests
         Assert.Null(await CreateClient().FetchAsync(CnIndexUrl, "cn"));
         Assert.Equal(2, _handler.Requests.Count); // 不无限重试：第一跳最多两次
     }
+
+    [Fact]
+    public void IsTransient_IncludesMalformedUrlFormatException()
+    {
+        // R7（2026-09-29 大扫除立案，2026-10-02 修复）：畸形 configUrl 的 UriFormatException
+        //（⊂ FormatException）此前不在瞬态集合里，会以裸 FormatException 穿出重试防线。
+        // 背景链消费方已由 GameBackdropService 的服务层过滤器兜住，此处补齐分类面。
+        Assert.True(KuroSwitchConfigClient.IsTransient(
+            new FormatException("Invalid URI: The format of the URI could not be determined."),
+            CancellationToken.None));
+        Assert.False(KuroSwitchConfigClient.IsTransient(
+            new FormatException("Invalid URI: The format of the URI could not be determined."),
+            new CancellationToken(canceled: true)));
+    }
 }
