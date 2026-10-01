@@ -173,11 +173,10 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         // 组层常无 size/md5（2026-10-02 真机实测组条目仅 dest/srcFiles/dstFiles 三键），而 resource[]
         // 的同名 krpdiff 条目携带两者——按名回填，使下载校验与进度总量可用（参考实现同语义：
         // krpdiff_info = resource_by_dest.get(...)，缺失再 HEAD 探测）。
+        // 重复 dest 用 TryAdd 先登记者胜（不抛：清单不可信，F42 同族——单条畸形不得炸清单获取）
         var resourceByDest = resourceEntries is null
             ? null
-            : new Dictionary<string, KuroResourceEntry>(
-                resourceEntries.Where(r => !string.IsNullOrWhiteSpace(r.Dest)).Select(r => new KeyValuePair<string, KuroResourceEntry>(r.Dest, r)),
-                StringComparer.Ordinal);
+            : BuildResourceByDest(resourceEntries);
 
         return [.. groups
             .Where(group => !string.IsNullOrWhiteSpace(group.Dest))
@@ -201,6 +200,23 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
     private static bool IsDiffResource(string dest) =>
         dest.EndsWith(".krpdiff", StringComparison.OrdinalIgnoreCase)
         || dest.EndsWith(".krdiff", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>resource 条目按 dest 建索引（回填 size/md5 用）；重复 dest 先登记者胜，
+    /// 空白 dest 跳过——与 ToManifestFiles 的顺序处理/空白过滤语义一致。</summary>
+    private static Dictionary<string, KuroResourceEntry> BuildResourceByDest(
+        IReadOnlyList<KuroResourceEntry> entries)
+    {
+        var map = new Dictionary<string, KuroResourceEntry>(entries.Count, StringComparer.Ordinal);
+        foreach (var entry in entries)
+        {
+            if (!string.IsNullOrWhiteSpace(entry.Dest))
+            {
+                map.TryAdd(entry.Dest, entry);
+            }
+        }
+
+        return map;
+    }
 
     /// <summary>取直下资源列表中第一个非空 fromFolder 作为无 fromFolder 条目的回退目录。
     /// 参考实现（ww-manager incremental.py）语义 + 2026-09-29 真机实证：官方增量清单常带少量

@@ -8,9 +8,10 @@ namespace YetAnotherGameLauncher.Core.Services;
 
 /// <summary>
 /// 增量更新（两段式，与 wutheringwaves-cli-manager 的 predownload --apply 对齐）：
-/// 1) Predownload：把差分包（krpdiff）与可直接下载的新文件放入 {installDir}/.yagl/predownload 暂存；
-/// 2) Apply：逐组"复制旧文件 → hpatchz 合成 → MD5 校验 → .yagl-bak 备份替换"，
-///    单组失败自动回滚该组，中断后可重新执行。
+/// 1) Predownload：把差分包（krpdiff）与可直接下载的新文件放入 {installDir}/.yagl/predownload 暂存
+///    （重跑保留暂存：完好文件核验跳过、.temp 续传）；
+/// 2) Apply：先按清单 deleteFiles 删除废弃文件（2026-10-02），再逐组"复制旧文件 → hpatchz 合成 →
+///    MD5 校验 → .yagl-bak 备份替换"，单组失败自动回滚该组，中断后可重新执行。
 /// </summary>
 public sealed class IncrementalUpdateService(
     IDownloader downloader,

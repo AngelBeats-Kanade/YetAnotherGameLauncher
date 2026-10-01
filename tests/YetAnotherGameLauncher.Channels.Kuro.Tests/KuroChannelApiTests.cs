@@ -578,6 +578,53 @@ public class KuroChannelApiTests
     }
 
     [Fact]
+    public async Task GetIncrementalManifest_DuplicateResourceDest_DoesNotThrow()
+    {
+        // RF-1（2026-10-02 review）：resource[] 含重复 dest 时回填字典不得抛
+        // ArgumentException（Dictionary 构造器对重复键的确定行为）——清单不可信（F42 同族），
+        // 单条畸形不得炸整个增量清单获取、落分类 Unknown。
+        const string patchIndexFile = """
+            {
+              "resource": [
+                { "dest": "3.6.1_3.7.0_group_0_token.krpdiff", "md5": "22222222222222222222222222222222", "size": 100 },
+                { "dest": "3.6.1_3.7.0_group_0_token.krpdiff", "md5": "33333333333333333333333333333333", "size": 200 },
+                { "dest": "Client/direct.pak", "md5": "11111111111111111111111111111111", "size": 10 }
+              ],
+              "groupInfos": [
+                {
+                  "dest": "3.6.1_3.7.0_group_0_token.krpdiff",
+                  "srcFiles": [ { "dest": "old.pak", "md5": "99999999999999999999999999999999", "size": 4 } ],
+                  "dstFiles": [ { "dest": "new.pak", "md5": "12121212121212121212121212121212", "size": 5 } ]
+                }
+              ]
+            }
+            """;
+        var indexJson = $$"""
+            {
+              "default": {
+                "version": "3.7.0",
+                "cdnList": [ { "P": 10, "K1": 1, "K2": 1, "url": "{{Cdn}}" } ],
+                "config": {
+                  "version": "3.7.0",
+                  "patchConfig": [ { "version": "3.6.1", "indexFile": "resource/370/indexFile.json", "indexFileMd5": "{{Md5(patchIndexFile)}}",
+                                     "baseUrl": "launcher/game/G152/10003/3.7.0/token/resources/" } ]
+                }
+              }
+            }
+            """;
+        _downloader.Serve(Server().Options["indexUrl"], indexJson);
+        _downloader.Serve(Cdn + "resource/370/indexFile.json", patchIndexFile);
+
+        var manifest = await CreateApi().GetIncrementalManifestAsync(Server(), "3.6.1", "3.7.0");
+
+        Assert.NotNull(manifest);
+        // 先登记者胜（与 ToManifestFiles 顺序处理语义一致）；任一条目被采即可，不抛是底线
+        var group = Assert.Single(manifest.Groups);
+        Assert.Equal(100, group.PatchSize);
+        Assert.Single(manifest.Files);
+    }
+
+    [Fact]
     public async Task GetIncrementalManifest_RegularIncrement_NoGroupInfos_KeepsAllDirectFiles()
     {
         // 守护（2026-10-02）：常规增量清单（真机 3.6.0→3.6.1 形态——无 groupInfos、无 fromFolder、
