@@ -204,6 +204,7 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
             else
             {
                 aggregator.Add(file.Size); // 已就绪的整包计入全局进度
+                aggregator.ForceReport(); // 条目边界强制投递：末帧精确到 totalBytes（节流会吞 Add 的投递）
             }
 
             staged.Add((file, archivePath));

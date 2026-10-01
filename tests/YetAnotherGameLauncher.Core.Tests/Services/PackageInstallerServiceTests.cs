@@ -55,6 +55,38 @@ public class PackageInstallerServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Predownload_AllPackagesAlreadyStaged_FinalFrameCarriesTotalBytes()
+    {
+        // 二轮 review（2026-10-02）：重跑全跳过路径的末帧必须精确到 totalBytes——
+        // 跳过路径的 Add 若被 100ms 节流吞掉且无 ForceReport，末帧字节停在最后一个
+        // 过节流的投递值上，进度条不满格直到 Done。
+        var zip1 = TestZip.Create(("game-a.exe", "MZ-stub-a"));
+        var zip2 = TestZip.Create(("game-b.exe", "MZ-stub-b"));
+        _downloader.Responses[ZipUrl] = zip1;
+        _downloader.Responses["https://cdn.example.com/game-1.zip"] = zip2;
+        var manifest = new GameManifest
+        {
+            Version = "1.3.0",
+            EntriesAreArchives = true,
+            Files =
+            [
+                new ManifestFile("game-0.zip", zip1.Length, Hashing.Md5Hex(zip1), Url: ZipUrl),
+                new ManifestFile("game-1.zip", zip2.Length, Hashing.Md5Hex(zip2), Url: "https://cdn.example.com/game-1.zip"),
+            ],
+        };
+        // 首跑铺好暂存，重跑时全部跳过
+        await new PackageInstallerService(_downloader).PredownloadAsync(_tempDir.Path, manifest);
+        _downloader.Requests.Clear();
+        var progress = new UpdateProgressCollector();
+
+        await new PackageInstallerService(_downloader).PredownloadAsync(_tempDir.Path, manifest, progress);
+
+        Assert.Empty(_downloader.Requests); // 全部跳过
+        var downloading = progress.Frames.Where(f => f.Phase == UpdatePhase.Downloading).ToList();
+        Assert.Equal(zip1.Length + zip2.Length, downloading[^1].DownloadedBytes);
+    }
+
+    [Fact]
     public async Task Predownload_Downloads_ReportIntermediateByteProgress()
     {
         // 回归（2026-10-02 用户点名"进度条随时更新"）：包式下载同样按字节实时推进
