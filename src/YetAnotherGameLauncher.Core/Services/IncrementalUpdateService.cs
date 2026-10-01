@@ -270,17 +270,8 @@ public sealed class IncrementalUpdateService(
     {
         foreach (var relative in manifest.DeleteFiles)
         {
-            // ResolveSafe 对逃逸路径抛 InvalidOperationException——按"清单不可信统一折算
-            // UpdateException"的分类纪律转换（消息保留 escapes 关键字）
-            string target;
-            try
-            {
-                target = ManifestVerifier.ResolveSafe(installDir, relative);
-            }
-            catch (InvalidOperationException ex)
-            {
-                throw new UpdateException($"Manifest path escapes sandbox: {relative}", ex);
-            }
+            // 逃逸路径由 ResolveSafe 直接抛 UpdateException（2026-10-02 三轮统一，F42 同族）
+            var target = ManifestVerifier.ResolveSafe(installDir, relative);
 
             if (!File.Exists(target))
             {

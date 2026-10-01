@@ -107,13 +107,17 @@ public class LaunchSettingsTests : IDisposable
     [Fact]
     public async Task ResourceQuality_PersistedTier_RestoredOnConstruction()
     {
-        // 已保存档位（games.json 手改/上次保存）在设置卡重建时反推选中项——
-        // 集合内实例（ComboBox 引用匹配），白名单外回默认档
-        await _ctx.Vm.InitializeAsync();
-        var game = _ctx.Vm.Games[0];
-        game.Game.Launch.ResourceQualityTier = "sd";
+        // 已保存档位（games.json 手改/上次保存）在设置卡构造时反推选中项——集合内实例
+        // （ComboBox 引用匹配），白名单外回默认档。经配置文件注入（RF-3，2026-10-02 二轮
+        // review 改造：不依赖「InitializeAsync 不触碰 LaunchSettings 惰性构造」的时序前提——
+        // 即使构造发生在初始化早期，tier 也已在配置文件里）
+        var configJson = VmFactory.SampleConfigJson.Replace(
+            "\"servers\": [ { \"id\": \"cn\", \"name\": \"国服\" } ]",
+            "\"launch\": { \"resourceQualityTier\": \"sd\" },\n              \"servers\": [ { \"id\": \"cn\", \"name\": \"国服\" } ]");
+        using var ctx = VmFactory.Build(configJson: configJson);
+        await ctx.Vm.InitializeAsync();
 
-        var settings = game.LaunchSettings; // 构造期快照在首次访问时完成（_launchSettings 惰性）
+        var settings = ctx.Vm.Games[0].LaunchSettings;
 
         Assert.Equal("sd", settings.SelectedResourceQuality!.Tier);
     }

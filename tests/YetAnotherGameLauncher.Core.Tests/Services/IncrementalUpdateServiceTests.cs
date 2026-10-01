@@ -195,6 +195,29 @@ public class IncrementalUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyAsync_GroupPathEscapingSandbox_ThrowsUpdateException()
+    {
+        // 2026-10-02 三轮点名（二轮 review 新立案）：ResolveSafe 对逃逸路径曾抛裸
+        // InvalidOperationException（F42 同族——差分组 src/dst 路径穿出 Apply 的
+        // "补丁失败统一折算"分类纪律）。统一改抛 UpdateException，本用例钉住组路径口径。
+        var group = new PatchGroup(
+            "g1.krpdiff",
+            10,
+            null,
+            [new ManifestFile("old.pak", 4, "99999999999999999999999999999999")],
+            [new ManifestFile("../evil.pak", 5, "12121212121212121212121212121212")],
+            Url("g1.krpdiff"));
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
+        _downloader.Responses[Url("g1.krpdiff")] = "patch-g1"u8.ToArray();
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => CreateService().ApplyAsync(_tempDir.Path, manifest));
+
+        Assert.Contains("escapes", ex.Message);
+    }
+
+    [Fact]
     public async Task ApplyAsync_DeleteFailure_AbortsBeforeAnyFileTouched()
     {
         // 用户裁定（2026-10-02）：删除失败（占用/只读）报错中止——删除位于组循环之前，

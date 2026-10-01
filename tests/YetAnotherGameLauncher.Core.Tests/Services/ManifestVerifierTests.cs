@@ -1,3 +1,4 @@
+using YetAnotherGameLauncher.Core.Abstractions;
 using Xunit;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
@@ -153,7 +154,7 @@ public class ManifestVerifierTests : IDisposable
             Files = [FileEntry("../evil.txt", "x"u8.ToArray())],
         };
 
-        Assert.Throws<InvalidOperationException>(() =>
+        Assert.Throws<UpdateException>(() =>
             ManifestVerifier.VerifyFast(_tempDir.Path, manifest));
     }
 
@@ -168,7 +169,7 @@ public class ManifestVerifierTests : IDisposable
             Files = [FileEntry(absolute, "x"u8.ToArray())],
         };
 
-        Assert.Throws<InvalidOperationException>(() =>
+        Assert.Throws<UpdateException>(() =>
             ManifestVerifier.VerifyFast(_tempDir.Path, manifest));
     }
 

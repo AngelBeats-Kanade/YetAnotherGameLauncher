@@ -831,6 +831,7 @@ public partial class GameItemViewModel(
         // 进度复位与 RunUpdateAsync 对齐（F32）：不复位则上一操作遗留的"100%+旧文案"
         // 贯穿整个启动过程，与 StatusText 矛盾
         ProgressPercent = 0;
+        _speedSmoother.Reset();
         ProgressText = Loc["progress_preparing"];
         try
         {
@@ -1053,6 +1054,7 @@ public partial class GameItemViewModel(
 
         IsBusy = true;
         ProgressPercent = 0; // 进度复位（F32，与 RunUpdateAsync 对齐）
+        _speedSmoother.Reset();
         // 结果消息归属发起时的服务器：完成前切服时不得覆盖新服状态行
         // （RefreshAsync 有代际门，紧随其后的 StatusText 写入没有，2026-09-20 复审修复）
         var originServer = SelectedServer;
@@ -1119,6 +1121,7 @@ public partial class GameItemViewModel(
 
         IsBusy = true;
         ProgressPercent = 0; // 进度复位（F32，与 RunUpdateAsync 对齐）
+        _speedSmoother.Reset();
         // 结果消息归属发起时的服务器：完成前切服时不得覆盖新服状态行
         // （RefreshAsync 有代际门，紧随其后的 StatusText 写入没有，2026-09-20 复审修复）
         var originServer = SelectedServer;
@@ -1192,6 +1195,7 @@ public partial class GameItemViewModel(
         // （RefreshAsync 有代际门，紧随其后的 StatusText 写入没有，2026-09-20 复审修复）
         var originServer = SelectedServer;
         ProgressPercent = 0;
+        _speedSmoother.Reset();
         ProgressText = Loc["progress_preparing"];
         var message = "";
         try
@@ -1227,14 +1231,8 @@ public partial class GameItemViewModel(
 
     private IProgress<UpdateProgress>? _progress;
 
-    /// <summary>速度采样的上次字节数（UpdateProgress.DownloadedBytes 口径 = 本地已就绪字节）。</summary>
-    private long _speedSampleBytes;
-
-    /// <summary>速度采样的上次时间戳（Stopwatch.GetTimestamp 口径）。</summary>
-    private long _speedSampleTimestamp;
-
-    /// <summary>EMA 平滑后的当前下载速度（字节/秒）；0 = 尚无有效样本。</summary>
-    private double _speedBytesPerSecond;
+    /// <summary>下载速度平滑器（采样/EMA/回退重置；操作复位点 Reset——RF-2：不跨操作残留）。</summary>
+    private readonly Services.DownloadSpeedSmoother _speedSmoother = new();
 
     /// <summary>惰性创建进度转发器（在 UI 线程上下文中捕获同步上下文）。</summary>
     private IProgress<UpdateProgress> Progress => _progress ??= new Progress<UpdateProgress>(OnProgress);
@@ -1242,6 +1240,12 @@ public partial class GameItemViewModel(
     /// <summary>下载进度回调（后台线程触发）：换算百分比并生成阶段文案（下载阶段附带 EMA 平滑速度）。</summary>
     private void OnProgress(UpdateProgress p)
     {
+        if (p.Phase != UpdatePhase.Downloading)
+        {
+            // 离开下载阶段（校验/打补丁/收尾）即失速：下一轮下载从零采样
+            _speedSmoother.Reset();
+        }
+
         ProgressPercent = p.TotalBytes > 0
             ? Math.Clamp(p.DownloadedBytes * 100.0 / p.TotalBytes, 0, 100)
             : p.FilesTotal > 0
@@ -1259,43 +1263,14 @@ public partial class GameItemViewModel(
         };
     }
 
-    /// <summary>当前速度文案：下载阶段且样本有效时输出"NN.N MB/s"（数字与单位间为不换行空格），
-    /// 否则输出占位符"—"。样本按 ≥0.4s 间隔取点、EMA 平滑（新样本权重 0.4），避免秒级抖动；
-    /// 字节回退（校验失败重下）时重置样本。</summary>
+    /// <summary>当前速度文案：样本有效时输出"NN.N MB/s"，否则输出占位符"—"。
+    /// 采样与平滑见 <see cref="Services.DownloadSpeedSmoother"/>（≥0.4s 采样、EMA、回退重置）。</summary>
     private string SpeedText(UpdateProgress p)
     {
-        var now = System.Diagnostics.Stopwatch.GetTimestamp();
-        var sampleSeconds = (now - _speedSampleTimestamp) / (double)System.Diagnostics.Stopwatch.Frequency;
-        if (p.DownloadedBytes < _speedSampleBytes || sampleSeconds >= 0.4)
-        {
-            _speedBytesPerSecond = p.DownloadedBytes < _speedSampleBytes
-                ? 0
-                : ComputeSpeedBytesPerSecond(
-                    _speedSampleBytes, p.DownloadedBytes, sampleSeconds, _speedBytesPerSecond);
-            _speedSampleBytes = p.DownloadedBytes;
-            _speedSampleTimestamp = now;
-        }
-
-        return _speedBytesPerSecond > 0
-            ? $"{FormatBytes((long)_speedBytesPerSecond)}/s"
+        _speedSmoother.OnProgressBytes(p.DownloadedBytes);
+        return _speedSmoother.BytesPerSecond > 0
+            ? $"{FormatBytes((long)_speedSmoother.BytesPerSecond)}/s"
             : "—";
-    }
-
-    /// <summary>由相邻两个字节采样点计算 EMA 平滑速度（字节/秒）。样本间隔 ≤0 或字节回退时
-    /// 返回原速度（保持上一个有效值）。internal 供单测（经 InternalsVisibleTo）。</summary>
-    /// <param name="previousBytes">上次采样字节数。</param>
-    /// <param name="bytes">本次采样字节数。</param>
-    /// <param name="sampleSeconds">两采样点间隔秒数。</param>
-    /// <param name="previousSpeed">上一个平滑速度（字节/秒）。</param>
-    internal static double ComputeSpeedBytesPerSecond(long previousBytes, long bytes, double sampleSeconds, double previousSpeed)
-    {
-        if (sampleSeconds <= 0 || bytes <= previousBytes)
-        {
-            return previousSpeed;
-        }
-
-        var instant = (bytes - previousBytes) / sampleSeconds;
-        return previousSpeed <= 0 ? instant : previousSpeed * 0.6 + instant * 0.4;
     }
 
     /// <summary>字节数格式化（数字与单位间用不换行空格，避免文案在数值与单位间断行）。</summary>

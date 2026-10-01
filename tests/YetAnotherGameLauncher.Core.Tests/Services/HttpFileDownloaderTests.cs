@@ -444,4 +444,28 @@ public class HttpFileDownloaderLockedDestinationTests : IDisposable
         Assert.Contains("404", ex.Message, StringComparison.Ordinal);
         Assert.Single(_handler.Requests); // 永久失败不重试：单次请求即终止
     }
+
+    [Theory]
+    [InlineData(System.Net.HttpStatusCode.RequestTimeout)]   // 408
+    [InlineData(System.Net.HttpStatusCode.TooManyRequests)]  // 429
+    public async Task Download_TransientClientErrorStatus_RetriesAndSucceeds(
+        System.Net.HttpStatusCode status)
+    {
+        // RF-4（2026-10-02 二轮 review 立案，点名修复）：408/429 是可重试的瞬态客户端错误
+        //（与 404 等永久 4xx 相对）——首次状态码失败后重试成功，请求恰好两次。
+        _handler.Map("https://cdn.example.com/file.bin", "payload"u8.ToArray());
+        _handler.FailWithStatusFirstN = 1;
+        _handler.FailWithStatusCode = status;
+        var downloader = new HttpFileDownloader(new HttpClient(_handler), new HttpFileDownloaderOptions
+        {
+            MaxAttempts = 3,
+            RetryBaseDelay = TimeSpan.FromMilliseconds(1),
+        });
+
+        await downloader.DownloadFileAsync(new DownloadRequest(
+            "https://cdn.example.com/file.bin", _tempDir.FilePath("file.bin"), null, null));
+
+        Assert.Equal(2, _handler.Requests.Count); // 一次状态码失败 + 一次成功
+        Assert.Equal("payload", await File.ReadAllTextAsync(_tempDir.FilePath("file.bin")));
+    }
 }

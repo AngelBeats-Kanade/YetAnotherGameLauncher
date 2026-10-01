@@ -1,3 +1,4 @@
+using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 
 namespace YetAnotherGameLauncher.Core.Services;
@@ -117,7 +118,9 @@ public static class ManifestVerifier
         return new ManifestVerificationResult(results);
     }
 
-    /// <summary>把清单中的相对路径安全地解析到安装目录内，防止清单被篡改后越界读写。</summary>
+    /// <summary>把清单中的相对路径安全地解析到安装目录内，防止清单被篡改后越界读写。
+    /// 逃逸路径抛 <see cref="Abstractions.UpdateException"/>（2026-10-02 三轮点名：曾抛裸
+    /// InvalidOperationException，穿出 Apply 链"补丁失败统一折算"的分类纪律——F42 同族）。</summary>
     public static string ResolveSafe(string installDir, string manifestPath)
     {
         var root = Path.GetFullPath(installDir);
@@ -130,7 +133,7 @@ public static class ManifestVerifier
         if (!candidate.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, comparison)
             && !string.Equals(candidate, root.TrimEnd(Path.DirectorySeparatorChar), comparison))
         {
-            throw new InvalidOperationException($"Manifest path escapes sandbox; rejected: {manifestPath}");
+            throw new UpdateException($"Manifest path escapes sandbox; rejected: {manifestPath}");
         }
 
         return candidate;

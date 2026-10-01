@@ -25,6 +25,13 @@ public sealed class StubHttpHandler : HttpMessageHandler
 
     public bool IgnoreRangeAndReturnFull { get; set; }
 
+    /// <summary>前 N 次请求回 <see cref="FailWithStatusCode"/> 状态码（而非异常）——
+    /// 408/429 等状态码分类测试用（真实走 EnsureSuccessStatusCode 的生产路径）。</summary>
+    public int FailWithStatusFirstN { get; set; }
+
+    /// <summary><see cref="FailWithStatusFirstN"/> 生效时返回的状态码（默认 408）。</summary>
+    public HttpStatusCode FailWithStatusCode { get; set; } = HttpStatusCode.RequestTimeout;
+
     /// <summary>强制 206 响应声称的 Range 起始字节（F64：模拟畸形服务器对 Range 请求
     /// 回错误起点的 206；null = 按请求范围正常回）。</summary>
     public long? ForcedRangeStart { get; set; }
@@ -90,6 +97,14 @@ public sealed class StubHttpHandler : HttpMessageHandler
         {
             TimeoutFirstN--;
             throw new TaskCanceledException("模拟请求超时（HttpClient.Timeout）");
+        }
+
+        if (FailWithStatusFirstN > 0)
+        {
+            // 前 N 次请求回指定状态码（408/429 等瞬态分类测试：真实状态码走 EnsureSuccessStatusCode
+            // 抛 HttpRequestException 的生产路径，而非直接抛异常）
+            FailWithStatusFirstN--;
+            return new HttpResponseMessage(FailWithStatusCode) { Content = new ByteArrayContent([]) };
         }
 
         var url = request.RequestUri!.ToString();
