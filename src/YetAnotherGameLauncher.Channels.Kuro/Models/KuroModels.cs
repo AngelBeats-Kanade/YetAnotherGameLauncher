@@ -116,6 +116,29 @@ internal sealed class KuroResourceEntry
     [JsonPropertyName("fromFolder")]
     public string? FromFolder { get; set; }
 
+    /// <summary>
+    /// dstFiles 条目可携带分块 MD5（2026-10-02 真机实测：start/end/md5 三键，100MB 级分块）。
+    /// 当前校验链按整文件 size+MD5（与参考实现一致，ww-manager 亦未消费 chunkInfos），
+    /// 仅解析保数据，留作未来损坏定位/分块断点校验备用。
+    /// </summary>
+    [JsonPropertyName("chunkInfos")]
+    public List<KuroChunkInfo>? ChunkInfos { get; set; }
+}
+
+/// <summary>差分目标文件的分块校验信息（chunkInfos 条目）。</summary>
+internal sealed class KuroChunkInfo
+{
+    /// <summary>分块起始字节（含）。</summary>
+    [JsonPropertyName("start")]
+    public long Start { get; set; }
+
+    /// <summary>分块结束字节（含）。</summary>
+    [JsonPropertyName("end")]
+    public long End { get; set; }
+
+    /// <summary>分块内容 MD5。</summary>
+    [JsonPropertyName("md5")]
+    public string Md5 { get; set; } = "";
 }
 
 /// <summary>一个 krpdiff 差分组。</summary>
