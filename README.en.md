@@ -105,8 +105,7 @@ No development environment needed — four steps (the release packages are **sel
 > [!TIP]
 > - **No wine / Proton needed on Linux beforehand**: the default umu launch chain automatically downloads
 >   DW-Proton (the default flavor; switch to GE-Proton / UMU-Proton in game settings) and Steam Runtime
-> - Wuthering Waves **incremental updates** need the [hpatchz (HDiffPatch)](https://github.com/sisong/HDiffPatch/releases)
->   executable: install it and make sure it is on PATH (configuring a custom tool path is not supported yet)
+> - Wuthering Waves **incremental updates** apply patches with [hpatchz (HDiffPatch)](https://github.com/sisong/HDiffPatch/releases): it is **downloaded automatically** (~2MB official build) when not found on PATH - no manual install needed; a self-provided binary on PATH takes precedence
 > - Want the games somewhere else? Change the **install root** under "Settings → Downloads" before installing
 > - The config file lives at `~/.config/yagl/games.json` on Linux and `%APPDATA%\yagl\games.json` on Windows
 
@@ -205,7 +204,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### Running tests (1170 tests, measured 2026-10-02)
+### Running tests (1178 tests, measured 2026-10-02)
 
 ```bash
 # Run the 4 test projects' compiled binaries directly (on Windows you can run the .exe;
@@ -278,7 +277,7 @@ reports the result. For the full field reference and an "add a new game" tutoria
 | The extracted binary does nothing when double-clicked on Linux | Run `./YetAnotherGameLauncher` from a terminal in the extracted folder; if the execute bit is missing run `chmod +x YetAnotherGameLauncher` first |
 | Want to regenerate the default config | Delete `~/.config/yagl/games.json` (or the file `YAGL_CONFIG` points to) and restart the launcher |
 | "Cannot connect to server" | Check network/proxy; the Wuthering Waves CDN is more stable inside mainland China |
-| Wuthering Waves incremental update fails mentioning hpatchz | Install [HDiffPatch](https://github.com/sisong/HDiffPatch/releases) and make sure `hpatchz` is on PATH |
+| Wuthering Waves incremental update fails mentioning hpatchz | Automatic download is unavailable offline or on non-x86_64 machines: install [HDiffPatch](https://github.com/sisong/HDiffPatch/releases) manually and put `hpatchz` on PATH |
 | Pre-download button missing | The official pre-download window is not open (Wuthering Waves `predownload.config` missing / Endfield has no `patch` node) |
 | Endfield version/download errors | The GRYPHLINE protocol is undocumented and fields may change when the official launcher updates — issues welcome |
 | Launch fails on Linux | A themed error card appears: retry umu component downloads or pick a locally installed Proton; use "open log folder" to inspect `launch-*.log`, or check the command template and runtime in the game settings page. On Windows a direct `{exe}` works |

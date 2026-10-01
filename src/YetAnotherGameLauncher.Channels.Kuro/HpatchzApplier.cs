@@ -13,15 +13,23 @@ namespace YetAnotherGameLauncher.Channels.Kuro;
 public sealed class HpatchzApplier(
     IProcessRunner processRunner,
     HpatchzApplierOptions? options = null,
-    ILogger? logger = null) : IPatchApplier
+    ILogger? logger = null,
+    IHpatchzProvisioner? provisioner = null) : IPatchApplier
 {
     private readonly HpatchzApplierOptions _options = options ?? new();
 
     public async Task ApplyAsync(string patchFilePath, string oldDir, string newDir, CancellationToken cancellationToken = default)
     {
         // 预检先行：缺失/不可执行时给出可操作错误，而不是等 CreateProcess 抛难懂的 Win32Exception
-        // （Windows 上 "拒绝访问"、Linux 上 "cannot find the file" 都看不出真实原因）
+        // （Windows 上 "拒绝访问"、Linux 上 "cannot find the file" 都看不出真实原因）。
+        // 解析顺序（用户自备优先，2026-10-02 自动供给）：显式全路径只校验；裸名先 PATH；
+        // 都没有且注入了供给器 → 自动下载官方固定版本兜底（对齐 FFmpeg/umu 供给哲学）
         var tool = ResolvePatchTool();
+        if (tool is null && provisioner is not null)
+        {
+            tool = await provisioner.EnsureAvailableAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         if (tool is null)
         {
             throw new UpdateException(

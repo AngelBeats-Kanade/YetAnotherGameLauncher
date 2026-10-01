@@ -152,7 +152,11 @@ public partial class App : Application
             : new WindowsAutostartService(sp.GetRequiredService<IProcessRunner>()));
         services.AddSingleton<IPatchApplier>(sp => new HpatchzApplier(
             sp.GetRequiredService<IProcessRunner>(),
-            logger: sp.GetRequiredService<ILoggerFactory>().CreateLogger<HpatchzApplier>()));
+            logger: sp.GetRequiredService<ILoggerFactory>().CreateLogger<HpatchzApplier>(),
+            // PATH 无自备 hpatchz 时自动下载官方固定版本（2026-10-02；解析顺序：显式路径 > PATH > 供给）
+            provisioner: new HpatchzProvisioner(
+                sp.GetRequiredService<IDownloader>(),
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger<HpatchzProvisioner>())));
 
         // 渠道（keyed by games.json 的 game.channel）
         services.AddKuroChannel();

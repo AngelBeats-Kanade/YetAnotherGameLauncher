@@ -241,4 +241,64 @@ public class HpatchzApplierTests : IDisposable
 
         Assert.Empty(_runner.Specs);
     }
+
+    /// <summary>供给器桩：记录调用次数并返回固定路径（自备优先守卫的观察点）。</summary>
+    private sealed class StubProvisioner(string toolPath) : IHpatchzProvisioner
+    {
+        public int Calls { get; private set; }
+
+        public Task<string> EnsureAvailableAsync(CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            return Task.FromResult(toolPath);
+        }
+    }
+
+    [Fact]
+    public async Task ExplicitPathResolved_ProvisionerNotTouched()
+    {
+        // 用户自备优先（2026-10-02 自动供给）：显式全路径解析成功时不得触发自动下载——
+        // 自备二进制绝不能被启动器下载的副本遮蔽
+        var stub = StubTool();
+        var provisioner = new StubProvisioner(_tempDir.FilePath("should-not-be-used"));
+        var applier = new HpatchzApplier(_runner, new HpatchzApplierOptions { HpatchzPath = stub }, provisioner: provisioner);
+        var patch = _tempDir.FilePath("patch.krpdiff");
+        await File.WriteAllTextAsync(patch, "stub");
+
+        await applier.ApplyAsync(patch, _tempDir.FilePath("old"), _tempDir.FilePath("new"));
+
+        Assert.Equal(0, provisioner.Calls);
+        Assert.Equal(stub, Assert.Single(_runner.Specs).FileName);
+    }
+
+    [Fact]
+    public async Task BareNameMissingEverywhere_FallsBackToProvisioner()
+    {
+        // PATH 无自备（裸名解析不到）→ 供给器兜底：进程收到供给路径（下载细节由供给器自测覆盖）
+        var stub = StubTool();
+        var provisioner = new StubProvisioner(stub);
+        var applier = new HpatchzApplier(_runner, new HpatchzApplierOptions { HpatchzPath = "hpatchz-not-on-path-xyz" }, provisioner: provisioner);
+        var patch = _tempDir.FilePath("patch.krpdiff");
+        await File.WriteAllTextAsync(patch, "stub");
+
+        await applier.ApplyAsync(patch, _tempDir.FilePath("old"), _tempDir.FilePath("new"));
+
+        Assert.Equal(1, provisioner.Calls);
+        Assert.Equal(stub, Assert.Single(_runner.Specs).FileName);
+    }
+
+    [Fact]
+    public async Task BareNameMissing_NoProvisioner_KeepsActionableError()
+    {
+        // 向后兼容（2026-10-02）：未注入供给器（旧装配/最小装配）时保持原有可操作报错
+        var applier = new HpatchzApplier(_runner, new HpatchzApplierOptions { HpatchzPath = "hpatchz-not-on-path-xyz" });
+        var patch = _tempDir.FilePath("patch.krpdiff");
+        await File.WriteAllTextAsync(patch, "stub");
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => applier.ApplyAsync(patch, _tempDir.FilePath("old"), _tempDir.FilePath("new")));
+
+        Assert.Contains("not found or not executable", ex.Message);
+        Assert.Empty(_runner.Specs);
+    }
 }

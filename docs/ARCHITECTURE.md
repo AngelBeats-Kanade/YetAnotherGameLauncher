@@ -96,6 +96,12 @@ flowchart TD
   差分入口 baseUrl 是差分包目录（作资源前缀三节点全 404）；常规增量条目 baseUrl=zip/ 资源目录且
   清单无 fromFolder，回退链产出与旧实现一致。清单顶层 `deleteFiles`（废弃文件，2026-10-02 真机 6 条
   旧 pak/sig）建模进 GameManifest，Apply 组循环前删除（残留会被 UE 挂载覆盖新文件、热更卡死）。
+  **hpatchz 自动供给（2026-10-02）**：补丁工具解析顺序 = 显式路径（HpatchzPath 含分隔符，只校验不供给）
+  > PATH 自备（优先，永不被遮蔽）> `HpatchzProvisioner` 自动下载官方固定版本 v5.1.3
+  （linux/windows x64，资产 MD5 实测校验；~2MB zip 防御解压到 `~/.local/share/yagl/tools/hpatchz/`
+  并补执行位——.NET ZipFile 不恢复 zip 内 Unix 权限位；已就绪零网络；无预编译资产的架构给
+  「手动安装」可操作提示）。对齐 FFmpeg 库/umu 组件的自动供给哲学，鸣潮增量更新不再要求
+  手动安装 HDiffPatch。
 - **包式（终末地）**：清单 = 压缩包（packs），下载解压即安装；无按版本差分，更新=请求新版本整包，预下载=响应 `patch` 节点。
 
 ## 3. 核心流程

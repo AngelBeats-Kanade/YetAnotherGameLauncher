@@ -218,7 +218,9 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
     internal static long DeriveMaxExtractBytes(long archiveBytes) =>
         Math.Max(archiveBytes * 100, 1L << 30);
 
-    internal static void ExtractArchive(string archivePath, string installDir, string displayName,
+    /// <summary>防御式 zip 解压（体量上限/路径逃逸/异常折算 UpdateException），包式渠道安装与
+    /// 外部工具供给（如 hpatchz 自动下载，Channels.Kuro）共用。</summary>
+    public static void ExtractArchive(string archivePath, string installDir, string displayName,
         long? maxExtractBytes = null)
     {
         try
