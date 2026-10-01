@@ -150,6 +150,86 @@ public class IncrementalUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyAsync_DeletesListedFilesBeforePatching()
+    {
+        // 官方 deleteFiles（2026-10-02 真机 6 条旧 pak/sig）：组循环前删除——残留会被 UE
+        // 挂载覆盖新文件、热更卡死（ww-manager 同语义）；不存在/目录条目跳过，清单外文件不动。
+        var oldContent = "old-content"u8.ToArray();
+        var newContent = "new-content"u8.ToArray();
+        Directory.CreateDirectory(_tempDir.FilePath("data"));
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "file.dat"), oldContent);
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "stale.pak"), "stale"u8.ToArray());
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "keep.dat"), "keep"u8.ToArray());
+        Directory.CreateDirectory(_tempDir.FilePath("data", "stale-dir"));
+        var group = PrepareGroup("g1.krpdiff", [("data/file.dat", oldContent)], [("data/file.dat", newContent)]);
+        var manifest = new GameManifest
+        {
+            Version = "2.0.0",
+            Groups = [group],
+            DeleteFiles = ["data/stale.pak", "data/missing.pak", "data/stale-dir"],
+        };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+
+        await CreateService().ApplyAsync(_tempDir.Path, manifest);
+
+        Assert.False(File.Exists(_tempDir.FilePath("data", "stale.pak"))); // 点名文件已删
+        Assert.True(File.Exists(_tempDir.FilePath("data", "keep.dat"))); // 清单外文件不动
+        Assert.True(Directory.Exists(_tempDir.FilePath("data", "stale-dir"))); // 目录条目跳过
+    }
+
+    [Fact]
+    public async Task ApplyAsync_DeleteFilesEscapingSandbox_Rejected()
+    {
+        var manifest = new GameManifest
+        {
+            Version = "2.0.0",
+            Groups = [],
+            DeleteFiles = ["../outside.txt"],
+        };
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => CreateService().ApplyAsync(_tempDir.Path, manifest));
+
+        Assert.Contains("escapes", ex.Message);
+        Assert.False(File.Exists(_tempDir.FilePath("..", "outside.txt")));
+    }
+
+    [Fact]
+    public async Task ApplyAsync_DeleteFailure_AbortsBeforeAnyFileTouched()
+    {
+        // 用户裁定（2026-10-02）：删除失败（占用/只读）报错中止——删除位于组循环之前，
+        // 失败时游戏文件一个都未动过、状态干净可重试；残留旧文件正是 deleteFiles 要防的
+        // UE 挂载冲突，静默跳过风险大。
+        var oldContent = "old-content"u8.ToArray();
+        var newContent = "new-content"u8.ToArray();
+        Directory.CreateDirectory(_tempDir.FilePath("data"));
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "file.dat"), oldContent);
+        var lockedPath = _tempDir.FilePath("data", "stale.pak");
+        var group = PrepareGroup("g1.krpdiff", [("data/file.dat", oldContent)], [("data/file.dat", newContent)]);
+        var manifest = new GameManifest
+        {
+            Version = "2.0.0",
+            Groups = [group],
+            DeleteFiles = ["data/stale.pak"],
+        };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+        // 占用形态只在 Windows 可构造（独占句柄 + FileShare.None 拒删）；
+        // Linux 上以只读目录近似不可删形态不稳定，交 Windows 腿守护
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Skip("exclusive handles blocking delete are Windows-only semantics");
+        }
+
+        using var lockHandle = File.Open(lockedPath, FileMode.Open, FileAccess.Read, FileShare.None);
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => CreateService().ApplyAsync(_tempDir.Path, manifest));
+
+        Assert.Contains("stale.pak", ex.Message);
+        Assert.Empty(_applier.Calls); // 组循环未开始：游戏文件未被任何组触碰
+        Assert.Equal(oldContent, await File.ReadAllBytesAsync(_tempDir.FilePath("data", "file.dat")));
+    }
+
+    [Fact]
     public async Task ApplyAsync_AppliesGroupsAndReplacesFiles()
     {
         var oldContent = "old-content"u8.ToArray();

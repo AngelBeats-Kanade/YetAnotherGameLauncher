@@ -109,6 +109,7 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
                 Groups = ToGroups(
                     patchIndexFile.GroupInfos, cdn, patchEntry.BaseUrl, config.BaseUrl, block.ResourcesBasePath,
                     patchIndexFile.Resource),
+                DeleteFiles = [.. patchIndexFile.DeleteFiles ?? []],
             };
         }
 

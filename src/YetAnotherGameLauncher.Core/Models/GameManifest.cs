@@ -32,6 +32,13 @@ public sealed class GameManifest
     public IReadOnlyList<PatchGroup> Groups { get; init; } = [];
 
     /// <summary>
+    /// 增量清单点名的废弃文件（官方 deleteFiles，2026-10-02 真机实测顶层 6 条旧 pak/sig）：
+    /// 应用更新前删除——残留会被 UE 挂载覆盖新文件、热更卡死（ww-manager 同语义）。
+    /// 全量清单与无该字段的旧暂存清单为空（反序列化缺省，向后兼容）。
+    /// </summary>
+    public IReadOnlyList<string> DeleteFiles { get; init; } = [];
+
+    /// <summary>
     /// 包式渠道标记（如终末地）：Files 条目不是最终游戏文件，而是下载后需解压进安装目录的压缩包。
     /// </summary>
     public bool EntriesAreArchives { get; init; }

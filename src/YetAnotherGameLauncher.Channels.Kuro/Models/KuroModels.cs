@@ -94,6 +94,11 @@ internal sealed class KuroIndexFile
 
     [JsonPropertyName("groupInfos")]
     public List<KuroGroupInfo>? GroupInfos { get; set; }
+
+    /// <summary>官方增量清单顶层点名的废弃文件（2026-10-02 真机实测 6 条旧 pak/sig）；
+    /// 残留会被 UE 挂载覆盖新文件、热更卡死，应用更新前需删除。</summary>
+    [JsonPropertyName("deleteFiles")]
+    public List<string>? DeleteFiles { get; set; }
 }
 
 internal sealed class KuroResourceEntry

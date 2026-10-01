@@ -190,6 +190,8 @@ public sealed class IncrementalUpdateService(
         var workDir = PatchWorkDir(installDir);
         FileUtilities.TryDeleteDirectory(workDir, logger);
 
+        DeleteListedFiles(installDir, incrementalManifest, logger);
+
         var total = incrementalManifest.Groups.Count;
         for (var i = 0; i < total; i++)
         {
@@ -257,6 +259,52 @@ public sealed class IncrementalUpdateService(
         FileUtilities.TryDeleteDirectory(workDir, logger);
 
         progress?.Report(new UpdateProgress(UpdatePhase.Done, 0, 0, total, total, null));
+    }
+
+    /// <summary>删除清单点名的废弃文件（官方 deleteFiles，2026-10-02 真机实测顶层 6 条旧 pak/sig）。
+    /// 位于组循环之前：残留会被 UE 挂载覆盖新文件、热更卡死。不存在/目录条目跳过；
+    /// 删除失败（占用/只读）抛 UpdateException 中止——此时游戏文件一个都未动过、状态干净可重试
+    /// （用户 2026-10-02 裁定；ww-manager 为尾部告警继续，因语义配对放最前使失败零副作用）。</summary>
+    private static void DeleteListedFiles(string installDir, GameManifest manifest, ILogger? logger)
+    {
+        foreach (var relative in manifest.DeleteFiles)
+        {
+            // ResolveSafe 对逃逸路径抛 InvalidOperationException——按"清单不可信统一折算
+            // UpdateException"的分类纪律转换（消息保留 escapes 关键字）
+            string target;
+            try
+            {
+                target = ManifestVerifier.ResolveSafe(installDir, relative);
+            }
+            catch (InvalidOperationException ex)
+            {
+                throw new UpdateException($"Manifest path escapes sandbox: {relative}", ex);
+            }
+
+            if (!File.Exists(target))
+            {
+                logger?.LogDebug("deleteFiles target missing, skipping: {Path}", relative);
+                continue;
+            }
+
+            if (Directory.Exists(target))
+            {
+                logger?.LogDebug("deleteFiles target is a directory, skipping: {Path}", relative);
+                continue;
+            }
+
+            try
+            {
+                File.Delete(target);
+                logger?.LogDebug("Deleted obsolete file listed by manifest: {Path}", relative);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                throw new UpdateException(
+                    $"Could not delete obsolete file {relative}: {ex.Message}. " +
+                    "Close apps using the file (or clear its read-only attribute) and retry the update.", ex);
+            }
+        }
     }
 
     private async Task ApplyGroupAsync(

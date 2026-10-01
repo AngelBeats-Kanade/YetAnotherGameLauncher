@@ -534,6 +534,47 @@ public class KuroChannelApiTests
             manifest.Groups[0].Url);
         Assert.Equal(200, manifest.Groups[1].PatchSize);
         Assert.Equal("33333333333333333333333333333333", manifest.Groups[1].PatchMd5);
+        // 官方 deleteFiles（顶层废弃文件清单）透传进 GameManifest 供 Apply 前删除
+        Assert.NotNull(manifest.DeleteFiles);
+    }
+
+    [Fact]
+    public async Task GetIncrementalManifest_DeleteFiles_PassedThrough()
+    {
+        // 2026-10-02 真机实测：增量清单顶层 deleteFiles（6 条旧 pak/sig）——残留会被 UE 挂载
+        // 覆盖新文件、热更卡死；渠道必须透传给 Core 的 Apply 阶段（ww-manager 同语义）。
+        const string patchIndexFile = """
+            {
+              "resource": [],
+              "deleteFiles": [
+                "Client/Content/Paks/pakchunk27-WindowsNoEditor.pak",
+                "Client/Content/Paks/pakchunk27-WindowsNoEditor.sig"
+              ],
+              "groupInfos": []
+            }
+            """;
+        var indexJson = $$"""
+            {
+              "default": {
+                "version": "3.7.0",
+                "cdnList": [ { "P": 10, "K1": 1, "K2": 1, "url": "{{Cdn}}" } ],
+                "config": {
+                  "version": "3.7.0",
+                  "patchConfig": [ { "version": "3.6.1", "indexFile": "resource/370/indexFile.json", "indexFileMd5": "{{Md5(patchIndexFile)}}",
+                                     "baseUrl": "launcher/game/G152/10003/3.7.0/token/resources/" } ]
+                }
+              }
+            }
+            """;
+        _downloader.Serve(Server().Options["indexUrl"], indexJson);
+        _downloader.Serve(Cdn + "resource/370/indexFile.json", patchIndexFile);
+
+        var manifest = await CreateApi().GetIncrementalManifestAsync(Server(), "3.6.1", "3.7.0");
+
+        Assert.NotNull(manifest);
+        Assert.Equal(
+            ["Client/Content/Paks/pakchunk27-WindowsNoEditor.pak", "Client/Content/Paks/pakchunk27-WindowsNoEditor.sig"],
+            [.. manifest.DeleteFiles]);
     }
 
     [Fact]
