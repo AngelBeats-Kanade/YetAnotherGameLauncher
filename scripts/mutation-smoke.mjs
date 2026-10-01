@@ -121,11 +121,14 @@ const MUTATIONS = [
     method: 'YetAnotherGameLauncher.AppTests.GameItemRefreshRaceTests.Update_ResultFromOldServer_DoesNotOverwriteNewServerStatus',
   },
   {
-    // 2026-09-24 review 扩容：tar 链接目标的 ".." 穿越判定失效必须红（F11 守卫）
+    // 2026-09-24 review 扩容（2026-10-02 规格更新：3c17c91 重写为两段式判定后旧 find 串
+    // 漂移 stale，CI 连红两天）：取反 defer 门——逃逸链接反而进 deferred 列表，Linux 上
+    // 盘符形态（C:/evil）逃过第二段边界判定被创建（悬空符号链接 File.Exists=true），
+    // 守卫测试的盘符理论用例红；相对 ../../ 形态仍被第二段拦住（纵深冗余，红灯只经盘符口径）
     id: 'M17-tar-link-target-escape',
     file: 'src/YetAnotherGameLauncher/Services/UmuComponentProvisioner.cs',
-    find: "|| normalizedLink.Split('/').Contains(\"..\")",
-    replace: '|| false /* MUTATION */',
+    find: 'if (!IsLinkEscapingDestination(destinationDir, key, link))',
+    replace: 'if (IsLinkEscapingDestination(destinationDir, key, link))',
     project: 'tests/YetAnotherGameLauncher.App.Tests/YetAnotherGameLauncher.App.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll',
     method: 'YetAnotherGameLauncher.AppTests.UmuComponentProvisionerTests.ExtractTarArchive_EscapingLinkTargets_AreSkipped',
@@ -153,15 +156,39 @@ const MUTATIONS = [
     method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroChannelApiTests.GetIncrementalManifest_PredownloadBlockWithoutCdnList_FallsBackToDefaultCdn',
   },
   {
-    // 2026-09-29 预载窗口批（F83/R-F82-2）：无 fromFolder 资源条目回退「列表第一个
-    // fromFolder」——去掉后条目指向差分包目录 resources/（真机三节点全 404）
+    // 2026-09-29 预载窗口批（F83/R-F82-2；2026-10-02 规格随 bb8c3dd 漂移更新）：无 fromFolder
+    // 直下条目回退「列表第一个 fromFolder」——去掉后条目指向差分包目录（预载块形态下
+    // resources/ 真机全 404）
     id: 'M20-kuro-incremental-resource-base',
     file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
-    find: 'FirstFromFolder(patchIndexFile.Resource) ?? patchEntry.BaseUrl',
+    find: 'FirstFromFolder(directResources) ?? patchEntry.BaseUrl',
     replace: 'patchEntry.BaseUrl',
     project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
     method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroChannelApiTests.GetIncrementalManifest_ResourceWithoutFromFolder_FallsBackToFirstFromFolder',
+  },
+  {
+    // 2026-10-02 krpdiff 主修批（bb8c3dd）：resource[] 的 krpdiff 条目必须从 Files 过滤、
+    // 只经 Groups 表达——去掉过滤后 krpdiff 被套 fromFolder 前缀 zip/（真机 38/38 全 404，
+    // 用户报障的 404 URL 即此形态），且下载两遍、apply 时搬进游戏目录
+    id: 'M21-kuro-krpdiff-excluded-from-files',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
+    find: 'var directResources = patchIndexFile.Resource.Where(r => !IsDiffResource(r.Dest)).ToList();',
+    replace: 'var directResources = patchIndexFile.Resource.ToList();',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroChannelApiTests.GetIncrementalManifest_KrpdiffEntries_ExcludedFromFilesAndBackfilledIntoGroups',
+  },
+  {
+    // 2026-10-02 krpdiff 主修批（bb8c3dd）：组的 PatchSize/PatchMd5 从 resource[] 同名条目
+    // 回填（真机组层无 size/md5 键）——去掉后下载校验与进度总量恒空/零
+    id: 'M22-kuro-group-size-md5-backfill',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
+    find: 'diffEntry is { Size: > 0 } ? diffEntry.Size : group.Size',
+    replace: 'group.Size',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroChannelApiTests.GetIncrementalManifest_KrpdiffEntries_ExcludedFromFilesAndBackfilledIntoGroups',
   },
 ];
 
