@@ -65,6 +65,7 @@ src/
                     FfmpegVideoBackdropPlayer/IVideoBackdropPlayer（FFmpeg 背景视频解码播放）+ FfmpegLibraryResolver（原生库准备/下载）；
                     SeamAnalyzer（循环接缝分析）+ PrerollHandoff（预卷零间隙交接状态机）实现无缝循环；
                     ImageRetireQueue（被替换 UI 位图的宽限退役队列：合成器在途引用 2s 宽限后释放）；
+                    DownloadSpeedSmoother（下载速度 EMA 平滑：≥0.4s 采样、字节回退/操作复位重置，时钟可注入，直测见 App.Tests）；
                     BootGate（启动门控纯决策：遮蔽放行矩阵——背景就绪/最小展示时长/超时兜底）；
                     BackgroundImageService（静态背景图加载与缓存：会话内存 + http 来源磁盘缓存，失败结果按 TTL 短暂缓存；ReloadAsync 绕过缓存强制重取）、
                     UmuComponentProvisioner（原生 umu 的 Proton/Runtime 下载与校验；Proton 发行版三源：
