@@ -69,11 +69,21 @@ public sealed class HpatchzProvisioner(
             return toolPath; // 已就绪：零网络（PATH 自备优先由 HpatchzApplier 的解析顺序保证）
         }
 
-        var asset = SelectAsset(OperatingSystem.IsLinux(), RuntimeInformation.ProcessArchitecture)
-            ?? throw new UpdateException(
+        // 供给仅覆盖目标平台（linux/windows）；其余（如 macOS，非本启动器支持平台）不走
+        // windows 资产误下载——直接落到「无预编译资产」的可操作报错
+        var isLinux = OperatingSystem.IsLinux();
+        var isWindows = OperatingSystem.IsWindows();
+        var osName = isLinux ? "linux" : isWindows ? "windows" : RuntimeInformation.OSDescription;
+        var asset = (isLinux || isWindows)
+            ? SelectAsset(isLinux, RuntimeInformation.ProcessArchitecture)
+            : null;
+        if (asset is not { } selected)
+        {
+            throw new UpdateException(
                 $"No prebuilt hpatchz asset for this platform/architecture " +
-                $"({(OperatingSystem.IsLinux() ? "linux" : "windows")}/{RuntimeInformation.ProcessArchitecture}). " +
+                $"({osName}/{RuntimeInformation.ProcessArchitecture}). " +
                 "Install HDiffPatch manually and make sure hpatchz is on PATH.");
+        }
 
         var root = RootDirectory;
         var tempExtract = root + ".extracting";
@@ -81,11 +91,11 @@ public sealed class HpatchzProvisioner(
         FileUtilities.TryDeleteDirectory(tempExtract);
         try
         {
-            logger?.LogInformation("Downloading hpatchz {Version} ({Asset})…", Version, asset.AssetName);
+            logger?.LogInformation("Downloading hpatchz {Version} ({Asset})…", Version, selected.AssetName);
             try
             {
                 await downloader.DownloadFileAsync(
-                    new DownloadRequest(BuildDownloadUrl(asset.AssetName), archivePath, null, asset.Md5),
+                    new DownloadRequest(BuildDownloadUrl(selected.AssetName), archivePath, null, selected.Md5),
                     null,
                     cancellationToken).ConfigureAwait(false);
             }

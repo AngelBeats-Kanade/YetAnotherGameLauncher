@@ -38,10 +38,10 @@ public class HpatchzProvisionerTests : IDisposable
         Assert.True(FileUtilities.IsExecutableFile(toolPath));
         Assert.Equal("fake-elf", await File.ReadAllTextAsync(toolPath));
         Assert.StartsWith(Path.Combine(_tempDir.Path, "tools", "hpatchz"), toolPath); // 布局：数据目录下 tools/hpatchz/v{版本}
-        // 临时产物清理：解压目录与下载 zip 不残留
-        Assert.Empty(Directory.GetDirectories(Path.Combine(_tempDir.Path, "tools", "hpatchz"), "*.extracting"));
-        Assert.False(File.Exists(toolPath + ".zip") && File.Exists(Path.Combine(
-            Path.GetDirectoryName(toolPath)!, Path.GetFileName(toolPath) + ".zip")));
+        // 临时产物清理：解压目录与下载 zip 不残留（archive 实际落点是 tools/hpatchz/v{版本}.zip）
+        var hpatchzRoot = Path.Combine(_tempDir.Path, "tools", "hpatchz");
+        Assert.Empty(Directory.GetDirectories(hpatchzRoot, "*.extracting"));
+        Assert.False(File.Exists(Path.Combine(hpatchzRoot, $"v{HpatchzProvisioner.Version}.zip")));
     }
 
     [Fact]
@@ -64,9 +64,11 @@ public class HpatchzProvisionerTests : IDisposable
     public async Task EnsureAvailable_Md5Mismatch_FoldsToUpdateException()
     {
         // 校验链走真下载器 + 桩 HTTP（FakeDownloader 不做 MD5 校验）：资产与嵌入 MD5 不符
-        // （官方 release 被替换/CDN 损坏）按 UpdateException 折算，消息含版本上下文
+        // （官方 release 被替换/CDN 损坏）按 UpdateException 折算，消息含版本上下文。
+        // URL 按当前测试平台取资产——两腿都命中 MD5 分支（资产名不匹配会退化成 404 折算）
+        var assetName = OperatingSystem.IsLinux() ? "linux64.zip" : "windows64.zip";
         var handler = new StubHttpHandler();
-        handler.Map(HpatchzProvisioner.BuildDownloadUrl("linux64.zip"), "tampered-or-corrupt");
+        handler.Map(HpatchzProvisioner.BuildDownloadUrl(assetName), "tampered-orrupt");
         var provisioner = new HpatchzProvisioner(
             new HttpFileDownloader(new HttpClient(handler), new HttpFileDownloaderOptions { MaxAttempts = 1 }),
             dataDirectory: _tempDir.Path);
@@ -74,6 +76,7 @@ public class HpatchzProvisionerTests : IDisposable
         var ex = await Assert.ThrowsAsync<UpdateException>(() => provisioner.EnsureAvailableAsync());
 
         Assert.Contains("hpatchz", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("MD5 mismatch", ex.Message, StringComparison.Ordinal); // 确证命中的是校验分支而非 404
     }
 
     [Fact]
