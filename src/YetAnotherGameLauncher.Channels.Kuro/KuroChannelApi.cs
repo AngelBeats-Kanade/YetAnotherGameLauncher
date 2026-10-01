@@ -93,13 +93,22 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
                 cancellationToken).ConfigureAwait(false);
             var patchIndexFile = ParseJson<KuroIndexFile>(patchIndexJson, "incremental indexFile.json");
 
+            // 增量清单的 resource 列表同时登记直下文件与 krpdiff 差分文件（后者与 groupInfos[].dest
+            // 同名、无 fromFolder，2026-10-02 真机实测 3.6.1→3.7.0：49 条 = 11 直下 + 38 krpdiff）。
+            // krpdiff 只经 Groups 表达（URL = patchEntry.baseUrl 差分目录；留在 Files 会被套
+            // fromFolder 前缀 zip/ → 真机 38/38 全 404，且下载两遍、apply 时被搬进游戏目录）——
+            // 参考实现 ww-manager incremental.py 同语义（_is_diff_resource 过滤 complete_files）。
+            var directResources = patchIndexFile.Resource.Where(r => !IsDiffResource(r.Dest)).ToList();
+
             return new GameManifest
             {
                 Version = toVersion,
                 Files = ToManifestFiles(
-                    patchIndexFile.Resource, cdn,
-                    folder: FirstFromFolder(patchIndexFile.Resource) ?? patchEntry.BaseUrl ?? config.BaseUrl ?? block.ResourcesBasePath),
-                Groups = ToGroups(patchIndexFile.GroupInfos, cdn, patchEntry.BaseUrl, config.BaseUrl, block.ResourcesBasePath),
+                    directResources, cdn,
+                    folder: FirstFromFolder(directResources) ?? patchEntry.BaseUrl ?? config.BaseUrl ?? block.ResourcesBasePath),
+                Groups = ToGroups(
+                    patchIndexFile.GroupInfos, cdn, patchEntry.BaseUrl, config.BaseUrl, block.ResourcesBasePath,
+                    patchIndexFile.Resource),
             };
         }
 
@@ -152,28 +161,51 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
 
     private static IReadOnlyList<PatchGroup> ToGroups(
         IEnumerable<KuroGroupInfo>? groups, string cdn,
-        string? patchBaseUrl, string? defaultBaseUrl, string? resourcesBasePath)
+        string? patchBaseUrl, string? defaultBaseUrl, string? resourcesBasePath,
+        IReadOnlyList<KuroResourceEntry>? resourceEntries = null)
     {
         if (groups is null)
         {
             return [];
         }
 
+        // 组层常无 size/md5（2026-10-02 真机实测组条目仅 dest/srcFiles/dstFiles 三键），而 resource[]
+        // 的同名 krpdiff 条目携带两者——按名回填，使下载校验与进度总量可用（参考实现同语义：
+        // krpdiff_info = resource_by_dest.get(...)，缺失再 HEAD 探测）。
+        var resourceByDest = resourceEntries is null
+            ? null
+            : new Dictionary<string, KuroResourceEntry>(
+                resourceEntries.Where(r => !string.IsNullOrWhiteSpace(r.Dest)).Select(r => new KeyValuePair<string, KuroResourceEntry>(r.Dest, r)),
+                StringComparer.Ordinal);
+
         return [.. groups
             .Where(group => !string.IsNullOrWhiteSpace(group.Dest))
-            .Select(group => new PatchGroup(
-                group.Dest,
-                group.Size,
-                group.Md5,
-                ToManifestFiles(group.SrcFiles, cdn, resourcesBasePath, withUrl: false),
-                ToManifestFiles(group.DstFiles, cdn, resourcesBasePath, withUrl: false),
-                KuroUrlBuilder.BuildPatchUrl(cdn, patchBaseUrl, defaultBaseUrl, group.Dest)))];
+            .Select(group =>
+            {
+                var diffEntry = resourceByDest is not null && resourceByDest.TryGetValue(group.Dest, out var entry)
+                    ? entry
+                    : null;
+                return new PatchGroup(
+                    group.Dest,
+                    diffEntry is { Size: > 0 } ? diffEntry.Size : group.Size,
+                    diffEntry is { Md5: { Length: > 0 } md5 } ? md5 : group.Md5,
+                    ToManifestFiles(group.SrcFiles, cdn, resourcesBasePath, withUrl: false),
+                    ToManifestFiles(group.DstFiles, cdn, resourcesBasePath, withUrl: false),
+                    KuroUrlBuilder.BuildPatchUrl(cdn, patchBaseUrl, defaultBaseUrl, group.Dest));
+            })];
     }
 
-    /// <summary>取资源列表中第一个非空 fromFolder 作为无 fromFolder 条目的回退目录。
+    /// <summary>增量清单条目是否为 krpdiff/krdiff 差分文件（按扩展名判定，大小写不敏感）。
+    /// 差分文件由 Groups 表达（差分目录前缀），不作为直下安装文件下载。</summary>
+    private static bool IsDiffResource(string dest) =>
+        dest.EndsWith(".krpdiff", StringComparison.OrdinalIgnoreCase)
+        || dest.EndsWith(".krdiff", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>取直下资源列表中第一个非空 fromFolder 作为无 fromFolder 条目的回退目录。
     /// 参考实现（ww-manager incremental.py）语义 + 2026-09-29 真机实证：官方增量清单常带少量
-    /// fromFolder 条目指向目标版本 zip/ 目录、其余条目共用；patchEntry.baseUrl 是差分包目录
-    /// （真机 .../3.6.1/resources/ 三个 CDN 节点全 404），不得优先于它作资源前缀。</summary>
+    /// fromFolder 条目指向目标版本 zip/ 目录、其余直下条目共用（krpdiff 已先行滤除，走差分目录）；
+    /// 预载窗口期 patchEntry.baseUrl 是差分包目录（真机 .../3.6.1/resources/ 全 404），
+    /// 不得优先于它作资源前缀。</summary>
     private static string? FirstFromFolder(IEnumerable<KuroResourceEntry> entries) =>
         entries.Select(entry => entry.FromFolder).FirstOrDefault(folder => !string.IsNullOrWhiteSpace(folder));
 

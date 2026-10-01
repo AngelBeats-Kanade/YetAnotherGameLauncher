@@ -467,6 +467,115 @@ public class KuroChannelApiTests
     }
 
     [Fact]
+    public async Task GetIncrementalManifest_KrpdiffEntries_ExcludedFromFilesAndBackfilledIntoGroups()
+    {
+        // 回归（2026-10-02 真机实测，CN 服 3.6.1→3.7.0 转正后增量清单 + 参考实现 ww-manager
+        // incremental.py 语义互证）：清单 resource 列表同时登记「直下文件（带 fromFolder 指向
+        // 目标版本 zip/）」与「krpdiff 差分文件（无 fromFolder，与 groupInfos[].dest 一一同名）」。
+        // krpdiff 必须只经 Groups 表达（URL = patchEntry.baseUrl 差分目录，真机 38/38 全 206），
+        // 不得留在 Files——旧实现给它套 fromFolder 前缀（zip/）实测 38/38 全 404（用户报障的
+        // 404 URL 即 Files 循环产物），且会同文件下载两遍、apply 时被搬进游戏目录。
+        // size/md5：组层无此键（真机实测），从 resource[] 同名条目回填，使下载校验与进度总量可用。
+        const string patchIndexFile = """
+            {
+              "resource": [
+                { "dest": "Client/Binaries/Win64/Client-Win64-Shipping.exe", "md5": "11111111111111111111111111111111", "size": 10,
+                  "fromFolder": "launcher/game/G152/10003/3.7.0/token/zip/" },
+                { "dest": "3.6.1_3.7.0_group_0_token.krpdiff", "md5": "22222222222222222222222222222222", "size": 100 },
+                { "dest": "3.6.1_3.7.0_group_1_token.krpdiff", "md5": "33333333333333333333333333333333", "size": 200 }
+              ],
+              "groupInfos": [
+                {
+                  "dest": "3.6.1_3.7.0_group_0_token.krpdiff",
+                  "srcFiles": [ { "dest": "Client/Content/Paks/old0.pak", "md5": "99999999999999999999999999999999", "size": 4 } ],
+                  "dstFiles": [ { "dest": "Client/Content/Paks/new0.pak", "md5": "12121212121212121212121212121212", "size": 5 } ]
+                },
+                {
+                  "dest": "3.6.1_3.7.0_group_1_token.krpdiff",
+                  "srcFiles": [ { "dest": "Client/Content/Paks/old1.pak", "md5": "88888888888888888888888888888888", "size": 4 } ],
+                  "dstFiles": [ { "dest": "Client/Content/Paks/new1.pak", "md5": "13131313131313131313131313131313", "size": 5 } ]
+                }
+              ]
+            }
+            """;
+        var indexJson = $$"""
+            {
+              "default": {
+                "version": "3.7.0",
+                "cdnList": [ { "P": 10, "K1": 1, "K2": 1, "url": "{{Cdn}}" } ],
+                "resourcesBasePath": "launcher/game/G152/10003/3.7.0/token/zip/",
+                "config": {
+                  "version": "3.7.0",
+                  "patchConfig": [ { "version": "3.6.1", "indexFile": "resource/370/indexFile.json", "indexFileMd5": "{{Md5(patchIndexFile)}}",
+                                     "baseUrl": "launcher/game/G152/10003/3.7.0/token/resource/10003/3.7.0/3.6.1/resources/" } ]
+                }
+              },
+              "predownloadSwitch": 1
+            }
+            """;
+        _downloader.Serve(Server().Options["indexUrl"], indexJson);
+        _downloader.Serve(Cdn + "resource/370/indexFile.json", patchIndexFile);
+
+        var manifest = await CreateApi().GetIncrementalManifestAsync(Server(), "3.6.1", "3.7.0");
+
+        Assert.NotNull(manifest);
+        // Files 只保留直下文件（krpdiff 不得重复登记为安装文件）
+        var file = Assert.Single(manifest.Files);
+        Assert.Equal("Client/Binaries/Win64/Client-Win64-Shipping.exe", file.Path);
+        Assert.Equal(Cdn + "launcher/game/G152/10003/3.7.0/token/zip/Client/Binaries/Win64/Client-Win64-Shipping.exe", file.Url);
+
+        // Groups 表达全部 krpdiff：URL 走差分目录（patchEntry.baseUrl），size/md5 自 resource[] 同名条目回填
+        Assert.Equal(2, manifest.Groups.Count);
+        Assert.Equal("3.6.1_3.7.0_group_0_token.krpdiff", manifest.Groups[0].PatchFile);
+        Assert.Equal(100, manifest.Groups[0].PatchSize);
+        Assert.Equal("22222222222222222222222222222222", manifest.Groups[0].PatchMd5);
+        Assert.Equal(
+            Cdn + "launcher/game/G152/10003/3.7.0/token/resource/10003/3.7.0/3.6.1/resources/3.6.1_3.7.0_group_0_token.krpdiff",
+            manifest.Groups[0].Url);
+        Assert.Equal(200, manifest.Groups[1].PatchSize);
+        Assert.Equal("33333333333333333333333333333333", manifest.Groups[1].PatchMd5);
+    }
+
+    [Fact]
+    public async Task GetIncrementalManifest_RegularIncrement_NoGroupInfos_KeepsAllDirectFiles()
+    {
+        // 守护（2026-10-02）：常规增量清单（真机 3.6.0→3.6.1 形态——无 groupInfos、无 fromFolder、
+        // patchEntry.baseUrl=zip/ 资源目录）不含 krpdiff，过滤逻辑不得误伤：直下文件全部保留、
+        // 前缀落 patchEntry.baseUrl（真机 173 条直下全此形态，R-F83-1 实测 zip/ 206）。
+        const string patchIndexFile = """
+            {
+              "resource": [
+                { "dest": "Client/Content/Paks/a.pak", "md5": "11111111111111111111111111111111", "size": 10 },
+                { "dest": "Client/Content/Paks/b.pak", "md5": "22222222222222222222222222222222", "size": 20 }
+              ]
+            }
+            """;
+        var indexJson = $$"""
+            {
+              "default": {
+                "version": "3.6.1",
+                "cdnList": [ { "P": 10, "K1": 1, "K2": 1, "url": "{{Cdn}}" } ],
+                "resourcesBasePath": "launcher/game/G152/10003/3.6.1/token/zip/",
+                "config": {
+                  "version": "3.6.1",
+                  "patchConfig": [ { "version": "3.6.0", "indexFile": "patch/361/indexFile.json", "indexFileMd5": "{{Md5(patchIndexFile)}}",
+                                     "baseUrl": "launcher/game/G152/10003/3.6.1/token/zip/" } ]
+                }
+              }
+            }
+            """;
+        _downloader.Serve(Server().Options["indexUrl"], indexJson);
+        _downloader.Serve(Cdn + "patch/361/indexFile.json", patchIndexFile);
+
+        var manifest = await CreateApi().GetIncrementalManifestAsync(Server(), "3.6.0", "3.6.1");
+
+        Assert.NotNull(manifest);
+        Assert.Equal(2, manifest.Files.Count);
+        Assert.All(manifest.Files, f => Assert.StartsWith(Cdn + "launcher/game/G152/10003/3.6.1/token/zip/", f.Url));
+        Assert.Empty(manifest.Groups);
+    }
+
+    [Fact]
     public async Task GetIncrementalManifest_PredownloadBlockWithUnusableCdnList_FallsBackToDefaultCdn()
     {
         // R-TEST-1（2026-09-29 review 立案）：组合中间态——predownload 块带 cdnList 但全节点
