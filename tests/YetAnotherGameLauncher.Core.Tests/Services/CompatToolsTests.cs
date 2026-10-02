@@ -208,4 +208,34 @@ public class CompatToolsScanDegradationTests : IDisposable
         Assert.Equal(protonWine, CompatTools.FindProtonWine(_home.Path));
         Assert.Null(CompatTools.FindProtonWine(Path.Combine(_home.Path, "nonexistent-home")));
     }
+
+    [Fact]
+    public void FindProtonWine_UnreadableRoot_SkipsToNextRootInsteadOfThrowing()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("chmod 语义仅 Linux（且 root 豁免 DAC，红绿以非 root 本机为准）");
+            return; // CA1416：其后代码仅 Linux 可达
+        }
+
+        // root/CAP_DAC_OVERRIDE 豁免 DAC：拒读形态构造不出（同族前提探针，FindProtonVersions 专测同款）
+        if (!DacExemptionProbe.CanConstructDeniedFixture(_home.Path))
+        {
+            Assert.Skip("当前进程可无视权限位（root/CAP_DAC_OVERRIDE 等能力豁免），拒读形态不成立");
+        }
+
+        // 首根拒读 + 次根有 wine：守卫语义 = 按"无此根"跳过继续扫（姊妹 FindProtonVersions 同款）；
+        // 裸枚举会让 UnauthorizedAccessException 穿出供给器，上层包装成误导性的
+        // "Patch application failed: Access denied"，且首根中止会吞掉次根的命中机会
+        Directory.CreateDirectory(PrimaryRoot);
+        File.SetUnixFileMode(PrimaryRoot, UnixFileMode.None);
+
+        var secondaryRoot = _home.FilePath(".local", "share", "Steam", "compatibilitytools.d");
+        var wine = Path.Combine(secondaryRoot, "GE-Proton-test", "files", "bin", "wine");
+        Directory.CreateDirectory(Path.GetDirectoryName(wine)!);
+        File.WriteAllText(wine, "#!/bin/sh\n");
+        File.SetUnixFileMode(wine, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+
+        Assert.Equal(wine, CompatTools.FindProtonWine(_home.Path));
+    }
 }

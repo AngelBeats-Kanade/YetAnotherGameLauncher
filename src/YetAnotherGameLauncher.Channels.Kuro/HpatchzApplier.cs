@@ -6,9 +6,10 @@ using YetAnotherGameLauncher.Core.Utilities;
 namespace YetAnotherGameLauncher.Channels.Kuro;
 
 /// <summary>
-/// 基于 HDiffPatch 官方 hpatchz 的补丁应用器（库洛 krpdiff 即 HDiffPatch 目录差分格式）。
-/// 命令形如：hpatchz -f &lt;oldDir&gt; &lt;patchFile&gt; &lt;newDir&gt;
-/// 在 Linux 上使用原生 hpatchz 二进制，无需 wine。
+/// 基于 hpatchz 的补丁应用器（库洛 krpdiff 即 HDiffPatch 目录差分格式）。
+/// 命令形如：hpatchz -f &lt;oldDir&gt; &lt;patchFile&gt; &lt;newDir&gt;。
+/// 供给形态（HpatchzProvisioner 的社区验证构建）在 Linux 上经 wine 运行 hpatchz.exe
+///（独立 WINEPREFIX、Z: 盘路径映射）；用户自备二进制原生直跑。
 /// </summary>
 public sealed class HpatchzApplier(
     IProcessRunner processRunner,

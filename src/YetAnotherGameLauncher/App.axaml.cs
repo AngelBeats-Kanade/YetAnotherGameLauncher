@@ -153,7 +153,7 @@ public partial class App : Application
         services.AddSingleton<IPatchApplier>(sp => new HpatchzApplier(
             sp.GetRequiredService<IProcessRunner>(),
             logger: sp.GetRequiredService<ILoggerFactory>().CreateLogger<HpatchzApplier>(),
-            // PATH 无自备 hpatchz 时自动下载官方固定版本（2026-10-02；解析顺序：显式路径 > PATH > 供给）
+            // PATH 无自备 hpatchz 时自动下载社区验证构建（2026-10-02；解析顺序：显式路径 > PATH > 供给）
             provisioner: new HpatchzProvisioner(
                 sp.GetRequiredService<IDownloader>(),
                 sp.GetRequiredService<ILoggerFactory>().CreateLogger<HpatchzProvisioner>())));

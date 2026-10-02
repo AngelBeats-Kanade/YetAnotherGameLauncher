@@ -72,7 +72,22 @@ public static class CompatTools
                 continue;
             }
 
-            foreach (var dir in Directory.EnumerateDirectories(root))
+            IEnumerable<string> directories;
+            try
+            {
+                // 物化（ToList）：EnumerateDirectories 惰性求值，异常会漏到 foreach 处抛出
+                directories = Directory.EnumerateDirectories(root).ToList();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // 根目录不可读（权限/IO 故障）按"无此根"跳过、继续扫下一根：调用方之一是
+                // HpatchzProvisioner 的 wine 定位链（EnsureAvailableAsync 无兜底），扫描异常穿出
+                // 会被上层包装成误导性的 "Patch application failed: Access denied"，且首根中止
+                // 会吞掉次根的命中机会（降级纪律对齐 FindProtonVersions/VM-F5）
+                continue;
+            }
+
+            foreach (var dir in directories)
             {
                 var wine = Path.Combine(dir, "files", "bin", "wine");
                 if (FileUtilities.IsExecutableFile(wine))

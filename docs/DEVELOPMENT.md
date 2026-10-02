@@ -45,7 +45,7 @@ src/
     Utilities/      Hashing（MD5/SHA-256 hex）、Json（统一序列化选项）、FileUtilities（原子写入/只读目标容错/目录树尽力删除/启动日志唯一路径）
   YetAnotherGameLauncher.Channels.Kuro/         # 库洛渠道（鸣潮）
     KuroChannelApi（index.json/indexFile 解析、CDN 选择、URL 拼接）
-    KuroUrlBuilder（含同文件的 KuroCdnSelector：CDN 节点优先级选择）、HpatchzApplier（HDiffPatch 目录模式；HpatchzApplierOptions 配置路径/超时）、HpatchzProvisioner（hpatchz 自动供给：PATH 无自备时下载官方固定版本 v5.1.3 到应用数据目录，MD5 实测校验+防御解压+补执行位）
+    KuroUrlBuilder（含同文件的 KuroCdnSelector：CDN 节点优先级选择）、HpatchzApplier（HDiffPatch 目录模式；HpatchzApplierOptions 配置路径/超时）、HpatchzProvisioner（hpatchz 自动供给：PATH 无自备时下载社区验证构建 hpatchz.exe 到应用数据目录并 MD5 实测校验；Linux 经 wine 运行（独立 WINEPREFIX），Windows 原生直跑）
     KuroSwitchConfigClient（官方运营配置直连：launcher-config → 背景内容两跳）、KuroSwitchConfig（背景投放 DTO）、KuroBackdropResolver（背景解析：运营配置直连，视频 + 首帧图单级回退）
     KuroGachaService（唤取记录：日志地址提取 → 官方接口 → 本地合并缓存）、KuroServiceCollectionExtensions（AddKuroChannel）、Models/（协议 DTO）
   YetAnotherGameLauncher.Channels.Hypergryph/   # GRYPHLINE 渠道（终末地，包式）
