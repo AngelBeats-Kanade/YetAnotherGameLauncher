@@ -78,4 +78,59 @@ public class LaunchParameterRoundTripTests : IDisposable
         Assert.Equal("coast 11", plan.Environment["MAP"]);
         Assert.Equal("DW-Proton", plan.Environment["PROTONPATH"]);
     }
+
+    [Fact]
+    public async Task SavedLaunchOptionsWithCommandPlaceholder_DriveBuildPlanExactly()
+    {
+        // 2026-10-03 Steam 语义端到端：编辑框显式 %command% → launch.arguments 落盘 →
+        // 重载 → BuildPlan 把参数追加在模板命令之后；重开设置卡回显占位符行
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+
+        var installDir = _ctx.TempDir.FilePath("games-root", "My Game");
+        Directory.CreateDirectory(Path.Combine(installDir, "bin"));
+        var exeRelative = "bin/Game.exe";
+        var exePath = Path.GetFullPath(Path.Combine(installDir, exeRelative));
+        await File.WriteAllTextAsync(exePath, "#!/bin/sh");
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(exePath, UnixFileMode.UserExecute);
+        }
+
+        var launchSettings = new LaunchSettingsViewModel(
+            game.Game, game.InstallDirPath, _ctx.CatalogService, game.Loc, game,
+            platformInfo: new FakePlatformInfo(isLinux: true));
+
+        launchSettings.InstallDirDraft = installDir;
+        launchSettings.ExecutableDraft = exeRelative;
+        launchSettings.CommandTemplate = "{exe} --full-screen";
+        launchSettings.EnvironmentText = "MAP=\"coast 11\"\r\n%command% -dx11 \"a b\"";
+
+        await launchSettings.SaveCommand.ExecuteAsync(null);
+        Assert.False(launchSettings.Save.Failed);
+
+        // 从磁盘重载：environment 与 arguments 各自落盘、互不混写
+        var reloader = new GameCatalogService(_ctx.ConfigPath);
+        await reloader.LoadAsync();
+        var savedGame = reloader.Catalog!.Games[0];
+        Assert.Equal("coast 11", savedGame.Launch.Environment["MAP"]);
+        Assert.Equal(new[] { "-dx11", "a b" }, savedGame.Launch.Arguments);
+
+        // 重载后的参数直接喂 BuildPlan：用户参数在模板自带参数之后
+        var runner = new FakeProcessRunner();
+        var launcher = new GameLauncherService(runner, logDirectory: _ctx.TempDir.FilePath("logs"), pathValue: "");
+        var plan = launcher.BuildPlan(savedGame, savedGame.InstallDir, savedGame.Executable);
+
+        Assert.Equal(exePath, plan.FileName);
+        Assert.Equal("--full-screen -dx11 \"a b\"", plan.Arguments);
+        Assert.Equal("coast 11", plan.Environment["MAP"]);
+
+        // 重开设置卡：编辑框回显 = 环境区序列化 + %command% 参数行，与已存值一致不点亮脏标
+        var reopened = new LaunchSettingsViewModel(
+            savedGame, installDir, _ctx.CatalogService, game.Loc, game,
+            platformInfo: new FakePlatformInfo(isLinux: true));
+        Assert.Contains("MAP=\"coast 11\"", reopened.EnvironmentText, StringComparison.Ordinal);
+        Assert.Contains("%command% -dx11 \"a b\"", reopened.EnvironmentText, StringComparison.Ordinal);
+        Assert.False(reopened.IsDirty);
+    }
 }

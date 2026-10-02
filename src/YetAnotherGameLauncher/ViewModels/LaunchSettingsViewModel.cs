@@ -130,11 +130,13 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         _umuProvisioner = umuProvisioner;
         _commandTemplate = game.Launch.CommandTemplate;
         _workingDirectory = game.Launch.WorkingDirectory;
-        // 编辑框只承载用户自定义变量；托管键（生成/内置启动变量）进托管字典
+        // 编辑框只承载用户自定义变量；托管键（生成/内置启动变量）进托管字典。
+        // 已存 %command% 游戏参数以占位符参数行回显（Steam 启动选项形态）
         _managedEnvironment = game.Launch.Environment
             .Where(kv => CompatTools.IsGeneratedEnvironmentKey(kv.Key))
             .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
-        _environmentText = SerializeEnvironment(UserEnvironment(game.Launch.Environment));
+        _environmentText = SerializeLaunchText(
+            UserEnvironment(game.Launch.Environment), game.Launch.Arguments);
         _useWaylandDraft = game.Launch.UseWayland;
         _upgradeDlssDraft = game.Launch.UpgradeDlss;
         _enableProtonLogDraft = game.Launch.EnableProtonLog;
@@ -251,14 +253,15 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             return;
         }
 
-        if (!TryParseEnvironment(EnvironmentText, out var userEnvironment, out _))
+        if (!TryParseLaunchText(EnvironmentText, out var userEnvironment, out var userArguments, out _, out _))
         {
             IsDirty = true;
             return;
         }
 
         var environment = MergedEnvironment(_managedEnvironment, userEnvironment);
-        if (EnvironmentDiffKeys(environment, _game.Launch.Environment).Count > 0)
+        if (EnvironmentDiffKeys(environment, _game.Launch.Environment).Count > 0
+            || !ArgumentsEqual(userArguments, _game.Launch.Arguments))
         {
             IsDirty = true;
             return;
@@ -315,6 +318,29 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         environment
             .Where(kv => !CompatTools.IsGeneratedEnvironmentKey(kv.Key))
             .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+
+    /// <summary>启动选项文本宽松切分（含 %command%）：环境区坏条目静默跳过，占位符之后的
+    /// 参数原样返回。切分规则单一事实源在 <see cref="LaunchOptionsText"/>。
+    /// internal 供单测（经 InternalsVisibleTo）。</summary>
+    internal static IReadOnlyList<string> ParseLaunchTextOrEmpty(
+        string text, out Dictionary<string, string> environment)
+        => LaunchOptionsText.ParseLenientLaunchLine(text, out environment);
+
+    /// <summary>启动选项文本严格解析（含 %command% 切分，保存校验用）；坏条目原文写入 badItem、
+    /// 错误区写入 errorKind，返回 false。切分规则单一事实源在 <see cref="LaunchOptionsText"/>。
+    /// internal 供单测（经 InternalsVisibleTo）。</summary>
+    internal static bool TryParseLaunchText(
+        string text,
+        out Dictionary<string, string> environment,
+        out List<string> arguments,
+        out string badItem,
+        out LaunchLineErrorKind errorKind)
+    {
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            text, out environment, out var parsedArguments, out badItem, out errorKind);
+        arguments = [.. parsedArguments];
+        return ok;
+    }
 
     /// <summary>托管键 ∪ 用户键的完整环境字典（用户键覆盖同名托管键——显式手输优先于内置生成，
     /// 保留覆盖能力；保存与启动请求预览共用该合并规则）。</summary>
@@ -697,6 +723,9 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 CommandTemplate = originalLaunch.CommandTemplate,
                 WorkingDirectory = originalLaunch.WorkingDirectory,
                 Environment = environment,
+                // 窄通道只动 PROTONPATH：已存 %command% 游戏参数与开关/档位同为托管外字段，
+                // 取已存值——即时保存不得静默丢参数
+                Arguments = originalLaunch.Arguments,
                 UmuId = originalLaunch.UmuId,
                 // 窄通道只动 PROTONPATH：开关与资源档位取已存值——未保存的草稿不得被即时保存静默带走
                 // （toast 也不会提及，2026-09-28 review F-A）
@@ -727,7 +756,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 // RecomputeDirty；草稿里若还有其余未保存字段，这里按实际比对保持脏态）
                 RecomputeDirty();
                 // 变更恰好只有 PROTONPATH：沿用整卡保存的轻提示管线，按"Proton 发行版"汇报
-                RaiseChangedToast(false, false, false, false, false, ["PROTONPATH"]);
+                RaiseChangedToast(false, false, false, false, false, ["PROTONPATH"], argumentsChanged: false);
             }
             else
             {
@@ -779,7 +808,8 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         (launch.CommandTemplate, launch.Environment);
 
     /// <summary>应用生成的启动配置：覆盖命令模板，生成的环境变量进托管字典（不进编辑框文本）；
-    /// 文本中与生成键同名的旧用户行一并让位（生成即权威，对齐旧合并覆盖语义）。</summary>
+    /// 文本中与生成键同名的旧用户行一并让位（生成即权威，对齐旧合并覆盖语义）；重写时
+    /// %command% 参数行保留（宽松切分，参数不属于环境区）。</summary>
     private void ApplyGenerated((string CommandTemplate, Dictionary<string, string> Environment) generated)
     {
         CommandTemplate = generated.CommandTemplate;
@@ -788,12 +818,12 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             _managedEnvironment[key] = value;
         }
 
-        var user = ParseEnvironmentOrEmpty(EnvironmentText);
+        var userArguments = ParseLaunchTextOrEmpty(EnvironmentText, out var user);
         var removedAny = generated.Environment.Keys.Aggregate(
             false, (removed, key) => user.Remove(key) | removed);
         if (removedAny)
         {
-            EnvironmentText = SerializeEnvironment(user);
+            EnvironmentText = SerializeLaunchText(user, userArguments);
         }
 
         // 托管字典的合并不经过属性通知：末尾显式重算脏标记，否则脏状态停在合并前的旧值
@@ -938,9 +968,18 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             return;
         }
 
-        if (!TryParseEnvironment(EnvironmentText, out var userEnvironment, out var badLine))
+        if (!TryParseLaunchText(
+                EnvironmentText, out var userEnvironment, out var userArguments,
+                out var badItem, out var errorKind))
         {
-            Save.SetFailure(_loc.Format("launch_invalidEnvLine", badLine));
+            // 按错误区路由文案：环境区坏条目沿用 KEY=VALUE 提示；参数区只有引号形态错误；
+            // 重复占位符是结构错误，没有坏条目原文可带
+            Save.SetFailure(errorKind switch
+            {
+                LaunchLineErrorKind.ArgumentsQuote => _loc.Format("launch_invalidArgsLine", badItem),
+                LaunchLineErrorKind.DuplicateCommandPlaceholder => _loc["launch_duplicateCommandPlaceholder"],
+                _ => _loc.Format("launch_invalidEnvLine", badItem),
+            });
             return;
         }
 
@@ -954,6 +993,8 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         var effectiveWorkingDirectory = string.IsNullOrWhiteSpace(WorkingDirectory) ? "{installDir}" : WorkingDirectory.Trim();
         var workingDirectoryChanged = !string.Equals(effectiveWorkingDirectory, _game.Launch.WorkingDirectory, StringComparison.Ordinal);
         var environmentDiff = EnvironmentDiffKeys(environment, _game.Launch.Environment);
+        // 游戏参数变更对照替换前的旧值（必须在 _game.Launch 替换前快照，同 optionsChanged 纪律）
+        var argumentsChanged = !ArgumentsEqual(userArguments, _game.Launch.Arguments);
 
         // 启动选项开关对照替换前的旧值：必须在 _game.Launch 替换前快照（review P2 实锤——
         // 曾在替换后拿草稿比新 Launch 自身，恒 false，仅开关变更的轻提示永不弹）；
@@ -969,6 +1010,8 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             CommandTemplate = CommandTemplate.Trim(),
             WorkingDirectory = effectiveWorkingDirectory,
             Environment = environment,
+            // 空参数列表归一为 null（"没写 %command%" 与"写了空的"语义相同，落盘形态干净）
+            Arguments = userArguments.Count > 0 ? userArguments : null,
             UmuId = _game.Launch.UmuId,
             UseWayland = UseWaylandDraft,
             UpgradeDlss = UpgradeDlssDraft,
@@ -1016,7 +1059,8 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             RaiseChangedToast(
                 installDirChanged, executableChanged, templateChanged, workingDirectoryChanged,
                 optionsChanged,
-                environmentDiff);
+                environmentDiff,
+                argumentsChanged);
         }
         catch (OperationCanceledException)
         {
@@ -1041,7 +1085,8 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         bool templateChanged,
         bool workingDirectoryChanged,
         bool optionsChanged,
-        List<string> environmentDiff)
+        List<string> environmentDiff,
+        bool argumentsChanged)
     {
         var labels = new List<string>();
         if (installDirChanged)
@@ -1069,10 +1114,11 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             labels.Add(_loc["launch_options"]);
         }
 
-        if (environmentDiff.Count > 0)
+        if (environmentDiff.Count > 0 || argumentsChanged)
         {
-            // 仅 PROTONPATH 变化即发行版下拉的"选择即保存"，按 UI 词汇提示而非笼统的环境变量
-            labels.Add(environmentDiff.All(key => key == "PROTONPATH")
+            // 仅 PROTONPATH 变化（且无参数变更）即发行版下拉的"选择即保存"，按 UI 词汇提示
+            // 而非笼统的自定义启动选项；游戏参数属于同一编辑框，与环境变量同组汇报
+            labels.Add(!argumentsChanged && environmentDiff.All(key => key == "PROTONPATH")
                 ? _loc["launch_protonFlavor"]
                 : _loc["launch_environment"]);
         }
@@ -1101,15 +1147,29 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         return diff;
     }
 
-    /// <summary>环境变量字典 → 启动选项文本（编辑框显示用）；规则单一事实源在 <see cref="LaunchOptionsText"/>。</summary>
-    private static string SerializeEnvironment(Dictionary<string, string> environment)
-        => LaunchOptionsText.Serialize(environment);
+    /// <summary>启动选项文本重组（编辑框显示用）：环境区逐行序列化；已存游戏参数非空时
+    /// 追加一行「%command% + 参数序列化」（Steam 启动选项回显形态，参数区含空格 token 重新
+    /// 加引号）。规则单一事实源在 <see cref="LaunchOptionsText"/>。</summary>
+    private static string SerializeLaunchText(
+        Dictionary<string, string> environment, IReadOnlyList<string>? arguments)
+    {
+        var text = LaunchOptionsText.Serialize(environment);
+        if (arguments is { Count: > 0 })
+        {
+            var placeholderLine = $"{LaunchOptionsText.CommandPlaceholder} {LaunchOptionsText.SerializeArguments(arguments)}";
+            text = text.Length == 0 ? placeholderLine : $"{text}{Environment.NewLine}{placeholderLine}";
+        }
 
-    /// <summary>启动选项文本 → 字典（严格版，保存校验用）；坏条目原文写入 badLine 返回 false。
-    /// 切分规则单一事实源在 <see cref="LaunchOptionsText"/>。internal 供单测（经 InternalsVisibleTo）。</summary>
-    internal static bool TryParseEnvironment(
-        string text, out Dictionary<string, string> environment, out string badLine)
-        => LaunchOptionsText.TryParse(text, out environment, out badLine);
+        return text;
+    }
+
+    /// <summary>游戏参数列表序数比较（null 与空等价——保存时空列表归一为 null，两侧同形态才不产生脏残留）。</summary>
+    private static bool ArgumentsEqual(IReadOnlyList<string>? left, IReadOnlyList<string>? right)
+    {
+        left ??= [];
+        right ??= [];
+        return left.Count == right.Count && left.SequenceEqual(right);
+    }
 }
 
 /// <summary>启动方式选项（模式 + 已本地化文案）。</summary>

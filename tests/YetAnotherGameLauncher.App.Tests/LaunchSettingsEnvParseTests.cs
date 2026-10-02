@@ -8,7 +8,8 @@ namespace YetAnotherGameLauncher.AppTests;
 /// 启动设置卡「自定义启动选项」解析边界：宽松版（草稿合并用，跳过坏条目）与严格版（保存校验用，
 /// 报坏条目）共用 <see cref="LaunchOptionsText"/> 的 Steam 风格词法（空白分隔、引号包裹、反斜杠转义）。
 /// 2026-10-03 语义变更：旧「每行一条 KEY=VALUE、= 两侧容忍空格」→ shell 风格——未加引号的空格
-/// 一律是分隔符，含空格的值必须加引号。
+/// 一律是分隔符，含空格的值必须加引号。2026-10-03 二次扩展：显式 %command% 之前为环境区
+/// （KEY=VALUE），之后为游戏参数（宽松切分保留参数不丢，严格版按错误区分类路由文案）。
 /// </summary>
 public class LaunchSettingsEnvParseTests
 {
@@ -67,19 +68,24 @@ public class LaunchSettingsEnvParseTests
     [Fact]
     public void TryParse_QuotedValueWithSpaces_Valid()
     {
-        var ok = LaunchSettingsViewModel.TryParseEnvironment("MAP=\"coast 11\"", out var parsed, out _);
+        var ok = LaunchSettingsViewModel.TryParseLaunchText(
+            "MAP=\"coast 11\"", out var parsed, out var arguments, out _, out var errorKind);
 
         Assert.True(ok);
+        Assert.Equal(LaunchLineErrorKind.None, errorKind);
         Assert.Equal("coast 11", parsed["MAP"]);
+        Assert.Empty(arguments);
     }
 
     [Fact]
     public void TryParse_UnquotedSpaceInValue_ReportsTrailingTokenAsBad()
     {
         // 2026-10-03 语义变更钉：未加引号的值内空格不再吞进值，尾随裸 token 报错（提示用户加引号）
-        var ok = LaunchSettingsViewModel.TryParseEnvironment("MAP=coast 11", out _, out var badLine);
+        var ok = LaunchSettingsViewModel.TryParseLaunchText(
+            "MAP=coast 11", out _, out _, out var badLine, out var errorKind);
 
         Assert.False(ok);
+        Assert.Equal(LaunchLineErrorKind.EnvironmentItem, errorKind);
         Assert.Equal("11", badLine);
     }
 
@@ -87,7 +93,8 @@ public class LaunchSettingsEnvParseTests
     public void TryParse_EmptyValueIsKeptAndValid()
     {
         // 空值是合法环境变量（如 WINEDEBUG= 表示清空默认通道），不得当坏行
-        var ok = LaunchSettingsViewModel.TryParseEnvironment("KEY=", out var parsed, out var badLine);
+        var ok = LaunchSettingsViewModel.TryParseLaunchText(
+            "KEY=", out var parsed, out _, out var badLine, out _);
 
         Assert.True(ok);
         Assert.Equal("", badLine);
@@ -100,16 +107,19 @@ public class LaunchSettingsEnvParseTests
     [InlineData("  =novalue")]
     public void TryParse_RejectsLinesWithoutKeyOrSeparator(string text)
     {
-        var ok = LaunchSettingsViewModel.TryParseEnvironment(text, out _, out var badLine);
+        var ok = LaunchSettingsViewModel.TryParseLaunchText(
+            text, out _, out _, out var badLine, out var errorKind);
 
         Assert.False(ok);
+        Assert.Equal(LaunchLineErrorKind.EnvironmentItem, errorKind);
         Assert.Equal(text.Trim(), badLine);
     }
 
     [Fact]
     public void TryParse_Multiline_ReportsFirstBadLineAndStops()
     {
-        var ok = LaunchSettingsViewModel.TryParseEnvironment("OK=1\r\nBAD\r\nKEY=v", out var parsed, out var badLine);
+        var ok = LaunchSettingsViewModel.TryParseLaunchText(
+            "OK=1\r\nBAD\r\nKEY=v", out var parsed, out _, out var badLine, out _);
 
         Assert.False(ok);
         Assert.Equal("BAD", badLine);
@@ -120,12 +130,49 @@ public class LaunchSettingsEnvParseTests
     [Fact]
     public void TryParse_BlankLinesAndWhitespaceAroundEntries_Tolerated()
     {
-        var ok = LaunchSettingsViewModel.TryParseEnvironment(
-            "\r\n  LANG=zh_CN.UTF-8  \r\n\t\r\n", out var parsed, out _);
+        var ok = LaunchSettingsViewModel.TryParseLaunchText(
+            "\r\n  LANG=zh_CN.UTF-8  \r\n\t\r\n", out var parsed, out _, out _, out _);
 
         Assert.True(ok);
         Assert.Single(parsed);
         Assert.Equal("LANG", parsed.Keys.Single());
         Assert.Equal("zh_CN.UTF-8", parsed["LANG"]);
+    }
+
+    [Fact]
+    public void TryParse_TextWithPlaceholder_SplitsEnvironmentAndArguments()
+    {
+        // 2026-10-03 Steam 语义：显式 %command% 之前是环境区（KEY=VALUE），之后是游戏参数
+        var ok = LaunchSettingsViewModel.TryParseLaunchText(
+            "MAP=\"coast 11\"\r\n%command% -dx11 \"a b\"",
+            out var parsed, out var arguments, out _, out _);
+
+        Assert.True(ok);
+        Assert.Single(parsed);
+        Assert.Equal("coast 11", parsed["MAP"]);
+        Assert.Equal(new[] { "-dx11", "a b" }, arguments);
+    }
+
+    [Fact]
+    public void TryParse_DuplicatePlaceholder_ReportsErrorKind()
+    {
+        // 错误分类路由到专属文案（最多出现一次），不落"应为 KEY=VALUE"的误导提示
+        var ok = LaunchSettingsViewModel.TryParseLaunchText(
+            "A=1 %command% %command%", out _, out _, out _, out var errorKind);
+
+        Assert.False(ok);
+        Assert.Equal(LaunchLineErrorKind.DuplicateCommandPlaceholder, errorKind);
+    }
+
+    [Fact]
+    public void ParseLaunchTextOrEmpty_KeepsArgumentsAndSkipsBadEnv()
+    {
+        // 宽松切分供切启动方式/发行版时重写文本：坏条目跳过、%command% 参数保留不丢
+        var arguments = LaunchSettingsViewModel.ParseLaunchTextOrEmpty(
+            "半截 A=1 %command% -dx11", out var parsed);
+
+        Assert.Single(parsed);
+        Assert.Equal("1", parsed["A"]);
+        Assert.Equal(new[] { "-dx11" }, arguments);
     }
 }

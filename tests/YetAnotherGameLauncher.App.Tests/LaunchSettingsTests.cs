@@ -55,6 +55,114 @@ public class LaunchSettingsTests : IDisposable
     }
 
     [Fact]
+    public async Task Save_TextWithPlaceholder_PersistsArgumentsAndClearsDirty()
+    {
+        // 2026-10-03 Steam 语义：显式 %command% 之后的 token 作为游戏参数落盘 launch.arguments，
+        // 环境区照常注入；保存后脏标复位（参数参与脏重算，不得滞留）
+        await _ctx.Vm.InitializeAsync();
+        var settings = _ctx.Vm.Games[0].LaunchSettings;
+        settings.EnvironmentText = "MAP=\"coast 11\"\n%command% -dx11 \"a b\"";
+
+        await settings.SaveCommand.ExecuteAsync(null);
+
+        Assert.False(settings.Save.Failed);
+        Assert.False(settings.IsDirty);
+
+        var reloader = new YetAnotherGameLauncher.Core.Services.GameCatalogService(_ctx.ConfigPath);
+        await reloader.LoadAsync();
+        var launch = reloader.Catalog!.Games[0].Launch;
+        Assert.Equal("coast 11", launch.Environment["MAP"]);
+        Assert.Equal(new[] { "-dx11", "a b" }, launch.Arguments);
+    }
+
+    [Fact]
+    public async Task Save_EmptyPlaceholderWithoutArguments_PersistsNullAndNotDirty()
+    {
+        // 显式占位符但无参数：归一为 null 落盘（"arguments": [] 与"没写"语义相同），
+        // 且重算脏标按解析后形态比较，不产生脏残留
+        await _ctx.Vm.InitializeAsync();
+        var settings = _ctx.Vm.Games[0].LaunchSettings;
+        settings.EnvironmentText = "MAP=1 %command%";
+
+        await settings.SaveCommand.ExecuteAsync(null);
+
+        Assert.False(settings.Save.Failed);
+        Assert.False(settings.IsDirty);
+
+        var reloader = new YetAnotherGameLauncher.Core.Services.GameCatalogService(_ctx.ConfigPath);
+        await reloader.LoadAsync();
+        var launch = reloader.Catalog!.Games[0].Launch;
+        Assert.Equal("1", launch.Environment["MAP"]);
+        Assert.Null(launch.Arguments);
+    }
+
+    [Fact]
+    public async Task Save_UnterminatedQuoteInArguments_ShowsArgsErrorWithoutSaving()
+    {
+        // 参数区未闭合引号走专属文案（不再是"应为 KEY=VALUE"——参数区没有该约束）
+        await _ctx.Vm.InitializeAsync();
+        var settings = _ctx.Vm.Games[0].LaunchSettings;
+        settings.EnvironmentText = "A=1 %command% \"unclosed";
+
+        await settings.SaveCommand.ExecuteAsync(null);
+
+        Assert.True(settings.Save.Failed);
+        Assert.Contains("引号未闭合", settings.Save.Message);
+        Assert.Contains("unclosed", settings.Save.Message);
+        Assert.Empty(_ctx.Vm.Toasts);
+    }
+
+    [Fact]
+    public async Task Save_DuplicatePlaceholder_ShowsDedicatedError()
+    {
+        // %command% 最多出现一次：结构错误走专属文案，静默当参数会产出字面 %command% argv
+        await _ctx.Vm.InitializeAsync();
+        var settings = _ctx.Vm.Games[0].LaunchSettings;
+        settings.EnvironmentText = "A=1 %command% %command% -x";
+
+        await settings.SaveCommand.ExecuteAsync(null);
+
+        Assert.True(settings.Save.Failed);
+        Assert.Contains("最多出现一次", settings.Save.Message);
+    }
+
+    [Fact]
+    public async Task Save_ArgumentsChange_RaisesToastListingLaunchOptions()
+    {
+        // 参数属于「自定义启动选项」字段：变更轻提示与同字段的环境变量同组（launch_environment）
+        await _ctx.Vm.InitializeAsync();
+        var settings = _ctx.Vm.Games[0].LaunchSettings;
+
+        settings.EnvironmentText = "%command% -dx11";
+        await settings.SaveCommand.ExecuteAsync(null);
+
+        Assert.False(settings.Save.Failed);
+        var toast = Assert.Single(_ctx.Vm.Toasts);
+        Assert.Equal("已更新：自定义启动选项", toast.Message);
+    }
+
+    [Fact]
+    public async Task Reopen_PersistsPlaceholderArguments_EchoesPlaceholderLine()
+    {
+        // 已存 %command% 参数重开设置卡：编辑框回显占位符行（环境行 + %command% 参数行），
+        // 且与已存值一致、脏标不亮——回显走"环境区序列化 + 占位符参数行"重组
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        game.Game.Launch.Environment["MAP"] = "coast 11";
+        game.Game.Launch.Arguments = ["-dx11", "a b"];
+        game.Game.Launch.CommandTemplate = "native-umu {exe}"; // 非 Direct，避开首运推荐链改写
+
+        var settings = new LaunchSettingsViewModel(
+            game.Game, game.InstallDirPath, _ctx.CatalogService, game.Loc, game,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            protonVersions: ["GE-Proton10-9"]);
+
+        Assert.Contains("MAP=\"coast 11\"", settings.EnvironmentText, StringComparison.Ordinal);
+        Assert.Contains("%command% -dx11 \"a b\"", settings.EnvironmentText, StringComparison.Ordinal);
+        Assert.False(settings.IsDirty);
+    }
+
+    [Fact]
     public async Task Save_EmptyCommandTemplate_ShowsError()
     {
         await _ctx.Vm.InitializeAsync();
@@ -411,6 +519,35 @@ public class LaunchSettingsTests : IDisposable
         var toast = _ctx.Vm.Toasts[^1];
         Assert.Equal("已更新：Proton 发行版", toast.Message);
         Assert.Equal(ToastKind.Success, toast.Kind);
+    }
+
+    [Fact]
+    public async Task ProtonFlavorSwitch_NarrowSave_KeepsPersistedArguments()
+    {
+        // 窄通道语义补钉（2026-10-03）：发行版即时保存逐字段重建 LaunchOptions——已存的
+        // %command% 游戏参数不在草稿承载范围，必须取已存值透传，不得被静默丢弃
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        var settings = new LaunchSettingsViewModel(
+            game.Game, game.InstallDirPath, _ctx.CatalogService, game.Loc, game,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            protonVersions: ["GE-Proton10-9"]);
+        await settings.SaveCommand.ExecuteAsync(null); // 初始推荐链落盘
+        game.Game.Launch.Arguments = ["-dx11"]; // 模拟磁盘加载后的存量参数
+
+        settings.SelectedProtonFlavor = "GE-Proton";
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline
+            && !File.ReadAllText(_ctx.ConfigPath).Contains("GE-Proton", StringComparison.Ordinal))
+        {
+            await Task.Delay(25);
+        }
+
+        var reloader = new YetAnotherGameLauncher.Core.Services.GameCatalogService(_ctx.ConfigPath);
+        await reloader.LoadAsync();
+        Assert.Equal(
+            new[] { "-dx11" },
+            reloader.Catalog!.Games[0].Launch.Arguments);
     }
 
     [Fact]

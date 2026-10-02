@@ -73,6 +73,23 @@ public class LaunchSettingsMatrixTests : IDisposable
     }
 
     [Fact]
+    public async Task LaunchModeSwitch_KeepsCommandPlaceholderArgumentsLine()
+    {
+        // 2026-10-03 Steam 语义回归钉：切启动方式重写编辑框文本时，%command% 参数行必须保留。
+        // 重写只在用户键与生成键撞名时发生（removedAny）——文本里放一个撞名的 GAMEID，
+        // 旧宽松解析（只收 KEY=VALUE）重写时会把占位符参数行无声吞掉
+        await _ctx.Vm.InitializeAsync();
+        var settings = NewSettings();
+        settings.EnvironmentText = "GAMEID=legacy\n%command% -dx11";
+
+        settings.SelectedLaunchMode = settings.LaunchModes.First(m => m.Mode == LaunchMode.Direct);
+        settings.SelectedLaunchMode = settings.LaunchModes.First(m => m.Mode == LaunchMode.NativeUmu);
+
+        Assert.DoesNotContain("GAMEID=legacy", settings.EnvironmentText, StringComparison.Ordinal); // 撞名键让位托管生成
+        Assert.Contains("%command% -dx11", settings.EnvironmentText, StringComparison.Ordinal); // 参数行保留
+    }
+
+    [Fact]
     public async Task DirectTemplateWithSavedGeneratedKeys_Reopen_ClearsManagedAndLightsDirty()
     {
         // 2026-09-28 review F-B：ApplyGenerated 的托管合并不经属性通知，脏重算曾发生在
