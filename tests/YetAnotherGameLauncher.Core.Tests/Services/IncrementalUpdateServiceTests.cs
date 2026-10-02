@@ -254,6 +254,9 @@ public class IncrementalUpdateServiceTests : IDisposable
         Directory.CreateDirectory(_tempDir.FilePath("data"));
         await File.WriteAllBytesAsync(_tempDir.FilePath("data", "file.dat"), oldContent);
         var lockedPath = _tempDir.FilePath("data", "stale.pak");
+        // 锁定目标必须真实存在（Windows CI 实锤：b3c1120 起声明即从未写出，File.Open 直接
+        // FileNotFoundException；Linux 腿 Skip 先于锁定行，缺口被完全掩盖）
+        await File.WriteAllBytesAsync(lockedPath, "stale"u8.ToArray());
         var group = PrepareGroup("g1.krpdiff", [("data/file.dat", oldContent)], [("data/file.dat", newContent)]);
         var manifest = new GameManifest
         {

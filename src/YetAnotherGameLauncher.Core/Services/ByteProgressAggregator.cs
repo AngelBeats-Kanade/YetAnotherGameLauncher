@@ -14,7 +14,9 @@ public sealed class ByteProgressAggregator
     private readonly Action<long>? _report;
     private readonly long _minIntervalTicks;
     private long _bytes;
-    private long _lastReportAt;
+    private long _lastReportAt = -1; // -1 = 尚未投递：单调钟时间戳自开机起算（恒 ≥ 0），初始 0 会让
+                                     // 首帧投递取决于"机器 uptime ≥ interval"这个偶然前提
+                                     //（2026-10-02 CI 实锤：新 VM uptime < 1h 吞首帧，测试假绿/假红随 uptime 掷骰）
 
     /// <param name="minReportInterval">两次投递的最小间隔；<see cref="TimeSpan.Zero"/> 表示全投（测试）。</param>
     /// <param name="report">节流后的回调，参数为全局累计字节。调用方线程直接执行（不 post 同步上下文）。</param>
@@ -56,7 +58,8 @@ public sealed class ByteProgressAggregator
         }
 
         var now = Stopwatch.GetTimestamp();
-        if (!force && now - Volatile.Read(ref _lastReportAt) < _minIntervalTicks)
+        var last = Volatile.Read(ref _lastReportAt);
+        if (!force && last >= 0 && now - last < _minIntervalTicks)
         {
             return;
         }

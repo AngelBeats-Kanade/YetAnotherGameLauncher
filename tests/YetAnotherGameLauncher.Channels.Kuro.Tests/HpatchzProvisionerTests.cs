@@ -80,7 +80,8 @@ public class HpatchzProvisionerTests : IDisposable
     [Fact]
     public async Task EnsureAvailable_AlreadyReady_ZeroNetwork()
     {
-        // 幂等：已就绪（exe 在）直接返回，不发任何网络请求
+        // 幂等：已就绪（exe 在）直接返回，不发任何网络请求——两腿各自钉住本平台的返回形态
+        //（Windows CI 实锤：断言曾写死 wine 形态，Windows 原生分支必红）
         ServeExe();
         var provisioner = CreateProvisioner(wineLocator: () => StubWine());
         await provisioner.EnsureAvailableAsync();
@@ -88,7 +89,18 @@ public class HpatchzProvisionerTests : IDisposable
         _downloader.Requests.Clear();
         var again = await provisioner.EnsureAvailableAsync();
 
-        Assert.Equal(StubWine(), again.FileName);
+        if (OperatingSystem.IsWindows())
+        {
+            // 原生分支返回形态（与 EnsureAvailable_Windows_RunsExeNatively 同口径）
+            Assert.EndsWith("hpatchz.exe", again.FileName);
+            Assert.Equal("", again.ArgumentPrefix);
+            Assert.Null(again.Environment);
+        }
+        else
+        {
+            Assert.Equal(StubWine(), again.FileName);
+        }
+
         Assert.Empty(_downloader.Requests);
     }
 
