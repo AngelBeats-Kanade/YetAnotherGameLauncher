@@ -22,7 +22,8 @@ public class IncrementalUpdateServiceTests : IDisposable
     private static ManifestFile FileEntry(string path, byte[] content) =>
         new(path, content.Length, Md5(content), Url: Url(path.Replace('/', '_')));
 
-    private IncrementalUpdateService CreateService() => new(_downloader, _applier);
+    private IncrementalUpdateService CreateService(TimeSpan? progressReportInterval = null) =>
+        new(_downloader, _applier, progressReportInterval: progressReportInterval);
 
     private PatchGroup BuildGroup(
         string patchName,
@@ -101,6 +102,37 @@ public class IncrementalUpdateServiceTests : IDisposable
         var staging = IncrementalUpdateService.PredownloadDir(_tempDir.Path);
         Assert.True(File.Exists(Path.Combine(staging, "patches", "g1.krpdiff")));
         Assert.True(File.Exists(Path.Combine(staging, "files", "brand-new.pak")));
+    }
+
+    [Fact]
+    public async Task PredownloadAsync_Rerun_VerificationReportsIntermediateProgress()
+    {
+        // 回归（2026-10-02 用户报障：暂存齐备时重跑预下载进度 0→100 闪过、无速度）：
+        // 核验（size+MD5）的逐块读取字节必须进全局进度——与真实下载同一 aggregator 管道
+        // （速度/文案由 VM 既有 Downloading 链路复用呈现）。Zero interval 让帧确定性直投。
+        // 单条目清单：total = 该文件大小，任何"条目满值帧"都不可能冒充中间帧（变异鉴别力）
+        var content = new byte[256 * 1024];
+        new Random(42).NextBytes(content);
+        var manifest = new GameManifest
+        {
+            Version = "2.0.0",
+            Files = [FileEntry("big.bin", content)],
+        };
+        _downloader.Responses[Url("big.bin")] = content;
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+        Assert.Single(_downloader.Requests);
+
+        _downloader.Requests.Clear();
+        var progress = new UpdateProgressCollector();
+        await CreateService(progressReportInterval: TimeSpan.Zero)
+            .PredownloadAsync(_tempDir.Path, manifest, progress);
+
+        Assert.Empty(_downloader.Requests); // 全部条目核验跳过（零网络）
+        var total = content.Length;
+        var downloading = progress.Frames.Where(f => f.Phase == UpdatePhase.Downloading).ToList();
+        // 核验中间帧（今日红：核验零进度，只有开局 0 与条目满值帧）
+        Assert.Contains(downloading, f => f.DownloadedBytes > 0 && f.DownloadedBytes < total);
+        Assert.Equal(total, downloading[^1].DownloadedBytes); // 收尾满值帧口径不变
     }
 
     [Fact]

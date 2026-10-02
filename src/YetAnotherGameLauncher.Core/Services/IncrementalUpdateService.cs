@@ -18,7 +18,8 @@ namespace YetAnotherGameLauncher.Core.Services;
 public sealed class IncrementalUpdateService(
     IDownloader downloader,
     IPatchApplier patchApplier,
-    ILogger? logger = null)
+    ILogger? logger = null,
+    TimeSpan? progressReportInterval = null)
 {
     /// <summary>预下载暂存目录名，挂在 {installDir}/.yagl 之下。</summary>
     public const string PredownloadDirName = "predownload";
@@ -83,7 +84,8 @@ public sealed class IncrementalUpdateService(
 
         // 字节级实时进度：下载器 64KB 粒度回调 → 全局增量 → 100ms 节流投递
         //（进度口径 = 本地已就绪字节，续传起点含在下载器首回调的 delta 里）
-        var aggregator = new ByteProgressAggregator(TimeSpan.FromMilliseconds(100), bytes =>
+        var aggregator = new ByteProgressAggregator(
+            progressReportInterval ?? TimeSpan.FromMilliseconds(100), bytes =>
             progress?.Report(new UpdateProgress(UpdatePhase.Downloading, totalBytes, bytes, done, totalItems, current)));
 
         progress?.Report(new UpdateProgress(UpdatePhase.Downloading, totalBytes, 0, 0, totalItems, null));
@@ -95,15 +97,22 @@ public sealed class IncrementalUpdateService(
             var target = SafeJoin(staging, relativeTarget);
             current = displayName;
 
-            if (await IsAlreadyStaged(target, size, md5, cancellationToken).ConfigureAwait(false))
+            // 核验阶段与下载共用同一进度管道：已暂存条目的逐块 MD5 读取经 FileProgress 计入全局
+            // 字节（2026-10-02 用户报障：暂存齐备时重跑预下载进度 0→100 闪过、无速度——速度/文案
+            // 由 VM 既有 Downloading 链路复用呈现）
+            var verifyProgress = aggregator.CreateFileProgress();
+            if (await IsAlreadyStaged(target, size, md5, cancellationToken, verifyProgress).ConfigureAwait(false))
             {
                 logger?.LogDebug("Staged file already complete, skipping download: {Target}", target);
                 done++;
-                aggregator.Add(size);
+                aggregator.Add(size - verifyProgress.ConsumedBytes);
                 aggregator.ForceReport();
                 return;
             }
 
+            // 核验半途判未就绪（size 不符/MD5 不符）：已计入的核验字节负增量回吐，防进度虚高；
+            // 下载另建新 FileProgress（续传起点口径，不与核验实例混用）
+            aggregator.Add(-verifyProgress.ConsumedBytes);
             var fileProgress = aggregator.CreateFileProgress();
             await downloader.DownloadFileAsync(
                 new DownloadRequest(url, target, size, md5), fileProgress, cancellationToken).ConfigureAwait(false);
@@ -137,9 +146,14 @@ public sealed class IncrementalUpdateService(
     /// <summary>暂存条目是否已完整就绪：存在 + size 匹配 + MD5 匹配（期望缺失的项跳过对应校验，
     /// 与 <see cref="HttpFileDownloader"/> 的 Verify 同语义）。拒读/占用按未就绪处理，
     /// 交回下载路径由其折算可操作错误。MD5 走流式异步哈希（2026-10-02 假死修复：全量重跑核验
-    /// 可达数十 GiB，不长期占用调用线程、可取消）。</summary>
+    /// 可达数十 GiB，不长期占用调用线程、可取消），逐块读取经 <paramref name="progress"/> 上报
+    /// 累计已读字节——调用方以 FileProgress 承接，核验进度复用下载管道。</summary>
     private static async Task<bool> IsAlreadyStaged(
-        string path, long size, string? md5, CancellationToken cancellationToken)
+        string path,
+        long size,
+        string? md5,
+        CancellationToken cancellationToken,
+        IProgress<long>? progress = null)
     {
         try
         {
@@ -155,7 +169,7 @@ public sealed class IncrementalUpdateService(
 
             return string.IsNullOrEmpty(md5)
                 || string.Equals(
-                    await Hashing.Md5HexAsync(path, cancellationToken).ConfigureAwait(false),
+                    await Hashing.Md5HexAsync(path, cancellationToken, progress).ConfigureAwait(false),
                     md5, StringComparison.OrdinalIgnoreCase);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

@@ -7,7 +7,7 @@
 
 0.1.2 之后的功能版本：系统托盘驻留 + 关闭按钮行为设置（退出应用 / 关闭窗口驻留托盘，
 下载与依赖安装后台继续）；资源包档位、实时下载进度与速度；鸣潮 krpdiff 增量更新链
-终局修复。1193 个测试全绿（2026-10-02 实测）。
+终局修复。1194 个测试全绿（2026-10-02 实测）。
 
 ### 新增
 
@@ -52,6 +52,7 @@
 
 - 点「应用预下载 / 更新」重入已部分应用的安装时 UI 整体假死数分钟（重入校验对全部已应用组产物做同步 MD5，真机实测合计 73GiB 跑在 UI 线程）——现应用链入口让位线程池，组校验与暂存核验走异步流式 MD5（可取消），重入校验阶段显示「校验中」进度。
 - 差分源缺失的组不再直接失败：按目标版本全量清单解析该组产物直链后直下自救（size+MD5 校验 + 备份原子替换），被此前失败尝试损坏的安装可自愈；查无直链时保留「全量更新」指引。
+- 重跑预下载时，暂存核验（size+MD5）的逐块读取实时计入进度与速度——与真实下载同一进度管道，暂存齐备的重跑不再 0→100 闪过。
 
 ---
 
@@ -62,7 +63,7 @@ behavior setting (quit the app / close the window and dwell in the tray,
 with downloads and dependency installs kept running); resource quality
 tier selection; real-time byte-granular download progress with a speed
 readout; and the definitive fix for the Wuthering Waves krpdiff
-incremental-update chain. 1193 tests green (measured 2026-10-02).
+incremental-update chain. 1194 tests green (measured 2026-10-02).
 
 **Added — automatic hpatchz provisioning (no manual install for Wuthering Waves incremental updates)**
 
@@ -101,6 +102,7 @@ incremental-update chain. 1193 tests green (measured 2026-10-02).
 
 - Clicking "Apply pre-download / Update" on a partially applied install froze the whole UI for minutes (the re-entry check hashed every already-applied group's output with blocking MD5 - 73 GiB measured on the user's machine, on the UI thread). The apply chain now yields to the thread pool on entry, the re-entry group check and staging verification use streaming async MD5 (cancellable), and the verification stage shows a "Verifying" progress phase.
 - Groups whose diff sources are missing no longer fail outright: their outputs are resolved against the target version's full manifest and downloaded directly (size+MD5-verified, atomic backup replacement), so installs damaged by earlier failed attempts self-heal; unresolvable paths keep the "use the full update" guidance.
+- Rerunning a pre-download now streams the staging verification (size+MD5) reads into the same progress/speed pipeline as real downloads - a fully staged rerun no longer jumps from 0 to 100.
 
 ---
 
