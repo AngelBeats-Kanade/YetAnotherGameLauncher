@@ -93,7 +93,7 @@ public sealed class IncrementalUpdateService(
             var target = SafeJoin(staging, relativeTarget);
             current = displayName;
 
-            if (IsAlreadyStaged(target, size, md5))
+            if (await IsAlreadyStaged(target, size, md5, cancellationToken).ConfigureAwait(false))
             {
                 logger?.LogDebug("Staged file already complete, skipping download: {Target}", target);
                 done++;
@@ -134,8 +134,10 @@ public sealed class IncrementalUpdateService(
 
     /// <summary>暂存条目是否已完整就绪：存在 + size 匹配 + MD5 匹配（期望缺失的项跳过对应校验，
     /// 与 <see cref="HttpFileDownloader"/> 的 Verify 同语义）。拒读/占用按未就绪处理，
-    /// 交回下载路径由其折算可操作错误。</summary>
-    private static bool IsAlreadyStaged(string path, long size, string? md5)
+    /// 交回下载路径由其折算可操作错误。MD5 走流式异步哈希（2026-10-02 假死修复：全量重跑核验
+    /// 可达数十 GiB，不长期占用调用线程、可取消）。</summary>
+    private static async Task<bool> IsAlreadyStaged(
+        string path, long size, string? md5, CancellationToken cancellationToken)
     {
         try
         {
@@ -150,7 +152,9 @@ public sealed class IncrementalUpdateService(
             }
 
             return string.IsNullOrEmpty(md5)
-                || string.Equals(Hashing.Md5Hex(path), md5, StringComparison.OrdinalIgnoreCase);
+                || string.Equals(
+                    await Hashing.Md5HexAsync(path, cancellationToken).ConfigureAwait(false),
+                    md5, StringComparison.OrdinalIgnoreCase);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -187,6 +191,12 @@ public sealed class IncrementalUpdateService(
         IProgress<UpdateProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        // UI 线程让位（2026-10-02 真机假死实锤）：VM 命令在 UI 线程 await 本方法，若无先行让位，
+        // patchwork 清理/deleteFiles/组校验 MD5（重入时全部已应用组 dstFiles 可达数十 GiB）会同步
+        // 跑在 UI 线程直到首个真实 await——入口强制异步续体落线程池（ForceYielding 不捕获上下文；
+        // Task.Yield 不可用：YieldAwaitable 无 ConfigureAwait，会把续体贴回 UI 上下文）
+        await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
+
         var staging = PredownloadDir(installDir);
         var workDir = PatchWorkDir(installDir);
         FileUtilities.TryDeleteDirectory(workDir, logger);
@@ -199,13 +209,17 @@ public sealed class IncrementalUpdateService(
             var group = incrementalManifest.Groups[i];
             cancellationToken.ThrowIfCancellationRequested();
 
-            progress?.Report(new UpdateProgress(UpdatePhase.Patching, group.PatchSize * (total - i), 0, i, total, group.PatchFile));
+            // 重入校验先行报点（Verifying 阶段）：已应用组的 dstFiles 全量 MD5 可达分钟级，
+            // 期间 UI 必须有阶段反馈而非停留在旧状态
+            progress?.Report(new UpdateProgress(UpdatePhase.Verifying, group.PatchSize * (total - i), 0, i, total, group.PatchFile));
 
-            if (GroupAlreadyApplied(installDir, group))
+            if (await GroupAlreadyAppliedAsync(installDir, group, cancellationToken).ConfigureAwait(false))
             {
                 logger?.LogDebug("Target file of group {Patch} already present; skipped", group.PatchFile);
                 continue;
             }
+
+            progress?.Report(new UpdateProgress(UpdatePhase.Patching, group.PatchSize * (total - i), 0, i, total, group.PatchFile));
 
             var patchPath = SafeJoin(Path.Combine(staging, "patches"), group.PatchFile);
             if (!File.Exists(patchPath))
@@ -366,12 +380,24 @@ public sealed class IncrementalUpdateService(
         ReplaceWithBackup(installDir, group, newDir, logger);
     }
 
-    private static bool GroupAlreadyApplied(string installDir, PatchGroup group) =>
-        group.DstFiles.All(dst =>
+    /// <summary>组幂等检测：该组全部 dstFiles 过 size+MD5 校验即视为已应用（中断/失败后重入跳过）。
+    /// 异步流式 MD5（2026-10-02 假死修复）：重入时全部已应用组合计可达数十 GiB，同步 MD5 会长期
+    /// 占用调用线程且不可取消。</summary>
+    private static async Task<bool> GroupAlreadyAppliedAsync(
+        string installDir, PatchGroup group, CancellationToken cancellationToken)
+    {
+        foreach (var dst in group.DstFiles)
         {
             var target = ManifestVerifier.ResolveSafe(installDir, dst.Path);
-            return ManifestVerifier.CheckFile(target, dst, withMd5: true) == FileStatus.Ok;
-        });
+            if (await ManifestVerifier.CheckFileAsync(target, dst, withMd5: true, cancellationToken).ConfigureAwait(false)
+                != FileStatus.Ok)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     /// <summary>
     /// 带备份的安全替换：任一文件替换失败时回滚本组全部已替换文件。

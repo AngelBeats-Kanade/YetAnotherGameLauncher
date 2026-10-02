@@ -16,6 +16,18 @@ public static class Hashing
         return Convert.ToHexString(MD5.HashData(stream)).ToLowerInvariant();
     }
 
+    /// <summary>文件的 MD5（异步流式读取，小写 hex）：大文件校验不长期占用调用线程且可取消
+    ///（2026-10-02 假死修复：重入时全量已应用组 dstFiles 可达数十 GiB，同步 MD5 会冻结 UI 线程）。</summary>
+    public static async Task<string> Md5HexAsync(string filePath, CancellationToken cancellationToken = default)
+    {
+        // CA2007 误报：await using 声明的 DisposeAsync 续体由编译器生成，无法对其追加 ConfigureAwait。
+#pragma warning disable CA2007
+        await using var stream = File.OpenRead(filePath);
+#pragma warning restore CA2007
+        return Convert.ToHexStringLower(
+            await MD5.HashDataAsync(stream, cancellationToken).ConfigureAwait(false));
+    }
+
     /// <summary>文件的 SHA256（流式读取，小写 hex）；不整读内存，适合大安装包。</summary>
     public static async Task<string> Sha256HexAsync(string filePath, CancellationToken cancellationToken = default)
     {

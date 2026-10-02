@@ -290,6 +290,53 @@ public class IncrementalUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyAsync_HeavyWork_NeverCompletesSynchronously()
+    {
+        // UI 假死守卫（2026-10-02 真机实锤：重入时全部已应用组的 dstFiles 同步 MD5 ≈73GiB
+        // 跑在 UI 线程直到首个真 await）：入口让位 + 组校验异步哈希，组合不变量 = 重活不得在
+        // 调用线程同步跑完。全组已应用形态下同步完成（IsCompleted）即红。
+        var oldContent = "old-content"u8.ToArray();
+        var newContent = "new-content"u8.ToArray();
+        Directory.CreateDirectory(_tempDir.FilePath("data"));
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "file.dat"), newContent);
+        var group = PrepareGroup("g1.krpdiff", [("data/file.dat", oldContent)], [("data/file.dat", newContent)]);
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+
+        var task = CreateService().ApplyAsync(_tempDir.Path, manifest);
+
+        Assert.False(task.IsCompleted);
+        await task;
+        Assert.Empty(_applier.Calls);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_Progress_VerifyingBeforePatching()
+    {
+        // 重入进度反馈（假死修复的可见面）：组校验阶段先报 Verifying、实际应用才报 Patching——
+        // 重入扫描数十 GiB 期间 UI 有阶段文案而非停留在旧状态（红：现行首帧即 Patching）
+        var v1 = "v1"u8.ToArray();
+        var v2 = "v2"u8.ToArray();
+        var v3 = "v3"u8.ToArray();
+        Directory.CreateDirectory(_tempDir.FilePath("data"));
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "a.dat"), v2); // 组 0 已应用
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "b.dat"), v2); // 组 1 待应用
+        var group0 = PrepareGroup("g0.krpdiff", [("data/a.dat", v1)], [("data/a.dat", v2)]);
+        var group1 = PrepareGroup("g1.krpdiff", [("data/b.dat", v2)], [("data/b.dat", v3)]);
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group0, group1] };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+        var progress = new UpdateProgressCollector();
+
+        await CreateService().ApplyAsync(_tempDir.Path, manifest, progress);
+
+        var phases = progress.Frames.Select(f => f.Phase).ToList();
+        Assert.Equal(UpdatePhase.Verifying, phases[0]);
+        Assert.Contains(UpdatePhase.Patching, phases);
+        Assert.Equal(UpdatePhase.Done, phases[^1]);
+        Assert.Equal(v3, await File.ReadAllBytesAsync(_tempDir.FilePath("data", "b.dat")));
+    }
+
+    [Fact]
     public async Task ApplyAsync_PatchMissing_ThrowsWithGuidance()
     {
         var group = BuildGroup(

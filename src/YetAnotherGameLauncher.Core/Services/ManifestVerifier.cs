@@ -104,6 +104,45 @@ public static class ManifestVerifier
         }
     }
 
+    /// <summary><see cref="CheckFile"/> 的异步形态：MD5 段走流式异步哈希（大文件不长期占用调用
+    /// 线程、可取消，2026-10-02 假死修复）；判定语义（存在性 → 大小 → 可选 MD5、F18 TOCTOU 包裹、
+    /// F44 拒读分类）与同步版完全一致，细则见其注释，不在此复制。</summary>
+    public static async Task<FileStatus> CheckFileAsync(
+        string fullPath, ManifestFile file, bool withMd5, CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(fullPath))
+        {
+            return FileStatus.Missing;
+        }
+
+        try
+        {
+            FileRemovedBetweenCheckAndProbeForTests?.Invoke();
+
+            if (file.Size > 0 && new FileInfo(fullPath).Length != file.Size)
+            {
+                return FileStatus.SizeMismatch;
+            }
+
+            if (withMd5 && !string.IsNullOrEmpty(file.Md5) && !string.Equals(
+                    await Utilities.Hashing.Md5HexAsync(fullPath, cancellationToken).ConfigureAwait(false),
+                    file.Md5, StringComparison.OrdinalIgnoreCase))
+            {
+                return FileStatus.Md5Mismatch;
+            }
+
+            return FileStatus.Ok;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return FileStatus.Missing;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return FileStatus.Unreadable;
+        }
+    }
+
     private static ManifestVerificationResult Verify(
         string installDir, GameManifest manifest, bool withMd5, Action<int, int>? onFileChecked)
     {
