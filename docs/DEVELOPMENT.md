@@ -42,7 +42,8 @@ src/
                     DependencyInstaller + IDependencyInstaller（下载→解压→字体落位→注册表导入→完成标记五阶段编排；zip 防御解压复用 PackageInstallerService；安装前 builtin 链接预检修复）、
                     WinePrefixBuiltinRepair（Proton 升级悬空 builtin 链接的检测/重链：RepairDangling 存量迁移 + RepointTree 换版即时迁移，prune 同用）、
                     WinePrefixTarget/DependencyException 等模型
-    Utilities/      Hashing（MD5/SHA-256 hex）、Json（统一序列化选项）、FileUtilities（原子写入/只读目标容错/目录树尽力删除/启动日志唯一路径）
+    Utilities/      Hashing（MD5/SHA-256 hex）、Json（统一序列化选项）、FileUtilities（原子写入/只读目标容错/目录树尽力删除/启动日志唯一路径）、
+                    LaunchOptionsText（自定义启动选项文本 ↔ 字典互转：Steam 启动选项风格 shell 词法，严格/宽松/序列化三入口）
   YetAnotherGameLauncher.Channels.Kuro/         # 库洛渠道（鸣潮）
     KuroChannelApi（index.json/indexFile 解析、CDN 选择、URL 拼接）
     KuroUrlBuilder（含同文件的 KuroCdnSelector：CDN 节点优先级选择）、HpatchzApplier（HDiffPatch 目录模式；HpatchzApplierOptions 配置路径/超时）、HpatchzProvisioner（hpatchz 自动供给：PATH 无自备时下载社区验证构建 hpatchz.exe 到应用数据目录并 MD5 实测校验；Linux 经 wine 运行（独立 WINEPREFIX），Windows 原生直跑）

@@ -1,11 +1,14 @@
 using Xunit;
+using YetAnotherGameLauncher.Core.Utilities;
 using YetAnotherGameLauncher.ViewModels;
 
 namespace YetAnotherGameLauncher.AppTests;
 
 /// <summary>
-/// 启动设置卡环境变量解析边界（Phase 4b，2026-09-19，审计缺口 LaunchSettingsVM :559-633）：
-/// 宽松版（草稿合并用，跳过坏行）与严格版（保存校验用，报坏行）的切分规则逐一锁定。
+/// 启动设置卡「自定义启动选项」解析边界：宽松版（草稿合并用，跳过坏条目）与严格版（保存校验用，
+/// 报坏条目）共用 <see cref="LaunchOptionsText"/> 的 Steam 风格词法（空白分隔、引号包裹、反斜杠转义）。
+/// 2026-10-03 语义变更：旧「每行一条 KEY=VALUE、= 两侧容忍空格」→ shell 风格——未加引号的空格
+/// 一律是分隔符，含空格的值必须加引号。
 /// </summary>
 public class LaunchSettingsEnvParseTests
 {
@@ -17,14 +20,29 @@ public class LaunchSettingsEnvParseTests
     }
 
     [Fact]
-    public void Parse_TrimsKeysAndValues_LastDuplicateWins()
+    public void Parse_WhitespaceAroundEntries_LastDuplicateWins()
     {
         var parsed = LaunchSettingsViewModel.ParseEnvironmentOrEmpty(
-            "A=1\r\nB = two \nA=3\r\n");
+            "A=1\r\n  B=\"two\"  \nA=3\r\n");
 
         Assert.Equal(2, parsed.Count);
         Assert.Equal("3", parsed["A"]); // 重复键：后值覆盖（字典赋值语义）
         Assert.Equal("two", parsed["B"]);
+    }
+
+    [Fact]
+    public void Parse_SteamStyleSingleLine_ExtractsAllEntries()
+    {
+        // 2026-10-03 用户实际输入场景：单行空格分隔 + 引号值（旧解析器整行吞成一条）
+        var parsed = LaunchSettingsViewModel.ParseEnvironmentOrEmpty(
+            "DXVK_NVAPI_DRS_SETTINGS=\"NGX_DLSS_SR_OVERRIDE_RENDER_PRESET_SELECTION=13\""
+            + " PROTON_DXVK_LLASYNC=1 PROTON_ENABLE_WAYLAND=1 OBS_VKCAPTURE=1");
+
+        Assert.Equal(4, parsed.Count);
+        Assert.Equal("NGX_DLSS_SR_OVERRIDE_RENDER_PRESET_SELECTION=13", parsed["DXVK_NVAPI_DRS_SETTINGS"]);
+        Assert.Equal("1", parsed["PROTON_DXVK_LLASYNC"]);
+        Assert.Equal("1", parsed["PROTON_ENABLE_WAYLAND"]);
+        Assert.Equal("1", parsed["OBS_VKCAPTURE"]);
     }
 
     [Fact]
@@ -44,6 +62,25 @@ public class LaunchSettingsEnvParseTests
         var parsed = LaunchSettingsViewModel.ParseEnvironmentOrEmpty("URL=http://x?a=b&c=d");
 
         Assert.Equal("http://x?a=b&c=d", parsed["URL"]);
+    }
+
+    [Fact]
+    public void TryParse_QuotedValueWithSpaces_Valid()
+    {
+        var ok = LaunchSettingsViewModel.TryParseEnvironment("MAP=\"coast 11\"", out var parsed, out _);
+
+        Assert.True(ok);
+        Assert.Equal("coast 11", parsed["MAP"]);
+    }
+
+    [Fact]
+    public void TryParse_UnquotedSpaceInValue_ReportsTrailingTokenAsBad()
+    {
+        // 2026-10-03 语义变更钉：未加引号的值内空格不再吞进值，尾随裸 token 报错（提示用户加引号）
+        var ok = LaunchSettingsViewModel.TryParseEnvironment("MAP=coast 11", out _, out var badLine);
+
+        Assert.False(ok);
+        Assert.Equal("11", badLine);
     }
 
     [Fact]
@@ -76,15 +113,15 @@ public class LaunchSettingsEnvParseTests
 
         Assert.False(ok);
         Assert.Equal("BAD", badLine);
-        Assert.True(parsed.ContainsKey("OK")); // 逐行解析：坏行之前的行已进字典（保存侧整体弃用）
-        Assert.False(parsed.ContainsKey("KEY")); // 坏行即停：之后的内容不再解析
+        Assert.True(parsed.ContainsKey("OK")); // 逐条解析：坏条目之前的条目已进字典（保存侧整体弃用）
+        Assert.False(parsed.ContainsKey("KEY")); // 坏条目即停：之后的内容不再解析
     }
 
     [Fact]
     public void TryParse_BlankLinesAndWhitespaceAroundEntries_Tolerated()
     {
         var ok = LaunchSettingsViewModel.TryParseEnvironment(
-            "\r\n  LANG = zh_CN.UTF-8  \r\n\t\r\n", out var parsed, out _);
+            "\r\n  LANG=zh_CN.UTF-8  \r\n\t\r\n", out var parsed, out _);
 
         Assert.True(ok);
         Assert.Single(parsed);

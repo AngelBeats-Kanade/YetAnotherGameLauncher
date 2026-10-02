@@ -6,6 +6,7 @@ using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Services.Umu;
+using YetAnotherGameLauncher.Core.Utilities;
 using YetAnotherGameLauncher.Services;
 
 namespace YetAnotherGameLauncher.ViewModels;
@@ -16,8 +17,8 @@ namespace YetAnotherGameLauncher.ViewModels;
 /// （DW/GE/UMU-Proton，代号写入 PROTONPATH 并即时落盘，启动/组件准备只下载所选发行版）；
 /// 发行版旁可检查上游更新（有新版弹确认覆盖层，确认后更新并清理旧版本）。
 /// 环境变量分两层：托管键（推荐链生成的 GAMEID/UMU_ID/WINEPREFIX/PROTONPATH 等）
-/// 不进编辑框，由 VM 托管字典承载；编辑框只显示/编辑用户自定义变量（多行 KEY=VALUE，
-/// 解析容错，错误行给出行内容提示），保存时用户键覆盖同名托管键。
+/// 不进编辑框，由 VM 托管字典承载；编辑框只显示/编辑用户自定义变量（与 Steam 启动选项同格式：
+/// 空白分隔多条 KEY=VALUE、值可加引号，解析容错，坏条目给出原文提示），保存时用户键覆盖同名托管键。
 /// </summary>
 public partial class LaunchSettingsViewModel : ViewModelBase
 {
@@ -810,24 +811,10 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         RecomputeDirty();
     }
 
-    /// <summary>宽松解析环境文本为字典（跳过无 "=" 的行，不报错）；行级解析复用严格版，保证切分规则单一。
-    /// internal 供单测（经 InternalsVisibleTo）。</summary>
+    /// <summary>宽松解析启动选项文本为字典（坏条目静默跳过）；切分规则单一事实源在
+    /// <see cref="LaunchOptionsText"/>（Steam 启动选项风格词法）。internal 供单测（经 InternalsVisibleTo）。</summary>
     internal static Dictionary<string, string> ParseEnvironmentOrEmpty(string text)
-    {
-        var result = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var raw in text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
-        {
-            if (TryParseEnvironment(raw, out var single, out _))
-            {
-                foreach (var (key, value) in single)
-                {
-                    result[key] = value;
-                }
-            }
-        }
-
-        return result;
-    }
+        => LaunchOptionsText.ParseLenient(text);
 
     /// <summary>启动命令模板草稿（{exe} 为游戏可执行文件占位符）。</summary>
     [ObservableProperty]
@@ -837,8 +824,9 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     [ObservableProperty]
     private string _workingDirectory;
 
-    /// <summary>环境变量草稿——只承载用户自定义变量（多行 KEY=VALUE 文本）；托管键不进此文本，
-    /// 由 <see cref="_managedEnvironment"/> 承载，保存时合并（用户键优先）。</summary>
+    /// <summary>启动选项草稿——只承载用户自定义变量（与 Steam 启动选项同格式：空白分隔多条
+    /// KEY=VALUE，值可加引号）；托管键不进此文本，由 <see cref="_managedEnvironment"/> 承载，
+    /// 保存时合并（用户键优先）。</summary>
     [ObservableProperty]
     private string _environmentText;
 
@@ -1113,37 +1101,15 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         return diff;
     }
 
-    /// <summary>环境变量字典 → 多行 KEY=VALUE 文本（编辑框显示用）。</summary>
+    /// <summary>环境变量字典 → 启动选项文本（编辑框显示用）；规则单一事实源在 <see cref="LaunchOptionsText"/>。</summary>
     private static string SerializeEnvironment(Dictionary<string, string> environment)
-        => string.Join(Environment.NewLine, environment.Select(kv => $"{kv.Key}={kv.Value}"));
+        => LaunchOptionsText.Serialize(environment);
 
-    /// <summary>多行 KEY=VALUE 文本 → 字典；出错的行写入 badLine 返回 false（解析容错与保存校验共用）。
-    /// internal 供单测（经 InternalsVisibleTo）。</summary>
+    /// <summary>启动选项文本 → 字典（严格版，保存校验用）；坏条目原文写入 badLine 返回 false。
+    /// 切分规则单一事实源在 <see cref="LaunchOptionsText"/>。internal 供单测（经 InternalsVisibleTo）。</summary>
     internal static bool TryParseEnvironment(
         string text, out Dictionary<string, string> environment, out string badLine)
-    {
-        environment = [];
-        badLine = "";
-        foreach (var raw in text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
-        {
-            var line = raw.Trim();
-            if (line.Length == 0)
-            {
-                continue;
-            }
-
-            var sep = line.IndexOf('=');
-            if (sep <= 0)
-            {
-                badLine = line;
-                return false;
-            }
-
-            environment[line[..sep].Trim()] = line[(sep + 1)..].Trim();
-        }
-
-        return true;
-    }
+        => LaunchOptionsText.TryParse(text, out environment, out badLine);
 }
 
 /// <summary>启动方式选项（模式 + 已本地化文案）。</summary>

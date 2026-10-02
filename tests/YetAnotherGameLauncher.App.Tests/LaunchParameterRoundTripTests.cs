@@ -50,7 +50,7 @@ public class LaunchParameterRoundTripTests : IDisposable
         launchSettings.ExecutableDraft = exeRelative;
         launchSettings.CommandTemplate = "{exe} --full-screen -resolution 1920x1080";
         launchSettings.WorkingDirectory = "{installDir}/saves";
-        launchSettings.EnvironmentText = "MAP=coast 11\r\nPROTONPATH=DW-Proton";
+        launchSettings.EnvironmentText = "MAP=\"coast 11\"\r\nPROTONPATH=DW-Proton"; // 值含空格须加引号（2026-10-03 Steam 风格词法）
 
         await launchSettings.SaveCommand.ExecuteAsync(null);
         Assert.False(launchSettings.Save.Failed);
