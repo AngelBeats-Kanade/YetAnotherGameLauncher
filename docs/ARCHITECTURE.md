@@ -95,7 +95,14 @@ flowchart TD
   参考实现固定取 default 块、本实现取选中块（2026-09-29 真机两形态等值）。真机实证：预载条目的
   差分入口 baseUrl 是差分包目录（作资源前缀三节点全 404）；常规增量条目 baseUrl=zip/ 资源目录且
   清单无 fromFolder，回退链产出与旧实现一致。清单顶层 `deleteFiles`（废弃文件，2026-10-02 真机 6 条
-  旧 pak/sig）建模进 GameManifest，Apply 组循环前删除（残留会被 UE 挂载覆盖新文件、热更卡死）。
+  旧 pak/sig）建模进 GameManifest，Apply 在组循环与落位**之后**删除（官方清单存在 deleteFiles ∩ 组
+  srcFiles 交叉——3.6.1→3.7.0 group_37 的 4 个差分源同时在废弃清单，先删会让组差分永久不可行且不可
+  自愈，2026-10-02 真机 P1 实锤后修订；删除失败仍报错中止，重试安全）。差分源缺失时经 dstUrlResolver
+  解析缝直下该组产物自救（组级回退；GameUpdateService 懒取目标版本全量清单建 path→URL——官方
+  dstFiles 原始条目无 url 字段，但组 dst 路径被全量清单全覆盖且 {resourcesBasePath}/{dest} 直链实测
+  可下、md5 与增量条目一致，happy path 零额外请求）。Apply 链入口让位线程池、组校验与暂存核验走
+  异步流式 MD5（重入时全量已应用组 dstFiles 可达数十 GiB，同步哈希曾冻结 UI 线程——真机 73GiB
+  假死实锤，重入校验阶段报 Verifying 进度）。
   **hpatchz 自动供给（2026-10-02）**：补丁工具解析顺序 = 显式路径（HpatchzPath 含分隔符，只校验
   不供给）> PATH 自备（优先，永不被遮蔽，原生直跑）> `HpatchzProvisioner` 下载社区验证构建
   （鸣潮 krpdiff 与开源 HDiffPatch 全线构建不兼容：真机实证官方 v4.8.0/v5.1.3 的 Linux 与

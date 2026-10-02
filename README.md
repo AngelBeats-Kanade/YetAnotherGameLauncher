@@ -36,7 +36,7 @@
 - ⬇️ **全量下载 + 断点续传** — 官方清单逐文件同步（鸣潮）/ 压缩包整包解压（终末地），size+MD5 双校验；`.temp` 临时文件 + HTTP Range 续传，瞬态网络错误线性退避重试，下载限速可调
 - 📊 **字节级实时进度 + 下载速度** — 下载进度按字节实时推进（不再按文件跳变），EMA 平滑显示实时下载速度；预载/更新失败重跑只补缺失部分（完好暂存按 size+MD5 核验跳过、断点续传）；HTTP 4xx 永久错误不重试
 - 🩹 **增量更新 + 预下载** — 鸣潮走官方 krpdiff 差分包，调用原生 `hpatchz`（HDiffPatch）合成，`.yagl-bak` 备份回滚；两段式预更新先暂存后一键应用；包式渠道检测到本机已装游戏可零下载直接登记
-- 🎚️ **资源包档位（鸣潮）** — 游戏设置页选择 HD / SD / UHD 资源包档位，启动时以官方 `-krqlv` 参数传给游戏；默认跟随游戏内设置
+- 🎚️ **资源包档位（鸣潮）** — 游戏设置页选择 HD / SD / UHD 资源包档位，启动时以官方 `-krqlv` 参数传给游戏；默认跟随游戏内设置（注：官方增量更新清单实测仅含 HD 档资源，档位当前只影响启动参数）
 - 🧰 **校验修复** — 按清单事后校验（MD5），自动修复缺失/损坏文件，清理游离文件（保留 `Saved/` 存档）
 - 🖥️ **多服务器一键切换** — 鸣潮 国服/B服/国际服、终末地 国服/国际服/B服，全部配置驱动
 - 🎞️ **海报式详情页 + 背景视频** — 官方当期海报/视频全幅铺满主区域，FFmpeg 硬解（Windows D3D11VA / Linux VAAPI→NVDEC）+ 智能循环点无缝续播；切游戏、切设置/关于再回来，视频都暂停保活、即时续播（不重启、无静态图过渡）
@@ -186,7 +186,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（1181 个，2026-10-02 实测）
+### 运行测试（1190 个，2026-10-02 实测）
 
 ```bash
 # 4 个测试工程分别运行编译产物（Windows 亦可直接跑 .exe；本机 dotnet test 可能发现 0 个测试）：
@@ -257,6 +257,7 @@ Linux 上生成时会顺带把默认 `{exe}` 模板升级为社区推荐链
 | 首次启动想重新生成默认配置 | 删除 `~/.config/yagl/games.json`（或 `YAGL_CONFIG` 指向的文件）后重启启动器即可 |
 | 提示"无法连接服务器" | 检查网络/代理；鸣潮 CDN 在国内网络环境更稳定 |
 | 鸣潮增量更新失败，提示 hpatchz | 自动下载需要网络与 wine（系统 wine 或已装 Proton 自带）；也可手动安装原生 [HDiffPatch](https://github.com/sisong/HDiffPatch/releases) 构建放进 PATH |
+| 选了 UHD/SD 档但增量更新下载的是 HD 资源 | 官方增量协议实测仅含 HD 档（SD/UHD 不经 CDN 清单下发，2026-10-02 端点实测）；档位当前只作用于启动参数 `-krqlv` |
 | 预下载按钮不出现 | 官方未开放预下载窗口（鸣潮 `predownload.config` 不存在 / 终末地无 `patch` 节点） |
 | 终末地版本/下载报错 | GRYPHLINE 协议无官方文档，官方启动器更新后字段可能变化，欢迎提 issue |
 | Linux 启动失败 | 启动失败会弹出错误卡：原生 umu 组件下载失败可重试或改选本机已装 Proton；也可"打开日志目录"查看 `launch-*.log`，或到游戏设置页检查命令模板与运行时。Windows 直接 `{exe}` 即可 |

@@ -7,7 +7,7 @@
 
 0.1.2 之后的功能版本：系统托盘驻留 + 关闭按钮行为设置（退出应用 / 关闭窗口驻留托盘，
 下载与依赖安装后台继续）；资源包档位、实时下载进度与速度；鸣潮 krpdiff 增量更新链
-终局修复。1181 个测试全绿（2026-10-02 实测）。
+终局修复。1190 个测试全绿（2026-10-02 实测）。
 
 ### 新增
 
@@ -45,8 +45,13 @@
 
 - 上项前缀修复仍会 404 的真根因：官方增量清单的 `resource` 列表同时登记直下文件与 krpdiff 差分文件（后者与 `groupInfos` 一一同名），krpdiff 被误当直下文件套上 zip/ 前缀——真机实测 38/38 全 404（用户报障的 404 URL 即此形态）；现 krpdiff 只经差分组表达（URL 用差分入口 baseUrl，实测全 206），并消灭了同文件下载两遍、应用时被搬进游戏目录两个连带缺陷。
 - 差分组的 size/MD5 此前恒空（官方组层不带此二键）——现从 `resource` 同名条目回填，krpdiff 下载恢复 MD5 校验、进度总量不再漏算。
-- 官方清单点名的废弃文件（`deleteFiles`，残留会被 UE 挂载覆盖新文件、热更卡死）此前被静默忽略——现应用更新前按清单删除（失败即中止且不动任何游戏文件，可安全重试）。
+- 官方清单点名的废弃文件（`deleteFiles`，残留会被 UE 挂载覆盖新文件、热更卡死）此前被静默忽略——现应用更新时按清单删除，且在差分组与落位**之后**执行（官方清单存在废弃文件同时是组差分源的交叉，先删会让组差分永久失败且不可自愈）；删除失败即中止，重试安全。
 - HTTP 404 等永久错误（4xx，除 408/429）不再按网络瞬态重试三次——单次终止并在错误信息携带状态码。
+
+**应用预下载假死与增量更新自愈（2026-10-02）**
+
+- 点「应用预下载 / 更新」重入已部分应用的安装时 UI 整体假死数分钟（重入校验对全部已应用组产物做同步 MD5，真机实测合计 73GiB 跑在 UI 线程）——现应用链入口让位线程池，组校验与暂存核验走异步流式 MD5（可取消），重入校验阶段显示「校验中」进度。
+- 差分源缺失的组不再直接失败：按目标版本全量清单解析该组产物直链后直下自救（size+MD5 校验 + 备份原子替换），被此前失败尝试损坏的安装可自愈；查无直链时保留「全量更新」指引。
 
 ---
 
@@ -57,7 +62,7 @@ behavior setting (quit the app / close the window and dwell in the tray,
 with downloads and dependency installs kept running); resource quality
 tier selection; real-time byte-granular download progress with a speed
 readout; and the definitive fix for the Wuthering Waves krpdiff
-incremental-update chain. 1181 tests green (measured 2026-10-02).
+incremental-update chain. 1190 tests green (measured 2026-10-02).
 
 **Added — automatic hpatchz provisioning (no manual install for Wuthering Waves incremental updates)**
 
@@ -89,8 +94,13 @@ incremental-update chain. 1181 tests green (measured 2026-10-02).
 
 - The real root cause behind the prefix fix above still 404-ing: the official incremental manifest's `resource` list registers both direct files and krpdiff patch files (the latter one-to-one with `groupInfos`), and krpdiff entries were mistakenly treated as direct files with the zip/ prefix — 38/38 URLs 404 on the live CDN (exactly the user-reported 404 URL). krpdiff is now expressed solely through patch groups (URL from the patch-entry baseUrl, all 206 when measured), which also eliminates downloading each patch twice and moving it into the game directory at apply time.
 - Patch-group size/MD5 were always empty (the official group entries carry neither) — now backfilled from the same-name `resource` entry, restoring MD5 verification for krpdiff downloads and correct progress totals.
-- Obsolete files named by the manifest (`deleteFiles` — leftovers get mounted by UE over new files and stall hot-updates) were silently ignored — they are now deleted before applying the update (a failed delete aborts before any game file is touched, leaving a clean retryable state).
+- Obsolete files named by the manifest (`deleteFiles` — leftovers get mounted by UE over new files and stall hot-updates) were silently ignored — they are now deleted during the update, **after** the patch groups and staged-file placement (the official manifest has obsolete files that double as diff sources for later groups; deleting them first makes those groups permanently fail); a failed delete still aborts, safely retryable.
 - Permanent HTTP errors (4xx other than 408/429) no longer retry three times as if transient — a single attempt terminates with the status code in the message.
+
+**Fixed — apply-predownload UI freeze & incremental update self-healing (2026-10-02)**
+
+- Clicking "Apply pre-download / Update" on a partially applied install froze the whole UI for minutes (the re-entry check hashed every already-applied group's output with blocking MD5 - 73 GiB measured on the user's machine, on the UI thread). The apply chain now yields to the thread pool on entry, the re-entry group check and staging verification use streaming async MD5 (cancellable), and the verification stage shows a "Verifying" progress phase.
+- Groups whose diff sources are missing no longer fail outright: their outputs are resolved against the target version's full manifest and downloaded directly (size+MD5-verified, atomic backup replacement), so installs damaged by earlier failed attempts self-heal; unresolvable paths keep the "use the full update" guidance.
 
 ---
 

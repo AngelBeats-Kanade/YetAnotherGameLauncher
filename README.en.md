@@ -39,7 +39,7 @@ Currently supported games:
 - ⬇️ **Full download + resume** — Per-file manifest sync (Wuthering Waves) / archive extraction (Endfield) with size+MD5 verification; `.temp` files + HTTP Range resume; linear-backoff retries for transient network errors; adjustable download speed limit
 - 📊 **Real-time byte progress + speed** — Download progress advances per byte (no more per-file jumps) with an EMA-smoothed speed readout; failed pre-downloads/updates resume by re-verifying intact staged files (size+MD5 skip, Range resume); permanent HTTP 4xx errors fail fast without retries
 - 🩹 **Incremental updates + pre-download** — Wuthering Waves uses official krpdiff patch packages applied via native `hpatchz` (HDiffPatch) with `.yagl-bak` backup rollback; two-phase pre-download (stage first, apply when official servers open); package-based channels can register an already-installed game with zero downloads
-- 🎚️ **Resource quality tier (Wuthering Waves)** — Pick HD / SD / UHD in game settings; passed to the game as the official `-krqlv` launch argument; defaults to following in-game settings
+- 🎚️ **Resource quality tier (Wuthering Waves)** — Pick HD / SD / UHD in game settings; passed to the game as the official `-krqlv` launch argument; defaults to following in-game settings (note: the official incremental-update manifest ships HD-tier resources only - the tier currently affects the launch argument only)
 - 🧰 **Verify & repair** — Post-install manifest verification (MD5) that automatically repairs missing/corrupted files and cleans orphaned files (keeping `Saved/` game saves)
 - 🖥️ **One-click server switching** — Wuthering Waves CN/Bilibili/Global, Endfield CN/Global/Bilibili, all configuration-driven
 - 🎞️ **Poster-style detail page + video backdrop** — Official artwork/video fills the main area; FFmpeg hardware decoding (D3D11VA on Windows / VAAPI→NVDEC on Linux) with seamless loop points; switching games or pages keeps the video alive (paused, instantly resumed — no restart, no poster flash)
@@ -204,7 +204,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### Running tests (1181 tests, measured 2026-10-02)
+### Running tests (1190 tests, measured 2026-10-02)
 
 ```bash
 # Run the 4 test projects' compiled binaries directly (on Windows you can run the .exe;
@@ -277,7 +277,8 @@ reports the result. For the full field reference and an "add a new game" tutoria
 | The extracted binary does nothing when double-clicked on Linux | Run `./YetAnotherGameLauncher` from a terminal in the extracted folder; if the execute bit is missing run `chmod +x YetAnotherGameLauncher` first |
 | Want to regenerate the default config | Delete `~/.config/yagl/games.json` (or the file `YAGL_CONFIG` points to) and restart the launcher |
 | "Cannot connect to server" | Check network/proxy; the Wuthering Waves CDN is more stable inside mainland China |
-| Wuthering Waves incremental update fails mentioning hpatchz | Automatic download is unavailable offline or on non-x86_64 machines: install [HDiffPatch](https://github.com/sisong/HDiffPatch/releases) manually and put `hpatchz` on PATH |
+| Wuthering Waves incremental update fails mentioning hpatchz | Automatic download needs network and wine (system wine, or the one bundled with an installed Proton); alternatively install a native [HDiffPatch](https://github.com/sisong/HDiffPatch/releases) build and put `hpatchz` on PATH |
+| Picked UHD/SD tier but the incremental update downloads HD resources | The official incremental protocol ships HD-tier resources only (SD/UHD are not distributed via the CDN manifest, measured 2026-10-02); the tier currently affects the `-krqlv` launch argument only |
 | Pre-download button missing | The official pre-download window is not open (Wuthering Waves `predownload.config` missing / Endfield has no `patch` node) |
 | Endfield version/download errors | The GRYPHLINE protocol is undocumented and fields may change when the official launcher updates — issues welcome |
 | Launch fails on Linux | A themed error card appears: retry umu component downloads or pick a locally installed Proton; use "open log folder" to inspect `launch-*.log`, or check the command template and runtime in the game settings page. On Windows a direct `{exe}` works |

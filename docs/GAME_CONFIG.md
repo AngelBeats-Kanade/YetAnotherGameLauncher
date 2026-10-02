@@ -72,7 +72,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `useWayland` | bool | `false` | 注入 `PROTON_USE_WAYLAND=1` 启用 Proton 原生 Wayland 驱动（绕过 XWayland）。仅 Linux Proton 启动链；DW/GE/UMU-Proton 均识别（DW 另接受 PROTON_ENABLE_WAYLAND 别名）。设置页「启动选项 → 使用 Wayland」 |
 | `upgradeDlss` | bool | `false` | 注入 `PROTON_DLSS_UPGRADE=1`（连带 `PROTON_ENABLE_NVAPI=1`）：启动时由 protonfixes 把游戏内 DLSS 换成 Proton 内置新版。仅 NVIDIA 显卡生效。设置页「启动选项 → 升级 DLSS 模型」 |
 | `enableProtonLog` | bool | `false` | 注入 `PROTON_LOG=1` + `PROTON_LOG_DIR={应用日志目录}`，记录 Proton 运行日志。设置页「启动选项 → 打印 Proton 日志」 |
-| `resourceQualityTier` | string | | 鸣潮资源包档位：`hd` / `sd` / `uhd` 之一（白名单外/大写拒收），启动时以 `-krqlv=<tier>` 命令行参数传给游戏（官方启动器同款参数，两条启动链均生效）；留空 = 跟随游戏内设置、不追加参数。非鸣潮游戏忽略。设置页「资源包档位」下拉（鸣潮专属显示，2026-10-02 增） |
+| `resourceQualityTier` | string | | 鸣潮资源包档位：`hd` / `sd` / `uhd` 之一（白名单外/大写拒收），启动时以 `-krqlv=<tier>` 命令行参数传给游戏（官方启动器同款参数，两条启动链均生效）；留空 = 跟随游戏内设置、不追加参数。非鸣潮游戏忽略。注意：档位当前只作用于启动参数——官方增量/全量清单实测仅含 HD 档资源（2026-10-02 端点实测，SD/UHD 不经 CDN 清单下发）。设置页「资源包档位」下拉（鸣潮专属显示，2026-10-02 增） |
 
 可用占位符：
 
