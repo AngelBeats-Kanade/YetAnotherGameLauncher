@@ -126,7 +126,7 @@ sequenceDiagram
     U->>VM: 点击"启动"
     VM->>LS: LaunchAsync(game, installDir, exe)
     LS->>LS: 预检：主程序存在
-    LS->>LS: 展开模板：{exe} {installDir}<br/>工作目录、环境变量
+    LS->>LS: 展开模板：{exe} {installDir}<br/>工作目录、环境变量、游戏参数
     LS->>LS: 预检：运行时存在且可执行<br/>（缺执行位自动 chmod +x）<br/>创建 WINEPREFIX/STEAM_COMPAT 目录
     LS->>PR: RunAsync(spec，WaitForExit=false，<br/>OutputLogPath=启动日志)
     PR-->>LS: 进程已启动（即启即走，立即返回）
@@ -185,7 +185,8 @@ UMU_ID 由 `launch.umuId` 覆盖（对齐 umu 数据库规范 ID：鸣潮 `umu-3
    `STEAM_COMPAT_LIBRARY_PATHS` = 安装目录——上游按 /proc/mounts 探测生成，
    这里直接指向安装目录达到同一 gamedrive 挂载意图）
 5. 合并配置环境变量（`environment` + 功能开关）后经
-   `{runtime}/_v2-entry-point --verb=… -- {proton}/proton <verb> {exe}` 启动（`IProcessRunner`，即启即走）
+   `{runtime}/_v2-entry-point --verb=… -- {proton}/proton <verb> {exe} [游戏参数…]` 启动
+   （`IProcessRunner`，即启即走）
 
 **功能开关 → 环境变量**的映射单一事实源是 `CompatTools.FeatureEnvironment`：
 `useWayland` → `PROTON_USE_WAYLAND=1`（DW 同时接受 PROTON_ENABLE_WAYLAND 别名，同一 compat 选项）；
@@ -196,6 +197,13 @@ UMU_ID 由 `launch.umuId` 覆盖（对齐 umu 数据库规范 ID：鸣潮 `umu-3
 （经 `extraEnvironment`）。原生链合并时 `UMU_ID`/`GAMEID` 在 `launch.umuId` 显式设置时不被
 配置 env 反超（首运托管的 `umu-{游戏id}` 残留曾使 umuId 覆盖静默失效）；`PROTONPATH`
 始终不反超（配置存代号、env 已解析为绝对路径）。
+
+**自定义启动选项 → 启动面**按 Steam 启动选项语义解释（2026-10-03，字段与填写规则见 GAME_CONFIG.md
+`launch.environment` / `launch.arguments`）：`KEY=VALUE` 条目注入子进程环境块（等价于 Steam 里写在
+`%command%` 之前的区域，末尾占位符自动补全）；显式 `%command%` 之后的 token 作为游戏命令行参数，
+两条链同序追加在游戏 exe 之后、启动器生成的 `-krqlv` 档位参数之前（模板直启链拼进命令串经
+`SplitCommand` 引号感知拆分，原生 umu 链经 `BuildEntryCommand` argv 尾部）。词法与切分单一事实源 =
+`LaunchOptionsText`。
 
 外部 `umu-run` zipapp 路径（`UmuLauncherInstaller`）已整体移除；存量模板经 schemaVersion 5 迁移转入原生链。
 Wine prefix 统一在 `{数据目录}/yagl/prefixes/<游戏id>`（`STEAM_COMPAT_DATA_PATH` 同址），

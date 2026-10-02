@@ -144,7 +144,7 @@ Enter via the **gear** button at the bottom of the detail page; "Back to game" r
   - **Proton flavor** (Linux umu mode): DW-Proton (default) / GE-Proton / UMU-Proton — selection is saved instantly
   - **Check/download compat components** and **check for updates** (Linux umu mode): pre-download or upgrade Proton manually
   - **Feature toggles** (Linux only): three toggles — **Use Wayland** (Proton native Wayland driver), **Upgrade DLSS model** (NVIDIA), **Print Proton log** — persisted with "Save Launch Options"
-  - **Custom launch options** (all platforms): same format as Steam launch options — space-separated `KEY=VALUE` entries, values containing spaces are quoted, e.g. `DXVK_NVAPI_DRS_SETTINGS="NGX_DLSS_SR_OVERRIDE_RENDER_PRESET_SELECTION=13" PROTON_DXVK_LLASYNC=1 OBS_VKCAPTURE=1`; saved entries are injected as environment variables into the launch process; values support the `{exe}` / `{installDir}` placeholders. The box holds **user-defined** variables only and starts
+  - **Custom launch options** (all platforms): same format as Steam launch options — space-separated `KEY=VALUE` entries, values containing spaces are quoted, e.g. `DXVK_NVAPI_DRS_SETTINGS="NGX_DLSS_SR_OVERRIDE_RENDER_PRESET_SELECTION=13" PROTON_DXVK_LLASYNC=1 OBS_VKCAPTURE=1`; saved entries are injected as environment variables into the launch process (the trailing `%command%` is added automatically — no need to type it); write `%command%` explicitly to append game command-line arguments after the game executable (e.g. `%command% -dx11`); values and arguments support the `{exe}` / `{installDir}` placeholders. The box holds **user-defined** variables only and starts
     empty (built-in launch variables are injected automatically, no need to write them by hand); hover the info icon
     next to the label for the same syntax rules
 
@@ -204,7 +204,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### Running tests (1196 tests, measured 2026-10-02)
+### Running tests (1233 tests, measured 2026-10-03)
 
 ```bash
 # Run the 4 test projects' compiled binaries directly (on Windows you can run the .exe;

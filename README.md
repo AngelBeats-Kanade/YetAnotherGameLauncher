@@ -133,7 +133,7 @@
   - **Proton 发行版**（Linux 的 umu 模式显示）：DW-Proton（默认）/ GE-Proton / UMU-Proton，选择即保存
   - **检查/下载兼容组件**、**检查更新**（Linux 的 umu 模式）：手动预下载或升级 Proton
   - **功能开关**（仅 Linux 显示）：**使用 Wayland**（Proton 原生 Wayland 驱动）、**升级 DLSS 模型**（NVIDIA）、**打印 Proton 日志**三个开关，随「保存启动设置」落盘
-  - **自定义启动选项**（全平台）：与 Steam 启动选项同格式——空格分隔多条 `KEY=VALUE`，值含空格用引号包裹，如 `DXVK_NVAPI_DRS_SETTINGS="NGX_DLSS_SR_OVERRIDE_RENDER_PRESET_SELECTION=13" PROTON_DXVK_LLASYNC=1 OBS_VKCAPTURE=1`，保存后作为环境变量注入启动进程；值支持 `{exe}`、`{installDir}` 占位符。框内只放**用户自定义**变量、默认留空（内置启动变量自动注入，无需手写）；标签旁 ⓘ 图标悬停可看同款填写规则
+  - **自定义启动选项**（全平台）：与 Steam 启动选项同格式——空格分隔多条 `KEY=VALUE`，值含空格用引号包裹，如 `DXVK_NVAPI_DRS_SETTINGS="NGX_DLSS_SR_OVERRIDE_RENDER_PRESET_SELECTION=13" PROTON_DXVK_LLASYNC=1 OBS_VKCAPTURE=1`，保存后作为环境变量注入启动进程（末尾的 `%command%` 自动补全，无需手写）；显式写一行 `%command%` 时，其后的内容作为游戏命令行参数追加在游戏程序之后（如 `%command% -dx11`）；值与参数支持 `{exe}`、`{installDir}` 占位符。框内只放**用户自定义**变量、默认留空（内置启动变量自动注入，无需手写）；标签旁 ⓘ 图标悬停可看同款填写规则
 
 ![Linux 启动设置](docs/images/screenshot-launch-settings-linux.png)
 
@@ -186,7 +186,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（1196 个，2026-10-02 实测）
+### 运行测试（1233 个，2026-10-03 实测）
 
 ```bash
 # 4 个测试工程分别运行编译产物（Windows 亦可直接跑 .exe；本机 dotnet test 可能发现 0 个测试）：

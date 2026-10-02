@@ -67,7 +67,8 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 |---|---|---|---|
 | `commandTemplate` | string | `"{exe}"` | 启动命令模板；含空格的路径请加引号，如 `wine "{exe}"` |
 | `workingDirectory` | string | `"{installDir}"` | 工作目录模板 |
-| `environment` | object | `{}` | 附加环境变量（值支持占位符），如 `{"WINEPREFIX": "~/prefix"}`。设置页「自定义启动选项」框以 Steam 启动选项风格文本编辑这里**用户自定义**的键（空白分隔多条 `KEY=VALUE`，值含空格用引号包裹，如 `DXVK_NVAPI_DRS_SETTINGS="…" PROTON_LOG=1`）；JSON 仍是 object 字典、键名不变，旧配置零迁移。推荐链生成的键（GAMEID/UMU_ID/WINEPREFIX/PROTONPATH/STEAM_COMPAT_* 等）由启动器托管、不在框内显示，保存时用户键与托管键合并、**同名时用户键优先** |
+| `environment` | object | `{}` | 附加环境变量（值支持占位符），如 `{"WINEPREFIX": "~/prefix"}`。设置页「自定义启动选项」框以 Steam 启动选项风格文本编辑这里**用户自定义**的键：占位符 `%command%` 之前的区域，空白分隔多条 `KEY=VALUE`、值含空格用引号包裹（如 `DXVK_NVAPI_DRS_SETTINGS="…" PROTON_LOG=1`），末尾的 `%command%` 由启动器自动补全、无需手写；JSON 仍是 object 字典、键名不变，旧配置零迁移。推荐链生成的键（GAMEID/UMU_ID/WINEPREFIX/PROTONPATH/STEAM_COMPAT_* 等）由启动器托管、不在框内显示，保存时用户键与托管键合并、**同名时用户键优先** |
+| `arguments` | string[] | | 自定义启动选项中显式 `%command%` 之后的游戏命令行参数（已去引号的 token 列表），启动时按序追加在游戏可执行文件之后、`-krqlv` 档位参数之前，两条启动链均生效；token 支持 `{exe}`/`{installDir}` 占位符。留空/缺省 = 不追加；框内未写 `%command%` 时等价于自动补在末尾（纯环境变量语义），仅在需要给游戏追加参数时才需显式写出，如 `%command% -dx11` |
 | `umuId` | string | | umu 启动用的 UMU_ID 覆盖（形如 `umu-3513350`，对齐 [umu 数据库](https://github.com/Open-Wine-Components/umu-database)规范 ID）；留空按 `umu-{游戏id}` 生成。仅影响 GAMEID/UMU_ID，prefix 路径不变。显式设置时为 UMU_ID/GAMEID 的权威值（`environment` 里的同名残留不会反超） |
 | `useWayland` | bool | `false` | 注入 `PROTON_USE_WAYLAND=1` 启用 Proton 原生 Wayland 驱动（绕过 XWayland）。仅 Linux Proton 启动链；DW/GE/UMU-Proton 均识别（DW 另接受 PROTON_ENABLE_WAYLAND 别名）。设置页「功能开关 → 使用 Wayland」 |
 | `upgradeDlss` | bool | `false` | 注入 `PROTON_DLSS_UPGRADE=1`（连带 `PROTON_ENABLE_NVAPI=1`）：启动时由 protonfixes 把游戏内 DLSS 换成 Proton 内置新版。仅 NVIDIA 显卡生效。设置页「功能开关 → 升级 DLSS 模型」 |
