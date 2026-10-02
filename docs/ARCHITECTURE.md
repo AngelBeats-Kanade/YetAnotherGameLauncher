@@ -184,10 +184,10 @@ UMU_ID 由 `launch.umuId` 覆盖（对齐 umu 数据库规范 ID：鸣潮 `umu-3
    配置里的 PROTONPATH 代号不覆盖已解析的绝对路径；
    `STEAM_COMPAT_LIBRARY_PATHS` = 安装目录——上游按 /proc/mounts 探测生成，
    这里直接指向安装目录达到同一 gamedrive 挂载意图）
-5. 合并配置环境变量（`environment` + 启动选项开关）后经
+5. 合并配置环境变量（`environment` + 功能开关）后经
    `{runtime}/_v2-entry-point --verb=… -- {proton}/proton <verb> {exe}` 启动（`IProcessRunner`，即启即走）
 
-**启动选项开关 → 环境变量**的映射单一事实源是 `CompatTools.FeatureEnvironment`：
+**功能开关 → 环境变量**的映射单一事实源是 `CompatTools.FeatureEnvironment`：
 `useWayland` → `PROTON_USE_WAYLAND=1`（DW 同时接受 PROTON_ENABLE_WAYLAND 别名，同一 compat 选项）；
 `upgradeDlss` → `PROTON_DLSS_UPGRADE=1` + `PROTON_ENABLE_NVAPI=1`（DLSS 依赖 NVAPI；由 protonfixes
 在启动时替换游戏内 nvngx_dlss.dll，仅 NVIDIA 生效）；`enableProtonLog` → `PROTON_LOG=1` +

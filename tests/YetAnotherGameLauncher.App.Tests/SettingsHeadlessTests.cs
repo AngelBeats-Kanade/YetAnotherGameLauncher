@@ -167,13 +167,13 @@ public class SettingsHeadlessTests : IDisposable
         var persisted = DeserializeConfig();
         Assert.Contains(persisted.Games, g =>
             g.Launch.Environment.TryGetValue("YAGL_UI_TEST_MARKER", out var value) && value == "1");
-        // 实际变更落盘后弹轻提示：新增变量键按 UI 词汇提示为"环境变量"
+        // 实际变更落盘后弹轻提示：新增变量键按 UI 词汇提示为"自定义启动选项"
         for (var i = 0; i < 100 && _ctx.Vm.Toasts.Count == 0; i++)
         {
             await Task.Delay(20);
         }
         var toast = Assert.Single(_ctx.Vm.Toasts);
-        Assert.Equal("已更新：环境变量", toast.Message);
+        Assert.Equal("已更新：自定义启动选项", toast.Message);
     }
 
     /// <summary>

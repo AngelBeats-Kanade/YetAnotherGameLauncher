@@ -151,4 +151,38 @@ public class LaunchOptionsHeadlessTests : IDisposable
 
         Assert.True(task.IsCompleted, "异步步骤 30s 内未完成（RunJobs 泵停摆）");
     }
+
+    [Fact]
+    public async Task EnvironmentHelpIcon_PresentWithLocalizedTooltip()
+    {
+        // 自定义启动选项标签旁的「ⓘ」帮助图标（2026-10-03）：图标可见且 ToolTip 绑定填写规则文案。
+        // ToolTip.Tip 绑定在可视树节点上，无需模拟悬停即可断言内容（Dispatch 三规则②）。
+        await _ctx.Vm.InitializeAsync();
+
+        var iconFound = false;
+        string? tipText = null;
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm, Width = 1120, Height = 720 };
+            window.Show();
+            window.UpdateLayout();
+
+            _ctx.Vm.ShowGameSettingsCommand.Execute(null);
+            window.UpdateLayout();
+
+            var icon = window.GetVisualDescendants()
+                .OfType<Avalonia.Controls.Shapes.Path>()
+                .FirstOrDefault(p => p.Name == "EnvironmentHelpIcon");
+            iconFound = icon is not null && icon.IsEffectivelyVisible;
+            if (icon is not null)
+            {
+                tipText = ToolTip.GetTip(icon) as string;
+            }
+
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.True(iconFound, "自定义启动选项标签旁应显示帮助图标");
+        Assert.Equal(_ctx.Vm.Loc["launch_environmentTooltip"], tipText);
+    }
 }

@@ -2,7 +2,7 @@
 
 YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零硬编码**。
 本文件是配置字段的权威参考；**绝大多数字段无需手改**——全局 `settings` 与每个游戏的
-常用配置（安装目录/启动方式/Proton 发行版/命令模板/环境变量等）都能在
+常用配置（安装目录/启动方式/Proton 发行版/命令模板/自定义启动选项等）都能在
 启动器界面完成（设置页与游戏设置页，见 README「界面操作指南」，改动写回本文件；
 服务器下拉仅当前会话生效、不落盘），手动编辑 JSON 属于高级用法（添加新游戏、微调渠道参数等）。
 配置文件位置：
@@ -67,11 +67,11 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 |---|---|---|---|
 | `commandTemplate` | string | `"{exe}"` | 启动命令模板；含空格的路径请加引号，如 `wine "{exe}"` |
 | `workingDirectory` | string | `"{installDir}"` | 工作目录模板 |
-| `environment` | object | `{}` | 附加环境变量（值支持占位符），如 `{"WINEPREFIX": "~/prefix"}`。设置页编辑框只显示/编辑这里**用户自定义**的键；推荐链生成的键（GAMEID/UMU_ID/WINEPREFIX/PROTONPATH/STEAM_COMPAT_* 等）由启动器托管、不在框内显示，保存时用户键与托管键合并、**同名时用户键优先** |
+| `environment` | object | `{}` | 附加环境变量（值支持占位符），如 `{"WINEPREFIX": "~/prefix"}`。设置页「自定义启动选项」框以 Steam 启动选项风格文本编辑这里**用户自定义**的键（空白分隔多条 `KEY=VALUE`，值含空格用引号包裹，如 `DXVK_NVAPI_DRS_SETTINGS="…" PROTON_LOG=1`）；JSON 仍是 object 字典、键名不变，旧配置零迁移。推荐链生成的键（GAMEID/UMU_ID/WINEPREFIX/PROTONPATH/STEAM_COMPAT_* 等）由启动器托管、不在框内显示，保存时用户键与托管键合并、**同名时用户键优先** |
 | `umuId` | string | | umu 启动用的 UMU_ID 覆盖（形如 `umu-3513350`，对齐 [umu 数据库](https://github.com/Open-Wine-Components/umu-database)规范 ID）；留空按 `umu-{游戏id}` 生成。仅影响 GAMEID/UMU_ID，prefix 路径不变。显式设置时为 UMU_ID/GAMEID 的权威值（`environment` 里的同名残留不会反超） |
-| `useWayland` | bool | `false` | 注入 `PROTON_USE_WAYLAND=1` 启用 Proton 原生 Wayland 驱动（绕过 XWayland）。仅 Linux Proton 启动链；DW/GE/UMU-Proton 均识别（DW 另接受 PROTON_ENABLE_WAYLAND 别名）。设置页「启动选项 → 使用 Wayland」 |
-| `upgradeDlss` | bool | `false` | 注入 `PROTON_DLSS_UPGRADE=1`（连带 `PROTON_ENABLE_NVAPI=1`）：启动时由 protonfixes 把游戏内 DLSS 换成 Proton 内置新版。仅 NVIDIA 显卡生效。设置页「启动选项 → 升级 DLSS 模型」 |
-| `enableProtonLog` | bool | `false` | 注入 `PROTON_LOG=1` + `PROTON_LOG_DIR={应用日志目录}`，记录 Proton 运行日志。设置页「启动选项 → 打印 Proton 日志」 |
+| `useWayland` | bool | `false` | 注入 `PROTON_USE_WAYLAND=1` 启用 Proton 原生 Wayland 驱动（绕过 XWayland）。仅 Linux Proton 启动链；DW/GE/UMU-Proton 均识别（DW 另接受 PROTON_ENABLE_WAYLAND 别名）。设置页「功能开关 → 使用 Wayland」 |
+| `upgradeDlss` | bool | `false` | 注入 `PROTON_DLSS_UPGRADE=1`（连带 `PROTON_ENABLE_NVAPI=1`）：启动时由 protonfixes 把游戏内 DLSS 换成 Proton 内置新版。仅 NVIDIA 显卡生效。设置页「功能开关 → 升级 DLSS 模型」 |
+| `enableProtonLog` | bool | `false` | 注入 `PROTON_LOG=1` + `PROTON_LOG_DIR={应用日志目录}`，记录 Proton 运行日志。设置页「功能开关 → 打印 Proton 日志」 |
 | `resourceQualityTier` | string | | 鸣潮资源包档位：`hd` / `sd` / `uhd` 之一（白名单外/大写拒收），启动时以 `-krqlv=<tier>` 命令行参数传给游戏（官方启动器同款参数，两条启动链均生效）；留空 = 跟随游戏内设置、不追加参数。非鸣潮游戏忽略。注意：档位当前只作用于启动参数——官方增量/全量清单实测仅含 HD 档资源（2026-10-02 端点实测，SD/UHD 不经 CDN 清单下发）。设置页「资源包档位」下拉（鸣潮专属显示，2026-10-02 增） |
 
 可用占位符：
@@ -178,7 +178,7 @@ Steam Runtime 容器与 Proton，发行版三选一），由启动器自动生�
   }
 }
 
-// 启动选项开关（设置页「启动选项」区；全为 bool、缺省 false，映射见 games[].launch 字段表）
+// 功能开关（设置页「功能开关」区，2026-10-03 前叫「启动选项」；全为 bool、缺省 false，映射见 games[].launch 字段表）
 "launch": {
   "commandTemplate": "native-umu \"{exe}\"",
   "useWayland": true,                    // 注入 PROTON_USE_WAYLAND=1（原生 Wayland 驱动）

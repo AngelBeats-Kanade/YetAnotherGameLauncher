@@ -96,7 +96,7 @@ public class LaunchSettingsTests : IDisposable
         await settings.SaveCommand.ExecuteAsync(null);
         Assert.False(settings.Save.Failed);
         Assert.Equal("uhd", game.Game.Launch.ResourceQualityTier);
-        Assert.Equal("已更新：启动选项", Assert.Single(_ctx.Vm.Toasts).Message);
+        Assert.Equal("已更新：功能开关", Assert.Single(_ctx.Vm.Toasts).Message);
         Assert.False(settings.IsDirty);
 
         settings.SelectedResourceQuality = settings.ResourceQualities.First(q => q.Tier == "");
@@ -188,7 +188,7 @@ public class LaunchSettingsTests : IDisposable
 
         Assert.False(settings.Save.Failed);
         var toast = Assert.Single(_ctx.Vm.Toasts);
-        Assert.Equal("已更新：命令模板、环境变量", toast.Message);
+        Assert.Equal("已更新：命令模板、自定义启动选项", toast.Message);
     }
 
     [Fact]
@@ -204,7 +204,7 @@ public class LaunchSettingsTests : IDisposable
         Assert.False(settings.Save.Failed);
 
         var toast = Assert.Single(_ctx.Vm.Toasts);
-        Assert.Equal("已更新：启动选项", toast.Message);
+        Assert.Equal("已更新：功能开关", toast.Message);
         Assert.Equal(ToastKind.Success, toast.Kind);
     }
 
@@ -398,7 +398,7 @@ public class LaunchSettingsTests : IDisposable
             protonVersions: ["GE-Proton10-9"]);
 
         // 先把构造期生成的推荐配置落盘（该保存也会弹提示），再切发行版：
-        // 第二次保存的差异只剩 PROTONPATH，提示须按 UI 词汇报"Proton 发行版"而非笼统的"环境变量"
+        // 第二次保存的差异只剩 PROTONPATH，提示须按 UI 词汇报"Proton 发行版"而非笼统的"自定义启动选项"
         await settings.SaveCommand.ExecuteAsync(null);
         settings.SelectedProtonFlavor = "GE-Proton";
         // 发行版"选择即保存"由 fire-and-forget 任务完成：轮询等待第二条提示出现
