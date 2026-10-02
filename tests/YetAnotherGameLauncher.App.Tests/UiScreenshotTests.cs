@@ -347,10 +347,10 @@ public class UiScreenshotTests
             window.Close();
 
             // 启动设置页：Linux 启动卡（umu 启动 + Proton 发行版下拉 + 组件状态卡 + 启动选项开关区）。
-            // 启动选项区加入后整卡高约 900px，720 窗口装不下（judge 实锤：底部被视口硬裁）——
-            // 本节改用 1120×1080 专用窗口，BringIntoView 后整卡完整入画；
+            // 整卡随「资源包档位」区加入后高约 990px，720/1080 窗口都装不下（judge 实锤：底部
+            // 保存钮被视口硬裁）——本节改用 1120×1200 专用窗口，BringIntoView 后整卡完整入画；
             // 必须在 toast 注入前截（toast 是 VM 状态，跨窗口存活会盖住卡片右上角）
-            var tallWindow = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 1080 };
+            var tallWindow = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 1200 };
             tallWindow.NavIndicatorAnimationEnabled = false;
             tallWindow.Show();
             tallWindow.UpdateLayout();

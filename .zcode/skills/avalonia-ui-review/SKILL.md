@@ -34,8 +34,9 @@ dotnet tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLa
 - **清单（2026-09-29 实测；改动 UI 或新增导出后同步本清单）**：八个画面共 25 张——
   01-15 + 02b + 05b + 16 + 17/18 + 10b + 11b + 19 + 20/21。归属：`Export_UiScreenshots_ForReview` 12 张；
   `Export_LaunchErrorOverlay_ForReview` 6 张（10/10b/11/11b/12/14，10b=CanRetry=true 覆盖层；
-  该导出同时覆盖启动失败覆盖层与 Linux 启动设置卡（2026-10-03 起 11/11b 含「自定义启动选项」改名与 ⓘ 图标，judge 双 PASS）：umu 启动 + Proton 发行版下拉 + 检查更新按钮 +
-  功能开关区 + 自定义启动选项框（ⓘ 图标引导）——11 用 1120×1080 专用窗口整卡入画且在 toast 注入前截，
+  该导出同时覆盖启动失败覆盖层与 Linux 启动设置卡（2026-10-03 起 11/11b 含「自定义启动选项」改名与 ⓘ 图标）：umu 启动 + Proton 发行版下拉 + 检查更新按钮 +
+  功能开关区 + 自定义启动选项框（ⓘ 图标引导）——11 用 1120×1200 专用窗口整卡入画且在 toast 注入前截
+  （原 1080 在「资源包档位」区加入卡片长高后不够，保存钮被视口硬裁，2026-10-03 二次 judge 实锤后加高），
   11b=同卡亮色）；
   `Export_ProtonUpdateConfirm_ForReview` 1 张（Proton 更新确认覆盖层，内含纱罩压暗的像素级回归断言）；
   `Export_BootSplash_ForReview` 1 张（16-boot-splash 启动遮蔽层）；
