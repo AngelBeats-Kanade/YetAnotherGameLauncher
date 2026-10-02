@@ -167,6 +167,49 @@ public class GameUpdateServiceTests : IDisposable
         Assert.Equal(b, await File.ReadAllBytesAsync(_tempDir.FilePath("b.pak")));
     }
 
+    [Fact]
+    public async Task UpdateAsync_Incremental_MissingSources_FallsBackViaFullManifest()
+    {
+        // review RF-A（fe4324d 自身完整性缺口）：组级回退不能只接应用预下载入口——「更新」主按钮
+        // 走 UpdateIncrementalAsync，用户重试损坏安装的最常见入口；差分源缺失时经全量清单解析
+        // 产物直链自救，更新继续
+        var v1 = "v1"u8.ToArray();
+        var v2 = "v2"u8.ToArray();
+        await WriteLocalState("1.0.0"); // 安装目录无 a.dat：源缺失（此前失败尝试删源的形态）
+
+        _channel.VersionInfo = new ChannelVersionInfo { LatestVersion = "2.0.0", PatchSourceVersions = ["1.0.0"] };
+        var group = BuildGroup("g1.krpdiff", [("a.dat", v1)], [("a.dat", v2)]);
+        _channel.IncrementalManifests[("1.0.0", "2.0.0")] = new GameManifest { Version = "2.0.0", Groups = [group] };
+        _channel.Manifests["2.0.0"] = new GameManifest { Version = "2.0.0", Files = [FileEntry("a.dat", v2)] };
+        RegisterFile("a.dat", v2); // 全量清单直链可下
+
+        var outcome = await CreateService().UpdateAsync(_tempDir.Path, _game, _server, _channel);
+
+        Assert.Equal(UpdateStrategy.Incremental, outcome.Strategy);
+        Assert.Equal(v2, await File.ReadAllBytesAsync(_tempDir.FilePath("a.dat")));
+        Assert.Equal("2.0.0", new LocalStateService(_tempDir.Path).Load(_game.Id, _server.Id)?.Version);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_Incremental_MissingSources_FullManifestFetchFailure_FoldsToRootCause()
+    {
+        // review RF-B：全量清单抓取失败（CDN/网络故障）必须以根因折算（「Could not resolve a
+        // direct download: …」）——不能被解析缝的内层 catch 吞成 null 走「查无此路径」的误导文案
+        var v1 = "v1"u8.ToArray();
+        var v2 = "v2"u8.ToArray();
+        await WriteLocalState("1.0.0");
+        _channel.VersionInfo = new ChannelVersionInfo { LatestVersion = "2.0.0", PatchSourceVersions = ["1.0.0"] };
+        var group = BuildGroup("g1.krpdiff", [("a.dat", v1)], [("a.dat", v2)]);
+        _channel.IncrementalManifests[("1.0.0", "2.0.0")] = new GameManifest { Version = "2.0.0", Groups = [group] };
+        _channel.ManifestError = new InvalidOperationException("cdn unreachable");
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => CreateService().UpdateAsync(_tempDir.Path, _game, _server, _channel));
+
+        Assert.Contains("Could not resolve a direct download", ex.Message);
+        Assert.Contains("cdn unreachable", ex.Message);
+    }
+
     // ---------- 预下载（两段式） ----------
 
     [Fact]

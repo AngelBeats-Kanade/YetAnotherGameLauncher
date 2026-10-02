@@ -156,27 +156,19 @@ public sealed class GameUpdateService(
     /// <summary>组级回退的产物直链解析缝：懒取目标版本全量清单建 相对路径→URL 映射，仅在首个
     /// 差分源缺失触发回退时才联网取全量清单（happy path 零额外请求）。协议实证（2026-10-02 真机）：
     /// 官方增量 dstFiles 原始条目无 url 字段，但组 dst 路径被全量清单全覆盖，且
-    /// {resourcesBasePath}/{dest} 直链实测可下、md5 与增量 dstFiles 逐字符一致。解析失败按 null
-    /// 折算（回退链收尾为 "use the full update"），日志留痕；懒任务记住首个取消令牌（单次
-    /// apply 内单一令牌，无跨令牌复用面）。</summary>
+    /// {resourcesBasePath}/{dest} 直链实测可下、md5 与增量 dstFiles 逐字符一致。全量清单抓取失败
+    /// 原地抛出，由组回退链折算为可操作报错（携带根因）——此处吞异常折 null 会伪装成
+    /// 「查无此路径」误导用户（review RF-B）。真查无路径返回 null；懒任务记住
+    /// 首个取消令牌（单次 apply 内单一令牌，无跨令牌复用面）。</summary>
     private static Func<string, CancellationToken, Task<string?>> CreateDstUrlResolver(
-        GameServer server, IGameChannelApi channel, string version, ILogger? logger = null)
+        GameServer server, IGameChannelApi channel, string version)
     {
         Task<IReadOnlyDictionary<string, string>>? mapTask = null;
         return async (path, cancellationToken) =>
         {
-            try
-            {
-                mapTask ??= LoadDstUrlMapAsync(server, channel, version, cancellationToken);
-                var map = await mapTask.ConfigureAwait(false);
-                return map.GetValueOrDefault(path);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger?.LogWarning(
-                    ex, "Direct-download resolver could not load the full manifest for {Version}", version);
-                return null;
-            }
+            mapTask ??= LoadDstUrlMapAsync(server, channel, version, cancellationToken);
+            var map = await mapTask.ConfigureAwait(false);
+            return map.GetValueOrDefault(path);
         };
 
         static async Task<IReadOnlyDictionary<string, string>> LoadDstUrlMapAsync(
@@ -238,7 +230,9 @@ public sealed class GameUpdateService(
 
         var incremental = new IncrementalUpdateService(downloader, patchApplier, logger);
         await incremental.PredownloadAsync(installDir, manifest, progress, cancellationToken).ConfigureAwait(false);
-        await incremental.ApplyAsync(installDir, manifest, progress, cancellationToken).ConfigureAwait(false);
+        await incremental.ApplyAsync(
+            installDir, manifest, progress, cancellationToken,
+            dstUrlResolver: CreateDstUrlResolver(server, channel, plan.ToVersion)).ConfigureAwait(false);
 
         return await RepairAgainstManifestAsync(
             installDir, server, channel, plan.ToVersion, progress, cancellationToken).ConfigureAwait(false);

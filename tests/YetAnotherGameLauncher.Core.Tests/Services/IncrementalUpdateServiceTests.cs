@@ -439,8 +439,7 @@ public class IncrementalUpdateServiceTests : IDisposable
     [Fact]
     public async Task ApplyAsync_MissingSources_ResolverReturnsNull_KeepsFullUpdateGuidance()
     {
-        // T4 解析缝给不出直链（全量清单查无此路径/清单抓取失败折算 null）→ 维持
-        // "use the full update" 家族的可操作报错，不裸奔
+        // T4 解析缝给不出直链（全量清单查无此路径）→ 维持 "use the full update" 家族的可操作报错
         var group = PrepareGroup("g1.krpdiff", [("data/gone.dat", "old"u8.ToArray())], [("data/new.dat", "new"u8.ToArray())]);
         var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
         await CreateService().PredownloadAsync(_tempDir.Path, manifest);
@@ -452,6 +451,25 @@ public class IncrementalUpdateServiceTests : IDisposable
 
         Assert.Contains("not available for direct download", ex.Message); // 解析缝在场但查无此路径的专属报错
         Assert.Contains("full update", ex.Message);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_MissingSources_ResolverThrows_FoldsToActionableError()
+    {
+        // review RF-B：解析缝内部故障（全量清单抓取失败等）必须原样穿出、由回退链折算成
+        // 「Could not resolve a direct download」可操作报错并携带根因——不能被解析缝吞成 null
+        // 走「查无此路径」的误导文案（那会让 CDN/网络故障伪装成清单缺文件）
+        var group = PrepareGroup("g1.krpdiff", [("data/gone.dat", "old"u8.ToArray())], [("data/new.dat", "new"u8.ToArray())]);
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => CreateService().ApplyAsync(
+                _tempDir.Path, manifest,
+                dstUrlResolver: (_, _) => throw new InvalidOperationException("manifest fetch failed")));
+
+        Assert.Contains("Could not resolve a direct download", ex.Message);
+        Assert.Contains("manifest fetch failed", ex.Message);
     }
 
     [Fact]
