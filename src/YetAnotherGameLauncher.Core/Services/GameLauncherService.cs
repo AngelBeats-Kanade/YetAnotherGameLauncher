@@ -45,7 +45,17 @@ public sealed class GameLauncherService(
         }
 
         var command = Expand(template, exePath, installDir);
-        // 鸣潮资源包档位（2026-10-02）：以 -krqlv=<tier> 追加在命令尾部（模板自带参数时自然拼接，
+        // 自定义启动选项 %command% 之后的游戏参数（2026-10-03 Steam 语义）：追加在模板命令之后；
+        // token 支持 {exe}/{installDir} 占位符（Expand 同款），含空格 token 加双引号
+        //（SplitCommand 引号感知拆分；裸 {exe} 模板 + 含空格路径同款防截断逻辑）
+        var customArguments = game.Launch.Arguments;
+        if (customArguments is { Count: > 0 })
+        {
+            command += " " + string.Join(' ', customArguments.Select(
+                argument => QuoteCommandToken(Expand(argument, exePath, installDir))));
+        }
+
+        // 鸣潮资源包档位（2026-10-02）：以 -krqlv=<tier> 追加在命令尾部（用户参数之后，
         // SplitCommand 引号感知拆分）；null/空 = 跟随游戏内设置，不追加
         var qualityTier = game.Launch.ResourceQualityTier;
         if (!string.IsNullOrWhiteSpace(qualityTier))
@@ -234,6 +244,11 @@ public sealed class GameLauncherService(
             ? (command, "")
             : (command[..firstSpace], command[(firstSpace + 1)..].TrimStart());
     }
+
+    /// <summary>参数 token 含空格时包上双引号（与 {exe} 展开的引号规则同型；
+    /// {exe} 展开结果已自带引号，Contains 判定不会再包一层）。</summary>
+    private static string QuoteCommandToken(string token) =>
+        token.Contains(' ') ? $"\"{token}\"" : token;
 
     /// <summary>把环境变量字典格式化为「K=V; K=V」串，供 Debug 级启动日志使用
     ///（SimpleConsole 对字典直接 ToString 不可读）；NativeUmuLauncher 复用同一实现。</summary>

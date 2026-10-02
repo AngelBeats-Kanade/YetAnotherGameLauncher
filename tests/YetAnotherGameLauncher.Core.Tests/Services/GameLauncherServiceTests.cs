@@ -58,6 +58,35 @@ public class GameLauncherServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task BuildPlan_CustomArguments_AppendedAfterTemplate_BeforeKrqlv()
+    {
+        // 自定义启动选项 %command% 之后的游戏参数（2026-10-03 Steam 语义）：追加在模板命令
+        // 之后、鸣潮档位参数之前；含空格 token 加双引号（与 {exe} 引号规则同型）
+        await CreateExecutable();
+        var game = Game("\"{exe}\"");
+        game.Launch.Arguments = ["-dx11", "--lang zh"];
+        game.Launch.ResourceQualityTier = "hd";
+
+        var plan = Service().BuildPlan(game, _tempDir.Path, "bin/game.exe");
+
+        Assert.Equal("-dx11 \"--lang zh\" -krqlv=hd", plan.Arguments);
+    }
+
+    [Fact]
+    public async Task BuildPlan_CustomArguments_ExpandPlaceholders()
+    {
+        // 参数 token 与环境变量值同规则：支持 {exe}/{installDir} 占位符展开；
+        // {exe} 展开自带引号（Expand 同款），无空格 token 不再加引号
+        var exePath = await CreateExecutable();
+        var game = Game("\"{exe}\"");
+        game.Launch.Arguments = ["--config={installDir}/cfg", "{exe}"];
+
+        var plan = Service().BuildPlan(game, _tempDir.Path, "bin/game.exe");
+
+        Assert.Equal($"--config={_tempDir.Path}/cfg \"{exePath}\"", plan.Arguments);
+    }
+
+    [Fact]
     public async Task BuildPlan_ResourceQualityTierNull_NoArgumentAppended()
     {
         var exePath = await CreateExecutable();

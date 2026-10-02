@@ -82,7 +82,8 @@ public sealed class NativeUmuLauncher(
         string? store = null,
         string? dataHomeOverride = null,
         string? umuId = null,
-        string? resourceQualityTier = null)
+        string? resourceQualityTier = null,
+        IReadOnlyList<string>? gameArguments = null)
     {
         EnsureLinux();
 
@@ -145,11 +146,23 @@ public sealed class NativeUmuLauncher(
             }
         }
 
+        // 游戏参数（2026-10-03 Steam 语义）：用户自定义 %command% 之后的 token（占位符展开同
+        // 环境变量规则）在前，启动器生成的 -krqlv 档位参数在后，统一追加在 exe 之后
+        var gameArgumentList = new List<string>();
+        if (gameArguments is { Count: > 0 })
+        {
+            gameArgumentList.AddRange(gameArguments.Select(
+                argument => GameLauncherService.Expand(argument, exe, installFullPath)));
+        }
+
+        if (!string.IsNullOrWhiteSpace(resourceQualityTier))
+        {
+            gameArgumentList.Add($"-krqlv={resourceQualityTier!.Trim()}");
+        }
+
         var entry = BuildEntryCommand(
             manifest, runtime, environment["PROTON_VERB"], exe, dataHomeOverride ?? dataHome,
-            gameArgument: string.IsNullOrWhiteSpace(resourceQualityTier)
-                ? null
-                : $"-krqlv={resourceQualityTier!.Trim()}");
+            gameArguments: gameArgumentList);
         var arguments = QuoteArgs(entry.Skip(1));
 
         // Debug 级全量启动面（2026-10-02 用户需求）：与 GameLauncherService 同型；Release 构建
@@ -172,7 +185,8 @@ public sealed class NativeUmuLauncher(
     }
 
     /// <summary>解析组件 → 构建计划 → 即启即走启动，返回日志路径。umuId 覆盖 UMU_ID（空 = umu-{gameId}）；
-    /// resourceQualityTier（鸣潮 hd/sd/uhd）以 -krqlv=&lt;tier&gt; 追加在游戏 exe 之后，空 = 不追加。</summary>
+    /// resourceQualityTier（鸣潮 hd/sd/uhd）与 gameArguments（自定义启动选项 %command% 之后的用户参数）
+    /// 按序追加在游戏 exe 之后，空 = 不追加。</summary>
     public async Task<LaunchResult> LaunchAsync(
         string gameId,
         string installDir,
@@ -183,13 +197,15 @@ public sealed class NativeUmuLauncher(
         IProgress<string>? progress = null,
         CancellationToken cancellationToken = default,
         string? umuId = null,
-        string? resourceQualityTier = null)
+        string? resourceQualityTier = null,
+        IReadOnlyList<string>? gameArguments = null)
     {
         var (protonPath, manifest, runtime) = await ResolveComponentsAsync(
             protonRequest, progress, cancellationToken).ConfigureAwait(false);
         var plan = BuildPlan(
             gameId, installDir, executablePath, protonPath, manifest, runtime,
-            extraEnvironment, store, umuId: umuId, resourceQualityTier: resourceQualityTier);
+            extraEnvironment, store, umuId: umuId, resourceQualityTier: resourceQualityTier,
+            gameArguments: gameArguments);
 
         var logDirectory = Path.Combine(AppPaths.DataDirectory, "logs");
         Directory.CreateDirectory(logDirectory);
@@ -220,9 +236,9 @@ public sealed class NativeUmuLauncher(
 
     /// <summary>
     /// 组装最终命令：
-    /// {runtime}/_v2-entry-point --verb=… -- {proton}/proton {verb} {exe} [gameArgument]
-    /// host runtime（无容器）时直接调 proton；gameArgument（如鸣潮 -krqlv=hd）追加在 argv
-    /// 尾部（exe 之后）——null 不追加。
+    /// {runtime}/_v2-entry-point --verb=… -- {proton}/proton {verb} {exe} [gameArguments…]
+    /// host runtime（无容器）时直接调 proton；gameArguments（自定义启动选项 %command% 之后的
+    /// 用户参数与启动器生成的 -krqlv 档位参数）追加在 argv 尾部（exe 之后）——null/空不追加。
     /// </summary>
     public static IReadOnlyList<string> BuildEntryCommand(
         ToolManifest manifest,
@@ -230,10 +246,10 @@ public sealed class NativeUmuLauncher(
         string verb,
         string exePath,
         string? dataHome = null,
-        string? gameArgument = null)
+        IReadOnlyList<string>? gameArguments = null)
     {
         var protonArgv = manifest.BuildEntryCommand(verb);
-        string[] tail = gameArgument is null ? [exePath] : [exePath, gameArgument];
+        string[] tail = gameArguments is { Count: > 0 } ? [exePath, .. gameArguments] : [exePath];
         if (runtime.Name == "host" || string.IsNullOrEmpty(runtime.Variant))
         {
             return [.. protonArgv, .. tail];

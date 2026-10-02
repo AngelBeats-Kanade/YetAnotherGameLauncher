@@ -120,6 +120,57 @@ public class NativeUmuLaunchRoutingTests : IDisposable
         Assert.NotEqual("DW-Proton", env["PROTONPATH"]);
     }
 
+    [Fact]
+    public async Task SavedGameArguments_LandInFinalContainerCommand()
+    {
+        // 自定义启动选项 %command% 之后的游戏参数（2026-10-03 Steam 语义）：GameItemViewModel
+        // 启动入口透传 Game.Launch.Arguments → NativeUmuLauncher → 最终容器 argv（exe 之后）
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("原生 umu 链仅 Linux（由 Linux 腿覆盖；Windows 腿见上方平台门控用例）");
+        }
+
+        var protonDir = CreateFakeProton();
+        var runtimeDir = UmuPaths.RuntimeDirectory("steamrt4", _temp.Path);
+        Directory.CreateDirectory(runtimeDir);
+        File.WriteAllText(Path.Combine(runtimeDir, "_v2-entry-point"), "#!/bin/sh\n");
+        File.WriteAllText(Path.Combine(runtimeDir, UmuPaths.InstallMarkerName), "ok");
+        var provisioner = new FakeProvisioner(protonDir);
+
+        var launcher = new NativeUmuLauncher(_runner, provisioner, dataHome: _temp.Path);
+        using var ctx = VmFactory.Build(nativeUmu: launcher);
+        await ctx.Vm.InitializeAsync();
+        var game = ctx.Vm.Games[0];
+
+        var installDir = _temp.FilePath("game");
+        Directory.CreateDirectory(installDir);
+        await File.WriteAllTextAsync(Path.Combine(installDir, "Game.exe"), "x");
+
+        var launchSettings = new LaunchSettingsViewModel(
+            game.Game, game.InstallDirPath, ctx.CatalogService, game.Loc, game,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            protonVersions: ["GE-Proton10-9"],
+            dataHome: _temp.Path,
+            umuProvisioner: provisioner);
+        launchSettings.InstallDirDraft = installDir;
+        launchSettings.ExecutableDraft = "Game.exe";
+        await launchSettings.SaveCommand.ExecuteAsync(null);
+        Assert.False(launchSettings.Save.Failed);
+
+        // 模拟磁盘加载后的存量配置：游戏参数挂在 Launch.Arguments 上（不经设置卡草稿）
+        game.Game.Launch.Arguments = ["-dx11", "--lang=zh"];
+
+        await game.LaunchAsync();
+        var spec = Assert.Single(_runner.Specs);
+
+        var exeIndex = spec.Arguments.IndexOf("Game.exe", StringComparison.Ordinal);
+        var dx11Index = spec.Arguments.IndexOf("-dx11", StringComparison.Ordinal);
+        var langIndex = spec.Arguments.IndexOf("--lang=zh", StringComparison.Ordinal);
+        Assert.True(
+            exeIndex >= 0 && exeIndex < dx11Index && dx11Index < langIndex,
+            $"游戏参数应按序追加在 exe 之后，实际：{spec.Arguments}");
+    }
+
     /// <summary>可编程组件准备器：EnsureProtonAsync 返回预先落盘的假 Proton 目录。</summary>
     private sealed class FakeProvisioner(string protonDir) : IUmuComponentProvisioner
     {

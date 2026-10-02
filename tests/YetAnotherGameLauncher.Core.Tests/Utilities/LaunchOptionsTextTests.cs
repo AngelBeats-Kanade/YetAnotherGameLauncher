@@ -262,6 +262,270 @@ public class LaunchOptionsTextTests
         Assert.Equal("", LaunchOptionsText.Serialize(new Dictionary<string, string>()));
     }
 
+    // —— %command% 占位符切分（2026-10-03 Steam 启动选项语义扩展）——
+    // 框内未写 %command% = Steam 启动选项中 %command% 之前的区域（末尾由启动器自动补），
+    // 全部条目须为 KEY=VALUE；显式写出时其后的 token 是游戏命令行参数。
+
+    [Fact]
+    public void TryParseLaunchLine_NoPlaceholder_MatchesTryParse()
+    {
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            "A=1 B=\"x y\"", out var parsed, out var arguments, out var badItem, out var errorKind);
+
+        Assert.True(ok);
+        Assert.Equal("", badItem);
+        Assert.Equal(LaunchLineErrorKind.None, errorKind);
+        Assert.Equal("1", parsed["A"]);
+        Assert.Equal("x y", parsed["B"]);
+        Assert.Empty(arguments);
+    }
+
+    [Fact]
+    public void TryParseLaunchLine_EmptyOrWhitespace_TrueWithEmptyOutputs()
+    {
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            "\r\n  \n\t", out var parsed, out var arguments, out _, out var errorKind);
+
+        Assert.True(ok);
+        Assert.Equal(LaunchLineErrorKind.None, errorKind);
+        Assert.Empty(parsed);
+        Assert.Empty(arguments);
+    }
+
+    [Fact]
+    public void TryParseLaunchLine_ExplicitPlaceholder_SplitsEnvAndArguments()
+    {
+        // 含空格的参数同样必须加引号（词法只有空白分隔符，与环境区一致）
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            "MAP=\"coast 11\" %command% -dx11 \"--lang zh\"",
+            out var parsed, out var arguments, out _, out _);
+
+        Assert.True(ok);
+        Assert.Single(parsed);
+        Assert.Equal("coast 11", parsed["MAP"]);
+        Assert.Equal(new[] { "-dx11", "--lang zh" }, arguments);
+    }
+
+    [Fact]
+    public void TryParseLaunchLine_QuotedPlaceholderToken_IsPlaceholder()
+    {
+        // 占位符 token 可加引号（去引号后精确等于 %command% 即占位符，与词法去引号规则一致）
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            "A=1 \"%command%\" -x", out _, out var arguments, out _, out _);
+
+        Assert.True(ok);
+        Assert.Equal(new[] { "-x" }, arguments);
+    }
+
+    [Fact]
+    public void TryParseLaunchLine_PlaceholderInsideQuotedValue_NotPlaceholder()
+    {
+        // 值内含 %command% 子串是普通环境变量值，只有 token 全值精确等于 %command% 才是占位符
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            "MSG=\"%command% hi\" %command% -x", out var parsed, out var arguments, out _, out _);
+
+        Assert.True(ok);
+        Assert.Equal("%command% hi", parsed["MSG"]);
+        Assert.Equal(new[] { "-x" }, arguments);
+    }
+
+    [Fact]
+    public void TryParseLaunchLine_TokensAfterFirstPlaceholder_AreAllArguments()
+    {
+        // 参数区不做 KEY=VALUE 约束：含 = 的 token 是普通参数（Steam 同语义）
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            "%command% K=2 --v", out var parsed, out var arguments, out _, out _);
+
+        Assert.True(ok);
+        Assert.Empty(parsed);
+        Assert.Equal(new[] { "K=2", "--v" }, arguments);
+    }
+
+    [Fact]
+    public void TryParseLaunchLine_PlaceholderOnly_EmptyEnvAndArguments()
+    {
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            "%command%", out var parsed, out var arguments, out _, out _);
+
+        Assert.True(ok);
+        Assert.Empty(parsed);
+        Assert.Empty(arguments);
+    }
+
+    [Fact]
+    public void TryParseLaunchLine_PlaceholderWithoutArguments_EmptyArguments()
+    {
+        // 显式占位符但无参数：等价于未写（VM 归一为 null 落盘，不产生脏残留）
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            "A=1 %command%", out var parsed, out var arguments, out _, out _);
+
+        Assert.True(ok);
+        Assert.Single(parsed);
+        Assert.Empty(arguments);
+    }
+
+    [Fact]
+    public void TryParseLaunchLine_DuplicatePlaceholder_FailsWithRawSpan()
+    {
+        // 只认第一个占位符；第二个按结构错误拒绝（静默当参数会产出字面 %command% argv，反直觉）
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            "A=1 %command% %command% -x", out _, out _, out var badItem, out var errorKind);
+
+        Assert.False(ok);
+        Assert.Equal(LaunchLineErrorKind.DuplicateCommandPlaceholder, errorKind);
+        Assert.Equal("%command%", badItem);
+    }
+
+    [Fact]
+    public void TryParseLaunchLine_BareTokenBeforePlaceholder_FailsAsEnvironmentItem()
+    {
+        // 用户裁定（2026-10-03）：占位符之前的区域仍只接受 KEY=VALUE，裸 token 报错拦截
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            "OK=1 NOEQ %command% -x", out var parsed, out _, out var badItem, out var errorKind);
+
+        Assert.False(ok);
+        Assert.Equal(LaunchLineErrorKind.EnvironmentItem, errorKind);
+        Assert.Equal("NOEQ", badItem);
+        Assert.True(parsed.ContainsKey("OK")); // 坏条目之前的条目已进字典（保存侧整体弃用）
+    }
+
+    [Fact]
+    public void TryParseLaunchLine_UnterminatedQuoteInEnvRegion_ReportsEnvironmentItem()
+    {
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            "K=\"unclosed %command% -x", out _, out _, out var badItem, out var errorKind);
+
+        Assert.False(ok);
+        Assert.Equal(LaunchLineErrorKind.EnvironmentItem, errorKind);
+        Assert.Equal("K=\"unclosed %command% -x", badItem);
+    }
+
+    [Fact]
+    public void TryParseLaunchLine_UnterminatedQuoteInArgumentsRegion_ReportsArgumentsQuote()
+    {
+        // 参数区唯一的坏形态是未闭合引号——报错文案不能再说"应为 KEY=VALUE"，按区分类路由
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            "A=1 %command% --x \"unclosed", out _, out _, out var badItem, out var errorKind);
+
+        Assert.False(ok);
+        Assert.Equal(LaunchLineErrorKind.ArgumentsQuote, errorKind);
+        Assert.Equal("\"unclosed", badItem);
+    }
+
+    [Fact]
+    public void TryParseLaunchLine_ArgumentsAreDequoted()
+    {
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            "%command% \"a b\" 'c d' e\\\"f", out _, out var arguments, out _, out _);
+
+        Assert.True(ok);
+        Assert.Equal(new[] { "a b", "c d", "e\"f" }, arguments);
+    }
+
+    [Fact]
+    public void TryParseLaunchLine_PlaceholderCaseSensitive()
+    {
+        // Steam 占位符为小写字面量：%Command% 不是占位符，落入环境区按裸 token 拒绝
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            "%Command% -x", out _, out _, out _, out var errorKind);
+
+        Assert.False(ok);
+        Assert.Equal(LaunchLineErrorKind.EnvironmentItem, errorKind);
+    }
+
+    [Fact]
+    public void ParseLenientLaunchLine_SkipsBadEnvItems_KeepsArguments()
+    {
+        // 宽松版用于草稿合并/切发行版重写文本：坏条目跳过，%command% 之后的参数保留
+        var arguments = LaunchOptionsText.ParseLenientLaunchLine(
+            "半截 A=1 %command% -x", out var parsed);
+
+        Assert.Single(parsed);
+        Assert.Equal("1", parsed["A"]);
+        Assert.Equal(new[] { "-x" }, arguments);
+    }
+
+    [Fact]
+    public void ParseLenientLaunchLine_UnterminatedQuoteInArguments_DropsResidue()
+    {
+        // 未闭合引号吞到文末：宽松版丢弃残段，保留之前的条目与参数
+        var arguments = LaunchOptionsText.ParseLenientLaunchLine(
+            "A=1 %command% -ok \"unclosed", out var parsed);
+
+        Assert.Single(parsed);
+        Assert.Equal(new[] { "-ok" }, arguments);
+    }
+
+    [Fact]
+    public void ParseLenientLaunchLine_ExtraPlaceholder_TreatedAsArgument()
+    {
+        // 宽松路径（草稿态）不做重复占位符检查：多余的按字面参数保留，保存时由严格版拒绝
+        var arguments = LaunchOptionsText.ParseLenientLaunchLine(
+            "A=1 %command% %command% x", out _);
+
+        Assert.Equal(new[] { "%command%", "x" }, arguments);
+    }
+
+    [Fact]
+    public void SerializeArguments_PlainTokens_JoinedWithSpace()
+    {
+        var text = LaunchOptionsText.SerializeArguments(new[] { "-dx11", "--lang", "zh" });
+
+        Assert.Equal("-dx11 --lang zh", text);
+    }
+
+    [Fact]
+    public void SerializeArguments_SpecialTokens_QuotedEscaped_AndRoundTrip()
+    {
+        // 词法特殊字符（空白/双单引号/反斜杠）与空 token 都必须无损往返；
+        // 单引号在加引号判据内是 RF-14 的直接教训（漏判会被重解析吞进引号区）
+        var original = new[] { "a b", "a\"b", "a'b", "a\\b", "", "$x", "a\tb" };
+
+        var text = LaunchOptionsText.SerializeArguments(original);
+        var reparsed = LaunchOptionsText.ParseLenientLaunchLine(
+            LaunchOptionsText.CommandPlaceholder + " " + text, out _);
+
+        Assert.Equal(original, reparsed);
+    }
+
+    [Fact]
+    public void SerializeArguments_Parse_RoundTripFuzz_DeterministicSeed()
+    {
+        // 与环境序列化同款确定性种子 fuzz：断言往返不变量本身，序列漂移无害
+        var rnd = new Random(42);
+        var alphabet = new[] { 'a', ' ', '\t', '"', '\'', '\\', '=', '\n', '\r', '$', '　' };
+        for (var iter = 0; iter < 1000; iter++)
+        {
+            var tokenCount = rnd.Next(0, 5);
+            var tokens = new string[tokenCount];
+            for (var i = 0; i < tokenCount; i++)
+            {
+                var tokenLength = rnd.Next(0, 8);
+                var chars = new char[tokenLength];
+                for (var j = 0; j < tokenLength; j++)
+                {
+                    chars[j] = alphabet[rnd.Next(alphabet.Length)];
+                }
+
+                tokens[i] = new string(chars);
+            }
+
+            var text = LaunchOptionsText.SerializeArguments(tokens);
+            var reparsed = LaunchOptionsText.ParseLenientLaunchLine(
+                LaunchOptionsText.CommandPlaceholder + " " + text, out _);
+
+            Assert.True(
+                tokens.SequenceEqual(reparsed, StringComparer.Ordinal),
+                $"第 {iter} 轮往返失败，文本：{text.Replace("\n", "\\n").Replace("\r", "\\r")}");
+        }
+    }
+
+    [Fact]
+    public void SerializeArguments_EmptyList_ReturnsEmptyString()
+    {
+        Assert.Equal("", LaunchOptionsText.SerializeArguments(Array.Empty<string>()));
+    }
+
     /// <summary>字典逐键断言（xunit 对 Dictionary 的整体相等比较按枚举序处理，逐键更稳）。</summary>
     private static void AssertEqual(Dictionary<string, string> expected, Dictionary<string, string> actual)
     {

@@ -46,4 +46,13 @@ public sealed class LaunchOptions
 
     /// <summary>附加环境变量（值同样支持 {installDir} 占位符）。</summary>
     public Dictionary<string, string> Environment { get; set; } = new();
+
+    /// <summary>
+    /// 自定义启动选项中显式 %command% 之后的游戏命令行参数（已去引号的 token 列表）。
+    /// 启动时按序追加在游戏可执行文件之后、鸣潮 -krqlv 档位参数之前；token 支持
+    /// {exe}/{installDir} 占位符（与环境变量值同规则）。null/空 = 无追加参数；
+    /// 框内未写 %command% 时语义上等价于占位符自动补在末尾（Steam 启动选项格式，
+    /// 2026-10-03）：KEY=VALUE 条目照常注入环境变量，本字段只承载占位符之后的部分。
+    /// </summary>
+    public List<string>? Arguments { get; set; }
 }

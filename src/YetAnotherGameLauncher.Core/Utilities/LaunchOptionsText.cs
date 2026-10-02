@@ -2,6 +2,22 @@ using System.Text;
 
 namespace YetAnotherGameLauncher.Core.Utilities;
 
+/// <summary>启动选项行（含 %command% 占位符）严格解析失败的错误类别，供 UI 路由报错文案。</summary>
+public enum LaunchLineErrorKind
+{
+    /// <summary>无错误。</summary>
+    None,
+
+    /// <summary>%command% 之前的环境变量区坏条目（缺 =/空键名/未闭合引号）。</summary>
+    EnvironmentItem,
+
+    /// <summary>%command% 之后的参数区存在未闭合引号。</summary>
+    ArgumentsQuote,
+
+    /// <summary>%command% 占位符出现多次（只认第一个）。</summary>
+    DuplicateCommandPlaceholder,
+}
+
 /// <summary>
 /// 自定义启动选项文本（Steam 启动选项风格）与键值字典的互转。
 /// 词法规则：条目以空白（空格/Tab/CR/LF）分隔；双引号内反斜杠仅转义反斜杠与双引号（不做变量展开，
@@ -12,6 +28,9 @@ namespace YetAnotherGameLauncher.Core.Utilities;
 /// </summary>
 public static class LaunchOptionsText
 {
+    /// <summary>Steam 启动选项占位符：标记游戏命令在启动选项行中的位置（小写字面量）。</summary>
+    public const string CommandPlaceholder = "%command%";
+
     /// <summary>严格解析（保存校验用）：遇到坏条目（未闭合引号/缺 =/空键名）整体失败，
     /// <paramref name="badItem"/> 返回坏条目原文（未闭合引号时含残段），坏条目之前的条目已进字典。</summary>
     public static bool TryParse(string text, out Dictionary<string, string> environment, out string badItem)
@@ -178,5 +197,118 @@ public static class LaunchOptionsText
         }
 
         return true;
+    }
+
+    /// <summary>严格解析（保存校验用，含 %command% 切分）：占位符之前的条目须为 KEY=VALUE（进
+    /// <paramref name="environment"/>），之后的 token 作为游戏命令行参数（进 <paramref name="arguments"/>，
+    /// 已去引号）。失败时 <paramref name="errorKind"/> 给出错误区类别，<paramref name="badItem"/> 返回
+    /// 坏条目原文。错误判定顺序：未闭合引号（按区归位）→ 重复占位符 → 环境区坏条目。</summary>
+    public static bool TryParseLaunchLine(
+        string text,
+        out Dictionary<string, string> environment,
+        out IReadOnlyList<string> arguments,
+        out string badItem,
+        out LaunchLineErrorKind errorKind)
+    {
+        environment = [];
+        arguments = [];
+        badItem = "";
+        errorKind = LaunchLineErrorKind.None;
+
+        var items = new List<(string Item, int RawStart, int RawEnd)>();
+        var complete = TryTokenize(text, items, out var unterminatedRawStart);
+        var placeholderIndex = items.FindIndex(item => item.Item == CommandPlaceholder);
+        // 占位符在原文的起点（无占位符时取最大值，未闭合引号残段必然落在环境区）
+        var placeholderRawStart = placeholderIndex >= 0 ? items[placeholderIndex].RawStart : int.MaxValue;
+
+        if (!complete)
+        {
+            errorKind = unterminatedRawStart >= placeholderRawStart
+                ? LaunchLineErrorKind.ArgumentsQuote
+                : LaunchLineErrorKind.EnvironmentItem;
+            badItem = text[unterminatedRawStart..].Trim();
+            return false;
+        }
+
+        if (items.Count(item => item.Item == CommandPlaceholder) > 1)
+        {
+            // 第二个占位符是多余结构：按原文报位（静默当参数会产出字面 %command% argv，反直觉）
+            var second = items.First(item =>
+                item.Item == CommandPlaceholder && item.RawStart > placeholderRawStart);
+            errorKind = LaunchLineErrorKind.DuplicateCommandPlaceholder;
+            badItem = text[second.RawStart..second.RawEnd].Trim();
+            return false;
+        }
+
+        var envCount = placeholderIndex >= 0 ? placeholderIndex : items.Count;
+        for (var i = 0; i < envCount; i++)
+        {
+            var (item, rawStart, rawEnd) = items[i];
+            var sep = item.IndexOf('=');
+            if (sep <= 0)
+            {
+                errorKind = LaunchLineErrorKind.EnvironmentItem;
+                badItem = text[rawStart..rawEnd].Trim();
+                return false; // 坏条目即停：之后的条目不再解析
+            }
+
+            environment[item[..sep]] = item[(sep + 1)..];
+        }
+
+        arguments = placeholderIndex >= 0
+            ? items.Skip(placeholderIndex + 1).Select(item => item.Item).ToArray()
+            : [];
+        return true;
+    }
+
+    /// <summary>宽松解析（草稿合并/重写文本用，含 %command% 切分）：环境区坏条目（含未闭合引号
+    /// 残段）静默跳过，占位符之后的 token 原样作为参数返回（多余的占位符按字面参数保留，
+    /// 严格版保存时拒绝）。返回参数列表。</summary>
+    public static IReadOnlyList<string> ParseLenientLaunchLine(
+        string text, out Dictionary<string, string> environment)
+    {
+        environment = new Dictionary<string, string>(StringComparer.Ordinal);
+        var items = new List<(string Item, int RawStart, int RawEnd)>();
+        // 未闭合引号时 items 仍承载残段之前切出的完整条目，照常采纳
+        TryTokenize(text, items, out _);
+        var placeholderIndex = items.FindIndex(item => item.Item == CommandPlaceholder);
+        var envCount = placeholderIndex >= 0 ? placeholderIndex : items.Count;
+        for (var i = 0; i < envCount; i++)
+        {
+            var item = items[i].Item;
+            var sep = item.IndexOf('=');
+            if (sep <= 0)
+            {
+                continue;
+            }
+
+            environment[item[..sep]] = item[(sep + 1)..];
+        }
+
+        return placeholderIndex >= 0
+            ? items.Skip(placeholderIndex + 1).Select(item => item.Item).ToArray()
+            : [];
+    }
+
+    /// <summary>参数 token 列表 → 启动选项文本（空格拼接）：含空白/引号/反斜杠或空串的 token
+    /// 双引号包裹并转义，回显可无损重解析。加引号判据与 <see cref="Serialize"/> 同一谓词
+    ///（RF-14 教训：单引号也是词法开启符）；空串必须显式 ""，否则重解析时 token 消失。</summary>
+    public static string SerializeArguments(IReadOnlyList<string> arguments)
+    {
+        var parts = new List<string>(arguments.Count);
+        foreach (var argument in arguments)
+        {
+            if (argument.Length == 0
+                || argument.AsSpan().IndexOfAny([' ', '\t', '\r', '\n', '"', '\'', '\\']) >= 0)
+            {
+                parts.Add($"\"{argument.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"");
+            }
+            else
+            {
+                parts.Add(argument);
+            }
+        }
+
+        return string.Join(' ', parts);
     }
 }

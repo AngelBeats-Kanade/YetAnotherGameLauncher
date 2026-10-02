@@ -133,11 +133,11 @@ public sealed class NativeUmuLauncherLaunchTests : IDisposable
     }
 
     [Fact]
-    public void BuildEntryCommand_GameArgument_AppendedAfterExe()
+    public void BuildEntryCommand_GameArguments_AppendedAfterExe()
     {
-        // 鸣潮资源包档位（2026-10-02）：游戏自身命令行参数（-krqlv=<tier>）追加在 argv 尾部
-        //（exe 之后）——两条 return 形态（host runtime 直连 / 容器 entry）都要带上；
-        // null 不追加。纯逻辑跨平台可测（BuildPlan 仅 Linux）。
+        // 游戏自身命令行参数（自定义启动选项 %command% 之后的 token，2026-10-03；含鸣潮
+        // -krqlv=<tier>）追加在 exe 之后——两条 return 形态（host runtime 直连 / 容器 entry）
+        // 都要带上；null/空不追加。纯逻辑跨平台可测（BuildPlan 仅 Linux）。
         var dir = _temp.Path;
         var manifestDir = Path.Combine(dir, "manifest");
         Directory.CreateDirectory(manifestDir);
@@ -152,14 +152,41 @@ public sealed class NativeUmuLauncherLaunchTests : IDisposable
         var host = SteamRuntimeCatalog.Host;
 
         var argv = NativeUmuLauncher.BuildEntryCommand(
-            manifest, host, "run", "/g/a.exe", gameArgument: "-krqlv=uhd");
+            manifest, host, "run", "/g/a.exe", gameArguments: ["-krqlv=uhd"]);
 
         Assert.Equal("-krqlv=uhd", argv[^1]);
         Assert.Equal("/g/a.exe", argv[^2]);
 
+        var multi = NativeUmuLauncher.BuildEntryCommand(
+            manifest, host, "run", "/g/a.exe", gameArguments: ["-dx11", "--lang=zh"]);
+        Assert.Equal(new[] { "/g/a.exe", "-dx11", "--lang=zh" }, multi.TakeLast(3));
+
         var noArg = NativeUmuLauncher.BuildEntryCommand(
-            manifest, host, "run", "/g/a.exe", gameArgument: null);
+            manifest, host, "run", "/g/a.exe", gameArguments: null);
         Assert.Equal("/g/a.exe", noArg[^1]);
+    }
+
+    [Fact]
+    public void BuildPlan_GameArguments_AppendedAfterExe_BeforeQualityArgument()
+    {
+        // 两条链同序（2026-10-03 Steam 语义）：exe → 用户参数（%command% 之后，含
+        // {exe}/{installDir} 占位符展开）→ 启动器生成的 -krqlv 档位参数
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("BuildPlan 仅 Linux（纯逻辑由 BuildEntryCommand 跨平台用例覆盖）");
+        }
+
+        var plan = BuildPlanWithExtraEnvironment(
+            new Dictionary<string, string>(), umuId: null,
+            gameArguments: ["-dx11", "{installDir}/cfg"],
+            resourceQualityTier: "hd");
+
+        var args = plan.Arguments;
+        Assert.True(
+            args.IndexOf("Game.exe", StringComparison.Ordinal) < args.IndexOf("-dx11", StringComparison.Ordinal)
+            && args.IndexOf("-dx11", StringComparison.Ordinal) < args.IndexOf("-krqlv=hd", StringComparison.Ordinal),
+            $"参数顺序应为 exe → 用户参数 → -krqlv，实际：{args}");
+        Assert.Contains(_temp.FilePath("game", "cfg").Replace('\\', '/'), args, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -185,7 +212,8 @@ public sealed class NativeUmuLauncherLaunchTests : IDisposable
 
     /// <summary>BuildPlan 组装（守卫两腿共用）：假 Proton + steamrt4 运行时 + 真实 exe。</summary>
     private UmuNativeLaunchPlan BuildPlanWithExtraEnvironment(
-        Dictionary<string, string> extraEnvironment, string? umuId, CapturingLogger? logger = null)
+        Dictionary<string, string> extraEnvironment, string? umuId, CapturingLogger? logger = null,
+        IReadOnlyList<string>? gameArguments = null, string? resourceQualityTier = null)
     {
         var runner = new FakeProcessRunner();
         var launcher = new NativeUmuLauncher(runner, provisioner: null, logger: logger, dataHome: _temp.Path);
@@ -205,7 +233,9 @@ public sealed class NativeUmuLauncherLaunchTests : IDisposable
             SteamRuntimeCatalog.Default,
             extraEnvironment: extraEnvironment,
             dataHomeOverride: _temp.Path,
-            umuId: umuId);
+            umuId: umuId,
+            gameArguments: gameArguments,
+            resourceQualityTier: resourceQualityTier);
     }
 
     private static IReadOnlyList<string> BuildSampleEntry()
