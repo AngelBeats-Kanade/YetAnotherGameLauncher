@@ -12,7 +12,7 @@ namespace YetAnotherGameLauncher.UiTests;
 /// <summary>
 /// 启动选项开关区（2026-09-28）：三个 ToggleSwitch 仅 Linux 显示、按 Content 文案绑定
 /// VM 开关草稿、翻转点亮保存钮（草稿语义，与命令模板/环境变量同批落盘）；
-/// 环境变量框默认留空（托管键不进编辑框）。断言全部在 Dispatch 之外（Dispatch 三规则②）。
+/// 自定义启动选项框默认留空（托管键不进编辑框）。断言全部在 Dispatch 之外（Dispatch 三规则②）。
 /// </summary>
 [Collection("sequential")]
 public class LaunchOptionsHeadlessTests : IDisposable
@@ -133,7 +133,7 @@ public class LaunchOptionsHeadlessTests : IDisposable
         }, CancellationToken.None);
 
         Assert.True(waylandToggleFound, "Linux 平台应能看到「使用 Wayland」开关");
-        Assert.True(envBoxEmpty, "托管语义：Linux 首运推荐键不进环境变量框，默认留空");
+        Assert.True(envBoxEmpty, "托管语义：Linux 首运推荐键不进自定义启动选项框，默认留空");
         Assert.True(flipped, "开关翻转应写进 UseWaylandDraft 草稿（绑定断线即假）");
         Assert.True(dirtyAfterFlip, "翻转前 IsDirty 应已复位、翻转后点亮（草稿语义接线）");
     }

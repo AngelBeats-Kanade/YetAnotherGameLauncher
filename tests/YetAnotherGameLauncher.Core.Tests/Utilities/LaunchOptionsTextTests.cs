@@ -201,6 +201,7 @@ public class LaunchOptionsTextTests
         {
             ["MAP"] = "coast 11",
             ["Q"] = "a\"b",
+            ["SQ"] = "a'b", // 单引号也是词法开启符，必须进加引号判据（RF-14，2026-10-03 复审 fuzz 实锤）
             ["BS"] = "a\\b",
             ["EMPTY"] = "",
             ["NL"] = "a\nb",
@@ -211,6 +212,48 @@ public class LaunchOptionsTextTests
 
         Assert.True(ok, $"回显文本应可无损重解析，实际坏条目：{badItem}，文本：{text}");
         AssertEqual(original, reparsed);
+    }
+
+    [Fact]
+    public void Serialize_Parse_RoundTripFuzz_DeterministicSeed()
+    {
+        // 确定性种子 fuzz：值域覆盖词法全部特殊字符（空白/双单引号/反斜杠/等号/普通字符）。
+        // Random(种子) 序列在同一运行时内确定；断言的是往返不变量本身，序列漂移无害。
+        // 2026-10-03 复审以 3000 次同款实验实锤 RF-14（单引号漏判），缩小规模入库常驻。
+        var rnd = new Random(42);
+        var alphabet = new[] { 'a', ' ', '\t', '"', '\'', '\\', '=', '\n', '\r', '$', '　' };
+        for (var iter = 0; iter < 1000; iter++)
+        {
+            var dict = new Dictionary<string, string>();
+            var entryCount = rnd.Next(1, 4);
+            for (var i = 0; i < entryCount; i++)
+            {
+                var valueLength = rnd.Next(0, 8);
+                var chars = new char[valueLength];
+                for (var j = 0; j < valueLength; j++)
+                {
+                    chars[j] = alphabet[rnd.Next(alphabet.Length)];
+                }
+
+                dict[$"K{i}"] = new string(chars);
+            }
+
+            var text = LaunchOptionsText.Serialize(dict);
+            var ok = LaunchOptionsText.TryParse(text, out var reparsed, out var badItem);
+
+            Assert.True(ok, $"第 {iter} 轮往返失败，坏条目：{badItem}，文本：{text.Replace("\n", "\\n").Replace("\r", "\\r")}");
+            AssertEqual(dict, reparsed);
+        }
+    }
+
+    [Fact]
+    public void TryParse_TrailingBackslashAtEof_IsLiteral()
+    {
+        // 文末孤立反斜杠按字面保留（RF-15，2026-10-03 复审补钉——该分支此前仅探测验证、无 repo 测试）
+        var ok = LaunchOptionsText.TryParse("KEY=a\\", out var parsed, out _);
+
+        Assert.True(ok);
+        Assert.Equal("a\\", parsed["KEY"]);
     }
 
     [Fact]

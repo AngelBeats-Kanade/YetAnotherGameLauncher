@@ -177,7 +177,7 @@ public class SettingsHeadlessTests : IDisposable
     }
 
     /// <summary>
-    /// 环境变量框必须换行：NoWrap + AcceptsReturn 会把内部横滚条可见性算成 Auto，
+    /// 自定义启动选项框必须换行：NoWrap + AcceptsReturn 会把内部横滚条可见性算成 Auto，
     /// Fluent 默认悬浮滚动条绘制在内容之上——变量行填满后最后一行被横滚条盖住、指针被拦截无法点选。
     /// Wrap 时 TextBox 把横滚条设为 Disabled，umu 生成的长路径行（WINEPREFIX 等）换行后全部可见。
     /// </summary>

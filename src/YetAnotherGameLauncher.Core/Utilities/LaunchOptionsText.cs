@@ -70,7 +70,7 @@ public static class LaunchOptionsText
         var lines = new List<string>(environment.Count);
         foreach (var (key, value) in environment)
         {
-            if (value.AsSpan().IndexOfAny([' ', '\t', '\r', '\n', '"', '\\']) >= 0)
+            if (value.AsSpan().IndexOfAny([' ', '\t', '\r', '\n', '"', '\'', '\\']) >= 0)
             {
                 lines.Add($"{key}=\"{value.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"");
             }
