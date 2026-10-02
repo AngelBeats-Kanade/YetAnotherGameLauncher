@@ -7,13 +7,13 @@
 
 0.1.2 之后的功能版本：系统托盘驻留 + 关闭按钮行为设置（退出应用 / 关闭窗口驻留托盘，
 下载与依赖安装后台继续）；资源包档位、实时下载进度与速度；鸣潮 krpdiff 增量更新链
-终局修复。1178 个测试全绿（2026-10-02 实测）。
+终局修复。1181 个测试全绿（2026-10-02 实测）。
 
 ### 新增
 
 **hpatchz 自动供给（鸣潮增量更新免手动安装）**
 
-- 应用增量更新时若 PATH 上没有 hpatchz，启动器自动从 HDiffPatch 官方 GitHub release 下载固定版本（v5.1.3，约 2MB，MD5 校验）到应用数据目录并使用——鸣潮增量更新不再需要手动安装 HDiffPatch；自备二进制（PATH 或显式路径）始终优先。非 x86_64 架构与离线场景保留「手动安装」提示。
+- 应用增量更新时若 PATH 上没有 hpatchz，启动器自动下载社区验证构建（鸣潮 krpdiff 与开源 HDiffPatch 全线构建不兼容——真机实证官方 v4.8.0/v5.1.3 与 master 均无法读取，退出码 109；供给 ww-manager 社区打包的 hpatchz.exe，MD5 校验，实测产出与官方清单一致）。Linux 上经 wine 运行（系统 wine 或已装 Proton 自带，独立 WINEPREFIX 不污染环境）；自备二进制（PATH 或显式路径）始终优先且原生直跑。
 
 ### 新增
 
@@ -57,11 +57,11 @@ behavior setting (quit the app / close the window and dwell in the tray,
 with downloads and dependency installs kept running); resource quality
 tier selection; real-time byte-granular download progress with a speed
 readout; and the definitive fix for the Wuthering Waves krpdiff
-incremental-update chain. 1178 tests green (measured 2026-10-02).
+incremental-update chain. 1181 tests green (measured 2026-10-02).
 
 **Added — automatic hpatchz provisioning (no manual install for Wuthering Waves incremental updates)**
 
-- When applying incremental updates, if hpatchz is not on PATH the launcher automatically downloads a pinned official build (v5.1.3, ~2MB, MD5-verified) from the HDiffPatch GitHub release into the app data directory - no manual HDiffPatch install needed anymore; a self-provided binary (PATH or explicit path) always takes precedence. Non-x86_64 architectures and offline scenarios keep the "install manually" guidance.
+- When applying incremental updates, if hpatchz is not on PATH the launcher automatically downloads a community-verified build (Wuthering Waves krpdiff is incompatible with every open-source HDiffPatch build - measured on official v4.8.0/v5.1.3 and master, all exit 109; the provisioned asset is the hpatchz.exe packaged by the ww-manager community, MD5-verified, output verified against the official manifest). On Linux it runs through wine (system wine or one bundled with an installed Proton, isolated WINEPREFIX); a self-provided binary always takes precedence and runs natively.
 
 **Added — resource quality tier (Wuthering Waves)**
 

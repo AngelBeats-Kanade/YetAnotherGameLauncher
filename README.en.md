@@ -105,7 +105,7 @@ No development environment needed — four steps (the release packages are **sel
 > [!TIP]
 > - **No wine / Proton needed on Linux beforehand**: the default umu launch chain automatically downloads
 >   DW-Proton (the default flavor; switch to GE-Proton / UMU-Proton in game settings) and Steam Runtime
-> - Wuthering Waves **incremental updates** apply patches with [hpatchz (HDiffPatch)](https://github.com/sisong/HDiffPatch/releases): it is **downloaded automatically** (~2MB official build) when not found on PATH - no manual install needed; a self-provided binary on PATH takes precedence
+> - Wuthering Waves **incremental updates** apply patches with hpatchz: a **community-verified build** (~0.5MB, run through wine on Linux - system wine or one bundled with an installed Proton, isolated prefix) is **downloaded automatically** when not found on PATH; a self-provided binary on PATH takes precedence and runs natively
 > - Want the games somewhere else? Change the **install root** under "Settings → Downloads" before installing
 > - The config file lives at `~/.config/yagl/games.json` on Linux and `%APPDATA%\yagl\games.json` on Windows
 
@@ -204,7 +204,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### Running tests (1178 tests, measured 2026-10-02)
+### Running tests (1181 tests, measured 2026-10-02)
 
 ```bash
 # Run the 4 test projects' compiled binaries directly (on Windows you can run the .exe;

@@ -23,14 +23,30 @@ public sealed class HpatchzApplier(
         // 预检先行：缺失/不可执行时给出可操作错误，而不是等 CreateProcess 抛难懂的 Win32Exception
         // （Windows 上 "拒绝访问"、Linux 上 "cannot find the file" 都看不出真实原因）。
         // 解析顺序（用户自备优先，2026-10-02 自动供给）：显式全路径只校验；裸名先 PATH；
-        // 都没有且注入了供给器 → 自动下载官方固定版本兜底（对齐 FFmpeg/umu 供给哲学）
-        var tool = ResolvePatchTool();
-        if (tool is null && provisioner is not null)
+        // 都没有且注入了供给器 → 自动下载社区验证构建兜底（鸣潮 krpdiff 与开源构建的兼容性
+        // 见 HpatchzProvisioner 类注释——供给形态在 Linux 上是 wine + hpatchz.exe）
+        var selfProvided = ResolvePatchTool();
+        string fileName;
+        string arguments;
+        IReadOnlyDictionary<string, string>? environment = null;
+        if (selfProvided is not null)
         {
-            tool = await provisioner.EnsureAvailableAsync(cancellationToken).ConfigureAwait(false);
+            fileName = selfProvided;
+            arguments = $"-f {QuoteArg(oldDir)} {QuoteArg(patchFilePath)} {QuoteArg(newDir)}";
         }
-
-        if (tool is null)
+        else if (provisioner is not null)
+        {
+            var tool = await provisioner.EnsureAvailableAsync(cancellationToken).ConfigureAwait(false);
+            fileName = tool.FileName;
+            environment = tool.Environment;
+            // wine 形态：exe 路径作前缀参数，old/patch/new 转成 wine 的 Z: 盘路径；
+            // Windows 供给的 exe 原生直跑（空前缀，路径原样）
+            var prefix = tool.ArgumentPrefix.Length > 0 ? tool.ArgumentPrefix + " " : "";
+            var isWine = tool.ArgumentPrefix.Length > 0;
+            arguments = $"{prefix}-f {QuoteArg(MapPath(oldDir, isWine))} " +
+                        $"{QuoteArg(MapPath(patchFilePath, isWine))} {QuoteArg(MapPath(newDir, isWine))}";
+        }
+        else
         {
             throw new UpdateException(
                 $"Patch tool not found or not executable: {_options.HpatchzPath}. " +
@@ -39,12 +55,10 @@ public sealed class HpatchzApplier(
         }
 
         Directory.CreateDirectory(newDir);
-
-        var arguments = $"-f {QuoteArg(oldDir)} {QuoteArg(patchFilePath)} {QuoteArg(newDir)}";
-        logger?.LogDebug("Running {Exe} {Args}", tool, arguments);
+        logger?.LogDebug("Running {Exe} {Args}", fileName, arguments);
 
         var result = await processRunner.RunAsync(
-            new ProcessStartSpec(tool, arguments, TimeoutMilliseconds: _options.TimeoutMilliseconds),
+            new ProcessStartSpec(fileName, arguments, TimeoutMilliseconds: _options.TimeoutMilliseconds, Environment: environment),
             cancellationToken).ConfigureAwait(false);
 
         if (!result.Succeeded)
@@ -53,6 +67,9 @@ public sealed class HpatchzApplier(
                 $"hpatchz exited with code {result.ExitCode} (patch: {Path.GetFileName(patchFilePath)}): {result.StandardError}");
         }
     }
+
+    /// <summary>执行路径按形态映射：wine 形态转 Z: 盘路径，原生形态原样。</summary>
+    private static string MapPath(string path, bool isWine) => isWine ? HpatchzProvisioner.ToWinePath(path) : path;
 
     /// <summary>按 .NET 命令行分词规则（CommandLineToArgvW 语义）包裹参数（F63）：
     /// 反斜杠仅在紧邻引号时才有转义语义——引号前的连续 `\` 翻倍后跟 `\"`、收尾闭合引号前的

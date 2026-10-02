@@ -242,15 +242,15 @@ public class HpatchzApplierTests : IDisposable
         Assert.Empty(_runner.Specs);
     }
 
-    /// <summary>供给器桩：记录调用次数并返回固定路径（自备优先守卫的观察点）。</summary>
-    private sealed class StubProvisioner(string toolPath) : IHpatchzProvisioner
+    /// <summary>供给器桩：记录调用次数并返回固定执行规格（自备优先守卫的观察点）。</summary>
+    private sealed class StubProvisioner(string fileName, string argumentPrefix = "") : IHpatchzProvisioner
     {
         public int Calls { get; private set; }
 
-        public Task<string> EnsureAvailableAsync(CancellationToken cancellationToken = default)
+        public Task<HpatchzTool> EnsureAvailableAsync(CancellationToken cancellationToken = default)
         {
             Calls++;
-            return Task.FromResult(toolPath);
+            return Task.FromResult(new HpatchzTool(fileName, argumentPrefix));
         }
     }
 
@@ -272,19 +272,39 @@ public class HpatchzApplierTests : IDisposable
     }
 
     [Fact]
-    public async Task BareNameMissingEverywhere_FallsBackToProvisioner()
+    public async Task BareNameMissingEverywhere_FallsBackToProvisionedTool()
     {
-        // PATH 无自备（裸名解析不到）→ 供给器兜底：进程收到供给路径（下载细节由供给器自测覆盖）
+        // PATH 无自备（裸名解析不到）→ 供给器兜底：原生形态（空前缀）直接以供给路径为进程
         var stub = StubTool();
         var provisioner = new StubProvisioner(stub);
         var applier = new HpatchzApplier(_runner, new HpatchzApplierOptions { HpatchzPath = "hpatchz-not-on-path-xyz" }, provisioner: provisioner);
         var patch = _tempDir.FilePath("patch.krpdiff");
         await File.WriteAllTextAsync(patch, "stub");
 
-        await applier.ApplyAsync(patch, _tempDir.FilePath("old"), _tempDir.FilePath("new"));
+        await applier.ApplyAsync(patch, _tempDir.FilePath("old dir"), _tempDir.FilePath("new dir"));
 
         Assert.Equal(1, provisioner.Calls);
-        Assert.Equal(stub, Assert.Single(_runner.Specs).FileName);
+        var spec = Assert.Single(_runner.Specs);
+        Assert.Equal(stub, spec.FileName);
+        Assert.StartsWith("-f ", spec.Arguments); // 原生形态无前缀参数，路径保持 unix 形态
+    }
+
+    [Fact]
+    public async Task WineShapedProvisionedTool_PassesExePrefixAndZPaths()
+    {
+        // Linux 供给形态（wine + exe）：进程是 wine、exe 作前缀参数、old/patch/new 转 Z: 盘路径
+        var provisionedExe = _tempDir.FilePath("provisioned", "hpatchz.exe");
+        var provisioner = new StubProvisioner("/fake/wine", argumentPrefix: $"\"{provisionedExe}\"");
+        var applier = new HpatchzApplier(_runner, new HpatchzApplierOptions { HpatchzPath = "hpatchz-not-on-path-xyz" }, provisioner: provisioner);
+        var patch = _tempDir.FilePath("patch.krpdiff");
+        await File.WriteAllTextAsync(patch, "stub");
+
+        await applier.ApplyAsync(patch, _tempDir.FilePath("old dir"), _tempDir.FilePath("new dir"));
+
+        var spec = Assert.Single(_runner.Specs);
+        Assert.Equal("/fake/wine", spec.FileName);
+        Assert.StartsWith($"\"{provisionedExe}\" -f ", spec.Arguments);
+        Assert.Contains("\"Z:", spec.Arguments); // unix 路径已转 wine 盘符
     }
 
     [Fact]

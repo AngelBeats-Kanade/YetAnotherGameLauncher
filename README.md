@@ -100,7 +100,7 @@
 > [!TIP]
 > - **Linux 上不需要提前装 wine / Proton**：默认的 umu 启动链会在启动游戏时自动下载
 >   DW-Proton（默认发行版，可改选 GE-Proton / UMU-Proton）与 Steam Runtime
-> - 鸣潮的**增量更新**使用 [hpatchz（HDiffPatch）](https://github.com/sisong/HDiffPatch/releases)合成差分：PATH 里没有时会**自动下载**官方固定版本（约 2MB），无需手动安装；自备二进制放 PATH 优先使用
+> - 鸣潮的**增量更新**使用 hpatchz 合成差分：PATH 里没有时会**自动下载**社区验证构建（约 0.5MB，经 wine 运行——Linux 用已装的 wine/Proton 自带 wine，独立前缀不污染环境），无需手动安装；自备二进制放 PATH 优先原生使用
 > - 想把游戏装到别处？先到「设置 → 下载」改**安装根目录**，再去安装
 > - 配置文件在 Linux 的 `~/.config/yagl/games.json`、Windows 的 `%APPDATA%\yagl\games.json`
 
@@ -186,7 +186,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（1178 个，2026-10-02 实测）
+### 运行测试（1181 个，2026-10-02 实测）
 
 ```bash
 # 4 个测试工程分别运行编译产物（Windows 亦可直接跑 .exe；本机 dotnet test 可能发现 0 个测试）：
@@ -256,7 +256,7 @@ Linux 上生成时会顺带把默认 `{exe}` 模板升级为社区推荐链
 | Linux 双击解压出的程序没反应 | 终端进入解压目录执行 `./YetAnotherGameLauncher`；提示无执行权限时先 `chmod +x YetAnotherGameLauncher` |
 | 首次启动想重新生成默认配置 | 删除 `~/.config/yagl/games.json`（或 `YAGL_CONFIG` 指向的文件）后重启启动器即可 |
 | 提示"无法连接服务器" | 检查网络/代理；鸣潮 CDN 在国内网络环境更稳定 |
-| 鸣潮增量更新失败，提示 hpatchz | 自动下载在无网络或非 x86_64 机器上不可用：手动安装 [HDiffPatch](https://github.com/sisong/HDiffPatch/releases) 并把 `hpatchz` 放进 PATH |
+| 鸣潮增量更新失败，提示 hpatchz | 自动下载需要网络与 wine（系统 wine 或已装 Proton 自带）；也可手动安装原生 [HDiffPatch](https://github.com/sisong/HDiffPatch/releases) 构建放进 PATH |
 | 预下载按钮不出现 | 官方未开放预下载窗口（鸣潮 `predownload.config` 不存在 / 终末地无 `patch` 节点） |
 | 终末地版本/下载报错 | GRYPHLINE 协议无官方文档，官方启动器更新后字段可能变化，欢迎提 issue |
 | Linux 启动失败 | 启动失败会弹出错误卡：原生 umu 组件下载失败可重试或改选本机已装 Proton；也可"打开日志目录"查看 `launch-*.log`，或到游戏设置页检查命令模板与运行时。Windows 直接 `{exe}` 即可 |

@@ -184,4 +184,28 @@ public class CompatToolsScanDegradationTests : IDisposable
 
         Assert.Null(thrown);
     }
+
+    [Fact]
+    public void FindProtonWine_PicksFirstProtonBundledWine()
+    {
+        // hpatchz.exe 经 wine 运行的第二供给源（2026-10-02）：…/files/bin/wine 形态命中即返回；
+        // home 注入隔离真机 Proton 环境
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Skip("executable-bit semantics are Unix-only");
+        }
+
+        var tools = Path.Combine(_home.Path, ".local", "share", "Steam", "compatibilitytools.d");
+        var protonWine = Path.Combine(tools, "GE-Proton-test", "files", "bin", "wine");
+        Directory.CreateDirectory(Path.GetDirectoryName(protonWine)!);
+        File.WriteAllText(protonWine, "#!/bin/sh\n");
+        if (OperatingSystem.IsLinux()) // CA1416：SetUnixFileMode 仅 Unix
+        {
+            File.SetUnixFileMode(protonWine, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        }
+        Directory.CreateDirectory(Path.Combine(tools, "empty-proton", "files")); // 无 wine 的目录跳过
+
+        Assert.Equal(protonWine, CompatTools.FindProtonWine(_home.Path));
+        Assert.Null(CompatTools.FindProtonWine(Path.Combine(_home.Path, "nonexistent-home")));
+    }
 }

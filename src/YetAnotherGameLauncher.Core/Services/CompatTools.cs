@@ -60,6 +60,31 @@ public static class CompatTools
         Path.Combine(home, ".steam", "root", "steamapps", "common"),
     ];
 
+    /// <summary>定位已安装 Proton 自带的 wine 可执行文件（…/files/bin/wine），系统 wine 之外的第二供给源
+    ///（hpatchz.exe 经 wine 运行等场景）。任一 Proton 根下命中即返回；无则 null。</summary>
+    public static string? FindProtonWine(string? home = null)
+    {
+        home ??= Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        foreach (var root in ProtonRoots(home))
+        {
+            if (!Directory.Exists(root))
+            {
+                continue;
+            }
+
+            foreach (var dir in Directory.EnumerateDirectories(root))
+            {
+                var wine = Path.Combine(dir, "files", "bin", "wine");
+                if (FileUtilities.IsExecutableFile(wine))
+                {
+                    return wine;
+                }
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// 扫描已知目录中的可用 Proton 版本名（默认推荐版本置顶，字典序）。
     /// </summary>

@@ -1,15 +1,14 @@
 using Xunit;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Services;
-using YetAnotherGameLauncher.Core.Utilities;
 using YetAnotherGameLauncher.TestSupport;
 
 namespace YetAnotherGameLauncher.Channels.Kuro.Tests;
 
 /// <summary>
-/// hpatchz 自动供给器（2026-10-02）：PATH 无自备二进制时从官方 release 下载固定版本 v5.1.3
-/// 解压落位。下载/解压路径的 chmod 断言为 Linux 语义（Windows 腿由 SelectAsset 直测覆盖
-/// windows-x64 分支）。
+/// hpatchz 自动供给器（2026-10-02）：鸣潮 krpdiff 只能被社区验证构建（ww-manager 打包的
+/// hpatchz.exe）读取——开源 HDiffPatch 全线 109（真机实证链见 HpatchzProvisioner 类注释）。
+/// Linux 供给形态 = wine + exe + 独立 WINEPREFIX；Windows = exe 原生直跑。
 /// </summary>
 public class HpatchzProvisionerTests : IDisposable
 {
@@ -18,57 +17,88 @@ public class HpatchzProvisionerTests : IDisposable
 
     public void Dispose() => _tempDir.Dispose();
 
-    private HpatchzProvisioner CreateProvisioner() => new(_downloader, dataDirectory: _tempDir.Path);
+    private HpatchzProvisioner CreateProvisioner(Func<string?>? wineLocator = null) =>
+        new(_downloader, dataDirectory: _tempDir.Path, wineLocator: wineLocator);
 
-    [Fact]
-    public async Task EnsureAvailable_DownloadsExtractsAndSetsExecutableBit()
+    /// <summary>造一个"存在且可执行"的 wine 替身（供给器对定位器结果同样做真实存在校验）。</summary>
+    private string StubWine()
     {
-        // 下载 → 防御解压 → 定位 zip 内 hpatchz（顶层目录名不定的真实 release 形态）→
-        // 显式补执行位（.NET ZipFile 不恢复 zip 内的 Unix 权限位）
-        if (OperatingSystem.IsWindows())
+        var path = _tempDir.FilePath("wine-stub");
+        File.WriteAllText(path, "#!/bin/sh\n");
+        if (!OperatingSystem.IsWindows())
         {
-            Assert.Skip("chmod/executable-bit assertions are Unix semantics; windows-x64 asset selection covered by SelectAsset test");
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }
 
-        var zip = TestZip.Create(("some-release-dir/hpatchz", "fake-elf"u8.ToArray()));
-        _downloader.Responses[HpatchzProvisioner.BuildDownloadUrl("linux64.zip")] = zip;
+        return path;
+    }
 
-        var toolPath = await CreateProvisioner().EnsureAvailableAsync();
+    private void ServeExe() =>
+        _downloader.Responses[HpatchzProvisioner.DownloadUrl] = "MZ-fake-exe"u8.ToArray();
 
-        Assert.True(FileUtilities.IsExecutableFile(toolPath));
-        Assert.Equal("fake-elf", await File.ReadAllTextAsync(toolPath));
-        Assert.StartsWith(Path.Combine(_tempDir.Path, "tools", "hpatchz"), toolPath); // 布局：数据目录下 tools/hpatchz/v{版本}
-        // 临时产物清理：解压目录与下载 zip 不残留（archive 实际落点是 tools/hpatchz/v{版本}.zip）
-        var hpatchzRoot = Path.Combine(_tempDir.Path, "tools", "hpatchz");
-        Assert.Empty(Directory.GetDirectories(hpatchzRoot, "*.extracting"));
-        Assert.False(File.Exists(Path.Combine(hpatchzRoot, $"v{HpatchzProvisioner.Version}.zip")));
+    [Fact]
+    public async Task EnsureAvailable_Linux_DownloadsExeAndRunsThroughWine()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Skip("wine/prefix semantics are Linux-only; the windows leg covers the native branch below");
+        }
+
+        ServeExe();
+
+        var tool = await CreateProvisioner(wineLocator: () => StubWine()).EnsureAvailableAsync();
+
+        // 供给形态：wine 为进程、exe 为前缀参数、独立 WINEPREFIX 指向供给目录内
+        Assert.Equal(StubWine(), tool.FileName);
+        Assert.Equal("\"" + Path.Combine(_tempDir.Path, "tools", "hpatchz", HpatchzProvisioner.Version, "hpatchz.exe") + "\"",
+            tool.ArgumentPrefix);
+        Assert.Equal(
+            Path.Combine(_tempDir.Path, "tools", "hpatchz", HpatchzProvisioner.Version, "prefix"),
+            tool.Environment!["WINEPREFIX"]);
+        // exe 落位（下载器写盘，无解压步骤——资产即单文件 exe）
+        Assert.True(File.Exists(Path.Combine(
+            _tempDir.Path, "tools", "hpatchz", HpatchzProvisioner.Version, "hpatchz.exe")));
+    }
+
+    [Fact]
+    public async Task EnsureAvailable_Windows_RunsExeNatively()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Skip("native-exe branch is Windows-only; the linux leg covers the wine branch above");
+        }
+
+        ServeExe();
+
+        var tool = await CreateProvisioner().EnsureAvailableAsync();
+
+        Assert.EndsWith("hpatchz.exe", tool.FileName);
+        Assert.Equal("", tool.ArgumentPrefix);
+        Assert.Null(tool.Environment);
     }
 
     [Fact]
     public async Task EnsureAvailable_AlreadyReady_ZeroNetwork()
     {
-        // 幂等：已就绪（目标存在且可执行）直接返回，不发任何网络请求
-        var provisioner = CreateProvisioner();
-        var zip = TestZip.Create(("linux64/hpatchz", "x"u8.ToArray()));
-        _downloader.Responses[HpatchzProvisioner.BuildDownloadUrl("linux64.zip")] = zip;
-        var toolPath = await provisioner.EnsureAvailableAsync();
+        // 幂等：已就绪（exe 在）直接返回，不发任何网络请求
+        ServeExe();
+        var provisioner = CreateProvisioner(wineLocator: () => StubWine());
+        await provisioner.EnsureAvailableAsync();
 
         _downloader.Requests.Clear();
         var again = await provisioner.EnsureAvailableAsync();
 
-        Assert.Equal(toolPath, again);
+        Assert.Equal(StubWine(), again.FileName);
         Assert.Empty(_downloader.Requests);
     }
 
     [Fact]
     public async Task EnsureAvailable_Md5Mismatch_FoldsToUpdateException()
     {
-        // 校验链走真下载器 + 桩 HTTP（FakeDownloader 不做 MD5 校验）：资产与嵌入 MD5 不符
-        // （官方 release 被替换/CDN 损坏）按 UpdateException 折算，消息含版本上下文。
-        // URL 按当前测试平台取资产——两腿都命中 MD5 分支（资产名不匹配会退化成 404 折算）
-        var assetName = OperatingSystem.IsLinux() ? "linux64.zip" : "windows64.zip";
+        // 资产与嵌入 MD5 不符（release 被替换/CDN 损坏）按 UpdateException 折算——真下载器 +
+        // 桩 HTTP 走校验链（FakeDownloader 不做 MD5 校验）
         var handler = new StubHttpHandler();
-        handler.Map(HpatchzProvisioner.BuildDownloadUrl(assetName), "tampered-orrupt");
+        handler.Map(HpatchzProvisioner.DownloadUrl, "tampered-or-corrupt");
         var provisioner = new HpatchzProvisioner(
             new HttpFileDownloader(new HttpClient(handler), new HttpFileDownloaderOptions { MaxAttempts = 1 }),
             dataDirectory: _tempDir.Path);
@@ -76,27 +106,35 @@ public class HpatchzProvisionerTests : IDisposable
         var ex = await Assert.ThrowsAsync<UpdateException>(() => provisioner.EnsureAvailableAsync());
 
         Assert.Contains("hpatchz", ex.Message, StringComparison.Ordinal);
-        Assert.Contains("MD5 mismatch", ex.Message, StringComparison.Ordinal); // 确证命中的是校验分支而非 404
+        Assert.Contains("MD5 mismatch", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void SelectAsset_CoversMeasuredPlatformsOnly()
+    public async Task EnsureAvailable_LinuxWithoutWine_ActionableError()
     {
-        // 仅覆盖有实测 MD5 的组合（2026-10-02 官方 v5.1.3 实测：linux64/windows64）；
-        // 其余平台/架构返回 null——EnsureAvailable 对 null 给「手动安装」可操作提示
-        Assert.Equal(("linux64.zip", "1b66f06fea325eaa5e1f96c881c10459"),
-            HpatchzProvisioner.SelectAsset(isLinux: true, System.Runtime.InteropServices.Architecture.X64));
-        Assert.Equal(("windows64.zip", "ec432fd2e20e9a6f8449aae9a9850d86"),
-            HpatchzProvisioner.SelectAsset(isLinux: false, System.Runtime.InteropServices.Architecture.X64));
-        Assert.Null(HpatchzProvisioner.SelectAsset(isLinux: true, System.Runtime.InteropServices.Architecture.Arm64));
-        Assert.Null(HpatchzProvisioner.SelectAsset(isLinux: false, System.Runtime.InteropServices.Architecture.Arm64));
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Skip("wine requirement is Linux-only");
+        }
+
+        ServeExe();
+        // 定位器无结果且本机无系统/Proton wine（CI 与多数测试机）——可操作报错。
+        // 本机装有 wine 的开发环境会让回退定位命中，先探测再决定 Skip（机器前提显式化）
+        var hasLocalWine = CompatTools.FindSystemWine() is not null || CompatTools.FindProtonWine() is not null;
+        if (hasLocalWine)
+        {
+            Assert.Skip("this machine has wine; the no-wine path cannot be constructed here");
+        }
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => CreateProvisioner(wineLocator: () => null).EnsureAvailableAsync());
+
+        Assert.Contains("wine", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void BuildDownloadUrl_PointsAtOfficialRelease()
+    public void ToWinePath_MapsUnixRootToZDrive()
     {
-        Assert.Equal(
-            "https://github.com/sisong/HDiffPatch/releases/download/v5.1.3/hdiffpatch_v5.1.3_bin_linux64.zip",
-            HpatchzProvisioner.BuildDownloadUrl("linux64.zip"));
+        Assert.Equal("Z:/home/u/game/old dir", HpatchzProvisioner.ToWinePath("/home/u/game/old dir"));
     }
 }
