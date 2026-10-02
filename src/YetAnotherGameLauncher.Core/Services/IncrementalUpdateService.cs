@@ -10,8 +10,10 @@ namespace YetAnotherGameLauncher.Core.Services;
 /// 增量更新（两段式，与 wutheringwaves-cli-manager 的 predownload --apply 对齐）：
 /// 1) Predownload：把差分包（krpdiff）与可直接下载的新文件放入 {installDir}/.yagl/predownload 暂存
 ///    （重跑保留暂存：完好文件核验跳过、.temp 续传）；
-/// 2) Apply：先按清单 deleteFiles 删除废弃文件（2026-10-02），再逐组"复制旧文件 → hpatchz 合成 →
-///    MD5 校验 → .yagl-bak 备份替换"，单组失败自动回滚该组，中断后可重新执行。
+/// 2) Apply：逐组"复制旧文件 → hpatchz 合成 → MD5 校验 → .yagl-bak 备份替换"（单组失败自动回滚
+///    该组，中断后可重新执行），随后落位暂存新文件、删除清单废弃文件（deleteFiles 在组后——
+///    废弃文件可能同时是组差分源，2026-10-02 真机 P1 实锤）、清理暂存；差分源缺失时按注入的
+///    解析缝直下该组产物自救（组级回退）。
 /// </summary>
 public sealed class IncrementalUpdateService(
     IDownloader downloader,
@@ -185,14 +187,22 @@ public sealed class IncrementalUpdateService(
     }
 
     /// <summary>阶段二：应用暂存的差分。中断/失败后可重复调用直至成功。</summary>
+    /// <param name="installDir">游戏安装目录。</param>
+    /// <param name="incrementalManifest">暂存的增量清单（TryLoadStagedManifest 读回）。</param>
+    /// <param name="progress">进度回调（Verifying/Patching/Done 阶段）。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <param name="dstUrlResolver">组级回退的产物直链解析缝（相对路径 → CDN 直链，查无返回 null）。
+    /// 差分源缺失（官方清单 deleteFiles ∩ srcFiles 交叉或安装被外力破坏）时按组直下产物自救；
+    /// null = 不启用回退（源缺失按可操作报错收尾）。</param>
     public async Task ApplyAsync(
         string installDir,
         GameManifest incrementalManifest,
         IProgress<UpdateProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<string, CancellationToken, Task<string?>>? dstUrlResolver = null)
     {
         // UI 线程让位（2026-10-02 真机假死实锤）：VM 命令在 UI 线程 await 本方法，若无先行让位，
-        // patchwork 清理/deleteFiles/组校验 MD5（重入时全部已应用组 dstFiles 可达数十 GiB）会同步
+        // patchwork 清理/组校验 MD5/deleteFiles（重入时全部已应用组 dstFiles 可达数十 GiB）会同步
         // 跑在 UI 线程直到首个真实 await——入口强制异步续体落线程池（ForceYielding 不捕获上下文；
         // Task.Yield 不可用：YieldAwaitable 无 ConfigureAwait，会把续体贴回 UI 上下文）
         await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
@@ -200,8 +210,6 @@ public sealed class IncrementalUpdateService(
         var staging = PredownloadDir(installDir);
         var workDir = PatchWorkDir(installDir);
         FileUtilities.TryDeleteDirectory(workDir, logger);
-
-        DeleteListedFiles(installDir, incrementalManifest, logger);
 
         var total = incrementalManifest.Groups.Count;
         for (var i = 0; i < total; i++)
@@ -228,7 +236,7 @@ public sealed class IncrementalUpdateService(
                     $"Patch {group.PatchFile} was not preloaded; run predownload first or use the full update.");
             }
 
-            await ApplyGroupAsync(installDir, workDir, i, group, patchPath, cancellationToken).ConfigureAwait(false);
+            await ApplyGroupAsync(installDir, workDir, i, group, patchPath, dstUrlResolver, progress, cancellationToken).ConfigureAwait(false);
         }
 
         // 差分组不覆盖的新文件已在预下载时暂存，此处落位；缺失的交给事后修复
@@ -267,6 +275,12 @@ public sealed class IncrementalUpdateService(
             logger?.LogDebug("Staged file placed: {Path}", file.Path);
         }
 
+        // 废弃文件删除（官方 deleteFiles）：必须在组循环与落位之后——官方清单存在 deleteFiles ∩
+        // 组 srcFiles 交叉（2026-10-02 真机 P1 实锤：3.6.1→3.7.0 group_37 的 4 个差分源同时在
+        // 废弃清单），先删会让组差分永久不可行；删除失败仍报错中止，重试安全（组幂等跳过 +
+        // 删除重试，游戏内容此时已是目标版本）
+        DeleteListedFiles(installDir, incrementalManifest, logger);
+
         // 暂存目录完成使命后清理（Windows 上残留被占用时尽力清理即可，残留留给下次重置）
         FileUtilities.TryDeleteDirectory(staging, logger);
         // 差分工作草稿同样清理：SrcFiles 的完整副本（olddir-*/newdir-*）可占数 GB~数十 GB，
@@ -277,9 +291,10 @@ public sealed class IncrementalUpdateService(
     }
 
     /// <summary>删除清单点名的废弃文件（官方 deleteFiles，2026-10-02 真机实测顶层 6 条旧 pak/sig）。
-    /// 位于组循环之前：残留会被 UE 挂载覆盖新文件、热更卡死。不存在/目录条目跳过；
-    /// 删除失败（占用/只读）抛 UpdateException 中止——此时游戏文件一个都未动过、状态干净可重试
-    /// （用户 2026-10-02 裁定；ww-manager 为尾部告警继续，因语义配对放最前使失败零副作用）。</summary>
+    /// 位于组循环与落位之后（2026-10-02 修订，F88 裁定更新）：官方清单的废弃文件可能同时是后续
+    /// 组的差分源（deleteFiles ∩ srcFiles 非空），先删会让组差分永久不可行且不可自愈；尾部删除
+    /// 同样在游戏下次启动前清掉废弃文件，UE 挂载冲突不成立。不存在/目录条目跳过；删除失败
+    /// （占用/只读）抛 UpdateException 中止——此时组差分与落位已完成且校验通过，重试安全。</summary>
     private static void DeleteListedFiles(string installDir, GameManifest manifest, ILogger? logger)
     {
         foreach (var relative in manifest.DeleteFiles)
@@ -319,6 +334,8 @@ public sealed class IncrementalUpdateService(
         int index,
         PatchGroup group,
         string patchPath,
+        Func<string, CancellationToken, Task<string?>>? dstUrlResolver,
+        IProgress<UpdateProgress>? progress,
         CancellationToken cancellationToken)
     {
         var oldDir = Path.Combine(workDir, $"olddir-{index}");
@@ -326,39 +343,46 @@ public sealed class IncrementalUpdateService(
         Directory.CreateDirectory(oldDir);
         Directory.CreateDirectory(newDir);
 
-        foreach (var src in group.SrcFiles)
+        // 差分源缺失检测：官方清单存在 deleteFiles ∩ srcFiles 交叉（或安装被外力破坏）——组差分
+        // 不可行时经解析缝直下该组产物自救（组级回退），无解析缝保持可操作报错（旧调用方兼容）
+        var missingSrc = group.SrcFiles.FirstOrDefault(src =>
+            !File.Exists(ManifestVerifier.ResolveSafe(installDir, src.Path)));
+        if (missingSrc is not null)
         {
-            var source = ManifestVerifier.ResolveSafe(installDir, src.Path);
-            if (!File.Exists(source))
+            await DownloadGroupOutputsDirectlyAsync(
+                newDir, group, missingSrc.Path, dstUrlResolver, progress, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            foreach (var src in group.SrcFiles)
             {
-                throw new UpdateException(
-                    $"Source file {src.Path} required by patch group {group.PatchFile} is missing; use the full update.");
+                var source = ManifestVerifier.ResolveSafe(installDir, src.Path);
+
+                var copied = SafeJoin(oldDir, src.Path);
+                Directory.CreateDirectory(Path.GetDirectoryName(copied)!);
+                try
+                {
+                    File.Copy(source, copied, overwrite: true);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                           && !cancellationToken.IsCancellationRequested)
+                {
+                    // 源文件拒读/被占用（Windows 杀软锁定、POSIX 权限剥夺）不是补丁本身失败，但同样
+                    // 折算 UpdateException（F67）：File.Copy 原在下方折算 try 之外，裸异常会绕开
+                    // "补丁失败统一折算"的分类纪律直穿调用方
+                    throw new UpdateException(
+                        $"Source file {src.Path} of patch group {group.PatchFile} could not be read: {ex.Message}", ex);
+                }
             }
 
-            var copied = SafeJoin(oldDir, src.Path);
-            Directory.CreateDirectory(Path.GetDirectoryName(copied)!);
             try
             {
-                File.Copy(source, copied, overwrite: true);
+                await patchApplier.ApplyAsync(patchPath, oldDir, newDir, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                                       && !cancellationToken.IsCancellationRequested)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // 源文件拒读/被占用（Windows 杀软锁定、POSIX 权限剥夺）不是补丁本身失败，但同样
-                // 折算 UpdateException（F67）：File.Copy 原在下方折算 try 之外，裸异常会绕开
-                // "补丁失败统一折算"的分类纪律直穿调用方
-                throw new UpdateException(
-                    $"Source file {src.Path} of patch group {group.PatchFile} could not be read: {ex.Message}", ex);
+                throw new UpdateException($"Patch application failed ({group.PatchFile}): {ex.Message}", ex);
             }
-        }
-
-        try
-        {
-            await patchApplier.ApplyAsync(patchPath, oldDir, newDir, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            throw new UpdateException($"Patch application failed ({group.PatchFile}): {ex.Message}", ex);
         }
 
         foreach (var dst in group.DstFiles)
@@ -378,6 +402,72 @@ public sealed class IncrementalUpdateService(
         }
 
         ReplaceWithBackup(installDir, group, newDir, logger);
+    }
+
+    /// <summary>组级回退：差分源缺失时直下该组产物（2026-10-02 真机 P1 实锤的恢复路径——官方清单
+    /// deleteFiles ∩ srcFiles 交叉 + 早前失败尝试已删源的组合让组差分永久不可行；ww-manager 同族
+    /// 韧性语义）。产物 URL 经 dstUrlResolver 解析，size+MD5 校验内建于下载请求，落位复用与正常组
+    /// 相同的 dst 事后校验 + <see cref="ReplaceWithBackup"/> 原子替换；解析缝为 null 时保持
+    /// 「源缺失 + 全量更新」的可操作报错（旧调用方向后兼容）。</summary>
+    private async Task DownloadGroupOutputsDirectlyAsync(
+        string newDir,
+        PatchGroup group,
+        string missingSrcPath,
+        Func<string, CancellationToken, Task<string?>>? dstUrlResolver,
+        IProgress<UpdateProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (dstUrlResolver is null)
+        {
+            throw new UpdateException(
+                $"Source file {missingSrcPath} required by patch group {group.PatchFile} is missing; use the full update.");
+        }
+
+        logger?.LogInformation(
+            "Patch group {Patch} sources unavailable ({Missing} missing); downloading {Count} outputs directly",
+            group.PatchFile, missingSrcPath, group.DstFiles.Count);
+
+        for (var i = 0; i < group.DstFiles.Count; i++)
+        {
+            var dst = group.DstFiles[i];
+            cancellationToken.ThrowIfCancellationRequested();
+
+            string? url;
+            try
+            {
+                url = await dstUrlResolver(dst.Path, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // 解析缝内部故障（如全量清单抓取失败）同样折算可操作报错，不裸奔
+                throw new UpdateException(
+                    $"Could not resolve a direct download for patch group {group.PatchFile}: {ex.Message}", ex);
+            }
+
+            if (url is null)
+            {
+                throw new UpdateException(
+                    $"Source file {missingSrcPath} required by patch group {group.PatchFile} is missing and output " +
+                    $"{dst.Path} is not available for direct download; use the full update.");
+            }
+
+            ManifestChecks.EnsureDownloadUrl(url, "Direct-download fallback", dst.Path);
+
+            var target = SafeJoin(newDir, dst.Path);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            try
+            {
+                await downloader.DownloadFileAsync(
+                    new DownloadRequest(url, target, dst.Size, dst.Md5), null, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                throw new UpdateException(
+                    $"Could not download {dst.Path} for patch group {group.PatchFile} directly: {ex.Message}", ex);
+            }
+
+            progress?.Report(new UpdateProgress(UpdatePhase.Patching, dst.Size, dst.Size, i + 1, group.DstFiles.Count, dst.Path));
+        }
     }
 
     /// <summary>组幂等检测：该组全部 dstFiles 过 size+MD5 校验即视为已应用（中断/失败后重入跳过）。

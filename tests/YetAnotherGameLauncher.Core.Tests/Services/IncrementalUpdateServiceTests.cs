@@ -150,10 +150,11 @@ public class IncrementalUpdateServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ApplyAsync_DeletesListedFilesBeforePatching()
+    public async Task ApplyAsync_DeletesListedFilesAfterPatching()
     {
-        // 官方 deleteFiles（2026-10-02 真机 6 条旧 pak/sig）：组循环前删除——残留会被 UE
-        // 挂载覆盖新文件、热更卡死（ww-manager 同语义）；不存在/目录条目跳过，清单外文件不动。
+        // 官方 deleteFiles（2026-10-02 真机 6 条旧 pak/sig）：组循环后删除——差分源与废弃清单
+        // 存在交集（3.6.1→3.7.0 group_37 有 4 条），先删会毁掉组差分源（真机 P1 实锤，F88 裁定
+        // 修订）；不存在/目录条目跳过，清单外文件不动。
         var oldContent = "old-content"u8.ToArray();
         var newContent = "new-content"u8.ToArray();
         Directory.CreateDirectory(_tempDir.FilePath("data"));
@@ -175,6 +176,31 @@ public class IncrementalUpdateServiceTests : IDisposable
         Assert.False(File.Exists(_tempDir.FilePath("data", "stale.pak"))); // 点名文件已删
         Assert.True(File.Exists(_tempDir.FilePath("data", "keep.dat"))); // 清单外文件不动
         Assert.True(Directory.Exists(_tempDir.FilePath("data", "stale-dir"))); // 目录条目跳过
+    }
+
+    [Fact]
+    public async Task ApplyAsync_DeleteFilesIntersectingGroupSrc_AppliesGroupThenDeletes()
+    {
+        // T1（2026-10-02 真机 P1 实锤）：deleteFiles ∩ group.srcFiles 非空（3.6.1→3.7.0 group_37
+        // 的 pakchunk26.sig 等 4 条同时在两清单）——组循环前删除会把差分源自己删掉，组永久失败
+        // 且不可自愈。修复后：源文件存活至组差分完成，废弃删除发生在落位之后。
+        var staleContent = "stale"u8.ToArray();
+        var newContent = "brand-new"u8.ToArray();
+        Directory.CreateDirectory(_tempDir.FilePath("data"));
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "stale.dat"), staleContent);
+        var group = PrepareGroup("g1.krpdiff", [("data/stale.dat", staleContent)], [("data/new.dat", newContent)]);
+        var manifest = new GameManifest
+        {
+            Version = "2.0.0",
+            Groups = [group],
+            DeleteFiles = ["data/stale.dat"],
+        };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+
+        await CreateService().ApplyAsync(_tempDir.Path, manifest);
+
+        Assert.Equal(newContent, await File.ReadAllBytesAsync(_tempDir.FilePath("data", "new.dat")));
+        Assert.False(File.Exists(_tempDir.FilePath("data", "stale.dat"))); // 废弃删除最终仍执行
     }
 
     [Fact]
@@ -218,11 +244,11 @@ public class IncrementalUpdateServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ApplyAsync_DeleteFailure_AbortsBeforeAnyFileTouched()
+    public async Task ApplyAsync_DeleteFailure_AbortsAfterGroupsApplied()
     {
-        // 用户裁定（2026-10-02）：删除失败（占用/只读）报错中止——删除位于组循环之前，
-        // 失败时游戏文件一个都未动过、状态干净可重试；残留旧文件正是 deleteFiles 要防的
-        // UE 挂载冲突，静默跳过风险大。
+        // 修订后语义（2026-10-02，F88 裁定随 deleteFiles 挪到组循环后而更新）：删除失败（占用/
+        // 只读）仍报错中止，但组差分已完成且 dst 校验通过——游戏内容已是目标版本，被阻断的只是
+        // 版本号收尾；重试安全（组幂等跳过 + 删除重试）。
         var oldContent = "old-content"u8.ToArray();
         var newContent = "new-content"u8.ToArray();
         Directory.CreateDirectory(_tempDir.FilePath("data"));
@@ -248,8 +274,9 @@ public class IncrementalUpdateServiceTests : IDisposable
             () => CreateService().ApplyAsync(_tempDir.Path, manifest));
 
         Assert.Contains("stale.pak", ex.Message);
-        Assert.Empty(_applier.Calls); // 组循环未开始：游戏文件未被任何组触碰
-        Assert.Equal(oldContent, await File.ReadAllBytesAsync(_tempDir.FilePath("data", "file.dat")));
+        Assert.Single(_applier.Calls); // 组差分已完成（删除在其后）
+        Assert.Equal(newContent, await File.ReadAllBytesAsync(_tempDir.FilePath("data", "file.dat")));
+        Assert.True(File.Exists(lockedPath)); // 删除失败的条目保持原状
     }
 
     [Fact]
@@ -355,6 +382,8 @@ public class IncrementalUpdateServiceTests : IDisposable
     [Fact]
     public async Task ApplyAsync_MissingSrcFile_ThrowsWithFullSyncGuidance()
     {
+        // 无解析缝（dstUrlResolver 缺省 null，旧调用方/测试向后兼容）时源缺失保持死刑报错：
+        // 组级回退（T2-T4）只在显式注入解析缝的调用形态生效
         var group = PrepareGroup(
             "g1.krpdiff",
             [("gone.dat", "old"u8.ToArray())],
@@ -365,6 +394,63 @@ public class IncrementalUpdateServiceTests : IDisposable
         var ex = await Assert.ThrowsAsync<UpdateException>(
             () => CreateService().ApplyAsync(_tempDir.Path, manifest));
 
+        Assert.Contains("full update", ex.Message);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_MissingSources_WithResolver_FallsBackToDirectDownload()
+    {
+        // T2 组级回退（2026-10-02 真机 P1 实锤的恢复路径）：差分源缺失时经解析缝直下该组产物
+        // （size+MD5 校验内建于下载请求，落位复用 dst 校验 + ReplaceWithBackup 原子替换），
+        // 更新继续而非死刑——修复 group_37 的 4 个源文件已被此前失败尝试删除的损坏安装
+        var newContent = "brand-new"u8.ToArray();
+        var group = PrepareGroup("g1.krpdiff", [("data/gone.dat", "old"u8.ToArray())], [("data/new.dat", newContent)]);
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+
+        await CreateService().ApplyAsync(
+            _tempDir.Path, manifest,
+            dstUrlResolver: (path, _) => Task.FromResult<string?>(
+                path == "data/new.dat" ? Url(path.Replace('/', '_')) : null)); // URL 键位与 FileEntry 约定一致
+
+        Assert.Equal(newContent, await File.ReadAllBytesAsync(_tempDir.FilePath("data", "new.dat")));
+        Assert.Empty(_applier.Calls); // 未走 hpatchz：整组经直下自救
+    }
+
+    [Fact]
+    public async Task ApplyAsync_MissingSources_FallbackMd5Mismatch_ThrowsBeforeReplace()
+    {
+        // T3 回退产物损坏：下载器（假件不校验 MD5）写入错误字节 → dst 事后校验拦下，
+        // 游戏目录不被破坏、报错可操作
+        var group = PrepareGroup("g1.krpdiff", [("data/gone.dat", "old"u8.ToArray())], [("data/new.dat", "brand-new"u8.ToArray())]);
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+        _downloader.Responses[Url("data/new.dat")] = "corrupt-bytes"u8.ToArray();
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => CreateService().ApplyAsync(
+                _tempDir.Path, manifest,
+                dstUrlResolver: (path, _) => Task.FromResult<string?>(Url(path))));
+
+        Assert.Contains("Checksum mismatch", ex.Message);
+        Assert.False(File.Exists(_tempDir.FilePath("data", "new.dat")));
+    }
+
+    [Fact]
+    public async Task ApplyAsync_MissingSources_ResolverReturnsNull_KeepsFullUpdateGuidance()
+    {
+        // T4 解析缝给不出直链（全量清单查无此路径/清单抓取失败折算 null）→ 维持
+        // "use the full update" 家族的可操作报错，不裸奔
+        var group = PrepareGroup("g1.krpdiff", [("data/gone.dat", "old"u8.ToArray())], [("data/new.dat", "new"u8.ToArray())]);
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => CreateService().ApplyAsync(
+                _tempDir.Path, manifest,
+                dstUrlResolver: (_, _) => Task.FromResult<string?>(null)));
+
+        Assert.Contains("not available for direct download", ex.Message); // 解析缝在场但查无此路径的专属报错
         Assert.Contains("full update", ex.Message);
     }
 

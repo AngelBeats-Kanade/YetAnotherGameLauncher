@@ -137,7 +137,9 @@ public sealed class GameUpdateService(
         else
         {
             var incremental = new IncrementalUpdateService(downloader, patchApplier, logger);
-            await incremental.ApplyAsync(installDir, staged, progress, cancellationToken).ConfigureAwait(false);
+            await incremental.ApplyAsync(
+                installDir, staged, progress, cancellationToken,
+                dstUrlResolver: CreateDstUrlResolver(server, channel, staged.Version)).ConfigureAwait(false);
             repaired = await RepairPredownloadAsync(
                 installDir, server, channel, staged, progress, cancellationToken).ConfigureAwait(false);
         }
@@ -149,6 +151,49 @@ public sealed class GameUpdateService(
         return new UpdateOutcome(
             staged.EntriesAreArchives ? UpdateStrategy.FullSync : UpdateStrategy.Incremental,
             "", staged.Version, repaired);
+    }
+
+    /// <summary>组级回退的产物直链解析缝：懒取目标版本全量清单建 相对路径→URL 映射，仅在首个
+    /// 差分源缺失触发回退时才联网取全量清单（happy path 零额外请求）。协议实证（2026-10-02 真机）：
+    /// 官方增量 dstFiles 原始条目无 url 字段，但组 dst 路径被全量清单全覆盖，且
+    /// {resourcesBasePath}/{dest} 直链实测可下、md5 与增量 dstFiles 逐字符一致。解析失败按 null
+    /// 折算（回退链收尾为 "use the full update"），日志留痕；懒任务记住首个取消令牌（单次
+    /// apply 内单一令牌，无跨令牌复用面）。</summary>
+    private static Func<string, CancellationToken, Task<string?>> CreateDstUrlResolver(
+        GameServer server, IGameChannelApi channel, string version, ILogger? logger = null)
+    {
+        Task<IReadOnlyDictionary<string, string>>? mapTask = null;
+        return async (path, cancellationToken) =>
+        {
+            try
+            {
+                mapTask ??= LoadDstUrlMapAsync(server, channel, version, cancellationToken);
+                var map = await mapTask.ConfigureAwait(false);
+                return map.GetValueOrDefault(path);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger?.LogWarning(
+                    ex, "Direct-download resolver could not load the full manifest for {Version}", version);
+                return null;
+            }
+        };
+
+        static async Task<IReadOnlyDictionary<string, string>> LoadDstUrlMapAsync(
+            GameServer server, IGameChannelApi channel, string version, CancellationToken cancellationToken)
+        {
+            var manifest = await channel.GetManifestAsync(server, version, cancellationToken).ConfigureAwait(false);
+            var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var file in manifest.Files)
+            {
+                if (file.Url is not null)
+                {
+                    map.TryAdd(file.Path, file.Url); // 先者胜（RF-1 同族：重复 dest 不抛）
+                }
+            }
+
+            return map;
+        }
     }
 
     private async Task<int> UpdateFullAsync(
