@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Microsoft.Extensions.Logging;
 using Xunit;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
@@ -17,8 +18,8 @@ public class GameLauncherServiceTests : IDisposable
 
     public void Dispose() => _tempDir.Dispose();
 
-    private GameLauncherService Service(string? pathValue = null, string? logDir = null) =>
-        new(_runner, logDirectory: logDir ?? _tempDir.FilePath("logs"), pathValue: pathValue);
+    private GameLauncherService Service(string? pathValue = null, string? logDir = null, CapturingLogger? logger = null) =>
+        new(_runner, logger, logDirectory: logDir ?? _tempDir.FilePath("logs"), pathValue: pathValue);
 
     private GameDefinition Game(string commandTemplate = "{exe}") => new()
     {
@@ -64,6 +65,28 @@ public class GameLauncherServiceTests : IDisposable
         var plan = Service().BuildPlan(Game("\"{exe}\""), _tempDir.Path, "bin/game.exe");
 
         Assert.Equal("", plan.Arguments);
+    }
+
+    [Fact]
+    public async Task BuildPlan_LogsResolvedCommandAtDebugLevel()
+    {
+        // 2026-10-02 用户需求：启动时以 Debug 级输出真实启动命令的全量启动面（exe + 全部参数 +
+        // 工作目录 + 环境变量）；Release 构建经组合根 SetMinimumLevel(Information) 过滤 LogDebug
+        // 不输出（机制 = 级别过滤，非条件编译）。workdir 断言带标签：防止与 exe 路径前缀重合假绿
+        var exePath = await CreateExecutable();
+        var game = Game("\"{exe}\" --lang zh");
+        game.Launch.ResourceQualityTier = "hd";
+        game.Launch.WorkingDirectory = "{installDir}/wd";
+        var logger = new CapturingLogger();
+
+        var plan = Service(logger: logger).BuildPlan(game, _tempDir.Path, "bin/game.exe");
+
+        var debug = Assert.Single(logger.Entries, e => e.Level == LogLevel.Debug);
+        Assert.Contains(exePath, debug.Message, StringComparison.Ordinal);
+        Assert.Contains("--lang zh", debug.Message, StringComparison.Ordinal);
+        Assert.Contains("-krqlv=hd", debug.Message, StringComparison.Ordinal);
+        Assert.Contains($"workdir={plan.WorkingDirectory}", debug.Message, StringComparison.Ordinal);
+        Assert.Contains("GAME_DIR=", debug.Message, StringComparison.Ordinal);
     }
 
     [Fact]

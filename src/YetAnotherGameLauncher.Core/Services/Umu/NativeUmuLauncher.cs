@@ -152,6 +152,11 @@ public sealed class NativeUmuLauncher(
                 : $"-krqlv={resourceQualityTier!.Trim()}");
         var arguments = QuoteArgs(entry.Skip(1));
 
+        // Debug 级全量启动面（2026-10-02 用户需求）：与 GameLauncherService 同型；Release 构建
+        // 由组合根 SetMinimumLevel(Information) 过滤，不会输出
+        logger?.LogDebug(
+            "Native umu launch plan: {File} {Args} (workdir={WorkingDirectory}; env: {Environment})",
+            entry[0], arguments, installFullPath, GameLauncherService.FormatEnvironment(environment));
         logger?.LogInformation(
             "Native umu plan: {File} {Args} (runtime={Runtime})",
             entry[0], arguments, runtime.Variant);

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Xunit;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Services.Umu;
@@ -61,6 +62,31 @@ public sealed class NativeUmuLauncherLaunchTests : IDisposable
         Assert.Equal(
             CompatTools.PrefixPathFor("wuthering-waves", _temp.Path),
             plan.Environment["WINEPREFIX"]);
+    }
+
+    [Fact]
+    public void BuildPlan_LogsResolvedCommandAtDebugLevel()
+    {
+        // 2026-10-02 用户需求：与 GameLauncherService 同型——Debug 级输出全量启动面（entry exe +
+        // 全部参数 + 工作目录 + 环境变量）；Release 经组合根级别过滤不输出。workdir 断言带标签：
+        // install 目录是 exe 参数路径的前缀，不带标签即死分支假绿
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("BuildPlan 仅 Linux（由 Linux 腿覆盖）");
+        }
+
+        var logger = new CapturingLogger();
+        var plan = BuildPlanWithExtraEnvironment(
+            new Dictionary<string, string> { ["CUSTOM"] = "custom-value" },
+            umuId: null,
+            logger: logger);
+
+        var debug = Assert.Single(logger.Entries, e => e.Level == LogLevel.Debug);
+        Assert.Contains(plan.FileName, debug.Message, StringComparison.Ordinal);
+        Assert.Contains("--verb=waitforexitandrun", debug.Message, StringComparison.Ordinal);
+        Assert.Contains($"workdir={plan.WorkingDirectory}", debug.Message, StringComparison.Ordinal);
+        Assert.Contains("UMU_ID=", debug.Message, StringComparison.Ordinal);
+        Assert.Contains("CUSTOM=custom-value", debug.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -159,10 +185,10 @@ public sealed class NativeUmuLauncherLaunchTests : IDisposable
 
     /// <summary>BuildPlan 组装（守卫两腿共用）：假 Proton + steamrt4 运行时 + 真实 exe。</summary>
     private UmuNativeLaunchPlan BuildPlanWithExtraEnvironment(
-        Dictionary<string, string> extraEnvironment, string? umuId)
+        Dictionary<string, string> extraEnvironment, string? umuId, CapturingLogger? logger = null)
     {
         var runner = new FakeProcessRunner();
-        var launcher = new NativeUmuLauncher(runner, provisioner: null, dataHome: _temp.Path);
+        var launcher = new NativeUmuLauncher(runner, provisioner: null, logger: logger, dataHome: _temp.Path);
         var protonDir = CreateFakeProton();
         var runtimeDir = UmuPaths.RuntimeDirectory("steamrt4", _temp.Path);
         Directory.CreateDirectory(runtimeDir);

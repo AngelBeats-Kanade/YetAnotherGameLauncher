@@ -74,6 +74,11 @@ public sealed class GameLauncherService(
 
         EnsurePrefixDirectories(environment);
 
+        // Debug 级全量启动面（2026-10-02 用户需求）：exe + 全部参数 + 工作目录 + 环境变量；
+        // Release 构建由组合根 SetMinimumLevel(Information) 过滤，不会输出
+        logger?.LogDebug(
+            "Launch plan: {File} {Args} (workdir={WorkingDirectory}; env: {Environment})",
+            fileName, arguments, workingDirectory, FormatEnvironment(environment));
         logger?.LogInformation("Launching {Game}: {File} {Args}", game.DisplayName, fileName, arguments);
         return new LaunchPlan(fileName, arguments, workingDirectory, environment);
     }
@@ -229,6 +234,11 @@ public sealed class GameLauncherService(
             ? (command, "")
             : (command[..firstSpace], command[(firstSpace + 1)..].TrimStart());
     }
+
+    /// <summary>把环境变量字典格式化为「K=V; K=V」串，供 Debug 级启动日志使用
+    ///（SimpleConsole 对字典直接 ToString 不可读）；NativeUmuLauncher 复用同一实现。</summary>
+    internal static string FormatEnvironment(IReadOnlyDictionary<string, string> environment) =>
+        string.Join("; ", environment.Select(kv => $"{kv.Key}={kv.Value}"));
 }
 
 /// <summary>一次游戏启动的完整计划。</summary>

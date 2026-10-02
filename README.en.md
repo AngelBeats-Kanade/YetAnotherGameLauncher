@@ -204,7 +204,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### Running tests (1194 tests, measured 2026-10-02)
+### Running tests (1196 tests, measured 2026-10-02)
 
 ```bash
 # Run the 4 test projects' compiled binaries directly (on Windows you can run the .exe;
