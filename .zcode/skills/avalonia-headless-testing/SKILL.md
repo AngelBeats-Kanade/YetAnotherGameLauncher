@@ -145,3 +145,14 @@ public async Task Window_Shows_Items()
   check-runs 注解公开可读）。
 - 依赖真机状态的扫描（Proton 版本、/proc NVIDIA、$HOME）在测试里一律注入固定值，
   否则测试结果随执行机器漂移。
+- **Skip 是双刃刃：门之后的行在门内平台从未运行过**（2026-10-02 CI 实锤两处：
+  `ApplyAsync_DeleteFailure` 夹具声明锁定目标却从未写出，Linux 腿 Skip 先于加锁行把缺口
+  掩盖到 Windows 腿 CI 才炸——git 考古确认出生即缺而非后续改写丢失；
+  `EnsureAvailable_AlreadyReady_ZeroNetwork` 断言写死单平台返回形态且无平台守卫）——
+  写平台分支用例时同族自查：Skip 门后每一行在门内平台是否可达、断言对两侧平台是否都
+  成立（返回形态断言按平台分支，修后形态照 `EnsureAvailable_AlreadyReady_ZeroNetwork`）。
+- **"测试没红"先验证构建真的成功**（2026-10-02 实锤：xunit.analyzers 规则如 xUnit2013/
+  xUnit2020 以 error 让构建失败，但错误码不带 "CS" 前缀——`grep "error CS"` 计数 0 掩盖
+  构建失败，之后直跑的是旧 DLL，"变异未被击杀"实为假象）。变异击杀实验的红必须确认
+  落在本次构建的产物上；另注意断言值域要排除"条目边界帧冒充中间帧"（首版双条目清单里
+  单条目满值 < total 恒满足中间帧断言，改单条目后变异才可杀）。
