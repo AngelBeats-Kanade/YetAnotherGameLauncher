@@ -11,6 +11,10 @@ public enum LaunchLineErrorKind
     /// <summary>%command% 之前的环境变量区坏条目（缺 =/空键名/未闭合引号）。</summary>
     EnvironmentItem,
 
+    /// <summary>%command% 之前出现不含 = 的裸 token——多为「想给游戏传参」的误解，
+    /// 文案需指向 %command% 逃生门（与缺 =/空键名的 KEY=VALUE 提示区分）。</summary>
+    EnvironmentBareToken,
+
     /// <summary>%command% 之后的参数区存在未闭合引号。</summary>
     ArgumentsQuote,
 
@@ -30,35 +34,6 @@ public static class LaunchOptionsText
 {
     /// <summary>Steam 启动选项占位符：标记游戏命令在启动选项行中的位置（小写字面量）。</summary>
     public const string CommandPlaceholder = "%command%";
-
-    /// <summary>严格解析（保存校验用）：遇到坏条目（未闭合引号/缺 =/空键名）整体失败，
-    /// <paramref name="badItem"/> 返回坏条目原文（未闭合引号时含残段），坏条目之前的条目已进字典。</summary>
-    public static bool TryParse(string text, out Dictionary<string, string> environment, out string badItem)
-    {
-        environment = [];
-        badItem = "";
-        var items = new List<(string Item, int RawStart, int RawEnd)>();
-        var complete = TryTokenize(text, items, out var unterminatedRawStart);
-        foreach (var (item, rawStart, rawEnd) in items)
-        {
-            var sep = item.IndexOf('=');
-            if (sep <= 0)
-            {
-                badItem = text[rawStart..rawEnd].Trim();
-                return false; // 坏条目即停：之后的条目不再解析
-            }
-
-            environment[item[..sep]] = item[(sep + 1)..];
-        }
-
-        if (!complete)
-        {
-            badItem = text[unterminatedRawStart..].Trim();
-            return false;
-        }
-
-        return true;
-    }
 
     /// <summary>宽松解析（草稿合并/发行版检测用）：坏条目（含未闭合引号残段）静默跳过，不报错。</summary>
     public static Dictionary<string, string> ParseLenient(string text)
@@ -202,7 +177,8 @@ public static class LaunchOptionsText
     /// <summary>严格解析（保存校验用，含 %command% 切分）：占位符之前的条目须为 KEY=VALUE（进
     /// <paramref name="environment"/>），之后的 token 作为游戏命令行参数（进 <paramref name="arguments"/>，
     /// 已去引号）。失败时 <paramref name="errorKind"/> 给出错误区类别，<paramref name="badItem"/> 返回
-    /// 坏条目原文。错误判定顺序：未闭合引号（按区归位）→ 重复占位符 → 环境区坏条目。</summary>
+    /// 坏条目原文；坏条目之前的条目已进字典（保存侧整体弃用，语义与迁移前的纯环境严格入口一致）。
+    /// 错误判定顺序：环境区坏条目（裸 token / 缺 =）→ 未闭合引号（按区归位）→ 重复占位符。</summary>
     public static bool TryParseLaunchLine(
         string text,
         out Dictionary<string, string> environment,
@@ -221,6 +197,26 @@ public static class LaunchOptionsText
         // 占位符在原文的起点（无占位符时取最大值，未闭合引号残段必然落在环境区）
         var placeholderRawStart = placeholderIndex >= 0 ? items[placeholderIndex].RawStart : int.MaxValue;
 
+        // 环境区先解析（未闭合引号时残段不在 items 里，完整条目照常进字典——旧契约）
+        var envCount = placeholderIndex >= 0 ? placeholderIndex : items.Count;
+        for (var i = 0; i < envCount; i++)
+        {
+            var (item, rawStart, rawEnd) = items[i];
+            var sep = item.IndexOf('=');
+            if (sep <= 0)
+            {
+                // 裸 token（无 =）单独分类：多为「想给游戏传参」的误解，文案需指向 %command% 逃生门；
+                // 空键名（= 左侧缺失）沿用「应为 KEY=VALUE」提示
+                errorKind = sep < 0
+                    ? LaunchLineErrorKind.EnvironmentBareToken
+                    : LaunchLineErrorKind.EnvironmentItem;
+                badItem = text[rawStart..rawEnd].Trim();
+                return false; // 坏条目即停：之后的条目不再解析
+            }
+
+            environment[item[..sep]] = item[(sep + 1)..];
+        }
+
         if (!complete)
         {
             errorKind = unterminatedRawStart >= placeholderRawStart
@@ -238,21 +234,6 @@ public static class LaunchOptionsText
             errorKind = LaunchLineErrorKind.DuplicateCommandPlaceholder;
             badItem = text[second.RawStart..second.RawEnd].Trim();
             return false;
-        }
-
-        var envCount = placeholderIndex >= 0 ? placeholderIndex : items.Count;
-        for (var i = 0; i < envCount; i++)
-        {
-            var (item, rawStart, rawEnd) = items[i];
-            var sep = item.IndexOf('=');
-            if (sep <= 0)
-            {
-                errorKind = LaunchLineErrorKind.EnvironmentItem;
-                badItem = text[rawStart..rawEnd].Trim();
-                return false; // 坏条目即停：之后的条目不再解析
-            }
-
-            environment[item[..sep]] = item[(sep + 1)..];
         }
 
         arguments = placeholderIndex >= 0

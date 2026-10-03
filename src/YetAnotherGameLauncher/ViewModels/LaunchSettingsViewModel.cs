@@ -17,8 +17,9 @@ namespace YetAnotherGameLauncher.ViewModels;
 /// （DW/GE/UMU-Proton，代号写入 PROTONPATH 并即时落盘，启动/组件准备只下载所选发行版）；
 /// 发行版旁可检查上游更新（有新版弹确认覆盖层，确认后更新并清理旧版本）。
 /// 环境变量分两层：托管键（推荐链生成的 GAMEID/UMU_ID/WINEPREFIX/PROTONPATH 等）
-/// 不进编辑框，由 VM 托管字典承载；编辑框只显示/编辑用户自定义变量（与 Steam 启动选项同格式：
-/// 空白分隔多条 KEY=VALUE、值可加引号，解析容错，坏条目给出原文提示），保存时用户键覆盖同名托管键。
+/// 不进编辑框，由 VM 托管字典承载；编辑框只显示/编辑用户自定义变量（Steam 启动选项语义：
+/// KEY=VALUE 条目作为环境变量注入，显式 %command% 之后为游戏命令行参数；坏条目按错误区
+/// 给出原文提示），保存时用户键覆盖同名托管键。
 /// </summary>
 public partial class LaunchSettingsViewModel : ViewModelBase
 {
@@ -854,9 +855,9 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     [ObservableProperty]
     private string _workingDirectory;
 
-    /// <summary>启动选项草稿——只承载用户自定义变量（与 Steam 启动选项同格式：空白分隔多条
-    /// KEY=VALUE，值可加引号）；托管键不进此文本，由 <see cref="_managedEnvironment"/> 承载，
-    /// 保存时合并（用户键优先）。</summary>
+    /// <summary>启动选项草稿——只承载用户自定义变量（Steam 启动选项语义：空白分隔 KEY=VALUE
+    /// 为环境变量，显式 %command% 之后为游戏命令行参数）；托管键不进此文本，
+    /// 由 <see cref="_managedEnvironment"/> 承载，保存时合并（用户键优先）。</summary>
     [ObservableProperty]
     private string _environmentText;
 
@@ -972,10 +973,12 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 EnvironmentText, out var userEnvironment, out var userArguments,
                 out var badItem, out var errorKind))
         {
-            // 按错误区路由文案：环境区坏条目沿用 KEY=VALUE 提示；参数区只有引号形态错误；
-            // 重复占位符是结构错误，没有坏条目原文可带
+            // 按错误区路由文案：裸 token 指路 %command% 逃生门（多为想给游戏传参的误解）；
+            // 其余环境区坏条目沿用 KEY=VALUE 提示；参数区只有引号形态错误；重复占位符是
+            // 结构错误，没有坏条目原文可带
             Save.SetFailure(errorKind switch
             {
+                LaunchLineErrorKind.EnvironmentBareToken => _loc.Format("launch_bareEnvItem", badItem),
                 LaunchLineErrorKind.ArgumentsQuote => _loc.Format("launch_invalidArgsLine", badItem),
                 LaunchLineErrorKind.DuplicateCommandPlaceholder => _loc["launch_duplicateCommandPlaceholder"],
                 _ => _loc.Format("launch_invalidEnvLine", badItem),

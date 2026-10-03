@@ -61,6 +61,7 @@
   "launch_executableRequired": "Game executable is required",
   "launch_executableHint": "Relative to the install directory or absolute; if you already have the game from another source, pick its executable to launch directly without re-downloading.",
   "launch_invalidEnvLine": "Invalid launch options (KEY=VALUE expected): {0}",
+  "launch_bareEnvItem": "Unrecognized launch option \"{0}\": environment variables must be KEY=VALUE; to pass game arguments, put them after %command%, e.g. %command% -dx11",
   "launch_invalidArgsLine": "Invalid arguments after %command% (unclosed quote): {0}",
   "launch_duplicateCommandPlaceholder": "%command% may appear at most once in launch options",
   "launch_error_title": "Launch failed",

@@ -61,6 +61,7 @@
   "launch_executableRequired": "游戏可执行文件不能为空",
   "launch_executableHint": "相对安装目录或绝对路径均可；指向已下载好的游戏时，选择其主程序即可直接启动，无需重新下载。",
   "launch_invalidEnvLine": "启动选项格式错误（应为 KEY=VALUE）：{0}",
+  "launch_bareEnvItem": "无法识别的启动选项「{0}」：环境变量须写成 KEY=VALUE；要给游戏追加启动参数，请写在 %command% 之后，如 %command% -dx11",
   "launch_invalidArgsLine": "%command% 之后的参数格式错误（引号未闭合）：{0}",
   "launch_duplicateCommandPlaceholder": "%command% 在启动选项中最多出现一次",
   "launch_error_title": "启动失败",

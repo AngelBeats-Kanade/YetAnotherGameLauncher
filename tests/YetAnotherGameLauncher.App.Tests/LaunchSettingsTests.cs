@@ -127,6 +127,22 @@ public class LaunchSettingsTests : IDisposable
     }
 
     [Fact]
+    public async Task Save_BareTokenError_HintsCommandPlaceholder()
+    {
+        // F-F：裸 token 是「想给游戏传参」的高频误解——报错必须指路 %command% 逃生门
+        //（变异核对：去掉路由分支落入通用 KEY=VALUE 文案，本用例即红）
+        await _ctx.Vm.InitializeAsync();
+        var settings = _ctx.Vm.Games[0].LaunchSettings;
+        settings.EnvironmentText = "A=1 -dx11";
+
+        await settings.SaveCommand.ExecuteAsync(null);
+
+        Assert.True(settings.Save.Failed);
+        Assert.Contains("%command%", settings.Save.Message, StringComparison.Ordinal);
+        Assert.Contains("-dx11", settings.Save.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Save_ArgumentsChange_RaisesToastListingLaunchOptions()
     {
         // 参数属于「自定义启动选项」字段：变更轻提示与同字段的环境变量同组（launch_environment）

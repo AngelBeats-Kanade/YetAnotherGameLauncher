@@ -80,12 +80,13 @@ public class LaunchSettingsEnvParseTests
     [Fact]
     public void TryParse_UnquotedSpaceInValue_ReportsTrailingTokenAsBad()
     {
-        // 2026-10-03 语义变更钉：未加引号的值内空格不再吞进值，尾随裸 token 报错（提示用户加引号）
+        // 2026-10-03 语义变更钉：未加引号的值内空格不再吞进值，尾随裸 token 报错（提示用户加引号）；
+        // F-F：裸 token 单独分类（文案指路 %command%）
         var ok = LaunchSettingsViewModel.TryParseLaunchText(
             "MAP=coast 11", out _, out _, out var badLine, out var errorKind);
 
         Assert.False(ok);
-        Assert.Equal(LaunchLineErrorKind.EnvironmentItem, errorKind);
+        Assert.Equal(LaunchLineErrorKind.EnvironmentBareToken, errorKind);
         Assert.Equal("11", badLine);
     }
 
@@ -101,11 +102,23 @@ public class LaunchSettingsEnvParseTests
         Assert.Equal("", parsed["KEY"]);
     }
 
+    [Fact]
+    public void TryParse_BareTokenWithoutKey_HasDedicatedErrorKind()
+    {
+        // F-F：裸 token（无 =）单独分类——多为想给游戏传参的误解，文案指路 %command%；
+        // 与空键名（沿用 KEY=VALUE 提示）区分
+        var ok = LaunchSettingsViewModel.TryParseLaunchText(
+            "NOEQ", out _, out _, out var badLine, out var errorKind);
+
+        Assert.False(ok);
+        Assert.Equal(LaunchLineErrorKind.EnvironmentBareToken, errorKind);
+        Assert.Equal("NOEQ", badLine);
+    }
+
     [Theory]
-    [InlineData("NOEQ")]
     [InlineData("=novalue")] // 空键 = 键名缺失，保存时必须拒绝
     [InlineData("  =novalue")]
-    public void TryParse_RejectsLinesWithoutKeyOrSeparator(string text)
+    public void TryParse_RejectsEmptyKey_WithKeyValueError(string text)
     {
         var ok = LaunchSettingsViewModel.TryParseLaunchText(
             text, out _, out _, out var badLine, out var errorKind);

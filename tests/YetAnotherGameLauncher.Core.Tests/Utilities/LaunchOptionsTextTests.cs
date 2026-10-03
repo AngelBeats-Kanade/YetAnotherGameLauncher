@@ -5,23 +5,26 @@ namespace YetAnotherGameLauncher.Core.Tests.Utilities;
 
 /// <summary>
 /// 自定义启动选项文本解析器（Steam 启动选项风格）：空白（含换行）分隔多条 KEY=VALUE，
-/// 引号包裹含空格的值，反斜杠转义。严格版（保存校验，坏条目报错）与宽松版（草稿合并，
-/// 坏条目跳过）共用同一词法。2026-10-03 语义变更：旧「每行一条 KEY=VALUE、= 两侧容忍空格」
-/// 改为 shell 风格词法——未加引号的空格一律是分隔符，含空格的值必须加引号。
+/// 引号包裹含空格的值，反斜杠转义。严格版（保存校验，坏条目报错 + 错误区分类）与宽松版
+/// （草稿合并，坏条目跳过）共用同一词法。2026-10-03 语义变更：旧「每行一条 KEY=VALUE、
+/// = 两侧容忍空格」改为 shell 风格词法——未加引号的空格一律是分隔符，含空格的值必须加引号；
+/// 同日二次扩展：显式 %command% 之前为环境区、之后为游戏参数（严格入口 TryParseLaunchLine
+/// 承载两者，原纯环境严格入口 TryParse 因生产零调用删除，本文件全部用例迁移至新入口）。
 /// </summary>
 public class LaunchOptionsTextTests
 {
     [Fact]
-    public void TryParse_UserExample_SingleLineFourEntries_StripsQuotes()
+    public void Parse_UserExample_SingleLineFourEntries_StripsQuotes()
     {
         // 2026-10-03 用户实际输入：值内含 = 且带引号，同单行空格分隔四条——旧解析器整行吞成一条
-        var ok = LaunchOptionsText.TryParse(
+        var ok = LaunchOptionsText.TryParseLaunchLine(
             "DXVK_NVAPI_DRS_SETTINGS=\"NGX_DLSS_SR_OVERRIDE_RENDER_PRESET_SELECTION=13\""
             + " PROTON_DXVK_LLASYNC=1 PROTON_ENABLE_WAYLAND=1 OBS_VKCAPTURE=1",
-            out var parsed, out var badItem);
+            out var parsed, out var arguments, out var badItem, out _);
 
         Assert.True(ok);
         Assert.Equal("", badItem);
+        Assert.Empty(arguments);
         Assert.Equal(4, parsed.Count);
         Assert.Equal("NGX_DLSS_SR_OVERRIDE_RENDER_PRESET_SELECTION=13", parsed["DXVK_NVAPI_DRS_SETTINGS"]);
         Assert.Equal("1", parsed["PROTON_DXVK_LLASYNC"]);
@@ -30,29 +33,32 @@ public class LaunchOptionsTextTests
     }
 
     [Fact]
-    public void TryParse_NewlineAndSpaceSeparators_ProduceSameResult()
+    public void Parse_NewlineAndSpaceSeparators_ProduceSameResult()
     {
         // 回归锚：旧「每行一条」格式在新词法下语义不变（换行也是分隔符）
-        LaunchOptionsText.TryParse("A=1\r\nB=2\nC=3", out var fromLines, out _);
-        LaunchOptionsText.TryParse("A=1 B=2 C=3", out var fromSpaces, out _);
+        LaunchOptionsText.TryParseLaunchLine("A=1\r\nB=2\nC=3", out var fromLines, out _, out _, out _);
+        LaunchOptionsText.TryParseLaunchLine("A=1 B=2 C=3", out var fromSpaces, out _, out _, out _);
 
         AssertEqual(fromLines, fromSpaces);
     }
 
     [Fact]
-    public void TryParse_EmptyOrWhitespace_ReturnsTrueWithEmptyDictionary()
+    public void Parse_EmptyOrWhitespace_ReturnsTrueWithEmptyOutputs()
     {
-        var ok = LaunchOptionsText.TryParse("\r\n  \n\t", out var parsed, out var badItem);
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            "\r\n  \n\t", out var parsed, out var arguments, out var badItem, out _);
 
         Assert.True(ok);
         Assert.Equal("", badItem);
         Assert.Empty(parsed);
+        Assert.Empty(arguments);
     }
 
     [Fact]
-    public void TryParse_DoubleQuotedValue_KeepsSpacesAndInnerEquals()
+    public void Parse_DoubleQuotedValue_KeepsSpacesAndInnerEquals()
     {
-        var ok = LaunchOptionsText.TryParse("MAP=\"coast 11\"\r\nURL=\"http://x?a=b&c=d\"", out var parsed, out _);
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            "MAP=\"coast 11\"\r\nURL=\"http://x?a=b&c=d\"", out var parsed, out _, out _, out _);
 
         Assert.True(ok);
         Assert.Equal("coast 11", parsed["MAP"]);
@@ -60,18 +66,19 @@ public class LaunchOptionsTextTests
     }
 
     [Fact]
-    public void TryParse_SingleQuotedValue_AllLiteral_NoEscaping()
+    public void Parse_SingleQuotedValue_AllLiteral_NoEscaping()
     {
-        var ok = LaunchOptionsText.TryParse("KEY='a \"b\" \\c'", out var parsed, out _);
+        var ok = LaunchOptionsText.TryParseLaunchLine("KEY='a \"b\" \\c'", out var parsed, out _, out _, out _);
 
         Assert.True(ok);
         Assert.Equal("a \"b\" \\c", parsed["KEY"]);
     }
 
     [Fact]
-    public void TryParse_EscapesOutsideQuotes_NextCharacterIsLiteral()
+    public void Parse_EscapesOutsideQuotes_NextCharacterIsLiteral()
     {
-        var ok = LaunchOptionsText.TryParse("KEY=a\\ b K2=a\\\"b K3=\\\\", out var parsed, out _);
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            "KEY=a\\ b K2=a\\\"b K3=\\\\", out var parsed, out _, out _, out _);
 
         Assert.True(ok);
         Assert.Equal("a b", parsed["KEY"]);
@@ -80,38 +87,38 @@ public class LaunchOptionsTextTests
     }
 
     [Fact]
-    public void TryParse_BackslashInsideDoubleQuotes_EscapesQuoteAndBackslashOnly()
+    public void Parse_BackslashInsideDoubleQuotes_EscapesQuoteAndBackslashOnly()
     {
         // 双引号内反斜杠只在 " 与 \ 前生效；其余（含 \$）原样保留——不做变量展开，$ 恒为字面
-        var ok = LaunchOptionsText.TryParse("K=\"a\\ b \\\" \\\\ \\$\"", out var parsed, out _);
+        var ok = LaunchOptionsText.TryParseLaunchLine("K=\"a\\ b \\\" \\\\ \\$\"", out var parsed, out _, out _, out _);
 
         Assert.True(ok);
         Assert.Equal("a\\ b \" \\ \\$", parsed["K"]);
     }
 
     [Fact]
-    public void TryParse_QuotedValueSpanningLines_NewlineIsPartOfValue()
+    public void Parse_QuotedValueSpanningLines_NewlineIsPartOfValue()
     {
-        var ok = LaunchOptionsText.TryParse("KEY=\"a\nb\"", out var parsed, out _);
+        var ok = LaunchOptionsText.TryParseLaunchLine("KEY=\"a\nb\"", out var parsed, out _, out _, out _);
 
         Assert.True(ok);
         Assert.Equal("a\nb", parsed["KEY"]);
     }
 
     [Fact]
-    public void TryParse_DuplicateKey_LastWins()
+    public void Parse_DuplicateKey_LastWins()
     {
-        var ok = LaunchOptionsText.TryParse("A=1 A=2", out var parsed, out _);
+        var ok = LaunchOptionsText.TryParseLaunchLine("A=1 A=2", out var parsed, out _, out _, out _);
 
         Assert.True(ok);
         Assert.Equal("2", parsed["A"]);
     }
 
     [Fact]
-    public void TryParse_EmptyValue_BothBareAndQuoted_Kept()
+    public void Parse_EmptyValue_BothBareAndQuoted_Kept()
     {
         // 空值是合法环境变量（如 WINEDEBUG= 表示清空默认通道），不得当坏条目
-        var ok = LaunchOptionsText.TryParse("KEY= K2=\"\"", out var parsed, out _);
+        var ok = LaunchOptionsText.TryParseLaunchLine("KEY= K2=\"\"", out var parsed, out _, out _, out _);
 
         Assert.True(ok);
         Assert.Equal("", parsed["KEY"]);
@@ -119,32 +126,40 @@ public class LaunchOptionsTextTests
     }
 
     [Fact]
-    public void TryParse_UnterminatedDoubleQuote_FailsWithRawSpan_StopsAtBadItem()
+    public void Parse_UnterminatedDoubleQuote_FailsWithRawSpan_StopsAtBadItem()
     {
-        var ok = LaunchOptionsText.TryParse("OK=1 K=\"unclosed", out var parsed, out var badItem);
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            "OK=1 K=\"unclosed", out var parsed, out _, out var badItem, out var errorKind);
 
         Assert.False(ok);
+        Assert.Equal(LaunchLineErrorKind.EnvironmentItem, errorKind);
         Assert.Equal("K=\"unclosed", badItem);
         Assert.True(parsed.ContainsKey("OK")); // 坏条目之前的条目已进字典（保存侧整体弃用）
         Assert.False(parsed.ContainsKey("K"));
     }
 
     [Fact]
-    public void TryParse_UnterminatedSingleQuote_FailsWithRawSpan()
+    public void Parse_UnterminatedSingleQuote_FailsWithRawSpan()
     {
-        var ok = LaunchOptionsText.TryParse("K='abc", out var parsed, out var badItem);
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            "K='abc", out var parsed, out _, out var badItem, out var errorKind);
 
         Assert.False(ok);
+        Assert.Equal(LaunchLineErrorKind.EnvironmentItem, errorKind);
         Assert.Equal("K='abc", badItem);
         Assert.Empty(parsed);
     }
 
     [Fact]
-    public void TryParse_BareTokenWithoutEquals_FailsWithRawSpan()
+    public void Parse_BareTokenWithoutEquals_FailsWithRawSpan()
     {
-        var ok = LaunchOptionsText.TryParse("OK=1 NOEQ", out var parsed, out var badItem);
+        // F-F（2026-10-03 二轮 review）：裸 token 单独分类——多为想给游戏传参的误解，
+        // 文案指路 %command% 逃生门
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            "OK=1 NOEQ", out var parsed, out _, out var badItem, out var errorKind);
 
         Assert.False(ok);
+        Assert.Equal(LaunchLineErrorKind.EnvironmentBareToken, errorKind);
         Assert.Equal("NOEQ", badItem);
         Assert.True(parsed.ContainsKey("OK"));
     }
@@ -152,13 +167,25 @@ public class LaunchOptionsTextTests
     [Theory]
     [InlineData("=v", "=v")]
     [InlineData("  =v", "=v")] // 空键名 = 键名缺失，保存时必须拒绝；坏条目原文按首尾去空白报告
-    public void TryParse_EmptyKey_FailsWithRawSpan(string text, string expectedBadItem)
+    public void Parse_EmptyKey_FailsWithRawSpan(string text, string expectedBadItem)
     {
-        var ok = LaunchOptionsText.TryParse(text, out var parsed, out var badItem);
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            text, out var parsed, out _, out var badItem, out var errorKind);
 
         Assert.False(ok);
+        Assert.Equal(LaunchLineErrorKind.EnvironmentItem, errorKind);
         Assert.Equal(expectedBadItem, badItem);
         Assert.Empty(parsed);
+    }
+
+    [Fact]
+    public void Parse_TrailingBackslashAtEof_IsLiteral()
+    {
+        // 文末孤立反斜杠按字面保留（RF-15，2026-10-03 复审补钉——该分支此前仅探测验证、无 repo 测试）
+        var ok = LaunchOptionsText.TryParseLaunchLine("KEY=a\\", out var parsed, out _, out _, out _);
+
+        Assert.True(ok);
+        Assert.Equal("a\\", parsed["KEY"]);
     }
 
     [Fact]
@@ -208,9 +235,11 @@ public class LaunchOptionsTextTests
         };
 
         var text = LaunchOptionsText.Serialize(original);
-        var ok = LaunchOptionsText.TryParse(text, out var reparsed, out var badItem);
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            text, out var reparsed, out var reparsedArguments, out var badItem, out _);
 
         Assert.True(ok, $"回显文本应可无损重解析，实际坏条目：{badItem}，文本：{text}");
+        Assert.Empty(reparsedArguments);
         AssertEqual(original, reparsed);
     }
 
@@ -239,21 +268,13 @@ public class LaunchOptionsTextTests
             }
 
             var text = LaunchOptionsText.Serialize(dict);
-            var ok = LaunchOptionsText.TryParse(text, out var reparsed, out var badItem);
+            var ok = LaunchOptionsText.TryParseLaunchLine(
+                text, out var reparsed, out var reparsedArguments, out var badItem, out _);
 
             Assert.True(ok, $"第 {iter} 轮往返失败，坏条目：{badItem}，文本：{text.Replace("\n", "\\n").Replace("\r", "\\r")}");
+            Assert.Empty(reparsedArguments);
             AssertEqual(dict, reparsed);
         }
-    }
-
-    [Fact]
-    public void TryParse_TrailingBackslashAtEof_IsLiteral()
-    {
-        // 文末孤立反斜杠按字面保留（RF-15，2026-10-03 复审补钉——该分支此前仅探测验证、无 repo 测试）
-        var ok = LaunchOptionsText.TryParse("KEY=a\\", out var parsed, out _);
-
-        Assert.True(ok);
-        Assert.Equal("a\\", parsed["KEY"]);
     }
 
     [Fact]
@@ -265,20 +286,6 @@ public class LaunchOptionsTextTests
     // —— %command% 占位符切分（2026-10-03 Steam 启动选项语义扩展）——
     // 框内未写 %command% = Steam 启动选项中 %command% 之前的区域（末尾由启动器自动补），
     // 全部条目须为 KEY=VALUE；显式写出时其后的 token 是游戏命令行参数。
-
-    [Fact]
-    public void TryParseLaunchLine_NoPlaceholder_MatchesTryParse()
-    {
-        var ok = LaunchOptionsText.TryParseLaunchLine(
-            "A=1 B=\"x y\"", out var parsed, out var arguments, out var badItem, out var errorKind);
-
-        Assert.True(ok);
-        Assert.Equal("", badItem);
-        Assert.Equal(LaunchLineErrorKind.None, errorKind);
-        Assert.Equal("1", parsed["A"]);
-        Assert.Equal("x y", parsed["B"]);
-        Assert.Empty(arguments);
-    }
 
     [Fact]
     public void TryParseLaunchLine_EmptyOrWhitespace_TrueWithEmptyOutputs()
@@ -377,16 +384,30 @@ public class LaunchOptionsTextTests
     }
 
     [Fact]
-    public void TryParseLaunchLine_BareTokenBeforePlaceholder_FailsAsEnvironmentItem()
+    public void TryParseLaunchLine_BareTokenBeforePlaceholder_FailsAsBareTokenKind()
     {
-        // 用户裁定（2026-10-03）：占位符之前的区域仍只接受 KEY=VALUE，裸 token 报错拦截
+        // 用户裁定（2026-10-03）：占位符之前的区域仍只接受 KEY=VALUE，裸 token 报错拦截；
+        // F-F（二轮 review）：裸 token 单独分类——多为「想给游戏传参」的误解，文案指路 %command%
         var ok = LaunchOptionsText.TryParseLaunchLine(
             "OK=1 NOEQ %command% -x", out var parsed, out _, out var badItem, out var errorKind);
 
         Assert.False(ok);
-        Assert.Equal(LaunchLineErrorKind.EnvironmentItem, errorKind);
+        Assert.Equal(LaunchLineErrorKind.EnvironmentBareToken, errorKind);
         Assert.Equal("NOEQ", badItem);
         Assert.True(parsed.ContainsKey("OK")); // 坏条目之前的条目已进字典（保存侧整体弃用）
+    }
+
+    [Fact]
+    public void TryParseLaunchLine_BareEnvTokenWithoutPlaceholder_HasDedicatedErrorKind()
+    {
+        // F-F：无占位符时的裸 token 同样按裸 token 分类（保存路径的错误文案统一指路 %command%）
+        var ok = LaunchOptionsText.TryParseLaunchLine(
+            "OK=1 -dx11", out var parsed, out _, out var badItem, out var errorKind);
+
+        Assert.False(ok);
+        Assert.Equal(LaunchLineErrorKind.EnvironmentBareToken, errorKind);
+        Assert.Equal("-dx11", badItem);
+        Assert.True(parsed.ContainsKey("OK"));
     }
 
     [Fact]
@@ -430,7 +451,7 @@ public class LaunchOptionsTextTests
             "%Command% -x", out _, out _, out _, out var errorKind);
 
         Assert.False(ok);
-        Assert.Equal(LaunchLineErrorKind.EnvironmentItem, errorKind);
+        Assert.Equal(LaunchLineErrorKind.EnvironmentBareToken, errorKind);
     }
 
     [Fact]
