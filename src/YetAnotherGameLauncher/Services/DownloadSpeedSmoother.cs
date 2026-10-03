@@ -3,6 +3,9 @@ namespace YetAnotherGameLauncher.Services;
 /// <summary>
 /// 下载速度平滑器（2026-10-02，RF-2）：对 <c>UpdateProgress.DownloadedBytes</c> 序列按
 /// ≥0.4s 间隔采样、EMA 平滑（新样本权重 0.4），字节回退（校验失败重下）重置样本。
+/// 停滞帧语义（RF-10 注记）：同字节超过 0.4s 的样本 instant=0 仍混入 EMA——速度向 0 衰减、
+/// 数帧内归零（UI 显示"—"）。停滞即无速度为有意语义（更真实地反映"当前没有数据到达"），
+/// 与旧实现的"冻结旧速度"是文档化分歧，勿按旧语义"修复"。
 /// <see cref="Reset"/> 在操作复位点与非下载阶段调用——新一轮操作不得瞬时残留上一轮的速度
 ///（此前样本跨操作存活，首帧可能显示旧速度）。时钟可注入（测试用 ManualTimeProvider）。
 /// </summary>

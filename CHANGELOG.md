@@ -7,9 +7,15 @@
 
 0.1.2 之后的功能版本：系统托盘驻留 + 关闭按钮行为设置（退出应用 / 关闭窗口驻留托盘，
 下载与依赖安装后台继续）；资源包档位、实时下载进度与速度；鸣潮 krpdiff 增量更新链
-终局修复。1233 个测试全绿（2026-10-03 实测）。
+终局修复。1262 个测试全绿（2026-10-03 实测）。
 
 ### 新增
+
+**自定义启动选项：改名与 Steam 风格词法**
+
+- 「环境变量」框更名为「自定义启动选项」，标签旁新增「ⓘ」图标，悬停显示填写规则（Material info 字形，圆底反白）。
+- 输入格式对齐 Steam 启动选项：空白（含换行）分隔多条 `KEY=VALUE`，值含空格用引号包裹（如 `MAP="coast 11"`）——未加引号的值内空格不再被吞进值、`=` 两侧不再容忍空格；支持双/单引号、反斜杠转义与引号跨行。
+- 设置页开关区「启动选项」更名为「功能开关」（避免与启动选项框撞名）。
 
 **自定义启动选项支持 Steam `%command%` 占位符**
 
@@ -44,6 +50,10 @@
 
 ### 修复
 
+**增量更新组级回退的误导性校验报错（2026-10-03）**
+
+- 服务器版本已前移（或暂存版本尚未开放）时触发组级回退直下，此前会拿服务器当前版本的内容打旧版目标校验值、报误导性的「Checksum mismatch」；现在明确报出服务器当前版本与目标版本不一致，指引重新检测更新或重新预下载。
+
 **鸣潮预下载（2026-09-29 预载窗口期不可用）**
 
 - 官方 index.json 的 `predownload` 块不携带 `cdnList`（仅随 `default` 块下发），获取预载增量清单时误在该块上拒收——点「预下载下一版本」必报「Kuro index.json cdnList has no usable node」；现缺节点时回退 `default` 块的 cdnList。
@@ -71,7 +81,19 @@ behavior setting (quit the app / close the window and dwell in the tray,
 with downloads and dependency installs kept running); resource quality
 tier selection; real-time byte-granular download progress with a speed
 readout; and the definitive fix for the Wuthering Waves krpdiff
-incremental-update chain. 1194 tests green (measured 2026-10-02).
+incremental-update chain. 1262 tests green (measured 2026-10-03).
+
+**Added — custom launch options: rename & Steam-style lexing**
+
+- The "Environment variables" box is renamed "Custom launch options", with an ⓘ icon next to the label showing the fill-in rules on hover (Material info glyph, solid disc with an inverted glyph).
+- The input format now matches Steam launch options: whitespace (including newlines) separates multiple `KEY=VALUE` entries, and values containing spaces must be quoted (e.g. `MAP="coast 11"`) — unquoted in-value spaces are no longer swallowed and spaces around `=` are no longer tolerated; double/single quotes, backslash escapes and quoted newlines are supported.
+- The settings toggle group previously named "Launch options" is renamed "Feature toggles" (avoiding the name clash with the launch options box).
+
+**Added — Steam `%command%` placeholder in custom launch options**
+
+- Omitting `%command%` in the box appends it automatically at the end: `KEY=VALUE` entries are injected as environment variables of the launched process — consistent with the Steam launch options format, no placeholder needed.
+- Writing an explicit `%command%` line makes everything after it game command-line arguments appended after the game executable (e.g. `%command% -dx11`), effective on both the template direct-launch and native umu chains; games.json can also configure it via the `launch.arguments` array.
+- Quoting/escaping lexing is unchanged; `%command%` may appear at most once, and both an unclosed quote in the arguments area and a duplicated placeholder get dedicated error messages (Chinese and English).
 
 **Added — automatic hpatchz provisioning (no manual install for Wuthering Waves incremental updates)**
 
@@ -93,6 +115,10 @@ incremental-update chain. 1194 tests green (measured 2026-10-02).
 - New "Close Button" card in Settings: clicking close quits the application (default, unchanged behavior) or closes the window and dwells in the system tray (`closeAction` setting, also configurable directly in games.json).
 - In dwelling mode, closing (including Alt+F4 / system close) only hides the window: downloads and dependency installs keep running in the background, the backdrop video pauses with keep-alive (instant resume on restore), and window geometry is persisted as usual; tray "Quit" runs the full shutdown cleanup (stop videos / cancel dependency installs).
 - Requires a StatusNotifierItem tray from the desktop environment: works out of the box on KDE; GNOME needs a tray extension; keep "quit" mode on tray-less environments.
+
+**Fixed — misleading checksum error in the incremental group fallback (2026-10-03)**
+
+- When the server has moved past the staged version (or the preloaded version is not publicly available yet), the group fallback used to fetch the server's current content against the old target's checksum and fail with a misleading "Checksum mismatch"; it now names both versions and tells the user to re-check for updates or re-run the predownload.
 
 **Fixed — Wuthering Waves predownload (broken during the 2026-09-29 predownload window)**
 
