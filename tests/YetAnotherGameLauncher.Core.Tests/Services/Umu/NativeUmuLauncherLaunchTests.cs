@@ -190,6 +190,42 @@ public sealed class NativeUmuLauncherLaunchTests : IDisposable
     }
 
     [Fact]
+    public void BuildPlan_ExePlaceholderArgument_NoLiteralQuotesInArgv()
+    {
+        // F-H（umu 链，2026-10-03 二轮 review 探针实锤）：参数走 argv，{exe} 占位符不得把
+        // 字面引号带进元素（曾展开成 "path" 原样入 argv）——含空格路径由 argv 语义天然承载，
+        // 展示串（QuoteArgs）的单层包裹是唯一引号来源
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("BuildPlan 仅 Linux（跨平台逻辑由 BuildEntryCommand 用例覆盖）");
+        }
+
+        var runner = new FakeProcessRunner();
+        var launcher = new NativeUmuLauncher(runner, provisioner: null, dataHome: _temp.Path);
+        var protonDir = CreateFakeProton();
+        var runtimeDir = UmuPaths.RuntimeDirectory("steamrt4", _temp.Path);
+        Directory.CreateDirectory(runtimeDir);
+        File.WriteAllText(Path.Combine(runtimeDir, "_v2-entry-point"), "#!/bin/sh\n");
+        File.WriteAllText(Path.Combine(runtimeDir, UmuPaths.InstallMarkerName), "ok");
+
+        var install = _temp.FilePath("My Game");
+        Directory.CreateDirectory(install);
+        var exe = Path.Combine(install, "Game.exe");
+        File.WriteAllText(exe, "x");
+
+        var manifest = ToolManifest.Load(protonDir);
+        var plan = launcher.BuildPlan(
+            "wuthering-waves", install, "Game.exe", protonDir, manifest,
+            SteamRuntimeCatalog.Default,
+            dataHomeOverride: _temp.Path,
+            gameArguments: ["{exe}", "--config={installDir}/cfg"]);
+
+        Assert.DoesNotContain("\"\"", plan.Arguments, StringComparison.Ordinal);
+        Assert.Contains("\"" + exe + "\"", plan.Arguments, StringComparison.Ordinal);
+        Assert.Contains("--config=" + install + "/cfg", plan.Arguments, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BuildPlan_ManagedProtonVerb_NotOverridableByUserEnvironment()
     {
         // F70：PROTON_VERB 是启动器托管键（UmuEnvironment.Build 白名单校验/缺省回退）——

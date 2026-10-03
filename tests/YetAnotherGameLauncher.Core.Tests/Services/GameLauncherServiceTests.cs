@@ -76,14 +76,47 @@ public class GameLauncherServiceTests : IDisposable
     public async Task BuildPlan_CustomArguments_ExpandPlaceholders()
     {
         // 参数 token 与环境变量值同规则：支持 {exe}/{installDir} 占位符展开；
-        // {exe} 展开自带引号（Expand 同款），无空格 token 不再加引号
+        // {exe} 裸展开（F-H 语义修正：引号按展开后最终形态恰一层——无空格路径不加引号）
         var exePath = await CreateExecutable();
         var game = Game("\"{exe}\"");
         game.Launch.Arguments = ["--config={installDir}/cfg", "{exe}"];
 
         var plan = Service().BuildPlan(game, _tempDir.Path, "bin/game.exe");
 
-        Assert.Equal($"--config={_tempDir.Path}/cfg \"{exePath}\"", plan.Arguments);
+        Assert.Equal($"--config={_tempDir.Path}/cfg {exePath}", plan.Arguments);
+    }
+
+    [Fact]
+    public async Task BuildPlan_ExePlaceholderArgument_SpacedInstallDir_QuotedExactlyOnce()
+    {
+        // F-H（2026-10-03 二轮 review 探针实锤）：{exe} 参数占位符先被展开加引号、又被
+        // QuoteCommandToken 按空格再包一层成 ""path""——参数引号必须恰好一层；
+        // 含空格安装目录（如 "Wuthering Waves"）是真实触发面
+        var spacedDir = _tempDir.FilePath("Wuthering Waves");
+        Directory.CreateDirectory(spacedDir);
+        var exePath = Path.Combine(spacedDir, "game.exe");
+        await File.WriteAllTextAsync(exePath, "stub");
+
+        var game = Game("\"{exe}\"");
+        game.Launch.Arguments = ["{exe}", "--config={installDir}/cfg"];
+
+        var plan = Service().BuildPlan(game, _tempDir.Path, "Wuthering Waves/game.exe");
+
+        Assert.Equal($"\"{exePath}\" --config={_tempDir.Path}/cfg", plan.Arguments);
+    }
+
+    [Fact]
+    public async Task BuildPlan_EmptyAndTabArgumentTokens_PreservedOnTemplateChain()
+    {
+        // F-E：空串/含 Tab 的参数 token 曾在模板链被命令串拼接吞掉或拆散（umu 链按 argv
+        // 原样保留）——两链语义对齐：空串以 "" 保留、含空白 token 加引号
+        await CreateExecutable();
+        var game = Game("\"{exe}\"");
+        game.Launch.Arguments = ["", "a\tb", "-dx11"];
+
+        var plan = Service().BuildPlan(game, _tempDir.Path, "bin/game.exe");
+
+        Assert.Equal("\"\" \"a\tb\" -dx11", plan.Arguments);
     }
 
     [Fact]

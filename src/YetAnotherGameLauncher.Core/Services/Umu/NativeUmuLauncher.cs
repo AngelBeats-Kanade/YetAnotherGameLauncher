@@ -146,13 +146,14 @@ public sealed class NativeUmuLauncher(
             }
         }
 
-        // 游戏参数（2026-10-03 Steam 语义）：用户自定义 %command% 之后的 token（占位符展开同
-        // 环境变量规则）在前，启动器生成的 -krqlv 档位参数在后，统一追加在 exe 之后
+        // 游戏参数（2026-10-03 Steam 语义）：用户自定义 %command% 之后的 token 在前，启动器
+        // 生成的 -krqlv 档位参数在后，统一追加在 exe 之后；占位符裸展开（F-H：参数走 argv，
+        // 元素不得携带字面引号，空格由 argv 语义天然承载）
         var gameArgumentList = new List<string>();
         if (gameArguments is { Count: > 0 })
         {
             gameArgumentList.AddRange(gameArguments.Select(
-                argument => GameLauncherService.Expand(argument, exe, installFullPath)));
+                argument => GameLauncherService.ExpandRaw(argument, exe, installFullPath)));
         }
 
         if (!string.IsNullOrWhiteSpace(resourceQualityTier))

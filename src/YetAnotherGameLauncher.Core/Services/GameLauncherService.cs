@@ -46,13 +46,13 @@ public sealed class GameLauncherService(
 
         var command = Expand(template, exePath, installDir);
         // 自定义启动选项 %command% 之后的游戏参数（2026-10-03 Steam 语义）：追加在模板命令之后；
-        // token 支持 {exe}/{installDir} 占位符（Expand 同款），含空格 token 加双引号
-        //（SplitCommand 引号感知拆分；裸 {exe} 模板 + 含空格路径同款防截断逻辑）
+        // token 先裸展开（{exe}/{installDir}），再按展开后的最终形态加引号——恰好一层，
+        // 含空格路径不截断也不双重包裹（F-H，2026-10-03 二轮 review 探针实锤）
         var customArguments = game.Launch.Arguments;
         if (customArguments is { Count: > 0 })
         {
             command += " " + string.Join(' ', customArguments.Select(
-                argument => QuoteCommandToken(Expand(argument, exePath, installDir))));
+                argument => QuoteCommandToken(ExpandRaw(argument, exePath, installDir))));
         }
 
         // 鸣潮资源包档位（2026-10-02）：以 -krqlv=<tier> 追加在命令尾部（用户参数之后，
@@ -221,6 +221,16 @@ public sealed class GameLauncherService(
             .Replace("{installDir}", installDir, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>替换模板占位符（不加引号）：{exe} 展开为裸路径。游戏参数场景专用——
+    /// 参数最终进 argv（umu 链，天然承载空格）或在裸展开后由调用方按最终形态统一加引号
+    /// （模板直启链，F-H：引号必须恰好一层）；兼容已手写引号的 "{exe}"（剥掉）。
+    /// 环境变量值与命令模板仍用 <see cref="Expand"/>（{exe} 带引号进命令串）。</summary>
+    public static string ExpandRaw(string template, string exePath, string installDir) =>
+        template
+            .Replace("\"{exe}\"", exePath, StringComparison.OrdinalIgnoreCase)
+            .Replace("{exe}", exePath, StringComparison.OrdinalIgnoreCase)
+            .Replace("{installDir}", installDir, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>按引号感知规则把命令行拆分为文件名与参数（Windows 风格引号）。</summary>
     public static (string FileName, string Arguments) SplitCommand(string command)
     {
@@ -245,10 +255,13 @@ public sealed class GameLauncherService(
             : (command[..firstSpace], command[(firstSpace + 1)..].TrimStart());
     }
 
-    /// <summary>参数 token 含空格时包上双引号（与 {exe} 展开的引号规则同型；
-    /// {exe} 展开结果已自带引号，Contains 判定不会再包一层）。</summary>
+    /// <summary>参数 token 为空串或含空白（空格/Tab/换行）时包上双引号：命令串按空格切分，
+    /// 不加引号会被拆散（含空白）或丢失（空串，F-E）；引号在裸展开之后施加，恰好一层（F-H）。
+    /// 参数里的字面引号字符不在处理范围（Linux 路径可含引号属病态输入，umu 链按 argv 原样承载）。</summary>
     private static string QuoteCommandToken(string token) =>
-        token.Contains(' ') ? $"\"{token}\"" : token;
+        token.Length == 0 || token.AsSpan().IndexOfAny([' ', '\t', '\r', '\n']) >= 0
+            ? $"\"{token}\""
+            : token;
 
     /// <summary>把环境变量字典格式化为「K=V; K=V」串，供 Debug 级启动日志使用
     ///（SimpleConsole 对字典直接 ToString 不可读）；NativeUmuLauncher 复用同一实现。</summary>
