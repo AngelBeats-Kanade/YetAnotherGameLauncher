@@ -425,12 +425,12 @@ public sealed class IncrementalUpdateService(
                 // dir-diff 头部可整批击穿补丁器，与源缺失回退同族的 ww-manager 韧性语义）：
                 // 有解析缝时直下该组产物自救，无解析缝保持原执行报错（旧调用方兼容）。
                 // 取消不是补丁失败，OCE 穿透不回退。
-                logger?.LogWarning(ex, "Patch application failed for {Patch}; falling back to direct downloads", group.PatchFile);
-
                 if (dstUrlResolver is null)
                 {
                     throw new UpdateException($"Patch application failed ({group.PatchFile}): {ex.Message}", ex);
                 }
+
+                logger?.LogWarning(ex, "Patch application failed for {Patch}; falling back to direct downloads", group.PatchFile);
 
                 try
                 {
