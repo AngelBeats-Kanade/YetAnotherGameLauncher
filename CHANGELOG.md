@@ -7,7 +7,7 @@
 
 0.1.2 之后的功能版本：系统托盘驻留 + 关闭按钮行为设置（退出应用 / 关闭窗口驻留托盘，
 下载与依赖安装后台继续）；资源包档位、实时下载进度与速度；鸣潮 krpdiff 增量更新链
-终局修复。1262 个测试全绿（2026-10-03 实测）。
+终局修复。1266 个测试全绿（2026-10-03 实测）。
 
 ### 新增
 
@@ -21,7 +21,7 @@
 
 - 「自定义启动选项」框内未写 `%command%` 时末尾由启动器自动补全：`KEY=VALUE` 条目照常作为环境变量注入启动进程——与 Steam 启动选项格式一致，无需手写占位符。
 - 显式写一行 `%command%` 时，其后的内容作为游戏命令行参数追加在游戏可执行文件之后（如 `%command% -dx11`），模板直启与原生 umu 两条启动链均生效；`games.json` 亦可经 `launch.arguments` 数组直接配置。
-- 引号/转义词法不变；`%command%` 最多出现一次，参数区引号未闭合与重复占位符均有专属错误提示（中英双语）。
+- 引号/转义词法不变；`%command%` 最多出现一次，裸 token（想给游戏传参的高频误解）、参数区引号未闭合与重复占位符均有专属错误提示，裸 token 的提示直接指路 `%command%` 写法（中英双语）。
 
 ### 新增
 
@@ -81,7 +81,7 @@ behavior setting (quit the app / close the window and dwell in the tray,
 with downloads and dependency installs kept running); resource quality
 tier selection; real-time byte-granular download progress with a speed
 readout; and the definitive fix for the Wuthering Waves krpdiff
-incremental-update chain. 1262 tests green (measured 2026-10-03).
+incremental-update chain. 1266 tests green (measured 2026-10-03).
 
 **Added — custom launch options: rename & Steam-style lexing**
 
@@ -93,7 +93,7 @@ incremental-update chain. 1262 tests green (measured 2026-10-03).
 
 - Omitting `%command%` in the box appends it automatically at the end: `KEY=VALUE` entries are injected as environment variables of the launched process — consistent with the Steam launch options format, no placeholder needed.
 - Writing an explicit `%command%` line makes everything after it game command-line arguments appended after the game executable (e.g. `%command% -dx11`), effective on both the template direct-launch and native umu chains; games.json can also configure it via the `launch.arguments` array.
-- Quoting/escaping lexing is unchanged; `%command%` may appear at most once, and both an unclosed quote in the arguments area and a duplicated placeholder get dedicated error messages (Chinese and English).
+- Quoting/escaping lexing is unchanged; `%command%` may appear at most once. Bare tokens (a common misconception when trying to pass game arguments), an unclosed quote in the arguments area and a duplicated placeholder each get a dedicated error message, and the bare-token one points straight at the `%command%` syntax (Chinese and English).
 
 **Added — automatic hpatchz provisioning (no manual install for Wuthering Waves incremental updates)**
 
