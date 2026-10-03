@@ -407,6 +407,46 @@ public class GameUpdateServiceTests : IDisposable
         Assert.Equal(b, await File.ReadAllBytesAsync(_tempDir.FilePath("b.pak")));
     }
 
+    [Fact]
+    public async Task ApplyPredownloadAsync_ServerAheadOfStagedVersion_FallbackExplainsVersionDrift()
+    {
+        // RF-E（2026-10-02 立案）：KuroChannelApi.GetManifestAsync 忽略请求版本、恒返回服务器当前
+        // 版本内容，组级回退解析缝是其唯一无守卫的消费方——服务器版本已前移时回退会拿新版内容
+        // 打旧版 dst 的 md5，报误导性 "Checksum mismatch"。守卫：latest != 请求版本时折算出
+        // 带版本指引的根因，而不是让用户对着校验失败排查不存在的损坏。
+        var v1 = "v1"u8.ToArray();
+        var v2 = "v2"u8.ToArray();
+        var v3 = "v3-server-ahead"u8.ToArray();
+        await WriteLocalState("2.0.0"); // 安装目录无 a.dat：组差分源缺失，触发组级回退
+
+        _channel.VersionInfo = new ChannelVersionInfo
+        {
+            LatestVersion = "2.0.0",
+            PredownloadAvailable = true,
+            PredownloadVersion = "3.0.0",
+            PredownloadPatchSourceVersions = ["2.0.0"],
+        };
+        var group = BuildGroup("g1.krpdiff", [("a.dat", v1)], [("a.dat", v2)]);
+        _channel.IncrementalManifests[("2.0.0", "3.0.0")] = new GameManifest { Version = "3.0.0", Groups = [group] };
+        _channel.Manifests["3.0.0"] = new GameManifest { Version = "3.0.0", Files = [FileEntry("a.dat", v2)] };
+        var service = CreateService();
+        await service.PredownloadAsync(_tempDir.Path, _game, _server, _channel);
+
+        // 应用前服务器已前移到 3.5.0。ManifestHandler 模拟被立案的渠道真实形态：
+        // GetManifestAsync 对任何请求版本都返回当前版本（3.5.0）清单。
+        _channel.VersionInfo = new ChannelVersionInfo { LatestVersion = "3.5.0" };
+        _channel.Manifests["3.5.0"] = new GameManifest { Version = "3.5.0", Files = [FileEntry("a.dat", v3)] };
+        _channel.ManifestHandler = (_, _, _) => Task.FromResult(_channel.Manifests["3.5.0"]);
+        RegisterFile("a.dat", v3);
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => service.ApplyPredownloadAsync(_tempDir.Path, _game, _server, _channel));
+
+        Assert.Contains("Could not resolve a direct download", ex.Message);
+        Assert.Contains("3.5.0", ex.Message);
+        Assert.DoesNotContain("Checksum mismatch", ex.Message);
+    }
+
     // ---------- 包式渠道（整包分发，如终末地） ----------
 
     [Fact]

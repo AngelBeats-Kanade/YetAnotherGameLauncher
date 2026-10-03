@@ -160,6 +160,10 @@ public sealed class GameUpdateService(
     /// 原地抛出，由组回退链折算为可操作报错（携带根因）——此处吞异常折 null 会伪装成
     /// 「查无此路径」误导用户（review RF-B）。真查无路径返回 null；懒任务记住
     /// 首个取消令牌（单次 apply 内单一令牌，无跨令牌复用面）。</summary>
+    /// <remarks>版本守卫（RF-E，2026-10-03）：Kuro 渠道的 GetManifestAsync 忽略请求版本、恒返回
+    /// 服务器当前版本内容，本缝是它唯一无守卫的消费方——服务器版本与请求版本不一致时，回退会
+    /// 拿错版本内容打旧版 dst 的 md5，报误导性校验失败。取清单前先核对服务器当前版本，不一致
+    /// 抛带版本号的 UpdateException（经组回退链折算，根因可见）。</remarks>
     private static Func<string, CancellationToken, Task<string?>> CreateDstUrlResolver(
         GameServer server, IGameChannelApi channel, string version)
     {
@@ -174,6 +178,14 @@ public sealed class GameUpdateService(
         static async Task<IReadOnlyDictionary<string, string>> LoadDstUrlMapAsync(
             GameServer server, IGameChannelApi channel, string version, CancellationToken cancellationToken)
         {
+            var info = await channel.GetVersionInfoAsync(server, cancellationToken).ConfigureAwait(false);
+            if (!string.Equals(info.LatestVersion, version, StringComparison.Ordinal))
+            {
+                throw new UpdateException(
+                    $"Server now serves version {info.LatestVersion}, so no direct downloads can be resolved " +
+                    $"for version {version}. Re-check for updates (or re-run the predownload) and retry.");
+            }
+
             var manifest = await channel.GetManifestAsync(server, version, cancellationToken).ConfigureAwait(false);
             var map = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var file in manifest.Files)
