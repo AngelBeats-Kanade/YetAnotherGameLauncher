@@ -97,7 +97,8 @@ flowchart TD
   清单无 fromFolder，回退链产出与旧实现一致。清单顶层 `deleteFiles`（废弃文件，2026-10-02 真机 6 条
   旧 pak/sig）建模进 GameManifest，Apply 在组循环与落位**之后**删除（官方清单存在 deleteFiles ∩ 组
   srcFiles 交叉——3.6.1→3.7.0 group_37 的 4 个差分源同时在废弃清单，先删会让组差分永久不可行且不可
-  自愈，2026-10-02 真机 P1 实锤后修订；删除失败仍报错中止，重试安全）。差分源缺失时经 dstUrlResolver
+  自愈，2026-10-02 真机 P1 实锤后修订；删除失败仍报错中止，重试安全）。差分源缺失或补丁器执行
+  失败（2026-10-03 扩展，109 事件形态）时经 dstUrlResolver
   解析缝直下该组产物自救（组级回退；GameUpdateService 懒取目标版本全量清单建 path→URL——官方
   dstFiles 原始条目无 url 字段，但组 dst 路径被全量清单全覆盖且 {resourcesBasePath}/{dest} 直链实测
   可下、md5 与增量条目一致，happy path 零额外请求）。Apply 链入口让位线程池、组校验与暂存核验走

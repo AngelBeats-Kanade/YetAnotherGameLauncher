@@ -537,6 +537,74 @@ public class IncrementalUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyAsync_HpatchzFailure_WithResolver_FallsBackToDirectDownload()
+    {
+        // 组级回退扩展（2026-10-03）：hpatchz 本身失败（2026-10-02 真机 109 事件——官方 krpdiff
+        // dir-diff 头部可整批击穿补丁器）不再直接死刑，经解析缝直下该组产物自救（与源缺失回退
+        // 同族，ww-manager 同语义）。差分源在场、补丁器抛错且未产出任何文件：终态内容只能来自直下。
+        var newContent = "brand-new"u8.ToArray();
+        var group = PrepareGroup("g1.krpdiff", [("data/old.dat", "old"u8.ToArray())], [("data/new.dat", newContent)]);
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+        Directory.CreateDirectory(_tempDir.FilePath("data"));
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "old.dat"), "old"u8.ToArray());
+        _applier.FailOnCallIndex = 0;
+
+        await CreateService().ApplyAsync(
+            _tempDir.Path, manifest,
+            dstUrlResolver: (path, _) => Task.FromResult<string?>(Url(path.Replace('/', '_'))));
+
+        Assert.Equal(newContent, await File.ReadAllBytesAsync(_tempDir.FilePath("data", "new.dat")));
+        Assert.Single(_applier.Calls); // hpatchz 被尝试过（失败后才回退直下）
+    }
+
+    [Fact]
+    public async Task ApplyAsync_HpatchzCancellation_DoesNotFallback()
+    {
+        // 取消必须穿透回退：OperationCanceledException 不是补丁失败——不触发直下自救、
+        // 不折算成 UpdateException（用户取消语义不变）
+        var group = PrepareGroup("g1.krpdiff", [("data/old.dat", "old"u8.ToArray())], [("data/new.dat", "new"u8.ToArray())]);
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+        _downloader.Requests.Clear();
+        Directory.CreateDirectory(_tempDir.FilePath("data"));
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "old.dat"), "old"u8.ToArray());
+        _applier.FailOnCallIndex = 0;
+        _applier.FailureException = new OperationCanceledException();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => CreateService().ApplyAsync(
+                _tempDir.Path, manifest,
+                dstUrlResolver: (_, _) => Task.FromResult<string?>(Url("data_new.dat"))));
+
+        Assert.Empty(_downloader.Requests); // 未发生任何直下请求
+        Assert.False(File.Exists(_tempDir.FilePath("data", "new.dat")));
+    }
+
+    [Fact]
+    public async Task ApplyAsync_HpatchzFailure_FallbackFails_ReportsBothCauses()
+    {
+        // hpatchz 失败 + 直下也不可得（解析缝查无此路径）：报错必须同时携带两级根因
+        // （补丁失败原因 + 回退失败原因），不允许任何一级被吞
+        var group = PrepareGroup("g1.krpdiff", [("data/old.dat", "old"u8.ToArray())], [("data/new.dat", "new"u8.ToArray())]);
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+        Directory.CreateDirectory(_tempDir.FilePath("data"));
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "old.dat"), "old"u8.ToArray());
+        _applier.FailOnCallIndex = 0;
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => CreateService().ApplyAsync(
+                _tempDir.Path, manifest,
+                dstUrlResolver: (_, _) => Task.FromResult<string?>(null)));
+
+        Assert.Contains("Patch application failed", ex.Message);
+        Assert.Contains("假补丁失败", ex.Message);
+        Assert.Contains("not available for direct download", ex.Message);
+        Assert.False(File.Exists(_tempDir.FilePath("data", "new.dat"))); // 游戏目录不被回退失败破坏
+    }
+
+    [Fact]
     public async Task ApplyAsync_CorruptApplierOutput_ThrowsBeforeReplace()
     {
         var oldContent = "old-content"u8.ToArray();

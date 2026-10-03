@@ -12,6 +12,10 @@ public sealed class FakePatchApplier : IPatchApplier
 
     public int FailOnCallIndex { get; set; } = -1;
 
+    /// <summary>FailOnCallIndex 命中时注入的异常；null = 默认 IOException（模拟 hpatchz 失败）。
+    /// 供取消穿透（OperationCanceledException）等非 IOException 形态的用例使用。</summary>
+    public Exception? FailureException { get; set; }
+
     public bool CorruptOutput { get; set; }
 
     public Task ApplyAsync(string patchFilePath, string oldDir, string newDir, CancellationToken cancellationToken = default)
@@ -25,7 +29,7 @@ public sealed class FakePatchApplier : IPatchApplier
 
         if (index == FailOnCallIndex)
         {
-            throw new IOException("假补丁失败");
+            throw FailureException ?? new IOException("假补丁失败");
         }
 
         var outputs = Outputs[Path.GetFileName(patchFilePath)];

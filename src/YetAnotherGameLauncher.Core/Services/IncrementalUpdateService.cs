@@ -12,8 +12,8 @@ namespace YetAnotherGameLauncher.Core.Services;
 ///    （重跑保留暂存：完好文件核验跳过、.temp 续传）；
 /// 2) Apply：逐组"复制旧文件 → hpatchz 合成 → MD5 校验 → .yagl-bak 备份替换"（单组失败自动回滚
 ///    该组，中断后可重新执行），随后落位暂存新文件、删除清单废弃文件（deleteFiles 在组后——
-///    废弃文件可能同时是组差分源，2026-10-02 真机 P1 实锤）、清理暂存；差分源缺失时按注入的
-///    解析缝直下该组产物自救（组级回退）。
+///    废弃文件可能同时是组差分源，2026-10-02 真机 P1 实锤）、清理暂存；差分源缺失或补丁器
+///    执行失败时按注入的解析缝直下该组产物自救（组级回退）。
 /// </summary>
 public sealed class IncrementalUpdateService(
     IDownloader downloader,
@@ -206,8 +206,8 @@ public sealed class IncrementalUpdateService(
     /// <param name="progress">进度回调（Verifying/Patching/Done 阶段）。</param>
     /// <param name="cancellationToken">取消令牌。</param>
     /// <param name="dstUrlResolver">组级回退的产物直链解析缝（相对路径 → CDN 直链，查无返回 null）。
-    /// 差分源缺失（官方清单 deleteFiles ∩ srcFiles 交叉或安装被外力破坏）时按组直下产物自救；
-    /// null = 不启用回退（源缺失按可操作报错收尾）。</param>
+    /// 差分源缺失（官方清单 deleteFiles ∩ srcFiles 交叉或安装被外力破坏）或补丁器执行失败时
+    /// 按组直下产物自救；null = 不启用回退（按可操作报错收尾）。</param>
     public async Task ApplyAsync(
         string installDir,
         GameManifest incrementalManifest,
@@ -390,7 +390,7 @@ public sealed class IncrementalUpdateService(
         if (missingSrc is not null)
         {
             await DownloadGroupOutputsDirectlyAsync(
-                newDir, group, missingSrc.Path, dstUrlResolver, progress, cancellationToken).ConfigureAwait(false);
+                newDir, group, $"source file {missingSrc.Path} is missing", dstUrlResolver, progress, cancellationToken).ConfigureAwait(false);
         }
         else
         {
@@ -421,7 +421,29 @@ public sealed class IncrementalUpdateService(
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                throw new UpdateException($"Patch application failed ({group.PatchFile}): {ex.Message}", ex);
+                // hpatchz 失败不再直接死刑（2026-10-03 backlog 激活：109 事件实锤官方 krpdiff 的
+                // dir-diff 头部可整批击穿补丁器，与源缺失回退同族的 ww-manager 韧性语义）：
+                // 有解析缝时直下该组产物自救，无解析缝保持原执行报错（旧调用方兼容）。
+                // 取消不是补丁失败，OCE 穿透不回退。
+                logger?.LogWarning(ex, "Patch application failed for {Patch}; falling back to direct downloads", group.PatchFile);
+
+                if (dstUrlResolver is null)
+                {
+                    throw new UpdateException($"Patch application failed ({group.PatchFile}): {ex.Message}", ex);
+                }
+
+                try
+                {
+                    await DownloadGroupOutputsDirectlyAsync(
+                        newDir, group, $"patch application failed: {ex.Message}", dstUrlResolver, progress, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception fallbackEx) when (fallbackEx is not OperationCanceledException)
+                {
+                    // 两级根因都保留：补丁失败原因在前（主因），回退失败原因在后
+                    throw new UpdateException(
+                        $"Patch application failed ({group.PatchFile}): {ex.Message}; " +
+                        $"direct-download fallback also failed: {fallbackEx.Message}", fallbackEx);
+                }
             }
         }
 
@@ -444,15 +466,16 @@ public sealed class IncrementalUpdateService(
         ReplaceWithBackup(installDir, group, newDir, logger);
     }
 
-    /// <summary>组级回退：差分源缺失时直下该组产物（2026-10-02 真机 P1 实锤的恢复路径——官方清单
-    /// deleteFiles ∩ srcFiles 交叉 + 早前失败尝试已删源的组合让组差分永久不可行；ww-manager 同族
-    /// 韧性语义）。产物 URL 经 dstUrlResolver 解析，size+MD5 校验内建于下载请求，落位复用与正常组
+    /// <summary>组级回退：组差分不可行时直下该组产物（ww-manager 同族韧性语义）。两种触发形态：
+    /// 差分源缺失（官方清单 deleteFiles ∩ srcFiles 交叉或安装被外力破坏，2026-10-02 真机 P1 实锤）
+    /// 与 hpatchz 执行失败（2026-10-03 扩展），<paramref name="reason"/> 承载触发原因进日志与报错。
+    /// 产物 URL 经 dstUrlResolver 解析，size+MD5 校验内建于下载请求，落位复用与正常组
     /// 相同的 dst 事后校验 + <see cref="ReplaceWithBackup"/> 原子替换；解析缝为 null 时保持
-    /// 「源缺失 + 全量更新」的可操作报错（旧调用方向后兼容）。</summary>
+    /// 可操作报错（旧调用方向后兼容）。</summary>
     private async Task DownloadGroupOutputsDirectlyAsync(
         string newDir,
         PatchGroup group,
-        string missingSrcPath,
+        string reason,
         Func<string, CancellationToken, Task<string?>>? dstUrlResolver,
         IProgress<UpdateProgress>? progress,
         CancellationToken cancellationToken)
@@ -460,12 +483,12 @@ public sealed class IncrementalUpdateService(
         if (dstUrlResolver is null)
         {
             throw new UpdateException(
-                $"Source file {missingSrcPath} required by patch group {group.PatchFile} is missing; use the full update.");
+                $"Patch group {group.PatchFile} cannot be applied ({reason}); use the full update.");
         }
 
         logger?.LogInformation(
-            "Patch group {Patch} sources unavailable ({Missing} missing); downloading {Count} outputs directly",
-            group.PatchFile, missingSrcPath, group.DstFiles.Count);
+            "Patch group {Patch} cannot be applied differentially ({Reason}); downloading {Count} outputs directly",
+            group.PatchFile, reason, group.DstFiles.Count);
 
         for (var i = 0; i < group.DstFiles.Count; i++)
         {
@@ -487,8 +510,8 @@ public sealed class IncrementalUpdateService(
             if (url is null)
             {
                 throw new UpdateException(
-                    $"Source file {missingSrcPath} required by patch group {group.PatchFile} is missing and output " +
-                    $"{dst.Path} is not available for direct download; use the full update.");
+                    $"Patch group {group.PatchFile} cannot be applied ({reason}) and output {dst.Path} is not " +
+                    "available for direct download; use the full update.");
             }
 
             ManifestChecks.EnsureDownloadUrl(url, "Direct-download fallback", dst.Path);

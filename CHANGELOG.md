@@ -50,6 +50,10 @@
 
 ### 修复
 
+**hpatchz 失败也回退直下（2026-10-03）**
+
+- hpatchz 本身执行失败（如 2026-10-02 真机的退出码 109：供给构建读不了官方 krpdiff 头部，全组必败）时不再直接报错中止——与差分源缺失同族的组级回退生效：经目标版本全量清单解析该组产物直链后直下自救（size+MD5 校验 + 备份原子替换）；直下也不可得时错误信息同时保留补丁失败与回退失败两级原因，无解析缝的调用形态保持原报错。
+
 **增量更新组级回退的误导性校验报错（2026-10-03）**
 
 - 服务器版本已前移（或暂存版本尚未开放）时触发组级回退直下，此前会拿服务器当前版本的内容打旧版目标校验值、报误导性的「Checksum mismatch」；现在明确报出服务器当前版本与目标版本不一致，指引重新检测更新或重新预下载。
@@ -115,6 +119,10 @@ incremental-update chain. 1266 tests green (measured 2026-10-03).
 - New "Close Button" card in Settings: clicking close quits the application (default, unchanged behavior) or closes the window and dwells in the system tray (`closeAction` setting, also configurable directly in games.json).
 - In dwelling mode, closing (including Alt+F4 / system close) only hides the window: downloads and dependency installs keep running in the background, the backdrop video pauses with keep-alive (instant resume on restore), and window geometry is persisted as usual; tray "Quit" runs the full shutdown cleanup (stop videos / cancel dependency installs).
 - Requires a StatusNotifierItem tray from the desktop environment: works out of the box on KDE; GNOME needs a tray extension; keep "quit" mode on tray-less environments.
+
+**Fixed — hpatchz failures now fall back to direct downloads too (2026-10-03)**
+
+- When hpatchz itself fails (e.g. the real-machine exit code 109 on 2026-10-02: the provisioned build could not read the official krpdiff header, failing every group), the update no longer aborts outright — the group-level fallback, previously reserved for missing diff sources, now kicks in: the group's outputs are resolved against the target version's full manifest and downloaded directly (size+MD5-verified, atomic backup replacement). If the direct download fails as well, the error carries both causes (patch failure and fallback failure); callers without a resolver keep the original error.
 
 **Fixed — misleading checksum error in the incremental group fallback (2026-10-03)**
 
