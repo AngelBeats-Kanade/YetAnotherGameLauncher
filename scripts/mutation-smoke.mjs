@@ -214,10 +214,11 @@ const MUTATIONS = [
   },
   {
     // 2026-10-03 hpatchz 失败回退批：补丁器执行失败（真机 109 事件形态）必须经解析缝直下该组
-    // 产物自救——把回退调用替换回"直接抛执行失败"后守卫测试应变红（无解析缝的兼容分支不在此变异面）
+    // 产物自救——把回退调用整体替换回"直接抛执行失败"后守卫测试应变红（无解析缝的兼容分支不在此
+    // 变异面）。find 跨 await 行与参数续行（只匹配续行会留下悬空调用头，变异后是编译错误非测试红）
     id: 'M25-hpatchz-failure-fallback',
     file: 'src/YetAnotherGameLauncher.Core/Services/IncrementalUpdateService.cs',
-    find: 'newDir, group, $"patch application failed: {ex.Message}", dstUrlResolver, progress, cancellationToken).ConfigureAwait(false);',
+    find: 'await DownloadGroupOutputsDirectlyAsync(\n                        newDir, group, $"patch application failed: {ex.Message}", dstUrlResolver, progress, cancellationToken).ConfigureAwait(false);',
     replace: 'throw new UpdateException($"Patch application failed ({group.PatchFile}): {ex.Message}", ex);',
     project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
