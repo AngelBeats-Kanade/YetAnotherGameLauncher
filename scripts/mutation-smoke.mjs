@@ -190,6 +190,28 @@ const MUTATIONS = [
     dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
     method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroChannelApiTests.GetIncrementalManifest_KrpdiffEntries_ExcludedFromFilesAndBackfilledIntoGroups',
   },
+  {
+    // 2026-10-03 RF-E 修复批（095e498）：组级回退解析缝的版本守卫——服务器版本与请求版本
+    // 不一致时必须拒绝解析（否则拿错版本内容打旧版 dst 校验值，报误导性 Checksum mismatch）
+    id: 'M23-fallback-resolver-version-guard',
+    file: 'src/YetAnotherGameLauncher.Core/Services/GameUpdateService.cs',
+    find: 'if (!string.Equals(info.LatestVersion, version, StringComparison.Ordinal))',
+    replace: 'if (string.Equals(info.LatestVersion, version, StringComparison.Ordinal))',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.GameUpdateServiceTests.ApplyPredownloadAsync_ServerAheadOfStagedVersion_FallbackExplainsVersionDrift',
+  },
+  {
+    // 2026-10-03 RF-C 修复批（7430263）：deleteFiles 产物豁免——清单自相矛盾地点名本次更新
+    // 产物时必须跳过（否则刚产出且校验通过的文件被删且无自愈路径）
+    id: 'M24-deletefiles-produced-spare',
+    file: 'src/YetAnotherGameLauncher.Core/Services/IncrementalUpdateService.cs',
+    find: 'if (producedThisUpdate.Contains(relative))',
+    replace: 'if (producedThisUpdate.Count < 0)',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.IncrementalUpdateServiceTests.ApplyAsync_DeleteFilesListingFreshlyProducedFile_SparesIt',
+  },
 ];
 
 function run(cmd, args) {
