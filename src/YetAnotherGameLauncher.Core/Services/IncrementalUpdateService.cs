@@ -308,13 +308,39 @@ public sealed class IncrementalUpdateService(
     /// 位于组循环与落位之后（2026-10-02 修订，F88 裁定更新）：官方清单的废弃文件可能同时是后续
     /// 组的差分源（deleteFiles ∩ srcFiles 非空），先删会让组差分永久不可行且不可自愈；尾部删除
     /// 同样在游戏下次启动前清掉废弃文件，UE 挂载冲突不成立。不存在/目录条目跳过；删除失败
-    /// （占用/只读）抛 UpdateException 中止——此时组差分与落位已完成且校验通过，重试安全。</summary>
+    /// （占用/只读）抛 UpdateException 中止——此时组差分与落位已完成且校验通过，重试安全。
+    /// 产物豁免（RF-C，2026-10-03）：删除清单先扣除本次更新产物（Files ∪ 组 dstFiles）——官方
+    /// 清单若自相矛盾地让废弃条目命中刚产出且校验通过的文件，删掉即无自愈路径（版本已前移、
+    /// 增量清单不再含该文件）；豁免记警告跳过，下轮清单若坚持删除（届时不在产物集）仍会执行。</summary>
     private static void DeleteListedFiles(string installDir, GameManifest manifest, ILogger? logger)
     {
+        var producedThisUpdate = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var file in manifest.Files)
+        {
+            producedThisUpdate.Add(file.Path);
+        }
+
+        foreach (var group in manifest.Groups)
+        {
+            foreach (var dst in group.DstFiles)
+            {
+                producedThisUpdate.Add(dst.Path);
+            }
+        }
+
         foreach (var relative in manifest.DeleteFiles)
         {
             // 逃逸路径由 ResolveSafe 直接抛 UpdateException（2026-10-02 三轮统一，F42 同族）
             var target = ManifestVerifier.ResolveSafe(installDir, relative);
+
+            if (producedThisUpdate.Contains(relative))
+            {
+                // 自相矛盾清单（废弃条目同时是本次产物）：保护产出，警告暴露矛盾供上游排查
+                logger?.LogWarning(
+                    "deleteFiles lists {Path} which this update just produced; sparing it (contradictory manifest).",
+                    relative);
+                continue;
+            }
 
             if (!File.Exists(target))
             {

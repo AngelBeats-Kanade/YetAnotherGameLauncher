@@ -236,6 +236,35 @@ public class IncrementalUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyAsync_DeleteFilesListingFreshlyProducedFile_SparesIt()
+    {
+        // RF-C（2026-10-02 第七轮 review 立案）：官方清单若自相矛盾地让 deleteFiles ∩ 本次更新
+        // 产物（组 dstFiles / Files）非空，尾部删除会删掉刚产出且校验通过的文件且无自愈路径
+        // （组 srcFiles 交集不在豁免范围——旧版输入不是产物，DeleteFilesIntersectingGroupSrc
+        // 用例的删除语义不受影响）。豁免 = 删除前扣除产物集，命中记警告跳过；下轮清单若坚持
+        // 删除（届时该文件不在产物集）仍会执行，自愈不封死。
+        var oldContent = "old-content"u8.ToArray();
+        var newContent = "new-content"u8.ToArray();
+        Directory.CreateDirectory(_tempDir.FilePath("data"));
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "file.dat"), oldContent);
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "obsolete.bin"), "stale"u8.ToArray());
+        var group = PrepareGroup("g1.krpdiff", [("data/file.dat", oldContent)], [("data/file.dat", newContent)]);
+        var manifest = new GameManifest
+        {
+            Version = "2.0.0",
+            Groups = [group],
+            Files = [FileEntry("data/file.dat", newContent)],
+            DeleteFiles = ["data/file.dat", "data/obsolete.bin"],
+        };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+
+        await CreateService().ApplyAsync(_tempDir.Path, manifest);
+
+        Assert.Equal(newContent, await File.ReadAllBytesAsync(_tempDir.FilePath("data", "file.dat"))); // 产物豁免
+        Assert.False(File.Exists(_tempDir.FilePath("data", "obsolete.bin"))); // 普通废弃条目照删
+    }
+
+    [Fact]
     public async Task ApplyAsync_DeleteFilesEscapingSandbox_Rejected()
     {
         var manifest = new GameManifest
