@@ -198,12 +198,17 @@
                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                     <TextBlock Text="{Binding Loc[launch_environment]}" Classes="card-caption"
                                                VerticalAlignment="Center"/>
-                                    <!-- 「ⓘ」帮助图标：几何/配色复用本文件 Proton 更新确认覆盖层标题先例
-                                         （AppTextSecondary + Stretch=Uniform），13px 对齐 card-caption 字号；
-                                         ToolTip 走仓库纯字符串绑定模式（DetailActionDock/MainWindow 同款），
-                                         文案多行短句避免默认 ToolTip 不换行横穿；具名供 headless 测试定位 -->
+                                    <!-- 「ⓘ」帮助图标：Material info(filled) 字形——点在上（y 7-9）、茎在下
+                                         （y 11-17）；Path 默认 EvenOdd 填充把外圆内的字形段挖空，渲染为
+                                         实心圆底 + 反白字形（filled 变体标准形态）。配色/尺寸复用覆盖层
+                                         标题先例（AppTextSecondary + Stretch=Uniform），13px 对齐
+                                         card-caption 字号；覆盖层与 LaunchErrorOverlay 保留感叹号（警示
+                                         语境），帮助语境用 info 字形区分（RF-18，2026-10-03 judge 8x 放大
+                                         实锤原几何为感叹号）；ToolTip 走仓库纯字符串绑定模式
+                                         （DetailActionDock/MainWindow 同款），文案多行短句避免默认 ToolTip
+                                         不换行横穿；具名供 headless 测试定位 -->
                                     <Path x:Name="EnvironmentHelpIcon"
-                                          Data="M12,2 C17.52,2 22,6.48 22,12 C22,17.52 17.52,22 12,22 C6.48,22 2,17.52 2,12 C2,6.48 6.48,2 12,2 Z M11,7 L13,7 L13,13 L11,13 Z M11,15 L13,15 L13,17 L11,17 Z"
+                                          Data="M12,2 C17.52,2 22,6.48 22,12 C22,17.52 17.52,22 12,22 C6.48,22 2,17.52 2,12 C2,6.48 6.48,2 12,2 Z M11,7 L13,7 L13,9 L11,9 Z M11,11 L13,11 L13,17 L11,17 Z"
                                           Fill="{DynamicResource AppTextSecondary}" Stretch="Uniform"
                                           Width="13" VerticalAlignment="Center"
                                           ToolTip.Tip="{Binding Loc[launch_environmentTooltip]}"/>

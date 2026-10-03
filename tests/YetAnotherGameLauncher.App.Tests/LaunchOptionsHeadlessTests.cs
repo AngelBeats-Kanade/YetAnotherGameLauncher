@@ -1,4 +1,6 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Xunit;
@@ -184,5 +186,99 @@ public class LaunchOptionsHeadlessTests : IDisposable
 
         Assert.True(iconFound, "自定义启动选项标签旁应显示帮助图标");
         Assert.Equal(_ctx.Vm.Loc["launch_environmentTooltip"], tipText);
+    }
+
+    [Fact]
+    public async Task EnvironmentHelpIcon_GlyphStemSitsInLowerHalf()
+    {
+        // RF-18（2026-10-03 judge 8x 放大实锤）：帮助图标曾整段复用 Proton 更新确认覆盖层的感叹号
+        // 几何（长茎在上、点在下，警示语义），放在「填写规则说明」的帮助语境语义不符——已改
+        // Material info(filled) 字形（点在上、茎在下）。渲染语义（探针矩阵实锤）：Path 默认
+        // EvenOdd 填充把外圆内的字形段挖空成背景色——整图 = 实心圆底 + 反白字形。StreamGeometry
+        // 运行时读不回 path data 字符串（ToString 仅类型名），字形方向以像素探针钉住：图标中线
+        // ±2 列内，下半 bbox 的镂空（背景色）像素数必须多于上半——info 的茎在下（长）点在上（短）；
+        // 感叹号形态（茎在上）即红。观感终审由 avalonia-ui-review 截图 + judge 把关。
+        await _ctx.Vm.InitializeAsync();
+
+        var upperHollow = -1;
+        var lowerHollow = -1;
+        var probed = false;
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            // 1200 高（11/11b 同款）：设置页图标区可能超出 720 视口，BringIntoView 保渲染在帧内
+            var window = new MainWindow { DataContext = _ctx.Vm, Width = 1120, Height = 1200 };
+            window.Show();
+            window.UpdateLayout();
+
+            _ctx.Vm.ShowGameSettingsCommand.Execute(null);
+            window.UpdateLayout();
+
+            var icon = window.GetVisualDescendants()
+                .OfType<Avalonia.Controls.Shapes.Path>()
+                .FirstOrDefault(p => p.Name == "EnvironmentHelpIcon");
+            Assert.NotNull(icon);
+            icon.BringIntoView();
+            window.UpdateLayout();
+            Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+
+            var topLeft = icon.TranslatePoint(new Avalonia.Point(0, 0), window)!.Value;
+            var width = (int)icon.Bounds.Width;
+            var height = (int)icon.Bounds.Height;
+            using var frame = window.CaptureRenderedFrame();
+            Assert.NotNull(frame);
+            using var fb = frame.Lock();
+
+            byte Channel(int x, int y, int offset)
+            {
+                var addr = fb.Address + (y * fb.RowBytes) + (x * 4) + offset;
+                return System.Runtime.InteropServices.Marshal.ReadByte(addr);
+            }
+
+            // 背景参考色取图标中线左侧 3px（bbox 圆外即卡片底，同卡同色）
+            var bgX = (int)topLeft.X - 3;
+            var bgY = (int)topLeft.Y + height / 2;
+            var (bgB, bgG, bgR) = (Channel(bgX, bgY, 0), Channel(bgX, bgY, 1), Channel(bgX, bgY, 2));
+
+            // 中线 ±2 列逐行找镂空（字形挖空仅约 1px 宽居中——任一列与背景色差不足即记镂空行；
+            // 不能用「任一列前景即整行前景」的 OR：±2 列内盘色像素恒在场会吞掉镂空行）。
+            // 与背景色差不足 = 镂空（字形）
+            var midX = (int)topLeft.X + width / 2;
+            var half = height / 2;
+            upperHollow = 0;
+            lowerHollow = 0;
+            for (var y = (int)topLeft.Y; y < (int)topLeft.Y + height; y++)
+            {
+                var hasHollow = false;
+                for (var dx = -2; dx <= 2 && !hasHollow; dx++)
+                {
+                    var diff = Math.Abs(Channel(midX + dx, y, 0) - bgB)
+                               + Math.Abs(Channel(midX + dx, y, 1) - bgG)
+                               + Math.Abs(Channel(midX + dx, y, 2) - bgR);
+                    hasHollow = diff <= 60;
+                }
+
+                if (hasHollow)
+                {
+                    if (y - (int)topLeft.Y < half)
+                    {
+                        upperHollow++;
+                    }
+                    else
+                    {
+                        lowerHollow++;
+                    }
+                }
+            }
+
+            probed = true;
+
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.True(probed, "字形探针未执行（Dispatch lambda 未跑）");
+        Assert.True(upperHollow + lowerHollow > 0, "图标中线未量到镂空字形（渲染/取景前置失败）");
+        Assert.True(lowerHollow > upperHollow,
+            $"info 字形：茎（长镂空）应在图标下半（上 {upperHollow} 行 vs 下 {lowerHollow} 行）；" +
+            "感叹号形态（茎在上）即红");
     }
 }
