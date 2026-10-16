@@ -43,7 +43,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `proxyMode` | `"System" \| "None" \| "Manual"` | `"System"` | 出站网络代理：System 跟随系统代理 / None 直连 / Manual 使用 `proxyAddress` |
 | `proxyAddress` | string | | 手动代理地址（如 `http://127.0.0.1:7890`）；`proxyMode` 为 `"Manual"` 时必填且须为可解析的 http(s) URL，其余模式可有可无 |
 | `closeAction` | `"Exit" \| "HideToTray"` | `"Exit"` | 标题栏关闭按钮行为：`Exit` 退出应用 / `HideToTray` 只隐藏窗口并驻留系统托盘（托盘图标唤回，下载与依赖安装继续）。可在设置页切换 |
-| `schemaVersion` | int | `0` | 配置结构版本（内部使用）。旧版本配置首次被新版加载时自动迁移并写回版本号，仅执行一次：`3` 补齐内置模板中同一游戏新增的官方服务器与本地化名称；`4` 把 Linux 裸 `{exe}` 启动模板升级为推荐链；`5` 把存量 `umu-run {exe}` 模板（历史自动生成形态）升级为推荐链 |
+| `schemaVersion` | int | `0` | 配置结构版本（内部使用）。旧版本配置首次被新版加载时自动迁移并写回版本号，仅执行一次：`3` 补齐内置模板中同一游戏新增的官方服务器、本地化名称与缺失图标；`4` 把 Linux 裸 `{exe}` 启动模板升级为推荐链；`5` 把存量 `umu-run {exe}` 模板（历史自动生成形态）升级为推荐链 |
 
 ### games[]（GameDefinition）
 
@@ -53,7 +53,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `displayName` | string | ✔ | 默认显示名（列表图标取首字） |
 | `nameLocalized` | object | | 显示名本地化映射，如 `{"zh-CN": "鸣潮", "en-US": "Wuthering Waves"}`；按界面语言取值，缺失回退 `displayName` |
 | `channel` | string | ✔ | 渠道实现键：`"kuro"`（鸣潮及库洛系）、`"hypergryph"`（终末地/GRYPHLINE） |
-| `icon` | string | | 官方游戏图标：http(s) URL 或本地路径；加载失败回退显示名首字 |
+| `icon` | string | | 官方游戏图标：http(s) URL、本地路径或随包内置资源（`avares://…`，内置样例即用）；加载失败回退显示名首字 |
 | `installDir` | string | ✔ | 安装目录；相对 `settings.installRoot`，也可为绝对路径 |
 | `executable` | string | ✔ | 游戏可执行文件，相对 `installDir`（`/` 或 `\` 均可）。按实际游戏布局填（鸣潮 `Client/Binaries/Win64/Client-Win64-Shipping.exe`、终末地 `Endfield.exe`——2026-09 实测：官方安装/整包解压后主程序在安装目录根） |
 | `launch` | object | | 启动方式，见下 |
@@ -66,14 +66,14 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | 字段 | 类型 | 默认 | 说明 |
 |---|---|---|---|
 | `commandTemplate` | string | `"{exe}"` | 启动命令模板；含空格的路径请加引号，如 `wine "{exe}"` |
-| `workingDirectory` | string | `"{installDir}"` | 工作目录模板 |
-| `environment` | object | `{}` | 附加环境变量（值支持占位符），如 `{"WINEPREFIX": "~/prefix"}`。设置页「自定义启动选项」框以 Steam 启动选项风格文本编辑这里**用户自定义**的键：占位符 `%command%` 之前的区域，空白分隔多条 `KEY=VALUE`、值含空格用引号包裹（如 `DXVK_NVAPI_DRS_SETTINGS="…" PROTON_LOG=1`），末尾的 `%command%` 由启动器自动补全、无需手写；JSON 仍是 object 字典、键名不变，旧配置零迁移。推荐链生成的键（GAMEID/UMU_ID/WINEPREFIX/PROTONPATH/STEAM_COMPAT_* 等）由启动器托管、不在框内显示，保存时用户键与托管键合并、**同名时用户键优先** |
+| `workingDirectory` | string | `"{installDir}"` | 工作目录模板（仅模板直启链读取；原生 umu 链固定以 `installDir` 为工作目录） |
+| `environment` | object | `{}` | 附加环境变量（值支持 `{exe}`/`{installDir}` 占位符，**不做 `~` 展开**——路径请写绝对路径），如 `{"WINEPREFIX": "/home/you/prefix"}`。设置页「自定义启动选项」框以 Steam 启动选项风格文本编辑这里**用户自定义**的键：占位符 `%command%` 之前的区域，空白分隔多条 `KEY=VALUE`、值含空格用引号包裹（如 `DXVK_NVAPI_DRS_SETTINGS="…" PROTON_LOG=1`），末尾的 `%command%` 由启动器自动补全、无需手写；JSON 仍是 object 字典、键名不变，旧配置零迁移。推荐链生成的键（GAMEID/UMU_ID/WINEPREFIX/PROTONPATH/STEAM_COMPAT_* 等）由启动器托管、不在框内显示，保存时用户键与托管键合并、**同名时用户键优先** |
 | `arguments` | string[] | | 自定义启动选项中显式 `%command%` 之后的游戏命令行参数（已去引号的 token 列表），启动时按序追加在游戏可执行文件之后、`-krqlv` 档位参数之前，两条启动链均生效；token 支持 `{exe}`/`{installDir}` 占位符。留空/缺省 = 不追加；框内未写 `%command%` 时等价于自动补在末尾（纯环境变量语义），仅在需要给游戏追加参数时才需显式写出，如 `%command% -dx11` |
 | `umuId` | string | | umu 启动用的 UMU_ID 覆盖（形如 `umu-3513350`，对齐 [umu 数据库](https://github.com/Open-Wine-Components/umu-database)规范 ID）；留空按 `umu-{游戏id}` 生成。仅影响 GAMEID/UMU_ID，prefix 路径不变。显式设置时为 UMU_ID/GAMEID 的权威值（`environment` 里的同名残留不会反超） |
 | `useWayland` | bool | `false` | 注入 `PROTON_USE_WAYLAND=1` 启用 Proton 原生 Wayland 驱动（绕过 XWayland）。仅 Linux Proton 启动链；DW/GE/UMU-Proton 均识别（DW 另接受 PROTON_ENABLE_WAYLAND 别名）。设置页「功能开关 → 使用 Wayland」 |
 | `upgradeDlss` | bool | `false` | 注入 `PROTON_DLSS_UPGRADE=1`（连带 `PROTON_ENABLE_NVAPI=1`）：启动时由 protonfixes 把游戏内 DLSS 换成 Proton 内置新版。仅 NVIDIA 显卡生效。设置页「功能开关 → 升级 DLSS 模型」 |
 | `enableProtonLog` | bool | `false` | 注入 `PROTON_LOG=1` + `PROTON_LOG_DIR={应用日志目录}`，记录 Proton 运行日志。设置页「功能开关 → 打印 Proton 日志」 |
-| `resourceQualityTier` | string | | 鸣潮资源包档位：`hd` / `sd` / `uhd` 之一（白名单外/大写拒收），启动时以 `-krqlv=<tier>` 命令行参数传给游戏（官方启动器同款参数，两条启动链均生效）；留空 = 跟随游戏内设置、不追加参数。非鸣潮游戏忽略。注意：档位当前只作用于启动参数——官方增量/全量清单实测仅含 HD 档资源（2026-10-02 端点实测，SD/UHD 不经 CDN 清单下发）。设置页「资源包档位」下拉（鸣潮专属显示，2026-10-02 增） |
+| `resourceQualityTier` | string | | 鸣潮资源包档位：`hd` / `sd` / `uhd` 之一（白名单外/大写拒收），启动时以 `-krqlv=<tier>` 命令行参数传给游戏（官方启动器同款参数，两条启动链均生效）；留空 = 跟随游戏内设置、不追加参数。设置页下拉仅鸣潮渠道显示；启动链不按渠道过滤——手改 JSON 给非鸣潮游戏填了该值仍会传参，非鸣潮请保持留空。注意：档位当前只作用于启动参数——官方增量/全量清单实测仅含 HD 档资源（2026-10-02 端点实测，SD/UHD 不经 CDN 清单下发）。设置页「资源包档位」下拉（鸣潮专属显示，2026-10-02 增） |
 
 可用占位符：
 
@@ -112,12 +112,12 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 |---|---|---|---|
 | `kuro` | `indexUrl` | ✔ | 库洛 launcher `index.json` 完整地址（每服一个） |
 | `hypergryph` | `apiBase` | ✔ | 启动器 API 基址：国际服 `https://launcher.gryphline.com/api`，国服/B服 `https://launcher.hypergryph.com/api` |
-| `hypergryph` | `appcode` | | 游戏 appcode；缺省为国际服 `YDUTE5gscDZ229CW`，国服/B服为 `6LL0KJuqHBVz33WK` |
-| `hypergryph` | `channel` | | 渠道号；缺省 `6`（国际服），国服 `1`，B服 `2` |
-| `hypergryph` | `subChannel` | | 子渠道号；缺省 `9999`（国际服实测值），国服 `1`，B服 `2` |
+| `hypergryph` | `appcode` | | 游戏 appcode；代码缺省 = 国际服值 `YDUTE5gscDZ229CW`（国服/B服值 `6LL0KJuqHBVz33WK` 须显式提供） |
+| `hypergryph` | `channel` | | 渠道号；代码缺省 `6`（国际服），国服 `1`、B服 `2` 须显式提供 |
+| `hypergryph` | `subChannel` | | 子渠道号；代码缺省 `9999`（国际服实测值），国服 `1`、B服 `2` 须显式提供 |
 
-> 终末地三个官方服务器（国际服 / 国服 / B服）的完整参数已内置于
-> [`samples/games.json`](../samples/games.json)，直接使用即可；上述键仅供未来新增渠道时覆盖。
+> 终末地三个官方服务器（国际服 / 国服 / B服）均已内置于
+> [`samples/games.json`](../samples/games.json)：国际服条目依赖上述缺省值，国服/B服条目显式给出全部键，直接使用即可；上述键仅供未来新增渠道时覆盖。
 
 ### 详情页背景与名称本地化（代码内置，不写入配置）
 
@@ -172,8 +172,8 @@ Steam Runtime 容器与 Proton，发行版三选一），由启动器自动生�
   "environment": {
     "GAMEID": "umu-3513350",
     "UMU_ID": "umu-3513350",
-    "WINEPREFIX": "~/.local/share/yagl/prefixes/wuthering-waves",
-    "STEAM_COMPAT_DATA_PATH": "~/.local/share/yagl/prefixes/wuthering-waves",
+    "WINEPREFIX": "/home/you/.local/share/yagl/prefixes/wuthering-waves",
+    "STEAM_COMPAT_DATA_PATH": "/home/you/.local/share/yagl/prefixes/wuthering-waves",
     "PROTONPATH": "DW-Proton",           // 发行版代号：DW-Proton / GE-Proton / UMU-Proton（缺失时按代号下载本机架构 latest）
     "SteamOS": "1"                       // 鸣潮过 ACE 反作弊需伪装 SteamOS；NVIDIA 卡再加 PROTON_ENABLE_NVAPI=1
   }
@@ -190,10 +190,10 @@ Steam Runtime 容器与 Proton，发行版三选一），由启动器自动生�
 // 手写 wine / Proton 直启仍受支持（设置页不再提供入口，模板照常执行）
 "launch": {
   "commandTemplate": "wine \"{exe}\"",
-  "environment": { "WINEPREFIX": "~/.local/share/yagl/prefixes/wuthering-waves" }
+  "environment": { "WINEPREFIX": "/home/you/.local/share/yagl/prefixes/wuthering-waves" }
 }
 
-// Steam 商店版本（用 steam 协议启动，忽略 exe）
+// Steam 商店版本（用 steam 协议启动；exe 不进命令行，但仍须指向存在的文件——启动预检要求）
 "launch": { "commandTemplate": "steam -applaunch 2208930" }
 ```
 
@@ -216,7 +216,7 @@ Steam Runtime 容器与 Proton，发行版三选一），由启动器自动生�
 
 ## 5. 校验规则速查
 
-配置加载失败时会**一次性列出全部错误**（中英文混合提示含字段定位）：
+配置加载失败时会**一次性列出全部错误**（英文错误串，含 `games[i]` 字段路径定位）：
 
 - `settings.installRoot` 不能为空；`proxyMode` 为 `"Manual"` 时 `proxyAddress` 必须为可解析的 http(s) URL
 - `games[].id` 非空、无非法字符、全局唯一（忽略大小写）
@@ -225,6 +225,7 @@ Steam Runtime 容器与 Proton，发行版三选一），由启动器自动生�
 - `launch.resourceQualityTier` 非空时须为 `hd` / `sd` / `uhd` 之一
 - `servers` 至少 1 个；服务器 `id` 唯一且非空、`name` 非空
 - JSON 语法错误 / 未知枚举值 → 归一为校验异常提示
+- 容器/元素显式 `null`（`settings`、`launch`、`games[]` 元素、`servers[]` 元素、`nameLocalized`）归一为校验错误（不崩溃）
 
 ## 6. 运行时产生的状态文件
 

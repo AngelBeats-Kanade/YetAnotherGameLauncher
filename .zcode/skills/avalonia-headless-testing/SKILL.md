@@ -5,7 +5,7 @@ description: Use when writing or debugging Avalonia headless tests (Avalonia.Hea
 
 # Avalonia Headless 测试（xunit.v3 / MTP）
 
-本项目实测可用的组合：**xunit.v3 4.0.0 + Avalonia.Headless.XUnit 12.1.2 + .NET 10 SDK 原生 MTP**。
+本项目实测可用的组合（版本以 `Directory.Packages.props` 为准）：**xunit.v3 4.0.1 + Avalonia.Headless.XUnit 12.1.3 + .NET 10 SDK 原生 MTP**。
 不要再引入 `Microsoft.NET.Test.Sdk` / `xunit.runner.visualstudio`（.NET 10 SDK 下 MTP 已拒绝 VSTest 目标）。
 
 ## 1. 测试项目 csproj 必备
@@ -23,7 +23,7 @@ description: Use when writing or debugging Avalonia headless tests (Avalonia.Hea
 </ItemGroup>
 ```
 
-- 根目录 `global.json` 已声明 `"test": { "runner": "Microsoft.Testing.Platform" }`；`dotnet test` 直接可用。
+- 根目录 `global.json` 已声明 `"test": { "runner": "Microsoft.Testing.Platform" }`；但部分环境 `dotnet test` 会发现 0 个测试——运行与判定一律以直跑测试 DLL 为准（见下行）。
 - 运行单个测试：`dotnet tests/<工程>/bin/Debug/net10.0/<程序集>.dll -method "<完整类型名>.<方法名>"`（直跑 DLL；`dotnet test --filter-fqn` 实测零匹配，`-method` 对部分用例名也会静默 Total:0——命中判定以全量运行 + `-xml` 为准，详见 §4）。
 
 ## 2. 命名空间冲突陷阱（CS0435）
@@ -59,8 +59,21 @@ public static class TestAppBuilder
 ```csharp
 public static class HeadlessSession
 {
-    public static HeadlessUnitTestSession Instance { get; } =
-        HeadlessUnitTestSession.GetOrStartForAssembly(typeof(HeadlessSession).Assembly);
+    private static readonly object Gate = new();
+    private static HeadlessUnitTestSession? _instance;
+
+    public static HeadlessUnitTestSession Instance
+    {
+        get
+        {
+            if (_instance is { } session) return session;
+            lock (Gate)
+            {
+                _instance ??= HeadlessUnitTestSession.GetOrStartForAssembly(typeof(HeadlessSession).Assembly);
+            }
+            return _instance;
+        }
+    }
 }
 
 [Fact]
@@ -76,6 +89,7 @@ public async Task Window_Shows_Items()
 }
 ```
 
+- 懒初始化**必须锁保护**：并行测试类的首次访问可能并发进入，headless 平台双初始化曾在 `ServerCompositor` 构造处崩溃（2026-09 实测）——锁是能根治的位置（现状见 `TestAppBuilder.cs`）；与 `[Collection("sequential")]` 互为双保险。上面的示例必须保持锁保护形态，勿退回单行初始化。
 - 需要真实像素（截图/视觉审查）时无需另起会话：上面就是全程序集唯一的共享 App builder，
   始终以 `UseHeadlessDrawing = false` + `UseSkia()` 渲染，在共享会话里
   `window.CaptureRenderedFrame()` 即可抓到真实像素（见 `avalonia-ui-review`）。
@@ -85,7 +99,7 @@ public async Task Window_Shows_Items()
 - **测试类只要有任一路径触碰 Avalonia 位图/窗口/平台服务/`VmFactory`/`HeadlessSession`，就必须进 `[Collection("sequential")]`**（2026-09-25 泛化实锤）：这类类会触发或竞争 headless 平台首初始化，与并行组并发时别的测试在 Compositor 构造处炸 `InvalidOperationException`。两种实锤形态：①dlopen 竞争（`VideoBackdropPlayerCtsTests` 引爆 `BackgroundImageServiceTests`）；②`VmFactory` 构建 VM 触发平台初始化（`OpenFolderFailureTests` 不进集合时全量必炸、单跑必过——"单跑过全量炸"不是 flake，是并行冲突的特征指纹）。纯逻辑类不受限。
 - 所有 UI 对象操作必须在 `Dispatch` 内；`Application.Current` 属于 headless UI 线程。
 - **Dispatch 三条实测规则（2026-09-19 探针+位图实验实锤；哨兵 `DispatchSentinelTests` 常驻钉住②的传播属性）**：
-  ① **`Dispatch(Func<Task>)`（async lambda）全形态禁用**：本仓库 Avalonia 12.1.2 实为"发射后不管"——lambda 在首个 await 处即被放弃、返回任务不等待完成，await 前后抛的异常与断言一律静默吞掉（`SettingsHeadlessTests` 头注释、`StartupAssetPreloadTests` 审计注记实锤；两文件曾整文件假绿）。CI 有 grep `Dispatch(async` 守卫禁用形态。（历史勘误 2026-09-26：本 skill 曾称"12.1.2 的 `Func<Task>` 可等待重载不被此坑、先例 `BackgroundResilienceTests`"——该先例实为纯逻辑缓存测试（FakeImage，不经 Avalonia 解码），引用无效，勿再据此放开此形态。）
+  ① **`Dispatch(Func<Task>)`（async lambda）全形态禁用**：本仓库 Avalonia（12.1.2 实测；12.1.3 升级后未复测）实为"发射后不管"——lambda 在首个 await 处即被放弃、返回任务不等待完成，await 前后抛的异常与断言一律静默吞掉（`SettingsHeadlessTests` 头注释、`StartupAssetPreloadTests` 审计注记实锤；两文件曾整文件假绿）。CI 有 grep `Dispatch(async` 守卫禁用形态。（历史勘误 2026-09-26：本 skill 曾称"12.1.2 的 `Func<Task>` 可等待重载不被此坑、先例 `BackgroundResilienceTests`"——该先例实为纯逻辑缓存测试（FakeImage，不经 Avalonia 解码），引用无效，勿再据此放开此形态。）
   ② **`Dispatch(Action)` 同步 lambda 必须 `await`**：不 await 则 lambda 只是排队、根本没跑，读局部变量恒为初值；await 后 lambda 在会话线程执行完毕才返回，**异常与断言失败正常传播**（哨兵钉住）。该重载不泵异步续体——lambda 内保持**无 await**（真异步挂进去永久卡死），异步服务调用用 `RunJobs` 泵到完成（先例 `BackgroundImageServiceTests.RunToCompletion`、`StartupAssetPreloadTests`），断言与轮询一律放 Dispatch 之外（先例 `SettingsHeadlessTests`）。文件级落盘断言用 `JsonSerializer` 反序列化后断模型值，不要对原始文件文本做 Contains（JSON 转义与子串巧合都会骗过它——`LinuxFirstRunLaunchTests` 实锤）。
   ③ **Bitmap/RenderTargetBitmap 只能在会话线程**（`await Dispatch(...)` 的同步 lambda 内）：测试线程直调抛 `InvalidOperationException: IPlatformRenderInterface`（渲染接口只在会话线程注册），且该异常会被服务的静默回退吞掉（`BackgroundImageServiceTests` 头注释实锤；2026-09-26 探针实验复核：会话已启动前提下测试线程直调 RenderTargetBitmap/WriteableBitmap 实测抛 `InvalidOperationException: Unable to locate 'Avalonia.Platform.IPlatformRenderInterface'.`，同一会话 Dispatch 内同构造无异常）。只有纯逻辑/缓存类服务（不经 Avalonia 解码，如 `BackgroundResilienceTests` 的 FakeImage 缓存策略）才可测试线程直调。
 - **headless 不执行动画**：样式动画与代码 `Animation.RunAsync` 都冻结在首帧（`ForceRenderTimerTick`/真实等待均无效）。模式：先写最终基值再播动画；需要测试落位时用 internal 开关跳过动画（先例：`MainWindow.NavIndicatorAnimationEnabled` / `SplashAnimationEnabled`，经 `InternalsVisibleTo` 暴露）。动画观感只能真机验证或截图 + judge（见 `avalonia-ui-review`）。
@@ -115,9 +129,7 @@ public async Task Window_Shows_Items()
 - 测试间状态隔离：临时目录放 fixture，禁写真实用户目录（`TempDir`）。
   **VmFactory 已把模板里的 `~/yagl-test-games` 一并重写到临时目录**——漏改会让首运物化的
   配置把安装根目录指向真实家目录（实踩：测试桩 exe 被写进真实 `~/yagl-test-games`）。
-- 共享替身集中在 `tests/YetAnotherGameLauncher.TestSupport/`（FakeDownloader/FakePatchApplier/
-  FakeProcessRunner/FakeChannel/FakePlatformInfo/FakeAutostartService/StubHttpHandler/TempDir/
-  TestZip/ManualTimeProvider），不要在各测试项目里复制。
+- 共享替身集中在 `tests/YetAnotherGameLauncher.TestSupport/`（逐项职责清单见 docs/DEVELOPMENT.md §2，以目录实际内容为准），不要在各测试项目里复制。
 
 ## 5. 平台相关测试（Windows / Linux 双平台 CI）
 
@@ -146,7 +158,7 @@ public async Task Window_Shows_Items()
 - 依赖真机状态的扫描（Proton 版本、/proc NVIDIA、$HOME）在测试里一律注入固定值，
   否则测试结果随执行机器漂移。
 - **Skip 是双刃刃：门之后的行在门内平台从未运行过**（2026-10-02 CI 实锤两处：
-  `ApplyAsync_DeleteFailure` 夹具声明锁定目标却从未写出，Linux 腿 Skip 先于加锁行把缺口
+  `ApplyAsync_DeleteFailure_AbortsAfterGroupsApplied` 夹具声明锁定目标却从未写出，Linux 腿 Skip 先于加锁行把缺口
   掩盖到 Windows 腿 CI 才炸——git 考古确认出生即缺而非后续改写丢失；
   `EnsureAvailable_AlreadyReady_ZeroNetwork` 断言写死单平台返回形态且无平台守卫）——
   写平台分支用例时同族自查：Skip 门后每一行在门内平台是否可达、断言对两侧平台是否都

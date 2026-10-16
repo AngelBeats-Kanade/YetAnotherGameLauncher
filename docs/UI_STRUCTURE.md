@@ -10,16 +10,18 @@
 - 页面容器 `ContentCard` 挂 `content-card` 样式：所有页面统一全出血 + 左上 10px 圆角，Margin 0,46,0,0（`detail` 类已不存在）。
 - 内容卡左上圆角是侧栏与内容卡之间的**内部角**（色带垫色在圆弧缺口后），最大化也保留——`.maximized` 去圆角仅窗口外缘两角（侧栏左上/色带右上，贴屏幕边）。
 - 窗口 `Title` 绑定 `MainWindowViewModel.WindowTitle`：游戏页"名 · 应用名"、其余页应用名，经 `OnCurrentPageChanged` 通知。自绘游戏名标题已移除（2026-09-25 用户决定），识别职责由窗口 Title 与侧栏选中项承担。
+- 窗口默认尺寸 `Width=1464 Height=720`、最小 `MinWidth=920 MinHeight=620`（`MainWindow.axaml`；920 恰触发侧栏自动收起）。
 - **整页与详情页大块均为 `Controls/` 下的 UserControl**（2026-09 提取：AboutPage/GachaPage/SettingsPage/GameSettingsPage/DetailActionDock/LaunchErrorOverlay；2026-09-29 增 GameDetailPage——MainWindow 内联的详情页模板整体迁出，五个页面模板全部一行引用，MainWindow 只留窗口骨架+侧栏）。提取约束：窗口骨架的具名元素不能动——`FindControl` 测试依赖 window namescope，UserControl 内名字只有视觉树搜索可见（GameDetailPage 的 PosterImage/ArtworkFallback/EmptyStateCard 全部走视觉树断言）。
-- **MainWindow 样式库在 `Themes/WindowStyles.axaml`**（2026-09-29 自 Window.Styles 迁出，经 `StyleInclude` 引用、作用域保持窗口级）：98 个选择器（按钮四态族/卡片/侧栏/覆盖层/导航动画等）；按钮/图标圆角 10 收敛为该字典 `Styles.Resources` 内的 `ButtonCornerRadius` 令牌（卡片/操作坞/chips 仍为字面 14）；四态按钮族的 presenter 下沉语义逐字保留（skills avalonia-ui 坑 9）。 MainWindow.axaml 只剩窗口骨架（291 行）。
+- **MainWindow 样式库在 `Themes/WindowStyles.axaml`**（2026-09-29 自 Window.Styles 迁出，经 `StyleInclude` 引用、作用域保持窗口级）：98 个选择器（按钮四态族/卡片/侧栏/覆盖层/导航动画等）；按钮圆角 10 收敛为该字典 `Styles.Resources` 内的 `ButtonCornerRadius` 令牌（icon-btn 9、caption-btn 8、toast 关闭钮 11 为既有例外；卡片/操作坞/chips 仍为字面 14）；四态按钮族的 presenter 下沉语义逐字保留（skills avalonia-ui 坑 9）。 MainWindow.axaml 只剩窗口骨架（290 行）。
 - XAML 引用 C# 常量须 `x:Static`，编译绑定不解析 const。
-- **应用背景层 `Controls/AppBackdrop`**（2026-09-29 补记）：四层 Panel——`AppBackdropBaseBrush` 主题渐变 → `AppBackdropGlowBrush` 光晕 → `AppBackdropGlowWarmBrush` 暖光晕（两光晕 Margin 由宿主 `GlowMargin` StyledProperty 决定，窗口骨架传 `0,46,0,0` 避开标题色带、页面板内缺省全出血）→ 自定义背景图 `UniformToFill`（`AppBackgroundImage` 非空时覆盖前二层）。窗口级与 BootSplash、页面板内各一枚。
-- **窗口自绘标题三钮**（2026-09-29 补记）：右上 `StackPanel`（Margin 0,4,8,0）内 `CaptionMinimize`/`CaptionMaximize`/`CaptionClose` 三钮，`caption-btn` 样式 46×34 圆角 8、透明底、hover `AppSidebarHover`（close hover 红 `#E81123` + 白前景）；`MaximizeIcon`/`RestoreIcon` 两个 Path 的可见性由 `IsWindowMaximized` 驱动、tooltip 随态切换（`window_maximize`/`window_restore`）。x:Name 五枚被代码后置与 headless 测试按 window namescope `FindControl` 引用——**留在窗口文件内，不得提取为 UserControl**。
+- **应用背景层 `Controls/AppBackdrop`**（2026-09-29 补记）：四层 Panel——`AppBackdropBaseBrush` 主题渐变 → `AppBackdropGlowBrush` 光晕 → `AppBackdropGlowWarmBrush` 暖光晕（两光晕 Margin 由宿主 `GlowMargin` StyledProperty 决定，窗口骨架传 `0,46,0,0` 避开标题色带、页面板内缺省全出血）→ 自定义背景图 `UniformToFill`（`AppBackgroundImage` 非空时覆盖前三层——渐变 + 双光晕）。窗口级与 BootSplash、页面板内各一枚。
+- **窗口自绘标题三钮**（2026-09-29 补记）：右上 `StackPanel`（Margin 0,4,8,0）内 `CaptionMinimize`/`CaptionMaximize`/`CaptionClose` 三钮，`caption-btn` 样式 46×34 圆角 8、透明底、hover `AppSidebarHover`（close hover 红 `#E81123` + 白前景）；`MaximizeIcon`/`RestoreIcon` 两个 Path 的可见性由 `IsWindowMaximized` 驱动、tooltip 随态切换（`window_maximize`/`window_restore`）。x:Name 五枚被 headless 测试按 window namescope `FindControl` 引用（代码后置不按名引用：Click 走 XAML 事件接线、图标可见性走绑定）——**留在窗口文件内，不得提取为 UserControl**。
 
 ## 2. 侧栏与导航指示点
 
-- 选中指示点几何/编舞集中在 `MainWindow.axaml.cs`（`DotHeight` 等常量与 `BuildTransferCues`）。两态同一"点在选中块内部左缘"语言：展开态内缩 3px；收起态贴块左缘 `CollapsedInsetX=0`——收起态块 44 宽、图标盒 38 居中后左缝仅 3px，点与图标盒左缘相切叠 2px。
+- 选中指示点几何/编舞集中在 `MainWindow.axaml.cs`（`DotHeight` 等常量与 `BuildTransferCues`）。两态同一"点在选中块内部左缘"语言：展开态内缩 3px；收起态贴块左缘 `CollapsedInsetX=0`——收起态块 44 宽、图标盒 38 居中后左缝仅 3px，点与图标盒左缘相切叠 2px。指示点本体 `Width=5`、`CornerRadius=2.5`、辉光 `BoxShadow="0 0 8 #592E68E0"`。
 - **高亮背景 = ContentPresenter 区域，不随 Item 负 Margin 溢出扩展（已实测）**。勿再尝试外扩块让点进块内——"点在块外"形态已被用户否决（2026-09-25 两轮返工）。回归 `SidebarNavHeadlessTests`。
+- 自动收放阈值：窗口宽 <1000 收起、>1080 展开（`SidebarCollapseThreshold`/`SidebarExpandThreshold`，`SizeChanged` 转发）。
 - 设置/关于按钮的展开态 Padding/对齐必须走 `.nav-item` 样式而非按钮本地值——本地值会压过收缩覆盖样式，使收起态图标居中失效。
 - 侧栏游戏项模板根带名称 ToolTip（收起态纯图标仍可辨识，评审 P2-6）。
 - 侧栏状态行绑定 `SidebarStatusText` 短变体（`status_detected/notInstalled` 有 Short 键，EN 全文案 39 字符必截残句，评审 P2-11）。机制 = 状态机显式赋值短变体 + `OnStatusTextChanged` 同步其余瞬态全文；不用滞留覆盖机制（同值赋值不触发通知会滞留）。
@@ -46,6 +48,9 @@
 - 未安装空态引导卡 `EmptyStateCard`：`ShowEmptyState` = `!IsInstalled && !CanLaunch`——detected 态（可直接启动）不显示，避免安装引导与启动主钮同屏矛盾。回归 `DetailPageIdentityTests`（渠道/最新版本/服务器/安装目录 + 引导文案 `detail_emptyTitle/emptyHint`）。操作坞启动钮同步 `IsVisible=CanLaunch`，不再以禁用态常驻——隐藏的按钮模板不实例化，断言其 presenter 前景的旧测试已改探针承载。
 - 色值：暗色 accent #2E68E0、亮色 #1E66D6（2026-09-23 经对比度门禁压暗：原 #3D7DFF/#2E7CF6 白字仅 3.77:1/3.94:1；hover 各再压一档），NavIndicator 辉光同色。操作坞底色 `AppOnArtworkDockBrush` + 1px `AppOnArtworkCardBorder` 描边；标签 `AppOnArtworkTertiary` 12px（#B6BCCB，2026-09-23 自 #8F95A6 提亮达标）；值列必须显式 `AppOnArtworkBrush`（继承主题前景在亮色主题会黑字上黑底——judge 实锤）。
 - 旧"页中上方居中合并胶囊"与"标题上墙"（DisplayName 30px + `DetailMetaText` 元信息行）已删除（2026-09-16 起仅留 chips 簇，`detail_meta_*` 本地化键一并移除）。
+- 无插画回退层 `ArtworkFallback`：`AppArtworkFallbackBrush` 底 + 图标水印（`MaxWidth/MaxHeight 380`、Margin `0,0,56,72`、Opacity 0.13）。
+- 校验修复确认条：`ShowRepairConfirm` 驱动（Padding `16,12`、CornerRadius 12、文本 `MaxWidth 430` Wrap、`danger-onart` + `glass-onart` 按钮）。
+- 操作坞内部：dock Padding `18,12`、信息行行距 22、唤取入口图标 19px、启动钮 Padding `32,12`（`DetailActionDock.axaml` / `WindowStyles.axaml`）。
 
 ## 4. 游戏设置页
 
@@ -64,19 +69,19 @@
 ## 5. 覆盖层与浮动层
 
 - 启动失败覆盖层 = `LaunchErrorOverlay` 控件挂详情页 Panel 末尾（`GameItemViewModel.LaunchError` 驱动）。重试/关闭主次随 `CanRetry` 经 Classes 条件绑定对调：可重试时"重试"是 `launch-error-primary`、"关闭"退居 `launch-error-secondary`，不可重试时反转且重试隐藏（评审 P1-4）。回归 `DangerActionStyleTests`。
-- **toast 门控**：启动失败覆盖层在场（CurrentPage 为游戏页且 HasLaunchError）时 `ShowToast` 直接丢弃新 toast——瞬态消息不得压过模态错误，覆盖层退场自动恢复（评审 P3-13）。回归 `ReviewPolishTests`。toast 卡用专属近实心底 `AppToastBackground`（亮暗成对；层次靠 1px 描边，不用 BoxShadow，原因见 skills `avalonia-ui`）。
-- 启动遮蔽层 `BootSplash`：主窗口根 Panel 末位，`IsBooting` 驱动，默认 false 不影响测试/截图；生产路径经 `BeginBootSplash` 开启、`RunBootGateAsync` 放行（放行矩阵/时序见 docs/ARCHITECTURE.md §3.7，纯决策 `BootGate.ShouldRelease`）；代码后置自泵脉动条 + 0.25s 淡出，`SplashAnimationEnabled` 测试开关；Transform 不能 x:Name，脉动条位移运行时挂。
+- **toast 门控**：启动失败覆盖层在场（CurrentPage 为游戏页且 HasLaunchError）时 `ShowToast` 直接丢弃新 toast——瞬态消息不得压过模态错误，覆盖层退场自动恢复（评审 P3-13）。回归 `ReviewPolishTests`。toast 卡用专属近实心底 `AppToastBackground`（亮暗成对；层次靠 1px 描边，不用 BoxShadow，原因见 skills `avalonia-ui`）。宿主挂主窗口右上（Margin `0,52,12,0`）；卡 `MinWidth 260 / MaxWidth 360`、Padding `14,12`、圆角令牌 10、关闭钮 22×22（CornerRadius 11）、状态点 9px（`Themes/WindowStyles.axaml`、`Controls/ToastHost.axaml`）。
+- 启动遮蔽层 `BootSplash`：主窗口根 Panel 末位，`IsBooting` 驱动，默认 false 不影响测试/截图；生产路径经 `BeginBootSplash` 开启、`RunBootGateAsync` 放行（放行矩阵/时序见 docs/ARCHITECTURE.md §3.7，纯决策 `BootGate.ShouldRelease`）；代码后置自泵脉动条 + 0.25s 淡出，`SplashAnimationEnabled` 测试开关；Transform 不能 x:Name，脉动条位移运行时挂。视觉常数：图标框 88×88 圆角 22、图标 52×52、进度轨道 200×4、滑块 48×4、Spacing 20（`MainWindow.axaml`）。
 
 ## 6. 关于页
 
-- 信息卡带项目主页出口：`AboutViewModel.OpenProjectHomeCommand` → `IPlatformInfo.OpenInBrowser`（xdg-open/shell 关联），URL 常量 `AboutViewModel.ProjectHomeUrl`（评审 P3-15）。按钮为 GitHub 官方 mark 16px 幽灵图标钮（`ghost-home` 类复用 icon-btn 幽灵底：常态辅助色、hover 显微亮底转 accent；完整 URL 收进 ToolTip）——带底描边胶囊/整串 URL 文字两版均被用户否决（信息卡纯文本行内唯一带底控件即"突兀"，2026-09-25 用户定稿图标形态）。
+- 信息卡带项目主页出口：`AboutViewModel.OpenProjectHomeCommand` → `IPlatformInfo.OpenInBrowser`（xdg-open/shell 关联），URL 常量 `AboutViewModel.ProjectHomeUrl`（评审 P3-15）。按钮为 GitHub 官方 mark 16px 幽灵图标钮（`ghost-home` 类复用 icon-btn 幽灵底：常态辅助色、hover 显微亮底转 accent；完整 URL 收进 ToolTip）——带底描边胶囊/整串 URL 文字两版均被用户否决（信息卡纯文本行内唯一带底控件即"突兀"，2026-09-25 用户定稿图标形态）。布局常数：MaxWidth 720、app 图标 60×60、信息标签列宽 110（`Controls/AboutPage.axaml`）。
 
 ## 7. 应用设置页（Controls/SettingsPage.axaml）
 
 - 根 `Border.page` + `ScrollViewer` + `StackPanel MaxWidth=720 Spacing=16`，28px 页标题。六张 `card` 卡自上而下（2026-09-29 补记，结构快照）：
   ①**外观**：主题/语言两个 ComboBox 并排（`*,*` ColumnSpacing 24），`ThemeModes`/`Languages` 选项带 DisplayName 模板；hint caption。
   ②**应用背景**：只读 TextBox（`AppBackgroundPath`）+ 浏览/恢复两钮 + `AppBackgroundSave` 消息槽。
-  ③**下载**：安装根目录行（`InstallRootBox` + inline 浏览钮，`*,Auto` ColumnSpacing 12——评审 P2-5 与游戏设置页位置卡同款）+ `InstallRootSave` 槽；限速行（TextBox 宽 140 + 保存钮 + `SpeedLimitSave` 槽）；自启 ToggleSwitch（On/Off 文案本地化）+ `AutostartSave` 槽。**四槽互不复用**（各自 SaveMessageSlot 实例）。
+  ③**下载**：安装根目录行（`InstallRootBox` + inline 浏览钮，`*,Auto` ColumnSpacing 12——评审 P2-5 与游戏设置页位置卡同款）+ `InstallRootSave` 槽；限速行（TextBox 宽 140 + 保存钮 + `SpeedLimitSave` 槽）；自启 ToggleSwitch（On/Off 文案本地化）+ `AutostartSave` 槽。各槽互不复用（各自 SaveMessageSlot 实例）。
   ④**关闭按钮**（2026-09-29 增，0.1.3）：`x:Name="CloseActionCard"` 具名（截图测试滚动定位）——两个 RadioButton（退出应用 / 关闭窗口驻留托盘，GroupName=closeAction，`IsChecked` OneWay + 命令即时应用，同自启开关交互）+ hint caption（Wrap）+ `CloseActionSave` 槽。
   ⑤**网络（代理）**：`ProxyCard` 具名（截图测试滚动定位）——三个 RadioButton（跟随系统/直连/手动，GroupName=proxy）+ 地址 TextBox（`ProxyAddressBox`，缩进 24，`IsEnabled=IsProxyAddressEnabled`）+ 保存钮 + `ProxySave` 槽。`InstallRootBox`/`ProxyAddressBox` 具名供窗口级 Enter 处理器按名分发。
   ⑥**配置文件**：路径只读展示（13px 辅助色 Wrap）+ 打开所在目录钮。

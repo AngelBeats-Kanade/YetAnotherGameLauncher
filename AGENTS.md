@@ -26,7 +26,7 @@ dotnet tests/<测试工程>/bin/Debug/net10.0/<测试程序集>.dll -method "<�
 | 视频播放器/无缝循环（FfmpegVideoBackdropPlayer、SeamAnalyzer、PrerollHandoff） | docs/ARCHITECTURE.md §3.7 |
 | 设置模型与校验（AppSettings、GameCatalogService） | docs/GAME_CONFIG.md settings 表 + §5 校验规则 |
 | 配置模板（samples/games.json） | docs/GAME_CONFIG.md + README 快速开始 |
-| UI 结构/色值/控件常数（App.axaml、MainWindow.axaml） | docs/UI_STRUCTURE.md + skills avalonia-ui、desktop-ui-design |
+| UI 结构/色值/控件常数（App.axaml、MainWindow.axaml、Themes/WindowStyles.axaml） | docs/UI_STRUCTURE.md + skills avalonia-ui、desktop-ui-design |
 | 跨平台文件/进程/.NET 通用坑（FileUtilities、HttpFileDownloader、SystemProcessRunner 等） | docs/PITFALLS.md |
 | 平台后端/窗口状态（WaylandBackendPolicy、WindowStateMapper、Program.cs） | docs/ARCHITECTURE.md §3.8 |
 | 新增/删除源文件 | docs/DEVELOPMENT.md §2 目录职责 |
@@ -76,9 +76,9 @@ dotnet tests/<测试工程>/bin/Debug/net10.0/<测试程序集>.dll -method "<�
 
 ## 坑索引（一行触发器，细则在落点）
 
-- **UI 结构/控件常数/指示点几何/各页布局**：单一事实源已迁 **docs/UI_STRUCTURE.md**（改 .axaml 前必读；窗口骨架/侧栏指示点/详情页/设置页/覆盖层/关于页）。
+- **UI 结构/控件常数/指示点几何/各页布局**：单一事实源已迁 **docs/UI_STRUCTURE.md**（改 .axaml 前必读）。
 - **Avalonia 机制坑**（presenter 层前景/Transform x:Name/UniformToFill 裁切/IsHitTestVisible 剪枝/BoxShadow 真机灰板/编译绑定/ComboBox 引用匹配/Animation API 历史）：skills **avalonia-ui**「常见坑」「Linux 渲染」。
-- **视觉判定/judge 仲裁/改机制先实验/截图清单（21 张归属）**：skills **avalonia-ui-review** §1/§3.5——交付前必跑该技能的截图循环。
+- **视觉判定/judge 仲裁/改机制先实验/截图清单**：skills **avalonia-ui-review** §1/§3.5——交付前必跑该技能的截图循环。
 - **Dispatch 三规则**：`Dispatch(Func<Task>)` 全形态禁用（发射后不管、吞断言，CI grep `Dispatch(async` 守卫）；`Dispatch(Action)` 同步 lambda 必须 await 且内部保持无 await；Bitmap/RenderTargetBitmap 只能在会话线程——细则 skills **avalonia-headless-testing** §4（哨兵 `DispatchSentinelTests` 常驻）。
 - **headless 测试语义坑**（动画冻结首帧/窗口 Width 仅 Show 前接受且 MinWidth=920 钳制/Maximized 不铺满/像素探针全窗口帧坐标系/sequential 集合/-method 静默失灵/桩显式接口/VM 时序）：skills **avalonia-headless-testing** §4/§5——写/改无头测试前必加载该技能。
 - **跨平台文件/进程/.NET 语义坑**（悬空符号链接/Windows 占用只读/路径分隔符/选项结构体默认值/catch 异常表/SystemProcessRunner/CTS）：docs/**PITFALLS.md**。

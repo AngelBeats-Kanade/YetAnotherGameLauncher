@@ -6,7 +6,7 @@
 
 | 组件 | 要求 |
 |---|---|
-| .NET SDK | **10.0**（LTS；本项目在 10.0.400 上开发） |
+| .NET SDK | **10.0**（LTS） |
 | IDE | Rider / VS 2026 / VS Code 均可（`YetAnotherGameLauncher.slnx`） |
 | git | 必需；提交信息使用英文 conventional 风格（`feat(core): ...`） |
 | 测试平台 | xunit.v3 + Microsoft.Testing.Platform（`global.json` 已声明，`dotnet test` 原生支持） |
@@ -34,7 +34,7 @@ src/
                     NetworkProxyManager（全局共享 SocketsHttpHandler，代理切换即时生效）、SpeedLimiter（泄漏桶全局限速）、
                     ByteProgressAggregator（三条下载链共用的字节进度聚合：per-file 累计→全局增量→100ms 节流投递）、
                     AutostartService.cs（IAutostartService + WindowsAutostartService（HKCU Run 注册表）/ LinuxAutostartService（XDG autostart）双实现）、
-                    CompatTools（Linux 兼容层单一来源：umu/wine/Lutris/Proton 发现、prefix 统一路径、推荐链 BuildRecommendedLaunch、Proton 发行版代号/umuId 解析、含 LaunchMode 枚举与 CompatLaunch）、
+                    CompatTools（Linux 兼容层单一来源：umu/wine/Proton 发现、prefix 统一路径、推荐链 BuildRecommendedLaunch、Proton 发行版代号/umuId 解析、含 LaunchMode 枚举与 CompatLaunch）、
                     Umu/（原生 umu：UmuPaths、VdfMiniParser、SteamRuntimeCatalog、ToolManifest、UmuPrefix、UmuEnvironment、NativeUmuLauncher），
                     GameBackdropService（详情页背景远程解析 + 本地缓存编排：区域/游戏版本门控，版本一致零网络）、WindowsPlatformInfo / LinuxPlatformInfo（IPlatformInfo 双实现）+ PlatformInfoFactory（唯一的 OS 选择分支，DI 与各 ViewModel 缺省共用）
     Dependencies/   Wine prefix 依赖安装（管线细节见 docs/ARCHITECTURE.md §3.9）：DependencyManifest/DependencyCatalog（内嵌 catalog.json 清单：解析+校验+聚合错误）、
@@ -54,7 +54,7 @@ src/
     EndfieldBackdropResolver（get_main_bg_image 背景解析：视频优先、静态图兜底）、
     HypergryphServiceCollectionExtensions（AddHypergryphChannel）、Models/（协议 DTO）
   YetAnotherGameLauncher/                       # Avalonia UI（MVVM）
-    Program.cs / App.axaml(.cs)（DI 组合根；Program 按后端决策组装 AppBuilder）、Themes/ThemeService
+    Program.cs / App.axaml(.cs)（DI 组合根；Program 按后端决策组装 AppBuilder）、Themes/（ThemeService、WindowStyles.axaml 窗口样式库）
     Services/       WaylandBackendPolicy（Linux 窗口后端决策：WAYLAND_DISPLAY 存在即原生 Wayland，
                     YAGL_FORCE_XWAYLAND=1 逃生舱回退 X11；纯函数，决策表测试见 App.Tests）；
                     CompositorScaleParser（hyprctl monitors -j 的缩放解析纯函数，Xft.dpi 同步用，直测见 App.Tests）；
@@ -77,7 +77,7 @@ src/
                     umu 布局→Proton 内置 wine 挂 pfx；Proton 定位=PROTONPATH 绝对目录→compatibilitytools.d 精确名→发行版前缀择新），
                     FilePickerService/IFilePickerService（系统文件/目录选择器封装）
     Controls/       AppBackdrop（应用背景层：主题渐变 + 光晕 + 自定义背景图）、FrameSurface（背景视频帧自绘渲染面）、
-                    AboutPage/GachaPage/SettingsPage/GameSettingsPage（四个整页 UserControl，从 MainWindow 内联
+                    GameDetailPage/AboutPage/GachaPage/SettingsPage/GameSettingsPage（五个整页 UserControl，从 MainWindow 内联
                     DataTemplate 提取；DataContext = 各页 ViewModel，窗口级 Enter 保存类处理器按元素名继续分发）、
                     DetailActionDock/LaunchErrorOverlay（详情页操作坞/启动失败覆盖层）、
                     ToastHost（右上角轻提示宿主：版本检测结果/检测到游戏、服务器切换/
@@ -88,13 +88,14 @@ src/
                     「依赖」区：内置依赖状态展示与手动安装，目标按启动方式现场解析，独立消息槽与进度行）、
                     LaunchErrorViewModel（启动失败覆盖层：类目化原因/技术详情/日志入口/umu 一键安装）、
                     GachaViewModel（鸣潮唤取记录页）、SaveMessageSlot（表单保存结果消息槽）、ToastItem（轻提示条目模型）、ViewModelBase
-    Assets/         game-icons/（两游戏的官方图标 jpg，samples/games.json 以 avares:// 引用）
+    Assets/         game-icons/（两游戏的官方图标 jpg，samples/games.json 以 avares:// 引用）、tray-icon-48.png（系统托盘图标）
     Resources/      strings_zh-CN.json / strings_en-US.json（本地化文案，键集两份必须成对，见 §5.3）
     Views/MainWindow
 tests/
   YetAnotherGameLauncher.TestSupport/           # 共享测试设施（可复用的替身与工具）
     FakeDownloader / FakePatchApplier / FakeProcessRunner / FakeChannel / FakePlatformInfo / FakeAutostartService / StubHttpHandler / TempDir / TestZip / ManualTimeProvider（虚拟时钟）/
-    TestFfmpegArchive（FFmpeg 资产微型归档夹具）/ DacExemptionProbe（DAC 豁免前提探针）/ FakeDependencyInstaller（依赖安装器替身：状态/失败/挂起可编程）
+    TestFfmpegArchive（FFmpeg 资产微型归档夹具）/ DacExemptionProbe（DAC 豁免前提探针）/ FakeDependencyInstaller（依赖安装器替身：状态/失败/挂起可编程）/
+    UpdateProgressCollector（同步收集 UpdateProgress 帧的 IProgress 替身——Progress<T> 在部分测试宿主下 post 不可靠）/ CapturingLogger（内存 ILogger：捕获日志供"失败必须落日志"类断言）
   YetAnotherGameLauncher.Core.Tests/            # 领域层测试
   YetAnotherGameLauncher.Channels.Kuro.Tests/   # 鸣潮渠道测试
   YetAnotherGameLauncher.Channels.Hypergryph.Tests/ # 包式协议渠道测试
@@ -239,7 +240,7 @@ tests/
   dotnet run --project tools/IconGen    # 产物写入 src/YetAnotherGameLauncher/Assets/
   ```
   窗口图标在 `MainWindow.axaml`（`Icon="avares://..."`），exe 图标在 csproj 的
-  `<ApplicationIcon>`，关于页展示 `app-icon.png`，预览图输出到 `artifacts/ui-review/app-icon-preview.png`。
+  `<ApplicationIcon>`，关于页展示 `app-icon.png`。
 - UI 视觉自检循环：`UiScreenshotTests.Export_UiScreenshots_ForReview` 把真实窗口
   渲染成 PNG 输出到 `artifacts/ui-review/`（gitignore），逐张检查后再交付；
   换页后的模板构建发生在下一轮布局，截图断言前需 `window.UpdateLayout()`。
@@ -302,7 +303,8 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64   --self-contain
   测试背书，**装配正确性另由组合根装配断言钉住**，2026-09-20 实锤：可选参数漏传编译期不可见）、
   `FilePickerService`（系统对话框封装）、`FfmpegVideoBackdropPlayer` 与 `FfmpegLibraryResolver`
   （原生库 unsafe 互操作；其纯逻辑已提取为 PlaybackClock/DecodeGuard/SeamAnalyzer/PrerollHandoff
-  并全测）、`WindowsPlatformInfo`（真机语义）。
+  并全测）、`TrayIconController`（系统托盘接线；可判定逻辑在 MainWindowViewModel/MainWindow）、
+  `WindowsPlatformInfo`（真机语义）。
 - **剩余缺口定性**（2026-09-22 审计后）：Windows 专属分支（`Assert.Skip` 显式化，命中靠
   windows-latest 腿；**口径盲区**：覆盖率门禁仅 ubuntu 腿采集，Windows 分支行不进合并口径）；
   `UmuComponentProvisioner` 剩余 ~22%（GE/UMU 按标签下载的资产散点、清理的删除失败容错行）；

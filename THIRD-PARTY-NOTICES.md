@@ -6,10 +6,10 @@ YetAnotherGameLauncher 在运行时使用以下第三方组件与项目成果，
 
 | Component | License | Scope |
 | --- | --- | --- |
-| [Avalonia UI](https://github.com/AvaloniaUI/Avalonia) 12.1.2 | MIT | UI framework |
+| [Avalonia UI](https://github.com/AvaloniaUI/Avalonia) 12.1.3 | MIT | UI framework |
 | [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) 8.4.2 | MIT | MVVM tooling |
 | [.NET 10](https://dotnet.microsoft.com) / Microsoft.Extensions.* | MIT | Runtime & DI |
-| [HDiffPatch](https://github.com/sisong/HDiffPatch) (hpatchz) | Apache-2.0 / MIT | Incremental patching (external tool) |
+| [HDiffPatch](https://github.com/sisong/HDiffPatch) (hpatchz) | MIT | Incremental patching (external tool; the binary provided at runtime is a community build from [ww-manager releases](https://github.com/timetetng/wutheringwaves-cli-manager/releases), v4.8.0, MD5-pinned) |
 | [FFmpeg](https://ffmpeg.org) (libavcodec / libavformat / libavutil / libswscale / libswresample) | LGPL-2.1+ | Background video decoding |
 
 ### FFmpeg
@@ -21,10 +21,16 @@ YetAnotherGameLauncher 在运行时使用以下第三方组件与项目成果，
 本应用以 LGPL 合规方式使用 FFmpeg；FFmpeg 的完整源码与许可见 https://ffmpeg.org/legal.html 。
 若你分发本应用，请保留本声明并允许用户替换上述 FFmpeg 库。
 
+### Proton 发行版与 Steam Linux Runtime
+
+首次使用 umu 启动链时，启动器会按需下载 Proton 发行版（DW-Proton / GE-Proton / UMU-Proton）与
+Steam Linux Runtime 到本机使用（**不由本仓库分发**）；来源与许可证以各上游仓库为准。
+
 | Component | License | Scope |
 | --- | --- | --- |
 | [SharpCompress](https://github.com/adamhathcock/sharpcompress) | MIT | Extracting downloaded FFmpeg archives |
-| [FFmpeg.AutoGen](https://github.com/Ruslan-B/FFmpeg.AutoGen) | LGPL-2.1+ | FFmpeg C API bindings |
+| [FFmpeg.AutoGen](https://github.com/Ruslan-B/FFmpeg.AutoGen) | MIT (9.0.x; older releases were LGPL-2.1+) | FFmpeg C API bindings |
+| [Avalonia.Fonts.Inter](https://github.com/AvaloniaUI/Avalonia) 12.1.3 | MIT (package); Inter typeface under SIL OFL-1.1 | UI font |
 
 ## Referenced community projects / 参考的社区项目
 

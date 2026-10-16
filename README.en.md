@@ -147,6 +147,8 @@ Enter via the **gear** button at the bottom of the detail page; "Back to game" r
   - **Custom launch options** (all platforms): same format as Steam launch options — space-separated `KEY=VALUE` entries, values containing spaces are quoted, e.g. `DXVK_NVAPI_DRS_SETTINGS="NGX_DLSS_SR_OVERRIDE_RENDER_PRESET_SELECTION=13" PROTON_DXVK_LLASYNC=1 OBS_VKCAPTURE=1`; saved entries are injected as environment variables into the launch process (the trailing `%command%` is added automatically — no need to type it); write `%command%` explicitly to append game command-line arguments after the game executable (e.g. `%command% -dx11`); values and arguments support the `{exe}` / `{installDir}` placeholders. The box holds **user-defined** variables only and starts
     empty (built-in launch variables are injected automatically, no need to write them by hand); hover the info icon
     next to the label for the same syntax rules
+- **Dependencies**: built-in dependencies (CJK fonts, etc.) — status and one-click install (Linux only)
+- **Game info**: read-only channel / server / install directory details
 
 ![Linux launch settings](docs/images/screenshot-launch-settings-linux.png)
 
@@ -163,6 +165,7 @@ Enter via **Settings** at the bottom of the sidebar:
 - **Appearance**: theme (follow system / light / dark) and UI language (Simplified Chinese / English), effective immediately
 - **App background**: custom background image for the sidebar and settings pages (local file or URL)
 - **Downloads**: install root (where all games install by default), download speed limit (MB/s, 0 = unlimited), auto-start on boot
+- **Close button**: title-bar close button behavior — exit the app (default) or hide to the system tray
 - **Network proxy**: follow system / direct / custom proxy
 - **Config file**: one-click open of the `games.json` folder
 
@@ -217,7 +220,7 @@ dotnet tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLa
 
 Test coverage: config parsing/validation, downloader (resume/retry/MD5), manifest verification, version planning,
 full sync, incremental apply (incl. rollback), package install, update orchestration, channel resolution
-(Wuthering Waves/Endfield CN/Global parameters), GPU vendor detection, Wine runtime discovery (wine/Lutris) and
+(Wuthering Waves/Endfield CN/Global parameters), GPU vendor detection, Wine runtime discovery (wine) and
 recommended chain, unified Wine prefix paths, pre-launch checks and categorized errors, launch log capture,
 launch command parsing, Proton flavor (DW/GE/UMU) latest download with offline fallback, umuId override and
 validation, umu environment alignment with upstream, localization service and language switching, sidebar
@@ -265,7 +268,7 @@ reports the result. For the full field reference and an "add a new game" tutoria
   "executable": "Client/Binaries/Win64/Client-Win64-Shipping.exe",
   "launch": {
     "commandTemplate": "wine {exe}",                 // or "steam -applaunch 0" etc.
-    "environment": { "WINEPREFIX": "~/Games/wuwa-prefix", "DXVK_HUD": "0" }
+    "environment": { "WINEPREFIX": "/home/you/Games/wuwa-prefix", "DXVK_HUD": "0" }
   }
 }
 ```
@@ -283,7 +286,7 @@ reports the result. For the full field reference and an "add a new game" tutoria
 | Endfield version/download errors | The GRYPHLINE protocol is undocumented and fields may change when the official launcher updates — issues welcome |
 | Launch fails on Linux | A themed error card appears: retry umu component downloads or pick a locally installed Proton; use "open log folder" to inspect `launch-*.log`, or check the command template and runtime in the game settings page. On Windows a direct `{exe}` works |
 | UI tiny/blurry on Linux | Only the XWayland path has this issue: the launcher syncs the Hyprland scale into `Xft.dpi` automatically (only when unset); manual fix `xrdb -merge <<< "Xft.dpi: 160"` (value = 96 × compositor scale). The native Wayland path gets scaling from the compositor and is unaffected; if the native path misbehaves, fall back with `YAGL_FORCE_XWAYLAND=1` |
-| Wuthering Waves backdrop missing | Normal when no backdrop has been published officially (offline it falls back to the last successful cache, otherwise the theme gradient); first video playback downloads the FFmpeg library (~50 MB; falls back to the static poster on failure) |
+| Wuthering Waves backdrop missing | Normal when no backdrop has been published officially (offline it falls back to the last successful cache, otherwise the theme gradient); first video playback downloads the FFmpeg library (~60 MB on Linux / ~75 MB on Windows; falls back to the static poster on failure) |
 
 ## 📖 Documentation
 

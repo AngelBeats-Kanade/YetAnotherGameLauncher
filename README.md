@@ -134,6 +134,8 @@
   - **检查/下载兼容组件**、**检查更新**（Linux 的 umu 模式）：手动预下载或升级 Proton
   - **功能开关**（仅 Linux 显示）：**使用 Wayland**（Proton 原生 Wayland 驱动）、**升级 DLSS 模型**（NVIDIA）、**打印 Proton 日志**三个开关，随「保存启动设置」落盘
   - **自定义启动选项**（全平台）：与 Steam 启动选项同格式——空格分隔多条 `KEY=VALUE`，值含空格用引号包裹，如 `DXVK_NVAPI_DRS_SETTINGS="NGX_DLSS_SR_OVERRIDE_RENDER_PRESET_SELECTION=13" PROTON_DXVK_LLASYNC=1 OBS_VKCAPTURE=1`，保存后作为环境变量注入启动进程（末尾的 `%command%` 自动补全，无需手写）；显式写一行 `%command%` 时，其后的内容作为游戏命令行参数追加在游戏程序之后（如 `%command% -dx11`）；值与参数支持 `{exe}`、`{installDir}` 占位符。框内只放**用户自定义**变量、默认留空（内置启动变量自动注入，无需手写）；标签旁 ⓘ 图标悬停可看同款填写规则
+- **依赖**：内置依赖（CJK 字体等）的状态展示与一键安装（Linux 显示）
+- **游戏信息**：渠道 / 服务器 / 安装目录等只读信息
 
 ![Linux 启动设置](docs/images/screenshot-launch-settings-linux.png)
 
@@ -149,6 +151,7 @@
 - **外观**：主题（跟随系统 / 浅色 / 深色）、界面语言（简体中文 / English），切换即时生效
 - **应用背景**：自定义侧栏与设置页的背景图（本地图片或 URL）
 - **下载**：安装根目录（所有游戏默认装到这里）、下载限速（MB/s，0 为不限速）、开机自动启动
+- **关闭按钮**：标题栏关闭按钮行为——退出应用（默认）或关闭窗口并驻留系统托盘
 - **网络代理**：跟随系统 / 直连 / 自定义代理
 - **配置文件**：一键打开 `games.json` 所在目录
 
@@ -198,7 +201,7 @@ dotnet tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLa
 
 测试覆盖：配置解析/校验、下载器（续传/重试/MD5）、清单校验、版本计划、
 全量同步、增量应用（含回滚）、包式安装、更新编排、渠道解析（鸣潮/终末地国服/国际服参数）、
-GPU 厂商探测、Wine 运行时发现（wine/Lutris）与推荐链、Wine prefix 统一路径、
+GPU 厂商探测、Wine 运行时发现（wine）与推荐链、Wine prefix 统一路径、
 启动预检与类目化错误、启动日志落盘、启动命令解析、
 Proton 发行版（DW/GE/UMU）latest 下载与离线回退、umuId 覆盖与校验、umu 环境对齐上游、
 本地化服务与语言切换、侧栏折叠/页面切换/关于页、主题切换、
@@ -244,7 +247,7 @@ Linux 上生成时会顺带把默认 `{exe}` 模板升级为社区推荐链
   "executable": "Client/Binaries/Win64/Client-Win64-Shipping.exe",
   "launch": {
     "commandTemplate": "wine {exe}",                 // 或 "steam -applaunch 0" 等
-    "environment": { "WINEPREFIX": "~/Games/wuwa-prefix", "DXVK_HUD": "0" }
+    "environment": { "WINEPREFIX": "/home/you/Games/wuwa-prefix", "DXVK_HUD": "0" }
   }
 }
 ```
@@ -262,7 +265,7 @@ Linux 上生成时会顺带把默认 `{exe}` 模板升级为社区推荐链
 | 终末地版本/下载报错 | GRYPHLINE 协议无官方文档，官方启动器更新后字段可能变化，欢迎提 issue |
 | Linux 启动失败 | 启动失败会弹出错误卡：原生 umu 组件下载失败可重试或改选本机已装 Proton；也可"打开日志目录"查看 `launch-*.log`，或到游戏设置页检查命令模板与运行时。Windows 直接 `{exe}` 即可 |
 | Linux 下界面小/发糊 | 仅 XWayland 路径存在此问题：启动器会自动把 Hyprland 缩放同步到 `Xft.dpi`（仅在未设置时写入）；手动方案 `xrdb -merge <<< "Xft.dpi: 160"`（数值 = 96 × 合成器缩放）。原生 Wayland 路径由合成器直供缩放，无此问题；若原生路径异常可 `YAGL_FORCE_XWAYLAND=1` 回退 |
-| 鸣潮背景不显示 | 官方当前未投放背景时属正常（离线时仅回退上次成功缓存，均不可用则显示主题渐变）；视频背景首次播放需联网下载 FFmpeg 库（约 50MB，失败时保留静态海报） |
+| 鸣潮背景不显示 | 官方当前未投放背景时属正常（离线时仅回退上次成功缓存，均不可用则显示主题渐变）；视频背景首次播放需联网下载 FFmpeg 库（Linux 约 60MB / Windows 约 75MB，失败时保留静态海报） |
 
 ## 📖 文档
 

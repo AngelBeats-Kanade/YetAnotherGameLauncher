@@ -15,7 +15,7 @@ SKILL.md 以 Web（HTML/CSS）为默认语境。在 YetAnotherGameLauncher（Ava
 | CSS 选择器优先级互踩 | Avalonia 样式优先级：`Window.Styles` > 主题默认；条件样式用 `Classes.xxx` 动态切换（如状态点的 `installed`/`has-update`），不要靠选择器顺序硬压 |
 | Hero 首屏 | 对应游戏详情页：游戏图标在首屏，状态胶囊居页中上方，主操作按钮收拢在底部 `action-dock`。把"最具主题性的一幕"放在首屏：背景插画、游戏图标、版本徽标；主按钮层级交给底部操作坞 |
 | 动效（一次编排的时刻） | 用 Avalonia `Transitions` / `Animation` keyframe，150–200ms，只做一处（如页面切换或进度条出现）；不做每卡片 hover 上浮 |
-| 排版（一至两个字族、明确字阶） | `FontFamily` 全局默认 + 标题加粗一档即可；字号层级固定几档（12/14/16/20/28），不要随机值 |
+| 排版（一至两个字族、明确字阶） | `FontFamily` 全局默认 + 标题加粗一档即可；字号层级沿用全仓现有档位、不引入新值（现状查询：`git grep -o 'FontSize="[0-9]*"' -- src | sort | uniq -c`） |
 | 撰写（按钮动词化、错误给出路） | 中文文案：按钮写"启动游戏/检查更新/预下载"，错误消息说清"哪里错、怎么办"，不道歉不含糊 |
 | 截图自检（a picture is worth 1000 tokens） | 用本仓库 headless Skia 截图闭环：跑 `UiScreenshotTests.Export_UiScreenshots_ForReview` 输出 `artifacts/ui-review/*.png`，然后逐张看图——详见 `.zcode/skills/avalonia-ui-review/SKILL.md` |
 

@@ -31,7 +31,7 @@ dotnet tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLa
 - 保存：`frame.Save(path, new PngBitmapEncoderOptions())`。
 - 数据必须真实：用 `VmFactory` 样例数据（两个游戏、假渠道状态：已安装/有更新/预下载可用都摆出来）。
 - 截图窗口固定 1120×720（`UiScreenshotTests` 内写死，与主窗口默认 1464×720 无关，保证构图稳定）。
-- **清单（2026-09-29 实测；改动 UI 或新增导出后同步本清单）**：八个画面共 25 张——
+- **清单（2026-09-29 实测；改动 UI 或新增导出后同步本清单）**：七个导出组共 25 张——
   01-15 + 02b + 05b + 16 + 17/18 + 10b + 11b + 19 + 20/21。归属：`Export_UiScreenshots_ForReview` 12 张；
   `Export_LaunchErrorOverlay_ForReview` 6 张（10/10b/11/11b/12/14，10b=CanRetry=true 覆盖层；
   该导出同时覆盖启动失败覆盖层与 Linux 启动设置卡（2026-10-03 起 11/11b 含「自定义启动选项」改名与 ⓘ 图标）：umu 启动 + Proton 发行版下拉 + 检查更新按钮 +

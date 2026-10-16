@@ -73,7 +73,7 @@ description: Use when designing or polishing any desktop app UI (layout, spacing
 2. 间距全部落在 4pt 刻度，卡片内边距一致。
 3. 三层文字层级清晰，辅助文字用的是弱化色。
 4. 一屏一个主按钮；按钮尺寸/圆角统一。
-5. 圆角值统一（本项目卡片与底部操作坞 14、按钮/图标 10）。
+5. 圆角值统一（本项目卡片与底部操作坞 14、按钮系 10（`ButtonCornerRadius` 令牌；icon-btn 9 / caption-btn 8 / toast 关闭钮 11 为既有例外））。
 6. 对比度抽检：暗色下的辅助文字、亮色下的强调按钮文字。
 7. 长文本有截断策略；单行不换行错乱。
 8. 空态/忙碌/错误三态可见。

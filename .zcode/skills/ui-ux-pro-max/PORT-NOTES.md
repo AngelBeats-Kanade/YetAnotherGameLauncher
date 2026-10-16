@@ -17,7 +17,7 @@ python .zcode/skills/ui-ux-pro-max/scripts/search.py "game launcher desktop dark
 # 针对性补查：某个具体关注点
 python .zcode/skills/ui-ux-pro-max/scripts/search.py "progress feedback long operation" --domain ux
 
-# 栈级实现规则（Avalonia 专属：编译绑定、x:DataType、ThemeVariant 等 57 条）
+# 栈级实现规则（Avalonia 专属：编译绑定、x:DataType、ThemeVariant 等 56 条）
 python .zcode/skills/ui-ux-pro-max/scripts/search.py "compiled binding themevariant" --stack avalonia
 ```
 

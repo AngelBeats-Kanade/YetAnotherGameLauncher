@@ -66,7 +66,7 @@ flowchart TD
 | `IPatchApplier` | 差分合成（目录模式） | `HpatchzApplier`（HDiffPatch） | `FakePatchApplier` |
 | `IProcessRunner` | 外部进程（超时/输出捕获） | `SystemProcessRunner` | `FakeProcessRunner` |
 | `IPlatformInfo` | OS 判定、GPU 厂商探测（NVIDIA 走 /proc 闭源驱动，AMD/Intel 走 /sys/class/drm 的 PCI vendor；路径可注入）、用文件管理器打开目录 | `WindowsPlatformInfo`、`LinuxPlatformInfo`（DI 按 OS 注入） | `FakePlatformInfo` |
-| `IAutostartService` | 开机自启查询/切换（Windows 注册表 / Linux XDG autostart） | `WindowsAutostartService`、`LinuxAutostartService`（DI 按 OS 注册） | 真实现 + FakeProcessRunner（VmFactory 缺省）；集成测试按平台注入真实现 |
+| `IAutostartService` | 开机自启查询/切换（Windows 注册表 / Linux XDG autostart） | `WindowsAutostartService`、`LinuxAutostartService`（DI 按 OS 注册） | 真实现 + FakeProcessRunner（VmFactory 缺省）、FakeAutostartService（VM 状态 API 测试）；集成测试按平台注入真实现 |
 | `IBackdropResolver` | 按区域解析详情页背景来源（图/视频 + 首帧海报） | `KuroBackdropResolver`、`EndfieldBackdropResolver`（按渠道键 keyed 注册） | 测试内联假实现 |
 | `GameCatalogService` | games.json 加载/校验/原子保存 | — | 配置 fixture |
 | `GameInstallService` | 全量同步（校验→并行下载→事后校验→清理） | — | 假下载器 |
@@ -97,11 +97,14 @@ flowchart TD
   清单无 fromFolder，回退链产出与旧实现一致。清单顶层 `deleteFiles`（废弃文件，2026-10-02 真机 6 条
   旧 pak/sig）建模进 GameManifest，Apply 在组循环与落位**之后**删除（官方清单存在 deleteFiles ∩ 组
   srcFiles 交叉——3.6.1→3.7.0 group_37 的 4 个差分源同时在废弃清单，先删会让组差分永久不可行且不可
-  自愈，2026-10-02 真机 P1 实锤后修订；删除失败仍报错中止，重试安全）。差分源缺失或补丁器执行
+  自愈，2026-10-02 真机 P1 实锤后修订；删除前先扣除本次更新产物 Files ∪ 组 dstFiles，命中即警告跳过
+  ——自相矛盾清单不会误删刚产出的文件，2026-10-03 RF-C；删除失败仍报错中止，重试安全）。差分源缺失或补丁器执行
   失败（2026-10-03 扩展，109 事件形态）时经 dstUrlResolver
   解析缝直下该组产物自救（组级回退；GameUpdateService 懒取目标版本全量清单建 path→URL——官方
   dstFiles 原始条目无 url 字段，但组 dst 路径被全量清单全覆盖且 {resourcesBasePath}/{dest} 直链实测
-  可下、md5 与增量条目一致，happy path 零额外请求）。Apply 链入口让位线程池、组校验与暂存核验走
+  可下、md5 与增量条目一致，happy path 零额外请求；解析前核对服务器当前版本与目标暂存版本，
+  不一致抛带两版本号的可操作错误——RF-E，2026-10-03，Kuro 全量清单接口忽略请求版本、此缝是唯一
+  需自守的消费方）。Apply 链入口让位线程池、组校验与暂存核验走
   异步流式 MD5（重入时全量已应用组 dstFiles 可达数十 GiB，同步哈希曾冻结 UI 线程——真机 73GiB
   假死实锤，重入校验阶段报 Verifying 进度）。
   **hpatchz 自动供给（2026-10-02）**：补丁工具解析顺序 = 显式路径（HpatchzPath 含分隔符，只校验
@@ -291,7 +294,8 @@ flowchart TD
 预载暂存**重跑不重置**（2026-10-02）：完好暂存文件按 size+MD5 条目级核验跳过、`.temp` 由下载器
 Range 续传（此前整树清空会把已下载的几十 GB 全部作废重下）；清单版本切换的孤儿残留由 Apply 成功时
 的整目录清理回收。下载进度为**字节级实时**（下载器 64KB 回调 → `ByteProgressAggregator` 全局增量 →
-100ms 节流投递，三条链共用；进度口径 = 本地已就绪字节，含续传起点），UI 端 `GameItemViewModel`
+100ms 节流投递，三条链共用；进度口径 = 本地已就绪字节，含续传起点；重跑暂存时的逐块 MD5 核验同样
+经该管道上报字节——判未就绪时负增量回吐，故核验阶段也有进度与速度反馈），UI 端 `GameItemViewModel`
 按 ≥0.4s 采样 EMA 平滑显示下载速度。HTTP 4xx（除 408/429/416 特判）为永久失败、单次终止带状态码
 （404 重试三次只是拖长失败，2026-10-02 用户 log 实证）。
 
@@ -381,9 +385,10 @@ flowchart LR
   avformat）先 dlopen 驻留，avformat/avcodec 必落 AutoGen throw-stub、起播抛 `NotSupportedException`。
   就绪判定不能只探 `av_version_info()`（avutil 独立可加载 + ABI 稳定，会放行残缺绑定）——探针必须
   覆盖实际调用面（教训泛化见 DEVELOPMENT.md §3.6）。
-  **测试缝与 DI**：构造签名 `FfmpegLibraryResolver(proxyManager, logger?, downloadClient?, downloadRoot?)`
-  的两个可选缝供测试注入（`StubHttpHandler` + 临时目录根，先例 `VideoBackdropPlayerCtsTests`/
-  `FfmpegLibraryResolverDownloadTests`——否则无库新环境会真实下载约 60–70MB 并写真实用户目录）。
+  **测试缝与 DI**：构造签名 `FfmpegLibraryResolver(proxyManager, logger?, downloadClient?, downloadRoot?, systemLibraryProbe?)`
+  的三个可选缝供测试注入（`StubHttpHandler` + 临时目录根，先例 `VideoBackdropPlayerCtsTests`/
+  `FfmpegLibraryResolverDownloadTests`——否则无库新环境会真实下载约 60–70MB 并写真实用户目录；
+  `systemLibraryProbe` 注入恒 false 以消除"本机装了配套系统库"的分支差异，只门控系统库探测分支）。
   DI 注册必须走**显式工厂**：容器注册过 `HttpClient`（全局 30s）后，类型激活会把 `downloadClient`
   的 null 默认劫持为容器实例、15 分钟专用超时成死代码（组合根装配断言钉住）。
   **AutoGen 函数委托解析结果是进程级缓存**（2026-09-25 /tmp 探针实锤）：`FunctionResolver` 每次调用
@@ -473,9 +478,10 @@ flowchart LR
   （直到被另一游戏页替换）。播放器侧续播经 `ManualResetEventSlim` 门与取消令牌
   `WaitAny`——暂停中 `Stop` 靠取消令牌正常唤醒退出，醒来重定 `PlaybackClock` 基线（暂停时长不计入
   时间轴）；无会话时 `Pause` 为 no-op（不得留下复位门，新会话启动时 `Set` 另有兜底）；
-  播放器 `Dispose` 时 `StopCore` 唤醒泊车线程并**有界 join 至其退出**后才释放门（F37——不留内核
-  等待句柄；原先"释放瞬间任务仍嵌在 `WaitAny` 里"的微秒级窗口随 2026-09-27 的有界 join 闭合，
-  不再按"修复 + 声明"接受）。
+  播放器 `Dispose` 时 `StopCore` 唤醒泊车线程并有界 join（默认 2s 预算）：正常路径 join 至其退出后
+  才释放门（F37——不留内核等待句柄；原"释放瞬间任务仍嵌在 `WaitAny` 里"的窗口随 2026-09-27 的
+  有界 join 闭合）；join 超时（病态原生调用）记警告照常放行，残余窗口见播放器 `Dispose` 备注
+  （测试 `Stop_JoinBudgetTimeout_ProceedsWithoutHanging` 钉住）。
   `StartVideoAsync` 的起播延迟窗口内离页放弃起播，不在页外隐形解码。
   关窗/程序性退出经 `StopBackdropVideo` 逐游戏全停（含暂停保活中的会话，退出期 GPU 栈必须
   先行静止）；installRoot 变更重建列表时旧 VM 的会话同样在 `RebuildGames` 内全停并 Dispose
@@ -520,7 +526,8 @@ flowchart LR
   https、md5 32hex、size>0、文件名禁路径段与 `..`、**缺省键归一为校验错误而非 NRE**），错误一次性抛
   `DependencyCatalogException`。加新依赖 = 改清单，不改代码。
 - **目标解析（App 层 `WinePrefixTargetResolver`，纯决策表）**：Direct → 不适用；启动环境里**非生成**
-  的自定义 `WINEPREFIX`（≠ 统一 prefix 根）→ 系统 wine 挂该 prefix；其余按 umu 布局——兼容数据根取
+  的自定义 `WINEPREFIX`（≠ 统一 prefix 根）→ 系统 wine 挂该 prefix；Wine 模式定位不到 Proton 时回落
+  系统 wine 挂兼容数据根本身；其余按 umu 布局——兼容数据根取
   环境 `STEAM_COMPAT_DATA_PATH`（手改配置的自定义 prefix，生成模板恒等于统一 prefix 根、无行为差），
   缺省 = 统一 prefix 根；Proton 定位（`PROTONPATH` 绝对目录 → compatibilitytools.d 精确名 →
   发行版前缀择最新，flavor 表经 `UmuComponentProvisioner.MatchFlavorLocalPrefix` 单一来源，
