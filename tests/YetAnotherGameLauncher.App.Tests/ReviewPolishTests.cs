@@ -31,7 +31,7 @@ public class ReviewPolishTests : IDisposable
         await _ctx.Vm.InitializeAsync();
         var wuwa = _ctx.Vm.Games[0];
 
-        // 造"检测到游戏文件"态（文件在、未登记）：EN 全文案 39 字符必然截断，侧栏用短变体
+        // 造"检测到游戏文件"态（文件在、未登记）：EN 全文案 45 字符（含空格）必然截断，侧栏用短变体
         var exePath = Path.Combine(
             wuwa.InstallDirPath, "Client", "Binaries", "Win64", "Client-Win64-Shipping.exe");
         Directory.CreateDirectory(Path.GetDirectoryName(exePath)!);

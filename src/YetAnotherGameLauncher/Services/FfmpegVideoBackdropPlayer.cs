@@ -1814,11 +1814,11 @@ public sealed class FfmpegVideoBackdropPlayer(
     }
 
     /// <inheritdoc/>
-    /// <remarks>F37：StopCore 先 Set 唤醒泊车中的解码线程，随后有界 join（共享截止时间，默认
-    /// NativeReleaseJoinTimeout=2s）等其退出后才释放 gate——正常路径不存在"释放时仍有等待者"。
-    /// join 超时的病态路径记警告照常放行：此时解码线程仍嵌在 WaitAny 里，MRES 的"释放时有等待者"
-    /// 属官方文档未定义语义，按 M4 惯例"声明接受"——等待方唤醒后不再触碰 gate 的其他成员，
-    /// 观感上限为一次无害的 ObjectDisposedException（后台任务、不触 UI）。</remarks>
+    /// <remarks>F37：StopCore 先取消令牌并 Set 唤醒泊车线程，随后有界 join（共享截止时间，默认
+    /// NativeReleaseJoinTimeout=2s）——正常路径任务退出后才释放 gate，不存在"释放时有等待者"。
+    /// join 超时的成因是不可取消的原生调用未返回：任务恢复后经取消检查退出、不再触碰 gate。
+    /// 残余窗口仅剩一种窄竞态——任务在取消生效前越过循环检查、直到 gate 释放之后才到达 gate
+    /// 访问点；上限为一次无害的 ObjectDisposedException（后台任务、不触 UI），按 M4 惯例"声明接受"。</remarks>
     public void Dispose()
     {
         StopCore();
