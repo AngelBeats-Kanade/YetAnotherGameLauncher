@@ -387,7 +387,7 @@ flowchart LR
   覆盖实际调用面（教训泛化见 DEVELOPMENT.md §3.6）。
   **测试缝与 DI**：构造签名 `FfmpegLibraryResolver(proxyManager, logger?, downloadClient?, downloadRoot?, systemLibraryProbe?)`
   的三个可选缝供测试注入（`StubHttpHandler` + 临时目录根，先例 `VideoBackdropPlayerCtsTests`/
-  `FfmpegLibraryResolverDownloadTests`——否则无库新环境会真实下载约 60–70MB 并写真实用户目录；
+  `FfmpegLibraryResolverDownloadTests`——否则无库新环境会真实下载约 60–75MB 并写真实用户目录；
   `systemLibraryProbe` 注入恒 false 以消除"本机装了配套系统库"的分支差异，只门控系统库探测分支）。
   DI 注册必须走**显式工厂**：容器注册过 `HttpClient`（全局 30s）后，类型激活会把 `downloadClient`
   的 null 默认劫持为容器实例、15 分钟专用超时成死代码（组合根装配断言钉住）。
