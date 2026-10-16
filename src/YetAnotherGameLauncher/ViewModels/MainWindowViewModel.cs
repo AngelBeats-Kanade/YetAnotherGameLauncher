@@ -1783,11 +1783,12 @@ public sealed partial class AboutViewModel(MainWindowViewModel owner) : ViewMode
     public IReadOnlyList<ThirdPartyItem> ThirdParty =>
     [
         new("Avalonia UI 12.1.3", "MIT"),
+        new("Avalonia.Fonts.Inter (Inter font)", "MIT / OFL-1.1"),
         new("CommunityToolkit.Mvvm 8.4.2", "MIT"),
         new(".NET 10 / Microsoft.Extensions.*", "MIT"),
-        new("HDiffPatch (hpatchz)", "Apache-2.0"),
+        new("HDiffPatch (hpatchz)", "MIT"),
         new("FFmpeg (libavcodec/libavformat/libswscale)", "LGPL-2.1+"),
-        new("FFmpeg.AutoGen", "LGPL-2.1+"),
+        new("FFmpeg.AutoGen", "MIT"),
         new("SharpCompress", "MIT"),
     ];
 
