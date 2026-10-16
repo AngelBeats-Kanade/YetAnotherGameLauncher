@@ -33,7 +33,8 @@ public sealed class GameManifest
 
     /// <summary>
     /// 增量清单点名的废弃文件（官方 deleteFiles，2026-10-02 真机实测顶层 6 条旧 pak/sig）：
-    /// 应用更新前删除——残留会被 UE 挂载覆盖新文件、热更卡死（ww-manager 同语义）。
+    /// 应用更新（组循环与落位）之后删除——残留会被 UE 挂载覆盖新文件、热更卡死（ww-manager 同语义；
+    /// 尾部时序为 2026-10-02 真机 P1 修订：先删会让 deleteFiles ∩ 组 srcFiles 形态永久不可行）。
     /// 全量清单与无该字段的旧暂存清单为空（反序列化缺省，向后兼容）。
     /// </summary>
     public IReadOnlyList<string> DeleteFiles { get; init; } = [];
