@@ -24,7 +24,7 @@
 - 自动收放阈值：窗口宽 <1000 收起、>1080 展开（`SidebarCollapseThreshold`/`SidebarExpandThreshold`，`SizeChanged` 转发）。
 - 设置/关于按钮的展开态 Padding/对齐必须走 `.nav-item` 样式而非按钮本地值——本地值会压过收缩覆盖样式，使收起态图标居中失效。
 - 侧栏游戏项模板根带名称 ToolTip（收起态纯图标仍可辨识，评审 P2-6）。
-- 侧栏状态行绑定 `SidebarStatusText` 短变体（`status_detected/notInstalled` 有 Short 键，EN 全文案 39 字符必截残句，评审 P2-11）。机制 = 状态机显式赋值短变体 + `OnStatusTextChanged` 同步其余瞬态全文；不用滞留覆盖机制（同值赋值不触发通知会滞留）。
+- 侧栏状态行绑定 `SidebarStatusText` 短变体（`status_detected/notInstalled` 有 Short 键，EN 全文案 45 字符（含空格）必截残句，评审 P2-11）。机制 = 状态机显式赋值短变体 + `OnStatusTextChanged` 同步其余瞬态全文；不用滞留覆盖机制（同值赋值不触发通知会滞留）。
 
 ### 2.1 指示点迁移动画：手写驱动契约（2026-09-21 起）
 
