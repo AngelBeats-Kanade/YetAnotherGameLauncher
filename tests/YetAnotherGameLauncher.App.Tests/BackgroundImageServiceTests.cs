@@ -19,6 +19,7 @@ namespace YetAnotherGameLauncher.AppTests;
 /// 现行形态：async Task 测试方法 await Dispatch(同步 lambda)；lambda 内启动服务调用后用 RunJobs
 /// 泵到完成（无 await），结果存局部变量；断言一律在 Dispatch 之外；TempDir 生命周期随测试方法体。
 /// </summary>
+[Collection("sequential")]
 public sealed class BackgroundImageServiceTests
 {
     [Fact]
