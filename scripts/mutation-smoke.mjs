@@ -224,6 +224,198 @@ const MUTATIONS = [
     dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
     method: 'YetAnotherGameLauncher.Core.Tests.Services.IncrementalUpdateServiceTests.ApplyAsync_HpatchzFailure_WithResolver_FallsBackToDirectDownload',
   },
+  {
+    // 2026-10-17 终末地分卷解压批：分卷必须按序号升序拼接（响应顺序不可依赖）——
+    // 排序反转后渠道守卫（Files 顺序 = 001..NNN）应变红。规则实现 2026-10-17 复审后
+    // 迁到 Core 的 SplitVolumeNaming（渠道与安装器共用），变异点随之下移
+    id: 'M26-split-volume-order',
+    file: 'src/YetAnotherGameLauncher.Core/Utilities/SplitVolumeNaming.cs',
+    find: 'volumes.Sort(static (left, right) => left.Number.CompareTo(right.Number));',
+    replace: 'volumes.Sort(static (left, right) => right.Number.CompareTo(left.Number));',
+    project: 'tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Hypergryph.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Hypergryph.Tests.GryphlineChannelApiTests.GetManifest_SplitVolumePacks_FlagsManifestAndOrdersByVolumeNumber',
+  },
+  {
+    // 2026-10-17 同批：分卷清单必须走拼接解压（逐卷当独立 zip 解压正是用户报障形态）——
+    // 分支反转后安装守卫（分卷解压一次并落盘内容）应变红
+    id: 'M27-split-volume-extract-branch',
+    file: 'src/YetAnotherGameLauncher.Core/Services/PackageInstallerService.cs',
+    find: 'if (archivesAreSplitVolumes)\n        {',
+    replace: 'if (!archivesAreSplitVolumes)\n        {',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.PackageInstallerSplitVolumeTests.InstallAsync_SplitVolumes_ExtractsConcatenatedArchiveOnce',
+  },
+  {
+    // 2026-10-17 同批：拼接流的定位语义（复用同卷句柄时位置必须回到拼接空间对应偏移）——
+    // 相对定位后跨卷/回退读取取错数据，流守卫（内容逐字节相等）应变红
+    id: 'M28-split-volume-stream-seek',
+    file: 'src/YetAnotherGameLauncher.Core/Utilities/SplitVolumeStream.cs',
+    find: 'volume.Seek(offsetInVolume, SeekOrigin.Begin);',
+    replace: 'volume.Seek(offsetInVolume, SeekOrigin.Current);',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Utilities.SplitVolumeStreamTests.Seek_RepositionsAcrossVolumes_ForRandomAccessReads',
+  },
+  {
+    // 2026-10-17 旧版残留清理批：解压产物的丢弃守卫——清单自相矛盾地点名本次产物时必须保留
+    //（删掉刚解压的文件会让安装缺文件且无自愈路径，增量链 RF-C 同纪律）
+    id: 'M29-obsolete-produced-spare',
+    file: 'src/YetAnotherGameLauncher.Core/Services/PackageInstallerService.cs',
+    find: '|| producedSet.Contains(normalized)',
+    replace: '|| producedSet.Count < 0',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.PackageInstallerObsoleteFilesTests.InstallAsync_ObsoleteFileAlsoProducedByArchive_Spared',
+  },
+  {
+    // 2026-10-17 同批：状态目录（.yagl）不得被废弃清单点名删除——去掉守卫后状态文件被删
+    //（词法穿越/链接防线由 EnsureNoReparseWithin 独立兜底，故此处取状态目录守卫作变异点）
+    id: 'M30-obsolete-state-dir-spared',
+    file: 'src/YetAnotherGameLauncher.Core/Services/PackageInstallerService.cs',
+    find: 'normalized.StartsWith(LocalStateService.StateDirName + "/", StringComparison.Ordinal)',
+    replace: 'string.Empty.StartsWith(LocalStateService.StateDirName + "/", StringComparison.Ordinal)',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.PackageInstallerObsoleteFilesTests.InstallAsync_StateDirEntries_NotTouched',
+  },
+  {
+    // 2026-10-17 复审修复批：载荷自身不可用（条目读不出）必须折算可回退类型——否则用户
+    // 在同一版本过渡内重试恒失败（整包逃生口失效）
+    id: 'M35-delta-unusable-falls-back',
+    file: 'src/YetAnotherGameLauncher.Core/Services/DeltaPackageApplier.cs',
+    find: '?? throw new DeltaPackageUnusableException(\n                        $"Delta payload entry is unreadable: {source.PatchPath}; falling back to the full update.");',
+    replace: '?? throw new UpdateException($"Delta payload entry is unreadable: {source.PatchPath}");',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.GameUpdateServiceTests.UpdateAsync_DeltaPayloadUnusable_FallsBackToFullPackage',
+  },
+  {
+    // 2026-10-17 复审修复批：静态条目改写表被无视 → config.ini 直接覆盖游戏根（用户可见配置丢失）
+    id: 'M36-static-entry-rewrite',
+    file: 'src/YetAnotherGameLauncher.Core/Services/DeltaPackageApplier.cs',
+    find: 'var targetRelative = plan.StaticEntryRewrites.TryGetValue(name, out var rewritten) ? rewritten : name;',
+    replace: 'var targetRelative = name;',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.DeltaPackageApplierTests.ApplyAsync_ConfigIniStaticEntry_LandsAsConfigIniNew',
+  },
+  {
+    // 2026-10-17 复审修复批：临时名叶子复核移除 → 既有符号链接/硬链接被写穿（F19/F43 同族）
+    id: 'M37-delta-temp-leaf-links',
+    file: 'src/YetAnotherGameLauncher.Core/Services/DeltaPackageApplier.cs',
+    // 调用点 2026-10-17 第三轮复审后移入 try（解除失败走 IO 折算），缩进随之变化
+    find: 'FileUtilities.RemoveLinkedLeaf(deltaPath, logger);\n            FileUtilities.RemoveLinkedLeaf(outputPath, logger);',
+    replace: '// MUTATION: temp leaf link checks removed',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.DeltaPackageApplierTests.ApplyAsync_TempLeafIsHardLink_UnlinksBeforeWriting',
+  },
+  {
+    // 2026-10-17 复审修复批：旧暂存清单的分卷复算短路 → 分卷暂存退回逐卷解压（用户报障形态）
+    id: 'M38-stale-manifest-split-restore',
+    file: 'src/YetAnotherGameLauncher.Core/Services/PackageInstallerService.cs',
+    find: 'if (!manifest.EntriesAreArchives || manifest.ArchivesAreSplitVolumes || manifest.Files.Count < 2)',
+    replace: 'if (!manifest.EntriesAreArchives || manifest.ArchivesAreSplitVolumes || manifest.Files.Count < 99999)',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.PackageInstallerSplitVolumeTests.ApplyPredownload_StaleManifestWithoutSplitFlag_RestoresSplitExtraction',
+  },
+  {
+    // 2026-10-17 复审修复批：多候选选择退回"只看第一候选" → 白退整包
+    id: 'M39-patch-candidate-selection',
+    file: 'src/YetAnotherGameLauncher.Core/Services/DeltaPackageApplier.cs',
+    find: 'foreach (var candidate in file.Patches)',
+    replace: 'foreach (var candidate in file.Patches.Take(1))',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.DeltaPackageApplierTests.ApplyAsync_MultipleCandidates_UsesFirstUsableOne',
+  },
+  {
+    // 2026-10-17 复审修复批：错位 206 的对齐守卫移除 → 错字节被当目标数据（F64 同族）
+    id: 'M40-remote-range-alignment-guard',
+    file: 'src/YetAnotherGameLauncher.Core/Utilities/RemoteZipEntryReader.cs',
+    find: 'if (response.Status != HttpStatusCode.PartialContent || response.RangeFrom != offset)',
+    replace: 'if (false)',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Utilities.RemoteZipEntryReaderTests.TryReadEntry_MisalignedRangeResponse_RefusedInsteadOfWrongBytes',
+  },
+  {
+    // 2026-10-17 实机事故批：条目上限的**取值**就是回归类别（512 MiB 曾让真机更新中断在第 267 条）
+    id: 'M41-entry-cap-value',
+    file: 'src/YetAnotherGameLauncher.Core/Utilities/MultiPartZipEntryReader.cs',
+    find: 'internal static long EffectiveMaxEntryBytes => MaxEntryBytesForTests ?? MaxEntryBytes;',
+    replace: 'internal static long EffectiveMaxEntryBytes => MaxEntryBytesForTests ?? 512L * 1024 * 1024;',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Utilities.MultiPartZipEntryReaderTests.EffectiveMaxEntryBytes_IsAboveMeasuredVendorMaximum',
+  },
+  {
+    // 2026-10-17 复审 P2-3 修复批：补丁工具失败必须折算"载荷不可用"→ 回退整包（不许重试恒失败）
+    id: 'M42-patch-tool-failure-fallback',
+    file: 'src/YetAnotherGameLauncher.Core/Services/DeltaPackageApplier.cs',
+    find: 'await ApplyPatchFileAsync(deltaPath, basePath, outputPath, relative, cancellationToken).ConfigureAwait(false);',
+    replace: 'await patchApplier.ApplyFileAsync(deltaPath, basePath, outputPath, cancellationToken).ConfigureAwait(false);',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.DeltaPackageApplierTests.ApplyAsync_PatchToolFailure_UnusableInsteadOfHardError',
+  },
+  {
+    // 2026-10-17 第六轮复审 P2-1 修复批：进程起不来（Win32Exception）也要折算回退，不能重试恒失败
+    id: 'M43-patch-tool-start-failure-fallback',
+    file: 'src/YetAnotherGameLauncher.Core/Services/DeltaPackageApplier.cs',
+    find: 'catch (Exception ex) when (ex is UpdateException or System.ComponentModel.Win32Exception)',
+    replace: 'catch (Exception ex) when (ex is UpdateException)',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.DeltaPackageApplierTests.ApplyAsync_PatchToolStartFailure_UnusableInsteadOfHardError',
+  },
+  {
+    // 2026-10-17 复审 P1 修复批：载荷条目是"本地头+密文"片段，密文里的 PK\x05\x06 不得被当作
+    // 中央目录（旧行为：全域搜签名 → 随机命中 → 判不可读且无回退）
+    id: 'M32-aes-fragment-before-cd',
+    file: 'src/YetAnotherGameLauncher.Core/Utilities/WinZipAesReader.cs',
+    // （变异必须能编译：改写片段守卫时要保留 entryName 非空流分析，故把签名条件并进守卫本身）
+    find: 'if (entryName is null || EntryNameMatches(blob, entryName))',
+    replace: 'if (entryName is null || (EntryNameMatches(blob, entryName) && blob.LastIndexOf("PK\\x05\\x06"u8) < 0))',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Utilities.WinZipAesReaderTests.TryReadEntry_CiphertextContainingEndOfCentralDirectorySignature_StillReads',
+  },
+  {
+    // 2026-10-17 复审 P2-2 修复批：空转安装（本轮零产物）不得按废弃清单清理
+    id: 'M33-empty-run-no-cleanup',
+    file: 'src/YetAnotherGameLauncher.Core/Services/PackageInstallerService.cs',
+    find: 'if (produced.Count == 0)',
+    replace: 'if (produced.Count < 0)',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.PackageInstallerObsoleteFilesTests.InstallAsync_EmptyManifestWithObsoleteList_DoesNotDeleteAnything',
+  },
+  {
+    // 2026-10-17 复审 P3-1 修复批：静态条目（dll 等）也要计入产物，废弃清单点名时不得删
+    id: 'M34-static-entries-count-as-produced',
+    file: 'src/YetAnotherGameLauncher.Core/Services/DeltaPackageApplier.cs',
+    find: 'var produced = CopyStaticEntries(installDir, payload, plan, progress, cancellationToken);',
+    replace: '_ = CopyStaticEntries(installDir, payload, plan, progress, cancellationToken);\n        var produced = new List<string>(plan.Files.Count);',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.DeltaPackageApplierTests.ApplyAsync_StaticEntryCoveredByObsoleteList_Spared',
+  },
+  {
+    // 2026-10-17 同批：渠道的版本守卫（服务器已前移时不得把新版本的删除清单当旧过渡的依据）
+    id: 'M31-obsolete-list-version-guard',
+    file: 'src/YetAnotherGameLauncher.Channels.Hypergryph/GryphlineChannelApi.cs',
+    // find 必须唯一：同一行在 GetDeltaPackageAsync 里也有一处（批 3 新增），
+    // 故带上紧随其后的日志行锁定 GetObsoleteFilesAsync 的版本守卫（否则脚本判 stale 整批红）
+    find: 'if (!string.Equals(response.Version, toVersion, StringComparison.Ordinal))\n            {\n                logger?.LogInformation(\n                    "Obsolete file list skipped: server serves {Served}, target was {Target}.", response.Version, toVersion);',
+    replace: 'if (string.Equals(response.Version, toVersion, StringComparison.Ordinal))\n            {\n                logger?.LogInformation(\n                    "Obsolete file list skipped: server serves {Served}, target was {Target}.", response.Version, toVersion);',
+    project: 'tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Hypergryph.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Hypergryph.Tests.GryphlineChannelApiTests.GetObsoleteFiles_ServerVersionMovedPastTarget_ReturnsNull',
+  },
 ];
 
 function run(cmd, args) {
