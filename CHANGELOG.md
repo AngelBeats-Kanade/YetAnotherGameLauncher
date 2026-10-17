@@ -5,11 +5,35 @@
 
 ## [0.1.3] — 未发布
 
-0.1.2 之后的功能版本：系统托盘驻留 + 关闭按钮行为设置（退出应用 / 关闭窗口驻留托盘，
-下载与依赖安装后台继续）；资源包档位、实时下载进度与速度；鸣潮 krpdiff 增量更新链
-终局修复。1269 个测试全绿（2026-10-03 实测）。
+0.1.2 之后的功能版本：界面全面翻新（详情页身份、侧栏提示与短状态、危险操作样式、
+对比度门禁、字号与间距栅格）；依赖安装（Linux，内置思源黑体）；自定义启动选项对齐
+Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻留 + 关闭按钮行为设置
+（退出应用 / 关闭窗口驻留托盘，下载与依赖安装后台继续）；资源包档位、实时下载进度
+与速度；hpatchz 自动供给与鸣潮 krpdiff 增量更新链终局修复。1269 个测试全绿
+（2026-10-03 实测）。
 
 ### 新增
+
+**界面全面翻新**
+
+- 详情页：识别交给窗口标题（游戏页「<游戏> - 应用」、随语言切换）与侧栏选中态，不再自绘标题（官方背景自带 logo）；未安装且不可启动时显示空态引导卡（渠道/最新版本/服务器数/安装目录 + 指引），启动按钮直接隐藏（安装即主操作）。
+- 侧栏：收起后的图标项悬停显示游戏全名；状态行改用短文案（英文检测态不再截断成断词）；收起态指示点收进选中高亮块内。
+- 危险操作视觉分级：修复重装确认（红字红边）与 Proton 更新确认（错误卡内危险按钮、浅红悬停水洗）不再与建设性主操作同形；启动失败覆盖层主次按钮随「可否重试」互换；更新确认文案前置破坏性动词（「删除旧版并更新」）。
+- 可读性门禁：新增主题令牌对比度门禁（白字-强调色、徽章、版本金字、操作坞、抽卡稀有度、错误文本，按半透明背景合成的最坏情形、亮暗双主题均 ≥4.5:1）；亮暗强调色按门禁加深（悬停再深一档）；抽卡稀有度色收进主题令牌。
+- 字号与间距：17 档字号收敛为 9 档（12/13/14/15/16/18/20/24/28）；全仓 axaml 间距对齐 4 步栅格（≥8 为 4 的倍数、<8 为偶数）。
+- 交互一致性：设置页安装目录改内联浏览按钮（与游戏设置页位置卡一致）；启动设置保存按钮脏感知（草稿无差异时熄灭、保存/回滚后复位）；启动失败覆盖层期间不叠新 toast；关于页新增项目主页入口（幽灵 GitHub 图标 + 悬停显示完整 URL，打开失败给警告 toast）。
+
+**依赖安装（Linux）**
+
+- 游戏设置页新增「依赖」卡（仅 Linux 显示）：为当前游戏的 Wine prefix 手动安装可选组件，逐项给出状态点与安装/重装按钮、进度行与独立反馈槽。
+- 首版内置 CJK 字体（思源黑体，Adobe 发布版 2.004R，MD5+尺寸双重校验）：XDG 缓存下载（断点续传、多游戏复用）→ 防卫式解压 → 装入 `windows/Fonts` → 单次 `wine reg import` 落 28 条字体注册与 51 条替换映射（宋体/雅黑/MS Gothic 等简繁日韩系统字体名 → 思源黑体），修复 Wine 下缺字形的方块乱码。
+- 安装前自动解析目标（umu 内置 wine / 系统 wine 两种形态）并做 prefix 健康预检；prefix 未初始化（未启动过游戏）或缺 Proton 时给出可操作提示而非报错；可取消，失败不留完成标记（不留半装状态）。
+
+**启动卡「功能开关」**
+
+- 游戏设置页启动卡新增开关区「功能开关」（仅 Linux 显示）：Wayland 驱动（`PROTON_USE_WAYLAND`）、DLSS 升级（`PROTON_DLSS_UPGRADE` + `PROTON_ENABLE_NVAPI`）、Proton 日志（`PROTON_LOG` + `PROTON_LOG_DIR`）三个开关，随保存按钮落盘；模板直启与原生 umu 两条启动链均注入（特性键优先于用户环境变量）。
+- umu 链另设 `STEAM_COMPAT_LIBRARY_PATHS` 指向游戏安装目录。
+- 环境变量编辑框只显示用户变量：托管键（`PROTONPATH`、运行器生成项等）不再出现在框内，保存时托管键与用户变量合并、用户值优先；切换 Proton 发行版即时落盘。
 
 **自定义启动选项：改名与 Steam 风格词法**
 
@@ -23,13 +47,9 @@
 - 显式写一行 `%command%` 时，其后的内容作为游戏命令行参数追加在游戏可执行文件之后（如 `%command% -dx11`），模板直启与原生 umu 两条启动链均生效；`games.json` 亦可经 `launch.arguments` 数组直接配置。
 - 引号/转义词法不变；`%command%` 最多出现一次，裸 token（想给游戏传参的高频误解）、参数区引号未闭合与重复占位符均有专属错误提示，裸 token 的提示直接指路 `%command%` 写法（中英双语）。
 
-### 新增
-
 **hpatchz 自动供给（鸣潮增量更新免手动安装）**
 
 - 应用增量更新时若 PATH 上没有 hpatchz，启动器自动下载社区验证构建（鸣潮 krpdiff 与开源 HDiffPatch 全线构建不兼容——真机实证官方 v4.8.0/v5.1.3 与 master 均无法读取，退出码 109；供给 ww-manager 社区打包的 hpatchz.exe，MD5 校验，实测产出与官方清单一致）。Linux 上经 wine 运行（系统 wine 或已装 Proton 自带，独立 WINEPREFIX 不污染环境）；自备二进制（PATH 或显式路径）始终优先且原生直跑。
-
-### 新增
 
 **资源包档位（鸣潮）**
 
@@ -48,7 +68,31 @@
 - 驻留模式下点击关闭（含 alt+F4 / 系统关闭）只隐藏窗口：下载与依赖安装后台继续、背景视频暂停保活（托盘唤回即时续播）、窗口尺寸照常持久化；托盘"退出"走完整退出清理（停视频/取消依赖安装）。
 - 依赖桌面环境提供 StatusNotifierItem 托盘：KDE 开箱即用；GNOME 需安装托盘扩展；无托盘环境请保持"退出应用"模式。
 
+**缓存目录迁移到应用数据目录**
+
+- 可重建缓存（FFmpeg 运行时、背景视频、背景图、唤取缓存）从配置目录迁移到应用数据目录（Linux `~/.local/share/yagl`、Windows `%LOCALAPPDATA%\yagl`，与 Wine prefix 同根）——配置目录只留 `games.json`；旧配置目录下的残留副本不再使用，可手动删除。
+
 ### 修复
+
+**界面**
+
+- 详情页检测态修复：文件已存在（未登记、可启动）时不再显示空态引导卡——此前其安装指引与同屏的状态胶囊、启动按钮互相矛盾。
+- umu 组件/Proton 检查与更新的进度、成败反馈改在启动卡内渲染（此前写进位置卡保存槽，反馈错位到错误区块）；位置卡与启动卡反馈槽互不清除，长反馈自动换行不再横向裁切。
+- 收起态侧栏：指示点归位到选中行左缘（在选中高亮块内）；导航项图标居中修正（局部值此前压制了收起态样式）。
+- 详情页兜底渐变不再盖住播放中的背景视频；关于页项目入口收敛为幽灵图标按钮、完整 URL 移入悬停提示，打开失败改警告 toast（不再沿命令链抛错）。
+- 操作坞：启动/登记/预下载入口复位上一操作的进度（校验修复完成的 100% 卡不再残留到下一操作全程）；安装/修复确认在忙碌窗口不再静默丢弃。
+- 离线回退真正生效：鸣潮网络错误以 `DownloadException` 形态逸出 `RefreshAsync` 过滤器（其自身契约要求任何失败落入离线态），离线状态、本地版本 chip 与缓存资产此前从不会出现。
+- 背景图失败路径不再逸出为未观察任务异常：连接/响应头超时、畸形 `avares://` URI、无权限本地读。
+- Proton 发行版「选择即保存」成功后复位脏标记（此前保存按钮保持点亮）。
+
+**可靠性（内部）**
+
+- **FFmpeg 供给（背景视频依赖，2026-09-24 真机定位）**：目录库改按依赖序预载、绑定就绪探针覆盖全部在用库（BtbN 构建无 RUNPATH、兄弟依赖须先加载——按 AutoGen 请求序加载必败，界面只剩静态海报）；系统库回退只认精确主版本（按库映射 avutil=61/avcodec=63 等，不再一律 `.so.63`）；tar 解包还原符号链接（此前压平成 0 字节文件）并重写存量扁平文件；下载改为 staging + 完成标记 + 原子落位，中断残留的半成品目录在绑定前删除（治愈「一次损坏永久锁死」），完成标记记录资产名、版本不符目录绑定前清掉（应用升级换资产不再绑到旧库）；校验/布局异常不再每次启动重下 60~75MB。
+- **背景视频**：4K 帧位图改按 2 秒宽限回收（每张约 33MB，14 秒循环此前约漏 140MB/分钟）；`FrameSurface` 仅在挂载期订阅（修复重复订阅与脱挂泄漏）；播放器原生帧泄漏（循环结束/异常路径）收口；陈旧资产加载不再落进新会话（海报/静态窗口加代际复核）；停止时有界 join 解码任务（消除退出时 VAAPI destroy 报错）；解码器 EOF 排空（修复循环切点早跳 0.1~0.5 秒）；泊车会话重进不再续播陈旧区域/版本视频。
+- **umu/Proton 容器**：放行根内向上相对符号链接（修复 dwproton 11.0-13 `default_pfx` 提取缺 DLL、游戏启动 0.5 秒即死）；Proton 升级删旧目录后自动重连悬空 builtin 链接（prefix 曾全灭、wine 退出码 53），升级改为先迁移后删旧、迁移不全保留旧树；运行时归档首段失败即清理（不再长期占用数百 MB 缓存）；上游版本/BUILD_ID 白名单校验（防路径穿越）、`SHA256SUMS` 缺条目拒装；替换安装改为先旁置再落位（长目录删除中崩溃不再毁掉可用安装）。
+- **启动与稳定性**：Xft.dpi 同步的 stdout 读取任务异常不再逸出崩溃进程（.NET 10 下 `AggregateException` 不再派生 `SystemException`）；下载限速单位错配（Linux 时钟频率 1e9 被当 1e7、等待放大 100 倍）与文化无关解析（逗号小数地区 `0.5` 曾读成 `5`）修复，非有限与越界值拒收；Windows 悬空目录符号链接改用 `Directory.Delete` 删除；超时的 `xrdb` 子进程不再作为孤儿常驻。
+- **解压与校验防线**：解包拒绝硬链接目标（同 inode 可写出沙箱）；累计解压体积上限 + 实际写出量与声明核对；清单校验把无权限读归入「不可读」（有界重下一轮，不再整轮中止）。
+- **其他**：状态 toast 按语义去重（含最新版本号，类别/服务器往返不再重复弹同一条）；唤取全池视图的「距上一次五星」统计不再跨池混算——现按本义显示总抽数；界面语言归一仅对裸 `en`（`en-GB` 等区域码保持原义）。
 
 **hpatchz 失败也回退直下（2026-10-03）**
 
@@ -76,16 +120,51 @@
 - 差分源缺失的组不再直接失败：按目标版本全量清单解析该组产物直链后直下自救（size+MD5 校验 + 备份原子替换），被此前失败尝试损坏的安装可自愈；查无直链时保留「全量更新」指引。
 - 重跑预下载时，暂存核验（size+MD5）的逐块读取实时计入进度与速度——与真实下载同一进度管道，暂存齐备的重跑不再 0→100 闪过。
 
+**其他**
+
+- 关于页第三方许可清单修正：HDiffPatch 与 FFmpeg.AutoGen 标注 MIT（对照上游 LICENSE / NuGet 许可文件核验），补上 Avalonia.Fonts.Inter（MIT 包，Inter 字体 OFL-1.1）。
+
 ---
 
 ### English · 0.1.3 — unreleased
 
-A feature release after 0.1.2: system tray dwelling plus a close-button
-behavior setting (quit the app / close the window and dwell in the tray,
-with downloads and dependency installs kept running); resource quality
-tier selection; real-time byte-granular download progress with a speed
-readout; and the definitive fix for the Wuthering Waves krpdiff
-incremental-update chain. 1269 tests green (measured 2026-10-03).
+A feature release after 0.1.2: a full UI overhaul (detail-page identity,
+sidebar tooltips and short statuses, danger-styled destructive actions,
+a token contrast gate, type-scale and spacing grids); dependency
+installs on Linux (bundled Source Han Sans); Steam-aligned custom
+launch options (%command% placeholder) plus a new Feature toggles
+section; system tray dwelling with a close-button behavior setting
+(quit the app / close the window and dwell in the tray, with downloads
+and dependency installs kept running); resource quality tier selection;
+real-time byte-granular download progress with a speed readout;
+automatic hpatchz provisioning and the definitive fix for the Wuthering
+Waves krpdiff incremental-update chain. 1269 tests green (measured
+2026-10-03).
+
+**Added — UI overhaul**
+
+- Detail page: identity moves to the window title ("<Game> - App" on game pages, following the language switch) and the sidebar selection - no self-drawn title (official backdrops carry a burned-in logo); an empty-state guide card (channel / latest version / server count / install directory + guidance) shows when the game is uninstalled and not launchable, and the launch button hides (Install becomes the main action).
+- Sidebar: collapsed icon-only items reveal the full game name on hover; statuses use short copy (the English detected status no longer truncates into a broken stem); the collapsed indicator dot sits inside the selection highlight.
+- Destructive actions get their own visual class: the repair-reinstall confirm (red text on a near-solid card) and the Proton update confirm (danger button in the error card, light red hover wash) no longer look like the constructive primary; the launch-error overlay swaps primary/secondary with retry-ability; the update confirm states the destructive verb up front ("Replace old & update").
+- Readability gate: a new theme-token contrast gate (white-on-accent, badges, version-chip gold, dock captions, gacha rarity and error text, composited over worst-case translucent backdrops, >=4.5:1 in both themes); light/dark accents darkened per the gate result (hover one step further); gacha rarity colors collected into themed tokens.
+- Type and spacing: 17 distinct font sizes collapse to 9 (12/13/14/15/16/18/20/24/28); all axaml spacing aligns to a 4-step grid (>=8 is a multiple of 4, <8 is even).
+- Interaction consistency: the settings-page install-root row gets an inline browse button (matching the game-settings location card); the launch-settings save button is dirty-aware (lit only while the draft differs, reset after save/rollback); new toasts are dropped while a launch-error overlay is up; the About page gains a project-home entry (ghost GitHub icon, full URL on hover, failures surface as a warning toast).
+
+**Added — dependency installs (Linux)**
+
+- New "Dependencies" card in game settings (Linux only): manually install optional components into the current game's Wine prefix, with a per-item status dot, install/reinstall button, progress row and a dedicated feedback slot.
+- First bundled component: CJK fonts (Source Han Sans, Adobe release 2.004R, md5+size pinned) - cached download (XDG cache, resumable, shared across games), defensive extraction, copy into windows/Fonts, and a single wine reg import landing 28 font registrations plus 51 replacement entries mapping CJK system font names (SimSun, Microsoft YaHei, MS Gothic, ...) to Source Han Sans - fixing missing-glyph tofu boxes under Wine.
+- The install target is resolved up front (umu-bundled wine vs system wine) with a prefix health precheck; an uninitialized prefix (game never launched) or a missing Proton yields an actionable hint instead of an error; installs are cancellable and never leave a completion marker on failure.
+
+**Added — launch-card Feature toggles**
+
+- New "Feature toggles" section on the game-settings launch card (Linux only): Wayland driver (PROTON_USE_WAYLAND), DLSS upgrade (PROTON_DLSS_UPGRADE + PROTON_ENABLE_NVAPI) and Proton log (PROTON_LOG + PROTON_LOG_DIR), persisted via the save button; injected on both the template direct-launch and the native umu chains (feature keys win over user env vars).
+- The umu chain also sets STEAM_COMPAT_LIBRARY_PATHS to the game's install directory.
+- The environment editor shows user variables only: managed keys (PROTONPATH, runner-generated entries, ...) stay out of the box; saving merges managed + user with user values winning; switching the Proton flavor persists instantly.
+
+**Added — cache directories moved to the app-data directory**
+
+- Rebuildable caches (FFmpeg runtime, backdrop video, backdrop images, gacha API cache) move from the config directory to the app-data directory (Linux ~/.local/share/yagl, Windows %LOCALAPPDATA%\yagl, the same root as the Wine prefixes) - the config directory now holds games.json only; leftover copies under the old config directory are unused and can be deleted manually.
 
 **Added — custom launch options: rename & Steam-style lexing**
 
@@ -120,6 +199,26 @@ incremental-update chain. 1269 tests green (measured 2026-10-03).
 - In dwelling mode, closing (including Alt+F4 / system close) only hides the window: downloads and dependency installs keep running in the background, the backdrop video pauses with keep-alive (instant resume on restore), and window geometry is persisted as usual; tray "Quit" runs the full shutdown cleanup (stop videos / cancel dependency installs).
 - Requires a StatusNotifierItem tray from the desktop environment: works out of the box on KDE; GNOME needs a tray extension; keep "quit" mode on tray-less environments.
 
+**Fixed — UI**
+
+- The detail page no longer shows the empty-state guide card in the detected state (files present, not registered, launchable) - its install guidance contradicted the status chip and the launch button on the same screen.
+- umu component/Proton check and update progress and results now render inside the launch card (they were written into the location card's save slot and showed up in the wrong section); the two feedback slots never clear each other and long feedback wraps instead of clipping.
+- Collapsed sidebar: the nav dot anchors inside the selected row's highlight (previously at the window edge, detached from the row); nav icons are actually centered (local values had outranked the collapsed override).
+- The detail-page fallback gradient no longer covers a playing backdrop video; the About project entry collapses into a ghost icon button with the full URL in a tooltip, and open failures raise a warning toast instead of propagating along the command chain.
+- The operation dock resets the previous operation's progress when Launch/Register/Predownload starts (a finished verification's 100% card no longer lingers through the next operation); install/repair confirmations are no longer silently dropped during the busy window.
+- Offline fallback actually runs now: Kuro network errors surfaced as DownloadException escaped RefreshAsync's filter (whose own contract requires falling back to the offline state), so the offline status, local version chip and cached assets never executed.
+- Background-image failure shapes no longer escape as unobserved task exceptions: connect/header timeouts, malformed avares:// URIs and permission-denied local reads.
+- The Proton flavor's instant save resets the dirty flag (the save button used to stay lit).
+
+**Fixed — reliability (internal)**
+
+- **FFmpeg provisioning (the backdrop-video dependency; root-caused on a real machine 2026-09-24)**: directory libs now preload in dependency order and the bind readiness probe covers every library in use (BtbN builds carry no RUNPATH and depend on sibling sonames - loading in AutoGen request order always failed, leaving the static poster); the system fallback accepts exact majors only (a per-library map: avutil=61/avcodec=63 etc., instead of a blanket .so.63); tar extraction restores symlinks (previously flattened into 0-byte files) and re-extracts legacy flattened dirs; downloads go through a staging dir + completion marker + atomic move, and unmarked half-extracted dirs are deleted before any bind (healing the "one interrupted download locks the binding forever" state); the completion marker records the asset name and version-mismatched dirs are removed before binding (an app upgrade no longer binds old libs); checksum/layout failures no longer re-download 60-75MB every session.
+- **Backdrop video**: 4K frame bitmaps retire through a 2s grace queue (about 33MB per bitmap; a 14s-looping 4K backdrop leaked ~140MB/minute); FrameSurface subscribes only while attached (double-subscribe and detached-surface leaks fixed); native frame leaks (loop-end and exception paths) are closed; stale asset loads can no longer land after a newer load (poster/static windows re-check the generation); Stop bounded-joins the decode tasks (exit-time VAAPI destroy errors gone); the decoder drains its reorder buffer at EOF (seam cuts jumped 0.1-0.5s early); re-entering a parked session no longer resumes a stale region/version video.
+- **umu/Proton containers**: in-root relative-upward tar links are allowed again (dwproton 11.0-13 default_pfx extraction lost every DLL and launches died in 0.5s); after a Proton upgrade deletes the old tree, dangling builtin links are relinked (prefixes had died wholesale, wine exit code 53) and upgrades now migrate first, keeping the old tree when migration is incomplete; a first-segment runtime download failure cleans its archive (no more hundreds of MB rotting in the cache); upstream version/BUILD_ID texts are whitelisted (path-traversal segments rejected) and a missing SHA256SUMS entry refuses the install; replacements rename the old tree aside and move the new one in (a crash mid-delete no longer destroys the usable install).
+- **Startup & stability**: a faulted stdout read task in the Xft.dpi sync path can no longer escape its catch and crash startup (on .NET 10 AggregateException no longer derives from SystemException); the download speed limiter's unit mismatch (Linux QPC = 1e9 treated as .NET ticks, inflating waits 100x) and culture-sensitive parsing (comma-decimal locales read 0.5 as 5) are fixed, and non-finite or out-of-range values are rejected; Windows dangling directory symlinks delete via Directory.Delete; a timed-out xrdb query no longer leaves a hung child process behind.
+- **Extraction & verification defenses**: archive extraction rejects hard-link targets (same-inode writes escaped the sandbox); a cumulative extraction-size cap plus a written-vs-declared size check; manifest verification maps permission-denied reads to "unreadable" (one bounded re-download round instead of aborting the whole verification).
+- **Other**: status toasts dedupe by semantics (keys include the latest version, so category/server round-trips stop re-toasting the same update); the gacha all-pools view's "Since Last 5-Star" stat no longer mixes pools into a meaningless number - it shows total pulls per the property's own spec; language normalization applies to bare "en" only (en-GB and friends keep their meaning).
+
 **Fixed — hpatchz failures now fall back to direct downloads too (2026-10-03)**
 
 - When hpatchz itself fails (e.g. the real-machine exit code 109 on 2026-10-02: the provisioned build could not read the official krpdiff header, failing every group), the update no longer aborts outright — the group-level fallback, previously reserved for missing diff sources, now kicks in: the group's outputs are resolved against the target version's full manifest and downloaded directly (size+MD5-verified, atomic backup replacement). If the direct download fails as well, the error carries both causes (patch failure and fallback failure); callers without a resolver keep the original error.
@@ -145,6 +244,10 @@ incremental-update chain. 1269 tests green (measured 2026-10-03).
 - Clicking "Apply pre-download / Update" on a partially applied install froze the whole UI for minutes (the re-entry check hashed every already-applied group's output with blocking MD5 - 73 GiB measured on the user's machine, on the UI thread). The apply chain now yields to the thread pool on entry, the re-entry group check and staging verification use streaming async MD5 (cancellable), and the verification stage shows a "Verifying" progress phase.
 - Groups whose diff sources are missing no longer fail outright: their outputs are resolved against the target version's full manifest and downloaded directly (size+MD5-verified, atomic backup replacement), so installs damaged by earlier failed attempts self-heal; unresolvable paths keep the "use the full update" guidance.
 - Rerunning a pre-download now streams the staging verification (size+MD5) reads into the same progress/speed pipeline as real downloads - a fully staged rerun no longer jumps from 0 to 100.
+
+**Fixed — other**
+
+- Third-party license list on the About page corrected: HDiffPatch and FFmpeg.AutoGen marked MIT (verified against the upstream LICENSE / NuGet license file) and Avalonia.Fonts.Inter added (MIT package, Inter typeface OFL-1.1).
 
 ---
 
