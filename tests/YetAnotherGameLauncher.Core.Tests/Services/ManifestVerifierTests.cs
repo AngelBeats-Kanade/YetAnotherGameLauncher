@@ -7,6 +7,7 @@ using YetAnotherGameLauncher.TestSupport;
 
 namespace YetAnotherGameLauncher.Core.Tests.Services;
 
+[Collection("sequential")]
 public class ManifestVerifierTests : IDisposable
 {
     private readonly TempDir _tempDir = new();
@@ -213,6 +214,7 @@ public class ManifestVerifierTests : IDisposable
     }
 }
 
+[Collection("sequential")]
 public class ManifestVerifierMissingInfoTests
 {
     [Fact]

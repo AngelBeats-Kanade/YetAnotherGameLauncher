@@ -9,6 +9,7 @@ namespace YetAnotherGameLauncher.Core.Tests.Dependencies;
 /// 新树缺文件的悬空链接计为不可修、幂等重入。真实符号链接的文件系统行为——Windows 无特权
 /// 建链，跳过（CI 与本机开发均为 Linux）。
 /// </summary>
+[Collection("sequential")]
 public class WinePrefixBuiltinRepairTests : IDisposable
 {
     private readonly TempDir _temp = new();

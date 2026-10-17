@@ -534,6 +534,7 @@ public class GameUpdateServiceEmptyVersionTests : IDisposable
     }
 }
 
+[Collection("sequential")]
 public class GameUpdateServiceArchiveIncrementGuardTests
 {
     [Fact]

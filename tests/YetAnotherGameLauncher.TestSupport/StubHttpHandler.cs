@@ -13,6 +13,9 @@ public sealed class StubHttpHandler : HttpMessageHandler
     /// <summary>错位 206 的剩余配额（<see cref="Mismatched206FirstRequest"/> 的递减计数）。</summary>
     private int _mismatchedRequestsRemaining;
 
+    /// <summary>已见过的 Range 请求数（配合 <see cref="Mismatched206AfterRequest"/> 决定从第几次开始错位）。</summary>
+    private int _mismatchedSeen;
+
     /// <summary>错位配额的一次性初始化标志。</summary>
     private int _mismatchedQuotaInitialized;
 
@@ -35,6 +38,11 @@ public sealed class StubHttpHandler : HttpMessageHandler
     /// <summary>强制 206 响应声称的 Range 起始字节（F64：模拟畸形服务器对 Range 请求
     /// 回错误起点的 206；null = 按请求范围正常回）。</summary>
     public long? ForcedRangeStart { get; set; }
+
+    /// <summary>先放过前 N 次 Range 请求（照常对齐），此后按 <see cref="Mismatched206FirstRequest"/> 的配额错位：
+    /// 用于把错位落在"探测之后的某次数据读取"上（对齐守卫在 RemoteZipEntryReader.ReadAsync 里，
+    /// 只错位探测请求到不了那里）。</summary>
+    public int Mismatched206AfterRequest { get; set; }
 
     /// <summary>仅前 N 次 Range 请求回错位 206（起始字节取 <see cref="ForcedRangeStart"/>），
     /// 其后恢复正常（F64 恢复腿）；null = 恒定错位。</summary>
@@ -123,7 +131,14 @@ public sealed class StubHttpHandler : HttpMessageHandler
 
         var range = request.Headers.Range?.Ranges.FirstOrDefault();
         var ranged = range is not null && !IgnoreRangeAndReturnFull;
-        var start = (int)(ranged ? range!.From ?? 0 : 0);
+        // 忠实 Range 语义：From/To 都照做（To 缺省到内容末尾），suffix 形态（bytes=-N）取末尾 N 字节。
+        // 服务器忽略 Range 的形态由 IgnoreRangeAndReturnFull 显式模拟（200 + 全量）。
+        var start = ranged
+            ? (int)(range!.From ?? Math.Max(0, content.Length - (range.To ?? 0)))
+            : 0;
+        var endExclusive = ranged
+            ? (int)Math.Min(content.Length, (range!.From is null ? content.Length : (range.To ?? content.Length - 1) + 1))
+            : content.Length;
         var forcedMismatch = false;
         if (ranged && ForcedRangeStart is { } forced)
         {
@@ -133,11 +148,15 @@ public sealed class StubHttpHandler : HttpMessageHandler
                 _mismatchedRequestsRemaining = Mismatched206FirstRequest ?? int.MaxValue;
             }
 
-            var misaligned = Interlocked.Decrement(ref _mismatchedRequestsRemaining) >= 0;
+            var seen = Interlocked.Increment(ref _mismatchedSeen);
+            var misaligned = seen > Mismatched206AfterRequest
+                             && Interlocked.Decrement(ref _mismatchedRequestsRemaining) >= 0;
             if (misaligned)
             {
+                var requestedStart = (int)(range!.From ?? 0);
                 start = (int)forced;
-                forcedMismatch = start != (int)(range!.From ?? 0);
+                endExclusive = content.Length; // 错位形态按既有测试语义回"从错位起点到末尾"
+                forcedMismatch = start != requestedStart;
             }
         }
 
@@ -147,16 +166,29 @@ public sealed class StubHttpHandler : HttpMessageHandler
             return new HttpResponseMessage(HttpStatusCode.RequestedRangeNotSatisfiable);
         }
 
-        var slice = start == 0 ? content : content[start..];
-        // F64：错位形态强制回 206（携带错位 Content-Range）——否则 start=0 落回 200，
-        // 下载器按"服务器忽略 Range 重写"处理，畸形 206 防线永远不可达、测试空心
-        var response = new HttpResponseMessage((ranged && start > 0) || forcedMismatch
+        var slice = start == 0 && endExclusive == content.Length ? content : content[start..endExclusive];
+        // 状态码与实体必须自洽（复审非阻塞 8，2026-10-17 修）：只发了子集就必须 206 + Content-Range，
+        // 200 只能配全量体——旧逻辑按 start > 0 判状态，bytes=0-N 会回"200 + 截断体"，
+        // 读取器把它当整包缓存，随后"读首条目（本地头偏移 0）"被误判越界（假红陷阱）。
+        // F64：错位形态同样强制 206（携带错位 Content-Range）——否则下载器按"服务器忽略 Range 重写"
+        // 处理，畸形 206 防线永远不可达、测试空心
+        var isPartial = slice.Length != content.Length;
+        var response = new HttpResponseMessage((ranged && isPartial) || forcedMismatch
             ? HttpStatusCode.PartialContent
             : HttpStatusCode.OK)
         {
             Content = new ByteArrayContent(slice),
         };
-        if (ranged && ForcedRangeStart is { } forcedStart)
+        if (ranged && isPartial && !forcedMismatch)
+        {
+            // 忠实 206：对齐的 Content-Range 带上总长度（下载器与远程条目读取器按它定位）
+            response.Content.Headers.ContentRange =
+                new System.Net.Http.Headers.ContentRangeHeaderValue(start, start + slice.Length - 1, content.Length)
+                {
+                    Unit = "bytes",
+                };
+        }
+        else if (ranged && ForcedRangeStart is { } forcedStart)
         {
             response.Content.Headers.ContentRange =
                 new System.Net.Http.Headers.ContentRangeHeaderValue(forcedStart, content.Length - 1)
