@@ -233,8 +233,10 @@ Steam Runtime 容器与 Proton，发行版三选一），由启动器自动生�
 |---|---|
 | `.yagl/state.json` | 本地版本状态：`gameId`、`serverId`、`version`（切换游戏/服务器错配时视为未安装） |
 | `.yagl/predownload/` | 预下载暂存：`manifest.json`（暂存清单）+ `patches/`、`files/` 或 `packages/` |
-| `.yagl/packages` | 包式安装的临时压缩包（解压后清理） |
+| `.yagl/packages` | 包式**整包安装（直接安装/更新、整包回退）的暂存目录**：文件名 + size/MD5 完整时可复用（中断重跑零下载），解压成功后清理；增量更新成功后也会清理它回收空间（实测可达数十 GiB）。预下载内容在 `.yagl/predownload/`，不受影响 |
+| `.yagl/delta` | v2 增量载荷分卷暂存（9 卷 ≈8.72 GiB，应用成功即清理；失败保留供复用） |
 | `*.yagl-bak` | 差分替换的备份文件（成功即删，仅失败恢复时短暂存在） |
+| `*.yagl-delta` / `*.yagl-new` | 增量载荷逐文件合成的临时产物（核对通过即替换目标，随后删除） |
 
 安装目录之外，启动器在**数据目录**（Linux `~/.local/share/yagl`，Windows `%LOCALAPPDATA%\yagl`）
 存放可重建缓存与工具数据（2026-09-22 起 ffmpeg/背景/图标/唤取缓存从配置目录迁入，配置目录只留

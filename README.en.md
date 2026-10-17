@@ -25,6 +25,7 @@ Currently supported games:
 
 - **Wuthering Waves** (Kuro Games official launcher protocol; CN / Bilibili / Global servers)
 - **Arknights: Endfield** (GRYPHLINE / Hypergryph launcher protocol; CN / Global / Bilibili servers)
+  - ⚠️ Known issue (confirmed on a real machine, 2026-10-17): Endfield **1.6.4** requires starting through the **official launcher** (the parent-process signature check was introduced in 1.6.3 per community reverse engineering); starting it from this launcher is refused by the game (dialog + exit code 5). **Updating is unaffected**; workaround: start the game with the official launcher.
 
 > [!NOTE]
 > Both games are Windows programs; running them on Linux depends on **wine / Proton**.
@@ -36,7 +37,7 @@ Currently supported games:
 
 - 🎮 **One-click launch** — Command templates with `{exe}` / `{installDir}` placeholders + custom launch options injection; pre-launch checks report categorized, localized errors; game output is captured to a launch log; failures show a themed error card (with an open-log-folder button)
 - 🐧 **Native Linux umu launch chain** — No external umu-run required: Proton and Steam Runtime are downloaded automatically per the Proton toolmanifest, with container and prefix set up for you; choose between DW-Proton (default) / GE-Proton / UMU-Proton — **selection is saved instantly**, download assets match the host architecture (x86_64/aarch64); each flavor ships a "check for updates" action that upgrades and cleans up old versions
-- ⬇️ **Full download + resume** — Per-file manifest sync (Wuthering Waves) / archive extraction (Endfield) with size+MD5 verification; `.temp` files + HTTP Range resume; linear-backoff retries for transient network errors; adjustable download speed limit
+- ⬇️ **Full download + resume** — Per-file manifest sync (Wuthering Waves) / archive extraction (Endfield; official `.001..NNN` volumes concatenated automatically) with size+MD5 verification; `.temp` files + HTTP Range resume; linear-backoff retries for transient network errors; adjustable download speed limit
 - 📊 **Real-time byte progress + speed** — Download progress advances per byte (no more per-file jumps) with an EMA-smoothed speed readout; failed pre-downloads/updates resume by re-verifying intact staged files (size+MD5 skip, Range resume); permanent HTTP 4xx errors fail fast without retries
 - 🩹 **Incremental updates + pre-download** — Wuthering Waves uses official krpdiff patch packages applied via native `hpatchz` (HDiffPatch) with `.yagl-bak` backup rollback; two-phase pre-download (stage first, apply when official servers open); package-based channels can register an already-installed game with zero downloads
 - 🎚️ **Resource quality tier (Wuthering Waves)** — Pick HD / SD / UHD in game settings; passed to the game as the official `-krqlv` launch argument; defaults to following in-game settings (note: the official incremental-update manifest ships HD-tier resources only - the tier currently affects the launch argument only)
@@ -56,7 +57,8 @@ Currently supported games:
 |---|---|
 | Game launch | Command templates with `{exe}` / `{installDir}` placeholders + custom launch options injection; pre-launch checks (main executable/runtime/prefix) with categorized localized errors; game output saved to launch logs (`~/.local/share/yagl/logs/`); themed error card on failure (with open-log-folder) |
 | Linux launch mode selector | **umu launch / direct run** (Linux only); **umu launch** is the default (built-in C# launch chain that downloads Proton and Steam Runtime per the Proton toolmanifest and sets up container + prefix — no external umu-run needed); a **Proton flavor** picker sits next to it: DW-Proton (default, Dawn Winery build, dawn.wine) / GE-Proton / UMU-Proton — **selection is saved instantly and only the chosen flavor is downloaded**; assets are matched to the host architecture (x86_64/aarch64) so the wrong architecture is never installed; each flavor has a **check for updates** button: a confirmation dialog appears when a new version is detected, and the old version directory is cleaned up automatically after upgrading; `launch.umuId` aligns UMU_ID with the umu database ID (`umu-3513350` for Wuthering Waves, `umu-endfield` for Endfield); recommends compatibility environment variables when an NVIDIA GPU is detected; legacy wine/Proton templates keep working; on first Linux run the default `{exe}` template is upgraded to umu launch automatically (and existing `umu-run {exe}` templates are upgraded once), so launch works out of the box |
-| Full download | Per-file manifest sync (Wuthering Waves) / archive extraction (Endfield), size+MD5 verified |
+| Full download | Per-file manifest sync (Wuthering Waves) / archive extraction (Endfield; `.001..NNN` volumes concatenated), size+MD5 verified; obsolete files removed afterwards per the official list |
+| Delta update (Endfield) | Updates prefer the official v2 delta payload (8.72 GiB measured instead of the 58 GiB full package): per-file HDiffPatch synthesis, full-file placement and the official obsolete list; falls back to the full package when not applicable |
 | Resume support | `.temp` files + HTTP Range resume; linear-backoff retries for transient network errors |
 | Speed limit | Download speed can be capped in bytes/second |
 | Incremental update | Wuthering Waves: matches the official `patchConfig` diff entry, downloads krpdiff patch packages, applies them with native `hpatchz` (HDiffPatch), `.yagl-bak` backup rollback |
@@ -207,7 +209,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### Running tests (1269 tests, measured 2026-10-03)
+### Running tests (1372 tests, measured 2026-10-17)
 
 ```bash
 # Run the 4 test projects' compiled binaries directly (on Windows you can run the .exe;

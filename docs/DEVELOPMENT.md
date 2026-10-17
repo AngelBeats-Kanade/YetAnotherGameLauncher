@@ -22,15 +22,17 @@ src/
   YetAnotherGameLauncher.Core/                  # 领域层（无 UI/厂商依赖）
     InstallPath.cs  安装路径解析（"~" 展开、绝对/相对 installDir；单文件位于 Core 根）
     AppPaths.cs     应用数据目录与配置文件路径（YAGL_CONFIG 覆盖；单文件位于 Core 根）
-    Models/         AppSettings（全局设置）、GameCatalog/GameDefinition/GameServer、GameManifest、UpdatePlan、
+    Models/         AppSettings（全局设置）、GameCatalog/GameDefinition/GameServer、GameManifest、UpdatePlan、DeltaPackage（v2 增量计划/分卷/文件节点）、
                     UpdateProgress、LocalGameState、ChannelVersionInfo、DownloadRequest（单文件下载请求）、
                     LaunchOptions（启动命令模板）、ThemeMode
-    Abstractions/   IGameChannelApi、IDownloader、IPatchApplier、IProcessRunner、异常类型（UpdateException/LaunchException + LaunchFailureKind）、
+    Abstractions/   IGameChannelApi、IDownloader、IPatchApplier（目录差分）、IFilePatchApplier（单文件差分，终末地 v2 载荷）、IProcessRunner、异常类型（UpdateException/LaunchException + LaunchFailureKind、DeltaPackageNotApplicableException/DeltaPackageUnusableException）、
                     IPlatformInfo（平台环境：Linux/GPU 厂商探测、文件管理器打开目录，含 GpuVendor 枚举）、IBackdropResolver（详情页背景解析，含 BackdropKind/BackdropSource）、
                     IUmuComponentProvisioner（原生 umu 组件准备契约）
     Services/       GameCatalogService（含首次运行 CreateDefaultFileAsync）、HttpFileDownloader（+HttpFileDownloaderOptions）、
                     ManifestVerifier、UpdatePlanner、GameInstallService、IncrementalUpdateService、PackageInstallerService、
-                    GameUpdateService、GameLauncherService（启动预检/类目化错误/启动日志）、LocalStateService、SystemProcessRunner（输出泵落盘启动日志）、
+                    GameUpdateService（增量优先/不适用回退整包）、DeltaPackageApplier（v2 增量载荷应用：分卷下载→
+                    静态条目→逐文件差分/整文件/只读校验→官方废弃清单→载荷清理；就地替换依据"基文件与目标零重叠"）、
+                    GameLauncherService（启动预检/类目化错误/启动日志）、LocalStateService、SystemProcessRunner（输出泵落盘启动日志）、
                     NetworkProxyManager（全局共享 SocketsHttpHandler，代理切换即时生效）、SpeedLimiter（泄漏桶全局限速）、
                     ByteProgressAggregator（三条下载链共用的字节进度聚合：per-file 累计→全局增量→100ms 节流投递）、
                     AutostartService.cs（IAutostartService + WindowsAutostartService（HKCU Run 注册表）/ LinuxAutostartService（XDG autostart）双实现）、
@@ -42,11 +44,21 @@ src/
                     DependencyInstaller + IDependencyInstaller（下载→解压→字体落位→注册表导入→完成标记五阶段编排；zip 防御解压复用 PackageInstallerService；安装前 builtin 链接预检修复）、
                     WinePrefixBuiltinRepair（Proton 升级悬空 builtin 链接的检测/重链：RepairDangling 存量迁移 + RepointTree 换版即时迁移，prune 同用）、
                     WinePrefixTarget/DependencyException 等模型
-    Utilities/      Hashing（MD5/SHA-256 hex）、Json（统一序列化选项）、FileUtilities（原子写入/只读目标容错/目录树尽力删除/启动日志唯一路径）、
+    Utilities/      Hashing（MD5/SHA-256 hex）、Json（统一序列化选项）、FileUtilities（原子写入/只读目标容错/目录树尽力删除/
+                    启动日志唯一路径 + EnsureNoReparseWithin 沙箱链接复核 / RemoveLinkedLeaf 叶子链接解除，解压与增量落位共用）、
+                    RemoteZipEntryReader（远程 zip 单条目的 HTTP Range 分段读取：尾部→中央目录→条目，
+                    供渠道取官方补丁包内的 delete_files.txt——49 GiB 补丁只下 ~24 KB；含瞬态重试与体量闸）、
+                    SplitVolumeStream（分卷归档的只读拼接流：把 …zip.001/002/… 呈现为一个连续可寻址流供 ZipArchive 读取，不落盘拼接副本）、
+                    SplitVolumeNaming（分卷命名规则：基名 + 三位以上序号 → Ordered/Broken/NotVolumes，渠道识别与旧暂存清单复算共用）、
+                    ZipCentralDirectory（中央目录解析共享件：ZIP64 哨兵回填，远端/本地/AES 内层 zip 三处共用）、
+                    RawDeflate（裸 deflate 解压共享件：带输出上限拒绝膨胀炸弹，远端/AES 两处共用）、
+                    MultiPartZipEntryReader（多卷 zip 条目读取：真实跨度按"下一条目偏移"界定——载荷中央目录尺寸
+                    不可信；TryReadContent 归一 AES 与明文条目）、WinZipAesReader（WinZip AES-256/AE-2 解密：PBKDF2-HMAC-SHA1
+                    + AES-CTR + HMAC 校验，.NET zip 库不支持 AE-x）、
                     LaunchOptionsText（自定义启动选项文本/参数解析与序列化：Steam 启动选项风格 shell 词法 + %command% 切分，严格/宽松解析与环境/参数序列化）
   YetAnotherGameLauncher.Channels.Kuro/         # 库洛渠道（鸣潮）
     KuroChannelApi（index.json/indexFile 解析、CDN 选择、URL 拼接）
-    KuroUrlBuilder（含同文件的 KuroCdnSelector：CDN 节点优先级选择）、HpatchzApplier（HDiffPatch 目录模式；HpatchzApplierOptions 配置路径/超时）、HpatchzProvisioner（hpatchz 自动供给：PATH 无自备时下载社区验证构建 hpatchz.exe 到应用数据目录并 MD5 实测校验；Linux 经 wine 运行（独立 WINEPREFIX），Windows 原生直跑）
+    KuroUrlBuilder（含同文件的 KuroCdnSelector：CDN 节点优先级选择）、HpatchzApplier（HDiffPatch 目录模式 + IFilePatchApplier 单文件模式（终末地 v2 载荷）；HpatchzApplierOptions 配置路径/超时）、HpatchzProvisioner（hpatchz 自动供给：PATH 无自备时下载社区验证构建 hpatchz.exe 到应用数据目录并 MD5 实测校验；Linux 经 wine 运行（独立 WINEPREFIX），Windows 原生直跑）
     KuroSwitchConfigClient（官方运营配置直连：launcher-config → 背景内容两跳）、KuroSwitchConfig（背景投放 DTO）、KuroBackdropResolver（背景解析：运营配置直连，视频 + 首帧图单级回退）
     KuroGachaService（唤取记录：日志地址提取 → 官方接口 → 本地合并缓存）、KuroServiceCollectionExtensions（AddKuroChannel）、Models/（协议 DTO）
   YetAnotherGameLauncher.Channels.Hypergryph/   # GRYPHLINE 渠道（终末地，包式）
@@ -93,7 +105,7 @@ src/
     Views/MainWindow
 tests/
   YetAnotherGameLauncher.TestSupport/           # 共享测试设施（可复用的替身与工具）
-    FakeDownloader / FakePatchApplier / FakeProcessRunner / FakeChannel / FakePlatformInfo / FakeAutostartService / StubHttpHandler / TempDir / TestZip / ManualTimeProvider（虚拟时钟）/
+    FakeDownloader / FakePatchApplier / FakeProcessRunner / FakeChannel / FakePlatformInfo / FakeAutostartService / StubHttpHandler / TempDir / TestZip / Zip64Builder（ZIP64 夹具：哨兵/撒谎两形）/ TestPayload（v2 载荷夹具：AES 片段/明文条目/撒谎中央目录）/ ManualTimeProvider（虚拟时钟）/
     TestFfmpegArchive（FFmpeg 资产微型归档夹具）/ DacExemptionProbe（DAC 豁免前提探针）/ FakeDependencyInstaller（依赖安装器替身：状态/失败/挂起可编程）/
     UpdateProgressCollector（同步收集 UpdateProgress 帧的 IProgress 替身——Progress<T> 在部分测试宿主下 post 不可靠）/ CapturingLogger（内存 ILogger：捕获日志供"失败必须落日志"类断言）
   YetAnotherGameLauncher.Core.Tests/            # 领域层测试
@@ -206,9 +218,11 @@ tests/
 1. 新建 `src/YetAnotherGameLauncher.Channels.<Name>/`，引用 Core。
 2. 实现 `IGameChannelApi`：
    - `GetVersionInfoAsync`：版本 + 差分入口（文件式）或预下载状态（包式）；
-   - `GetManifestAsync`：返回 `GameManifest`（**条目必须带完整下载 URL**；包式渠道置 `EntriesAreArchives=true`）；
+   - `GetManifestAsync`：返回 `GameManifest`（**条目必须带完整下载 URL**；包式渠道置 `EntriesAreArchives=true`，压缩包为同一归档的 `.001..NNN` 分卷时再置 `ArchivesAreSplitVolumes=true` 并按序号排好 `Files`）；
    - `GetIncrementalManifestAsync`：文件式按需实现；包式返回 null；
-   - `GetPredownloadManifestAsync`：包式预下载清单。
+   - `GetPredownloadManifestAsync`：包式预下载清单；
+   - `GetObsoleteFilesAsync`：包式渠道的官方废弃文件清单（更新落地后清理旧版残留；取不到返回 null，清理不得让更新失败）；
+   - `GetDeltaPackageAsync`：包式渠道的 v2 增量计划（终末地 8.72 GiB 替代整包；返回 null 由编排回退整包，不得抛错）。
 3. 提供 `AddXxxChannel(this IServiceCollection)`，以渠道键注册 keyed service。
 4. 在 `App.BuildServices()` 注册渠道；游戏侧只需在 games.json 把 `channel` 指到新键。
 5. **先写测试**：协议 DTO 用真实抓包 fixture，覆盖成功/字段缺失/MD5 不匹配/未知版本。
@@ -279,7 +293,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64   --self-contain
 
 - 终末地（GRYPHLINE）协议无官方文档，字段来自社区逆向，官方启动器更新可能使其失效（隔离在渠道层，修复成本低）。
 - 鸣潮预下载仅在官方窗口期可用；差分入口按版本串精确匹配，跳版本更新自动走全量。
-- 包式渠道的"校验修复"粒度是压缩包（无逐文件清单），依赖解压覆盖语义。
+- 包式渠道的"校验修复"粒度是压缩包（无逐文件清单），依赖解压覆盖语义；后果有二：更新恒为整包重下（终末地 1.6.4 实测数十 GiB 级，官方 `pkg.file_path` 的逐文件清单尚未接入，立案见 artifacts/bugs.md），且解压本身不删除旧文件——上一版残留靠官方废弃清单清理（`GetObsoleteFilesAsync`；渠道/网络给不出清单时残留会保留）。
 - 终末地国服参数来自社区持续归档（ak-endfield-api-archive）而非官方文档，官方若调整协议以归档 fixture 为准修渠道层。
 
 ## 9. 测试覆盖率政策
@@ -294,8 +308,10 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64   --self-contain
   85.09%（2026-09-21 视频体验四连改造后，5336/6271 行——分母随按游戏独占播放器等新代码增长）→
   86.90%（2026-09-22 审计补测与缓存目录迁移后，5452/6274 行——TDD 转型首批补齐
   MWVM 设置 API/Proton 按 tag 下载/VDF 解析/协议工具/主窗口 chrome 47 用例 + 缓存路径策略 3 用例）→
-  **86.90%（2026-09-26 修复清账批后，5895/6784 行——F13-F44 与挂账 suspects 全量修复批，
-  分母随解压防线/DAC 探针等新代码增长，比率与 09-22 持平）**。
+  86.90%（2026-09-26 修复清账批后，5895/6784 行——F13-F44 与挂账 suspects 全量修复批，
+  分母随解压防线/DAC 探针等新代码增长，比率与 09-22 持平）→
+  **87.85%（2026-10-17 终末地更新链路三批（分卷解压/残留清理/v2 增量）+ 七轮复审修复后，8331/9483 行——
+  四套件插桩实跑；分母含分卷拼接流、AES 读取器、增量编排等新代码，未覆盖行集中在防御分支）**。
 - **判定口径**：行覆盖只是必要条件——合格证据 = 行覆盖命中 + 变异击杀（每日冒烟批
   scripts/mutation-smoke.mjs 即该纪律的脚本化；手工变异纪律见 §3.7）。
   测试须双向可证伪：断言真实执行、失败会传播、断被测行为而非镜像自身。

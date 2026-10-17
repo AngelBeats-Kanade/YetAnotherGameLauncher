@@ -61,8 +61,9 @@ flowchart TD
 
 | 抽象 | 职责 | 生产实现 | 测试替身 |
 |---|---|---|---|
-| `IGameChannelApi` | 版本查询 / 全量清单 / 增量清单 / 预下载清单 | `KuroChannelApi`、`GryphlineChannelApi` | `FakeChannel` |
+| `IGameChannelApi` | 版本查询 / 全量清单 / 增量清单 / 预下载清单 / 废弃清单 / v2 增量计划 | `KuroChannelApi`、`GryphlineChannelApi` | `FakeChannel` |
 | `IDownloader` | 单文件下载：Range 续传、重试、MD5/size 校验 | `HttpFileDownloader` | `FakeDownloader`、`StubHttpHandler` |
+| `IFilePatchApplier` | 差分合成（单文件模式：终末地 v2 载荷） | `HpatchzApplier`（HDiffPatch 单文件模式） | `FakeFilePatchApplier` |
 | `IPatchApplier` | 差分合成（目录模式） | `HpatchzApplier`（HDiffPatch） | `FakePatchApplier` |
 | `IProcessRunner` | 外部进程（超时/输出捕获） | `SystemProcessRunner` | `FakeProcessRunner` |
 | `IPlatformInfo` | OS 判定、GPU 厂商探测（NVIDIA 走 /proc 闭源驱动，AMD/Intel 走 /sys/class/drm 的 PCI vendor；路径可注入）、用文件管理器打开目录 | `WindowsPlatformInfo`、`LinuxPlatformInfo`（DI 按 OS 注入） | `FakePlatformInfo` |
@@ -71,7 +72,7 @@ flowchart TD
 | `GameCatalogService` | games.json 加载/校验/原子保存 | — | 配置 fixture |
 | `GameInstallService` | 全量同步（校验→并行下载→事后校验→清理） | — | 假下载器 |
 | `IncrementalUpdateService` | 差分两段式（暂存→应用/回滚） | — | 假补丁器 |
-| `PackageInstallerService` | 包式两段式（下载→解压） | — | 假下载器 |
+| `PackageInstallerService` | 包式两段式（下载→解压；分卷归档拼接单次解压） | — | 假下载器 |
 | `GameUpdateService` | 面向 UI 的编排入口 | — | 全假组件 |
 | `GameLauncherService` | 命令模板解析与启动 | — | `FakeProcessRunner` |
 | `ThemeService` | ThemeVariant 三态切换 | — | — |
@@ -115,6 +116,13 @@ flowchart TD
   自带 wine——CompatTools.FindProtonWine，独立 WINEPREFIX 于 tools/hpatchz/ww-v4.8.0/prefix，
   不污染 ~/.wine）；Windows 原生直跑；已就绪零网络。对齐 FFmpeg 库/umu 组件的自动供给哲学。
 - **包式（终末地）**：清单 = 压缩包（packs），下载解压即安装；无按版本差分，更新=请求新版本整包，预下载=响应 `patch` 节点。
+  解压**只覆盖不删除**，所以更新落地后还要按官方废弃清单清理上一版残留（`IGameChannelApi.GetObsoleteFilesAsync`：
+  带本地版本请求时官方补丁包内的 `delete_files.txt`，经 `RemoteZipEntryReader` 的 Range 分段读取取出；
+  1.5.3→1.6.4 实测 324 条 / 47.72 GiB 旧 VFS 分块）。
+  packs 是**同一归档的字节分卷**（`…official.zip.001…059`，2026-10-17 国服/国际服 1.6.4 实测 59 卷 ≈58GiB）：
+  渠道按序号排序并置 `GameManifest.ArchivesAreSplitVolumes`（序号不连续或多基名即提前拒收，
+  不让用户先下几十 GiB 才在解压阶段失败），安装器经 `SplitVolumeStream` 把各卷拼成一个可寻址流
+  交给 ZipArchive 单次解压——单卷不是合法 zip（中央目录与 EOCD 只在末卷）。
 
 ## 3. 核心流程
 
@@ -266,13 +274,41 @@ flowchart TD
 ```mermaid
 flowchart TD
     A[POST batch_proxy<br/>get_latest_game] --> B[pkg.packs → 包清单<br/>EntriesAreArchives]
-    B --> C[并行下载压缩包<br/>size+MD5 校验]
-    C --> D[Zip 解压进安装目录]
+    B --> B1{同名 .001..NNN<br/>连续分卷?}
+    B1 -- 是 --> B2[按序号排序 +<br/>ArchivesAreSplitVolumes]
+    B1 -- 否 --> C
+    B2 --> C[顺序下载压缩包<br/>size+MD5 校验]
+    C --> D[解压进安装目录<br/>分卷经拼接流单次解压]
     D --> E[清理临时包]
+    B1 -- 缺号/多基名 --> X[提前拒收<br/>下载前报错]
+    B2 -.更新路径.-> P{官方 v2 增量计划<br/>本地版本→最新}
+    P -- 可得 --> Q[下载增量载荷 8.72 GiB<br/>逐文件 HDiffPatch 合成/整文件落位<br/>官方清单校验]
+    P -- 不可得/不适用 --> C
+    Q --> D
+    B2 -.更新路径.-> K[官方废弃清单<br/>补丁包 delete_files.txt<br/>Range 分段读取]
+    K -.解压后删除旧版残留.-> D
     B -.预下载窗口.-> F[patch 节点 → 预下载包清单]
     F --> G[暂存 .yagl/predownload/packages]
     G --> H[用户确认 → 解压落盘 + 更新版本]
 ```
+
+增量要点（2026-10-17 实测与接线）：更新优先走官方 v2 增量载荷（`GetDeltaPackageAsync`，9 卷 ≈8.72 GiB 替代
+整包数十 GiB）：载荷是分卷 zip，条目为"本地头 + 数据"块且**中央目录尺寸不可信**（真实跨度按下一条目偏移界定，
+`MultiPartZipEntryReader`）；差分条目是 WinZip AES-256 内层 zip（口令 = `cd_key`，`WinZipAesReader` 自实现解密），
+解出即标准 HDiffPatch 单文件补丁（hpatchz 应用）；整文件条目直接落位、清单"仅校验"条目确认在盘、
+静态条目（dll/exe 等）覆盖游戏根（`config.ini` → `config.ini.new`）；就地逐文件替换的前提是
+**基文件与目标零重叠**（实测 224/224，无需数十 GiB 暂存）。不适用（基文件缺失/内容不符/分卷异常/清单取不到/**载荷自身不可用**——条目读不出、产出与官方清单
+不符或补丁工具执行失败（`UpdateException`/`Win32Exception`），按 Warning 记录）静默回退整包并清掉载荷暂存。
+
+清理要点：`GetObsoleteFilesAsync` 取不到（渠道不支持/服务器已前移/网络失败）不影响更新，只是
+残留保留到下次；删除只针对清单点名且**不在本次解压产物**中的文件（清单自相矛盾时以产物为准），
+路径必须落在安装目录内且不穿过链接，状态目录 `.yagl` 不删，删空后回收腾空目录；单条失败只记日志继续。
+
+要点：分卷形态（2026-10-17 国服/国际服 1.6.4 实测 `Beyond_Release_…official.zip.001…059`，
+59 卷 ≈58GiB，除末卷每卷 1GiB）下各卷只是同一归档的字节切片，中央目录与 EOCD 只在末卷——
+把单卷当独立 zip 解压必报 `End of Central Directory record could not be found`。
+`SplitVolumeStream` 把各卷呈现为一个连续可寻址流交给 ZipArchive 整体解压一次，
+不落盘拼接副本（数十 GiB 分卷不产生等量临时文件与整卷复制时间）；预下载与两段式应用同源生效。
 
 ### 3.5 更新编排（GameUpdateService）
 
@@ -280,7 +316,7 @@ flowchart TD
 flowchart TD
     A[读取 .yagl/state.json] --> B[channel.GetVersionInfoAsync]
     B --> C[UpdatePlanner.Plan]
-    C -->|未安装 或 无差分| D[全量：文件式 Sync / 包式 Install]
+    C -->|未安装 或 无差分| D[全量：文件式 Sync / 包式 Install<br/>（包式先试 v2 增量载荷，不可用静默回退，见 §3.4）]
     C -->|差分可用| E[增量：Predownload+Apply hpatchz]
     D --> F[事后校验修复]
     E --> F
@@ -293,7 +329,9 @@ flowchart TD
 短路返回的 From==To 摘要以 `predownload_alreadyCurrent` 文案提示"无需重复预下载"。
 预载暂存**重跑不重置**（2026-10-02）：完好暂存文件按 size+MD5 条目级核验跳过、`.temp` 由下载器
 Range 续传（此前整树清空会把已下载的几十 GB 全部作废重下）；清单版本切换的孤儿残留由 Apply 成功时
-的整目录清理回收。下载进度为**字节级实时**（下载器 64KB 回调 → `ByteProgressAggregator` 全局增量 →
+的整目录清理回收。旧版本写入的暂存清单没有分卷标记（字段缺省 = false），Apply 阶段按
+`SplitVolumeNaming` 复算认定并重排（2026-10-17 复审补：否则分卷暂存会退回逐卷解压——正是用户报障
+形态，而此刻几十 GiB 已下载完；序号不连续则明确报错）。下载进度为**字节级实时**（下载器 64KB 回调 → `ByteProgressAggregator` 全局增量 →
 100ms 节流投递，三条链共用；进度口径 = 本地已就绪字节，含续传起点；重跑暂存时的逐块 MD5 核验同样
 经该管道上报字节——判未就绪时负增量回吐，故核验阶段也有进度与速度反馈），UI 端 `GameItemViewModel`
 按 ≥0.4s 采样 EMA 平滑显示下载速度。HTTP 4xx（除 408/429/416 特判）为永久失败、单次终止带状态码

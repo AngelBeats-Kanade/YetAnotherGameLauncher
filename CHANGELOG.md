@@ -9,8 +9,8 @@
 对比度门禁、字号与间距栅格）；依赖安装（Linux，内置思源黑体）；自定义启动选项对齐
 Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻留 + 关闭按钮行为设置
 （退出应用 / 关闭窗口驻留托盘，下载与依赖安装后台继续）；资源包档位、实时下载进度
-与速度；hpatchz 自动供给与鸣潮 krpdiff 增量更新链终局修复。1269 个测试全绿
-（2026-10-03 实测）。
+与速度；hpatchz 自动供给与鸣潮 krpdiff 增量更新链终局修复；终末地更新链路（分卷解压修复、官方废弃清单清理、改走官方 v2 增量补丁）。
+1372 个测试全绿（2026-10-17 实测）。
 
 ### 新增
 
@@ -72,6 +72,15 @@ Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻�
 
 - 可重建缓存（FFmpeg 运行时、背景视频、背景图、唤取缓存）从配置目录迁移到应用数据目录（Linux `~/.local/share/yagl`、Windows `%LOCALAPPDATA%\yagl`，与 Wine prefix 同根）——配置目录只留 `games.json`；旧配置目录下的残留副本不再使用，可手动删除。
 
+### 变更
+
+**终末地更新改走官方增量补丁（2026-10-17，8.72 GiB 替代整包数十 GiB）**
+
+- 更新时优先取官方 v2 增量载荷：带本地版本请求官方接口会返回「本地版本 → 最新版本」的增量计划（9 卷 ≈8.72 GiB，实测 1.5.3→1.6.4），逐文件按官方清单合成——差分条目是标准 HDiffPatch 单文件补丁（经 hpatchz 应用）、整文件条目直接落位、清单点名的"仅校验"文件确认在盘；随后删除官方废弃清单、清理载荷暂存。对比整包 58 GiB，下载量降到约 1/7。
+- 载荷里的差分补丁包在 WinZip AES-256 加密的内层 zip 里（口令由接口下发的 `cd_key` 提供），.NET 的 zip 库不支持该加密，故自实现解密（PBKDF2-HMAC-SHA1 + AES-CTR，含认证码校验）。
+- 不适用时自动回退整包：基文件缺失/内容与官方清单不符、分卷集异常、清单取不到、载荷自身不可用（条目读不出/产出与官方清单不符）等一律静默回退并清掉无用的载荷暂存，用户只会看到下载量变大，不会看到失败（载荷侧异常按 Warning 记录便于诊断）。
+- 载荷里的静态文件（dll/exe 等）整文件覆盖游戏根；`config.ini` 按官方习惯写成 `config.ini.new`。
+
 ### 修复
 
 **界面**
@@ -120,11 +129,32 @@ Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻�
 - 差分源缺失的组不再直接失败：按目标版本全量清单解析该组产物直链后直下自救（size+MD5 校验 + 备份原子替换），被此前失败尝试损坏的安装可自愈；查无直链时保留「全量更新」指引。
 - 重跑预下载时，暂存核验（size+MD5）的逐块读取实时计入进度与速度——与真实下载同一进度管道，暂存齐备的重跑不再 0→100 闪过。
 
+**终末地整包更新解压失败（2026-10-17 用户报障）**
+
+- 更新下载完成后必报「Failed to extract Beyond_Release_…official.zip.001: End of Central Directory record could not be found」：官方 `pkg.packs` 是**同一归档的字节分卷**（1.6.4 实测 59 卷 ≈58GiB，`.zip.001…059`），此前把每一卷当独立 zip 解压——中央目录与 EOCD 只在末卷，逐卷解压必然失败。现由 `SplitVolumeStream` 把各卷呈现为一个连续可寻址流整体解压一次（不落盘拼接副本，数十 GiB 分卷不产生等量临时文件），完整安装与预下载/应用两条链同源生效；已下载的分卷在重试时按 size+MD5 复用，不重下。
+- 分卷序号不连续或多基名（服务器数据自相矛盾）现在提前拒收并给出说明——不再让用户先下几十 GiB 才在解压阶段撞上无分类的 EOCD 报错。
+
+**修复：旧版本预下载的分卷暂存不再作废（2026-10-17）**
+
+- 用旧版本启动器预下载的暂存清单没有分卷标记：应用阶段会退回逐卷解压（正是本次报障的 `End of Central Directory` 形态），而此刻几十 GiB 已下载完。现在按与渠道同一规则复算认定分卷并重排卷序，零下载救回这段存量；像分卷但序号不连续则在解压前明确报错。
+
+**终末地更新后清理旧版残留文件（2026-10-17 用户点名「要清理旧版残留，不然空间占用太大了」）**
+
+- 包式更新只解压覆盖、不删旧文件，上一版残留随版本累积（实测 1.5.3→1.6.4 有 47.72 GiB 旧 VFS 分块不在 1.6.4 归档里）。现在更新落地后按**官方废弃清单**清理：带本地版本请求官方接口会返回"本地版本 → 最新版本"的更新补丁，其中的 `delete_files.txt` 即官方点名要删的文件（1.6.4 实测 324 条）。清单住在约 49 GiB 的补丁包里，读取只经 HTTP Range 分段取尾部/中央目录/该条目（实测 4 个请求 ≈ 24 KB，绝不整包下载）。
+- 清理的防线：只删清单点名且不在本次解压产物里的文件（官方清单与新归档实测零重叠，仍按"产物优先"兜底）；路径必须落在安装目录内且不穿过链接；状态目录 `.yagl` 不删；删除后回收腾空目录；单条失败只记日志继续。清单取不到（渠道不支持/服务器已前移/网络失败）不影响更新，只是残留保留到下次。
+- 顺带修复了真机复现的一次瞬态网络失败会让清理静默失效：远程分段读取对 5xx/408/429/连接中断做线性退避重试（4xx 其余判永久失败），并在服务器忽略 Range 回整包时拒绝缓冲（体量闸）。
+
 **其他**
 
 - 关于页第三方许可清单修正：HDiffPatch 与 FFmpeg.AutoGen 标注 MIT（对照上游 LICENSE / NuGet 许可文件核验），补上 Avalonia.Fonts.Inter（MIT 包，Inter 字体 OFL-1.1）。
 
 ---
+
+### 已知问题
+
+**终末地 1.6.4 拒绝非官方启动器启动（1.6.3 起据社区逆向引入该校验；1.5.3 及更早实测可启动；2026-10-17 实机确认〔1.6.4〕，另行排期）**
+
+- 游戏侧 `U8SDK.dll`/`OneChannelLC.dll` 会校验直接父进程的镜像名与数字签名（`U8StartLaunchCheck`；签名/指纹细节为社区逆向），非官方启动器拉起时弹"请通过官方启动器打开游戏"并以退出码 5 结束；实测"把 `config.ini.new` 换名为 `config.ini`"不解决（实验已做并还原）。**更新功能不受影响**（本启动器仍可把游戏更新到最新版），仅"从此启动器进入游戏"暂不可用；临时绕行 = 用官方启动器启动。详见 `artifacts/bugs.md` 立项记录。
 
 ### English · 0.1.3 — unreleased
 
@@ -138,8 +168,8 @@ section; system tray dwelling with a close-button behavior setting
 and dependency installs kept running); resource quality tier selection;
 real-time byte-granular download progress with a speed readout;
 automatic hpatchz provisioning and the definitive fix for the Wuthering
-Waves krpdiff incremental-update chain. 1269 tests green (measured
-2026-10-03).
+Waves krpdiff incremental-update chain, plus the split-volume extraction
+fix for Endfield package updates plus stale-file cleanup and the delta update path. 1372 tests green (measured 2026-10-17).
 
 **Added — UI overhaul**
 
@@ -244,6 +274,32 @@ Waves krpdiff incremental-update chain. 1269 tests green (measured
 - Clicking "Apply pre-download / Update" on a partially applied install froze the whole UI for minutes (the re-entry check hashed every already-applied group's output with blocking MD5 - 73 GiB measured on the user's machine, on the UI thread). The apply chain now yields to the thread pool on entry, the re-entry group check and staging verification use streaming async MD5 (cancellable), and the verification stage shows a "Verifying" progress phase.
 - Groups whose diff sources are missing no longer fail outright: their outputs are resolved against the target version's full manifest and downloaded directly (size+MD5-verified, atomic backup replacement), so installs damaged by earlier failed attempts self-heal; unresolvable paths keep the "use the full update" guidance.
 - Rerunning a pre-download now streams the staging verification (size+MD5) reads into the same progress/speed pipeline as real downloads - a fully staged rerun no longer jumps from 0 to 100.
+
+**Changed — Endfield updates now use the official delta payload (8.72 GiB instead of tens of GiB, 2026-10-17)**
+
+- Updates prefer the official v2 delta: requesting the update with the local version returns a "local -> latest" delta plan (9 volumes, ~8.72 GiB measured for 1.5.3 -> 1.6.4), and every file is produced from the official manifest - delta entries are standard HDiffPatch single-file patches (applied with hpatchz), full-file entries are placed directly, and manifest entries that only need verification are confirmed on disk; the official obsolete list is then applied and the payload staging is cleaned up. That cuts the download to roughly a seventh of the full package.
+- The per-file patches are wrapped in WinZip AES-256 encrypted inner zips (the password is the `cd_key` from the API); .NET's zip classes cannot read that encryption, so decryption is implemented in-house (PBKDF2-HMAC-SHA1 + AES-CTR with auth-code verification).
+- Falling back is automatic whenever the delta does not apply (missing or modified base files, broken volume set, unreachable manifest, unusable payload such as an unreadable entry or output that does not match the official manifest): the launcher silently falls back to the full package and drops the now-useless payload staging, so the only visible effect is a larger download (payload-side problems are logged as warnings for diagnostics).
+- Static files in the payload (dlls/exe/...) overwrite the game root; `config.ini` is written as `config.ini.new` per the official convention.
+
+**Known issue: Endfield 1.6.4 refuses to start unless launched by the official launcher (the parent-process check was introduced in 1.6.3 per community reverse engineering; 1.5.3 and earlier verified to start; confirmed on a real machine for 1.6.4 on 2026-10-17; separate work item)**
+
+- The game's `U8SDK.dll`/`OneChannelLC.dll` verify the direct parent process image name and digital signature (`U8StartLaunchCheck`; signature/fingerprint details come from community reverse engineering); when started by another launcher it shows "please open the game through the official launcher" and exits with code 5. Renaming `config.ini.new` to `config.ini` does not help (experiment performed and reverted). **Updating is unaffected** (this launcher can still update the game), only starting the game from it is currently unavailable; workaround: start it with the official launcher. See the filed item in `artifacts/bugs.md`.
+
+**Fixed - pre-downloaded split volumes from an older launcher build are no longer wasted (2026-10-17)**
+
+- Staged manifests written by an older build lack the split-volume flag, which used to send the apply step back to per-volume extraction (exactly the `End of Central Directory` failure users reported) after tens of GiB had already been downloaded. The installer now recomputes the classification with the same rule the channel uses, restores the volume order and reuses the download; gapped volume sets fail with a clear error before extraction.
+
+**Fixed — stale files from the previous Endfield version are now cleaned up (user report, 2026-10-17)**
+
+- Package updates only extract over the old install and never delete anything, so leftovers accumulate per version (measured: 47.72 GiB of old VFS chunks from 1.5.3 are absent from the 1.6.4 archive). After an update lands, the launcher now applies the **official obsolete-file list**: requesting the update with the local version returns the "local -> latest" patch whose `delete_files.txt` names exactly the files the vendor drops (324 entries measured on 1.6.4). The list lives inside a ~49 GiB patch archive and is read with HTTP Range requests only - tail, central directory, that one entry (4 requests / ~24 KB measured, never the whole archive).
+- Cleanup defenses: only files named by the list and absent from this run's extraction are deleted (the official list and the new archive share zero entries on real data, and extracted files win regardless); paths must stay inside the install directory and must not traverse links; the `.yagl` state directory is never touched; emptied directories are pruned; a single failed delete only logs and continues. An unavailable list (unsupported channel, server already moved on, network failure) never fails the update - leftovers simply survive until the next one.
+- Also fixed a real-machine transient network failure that silently skipped cleanup: the remote range reader retries 5xx/408/429/connection resets with linear backoff (other 4xx are permanent) and refuses to buffer a whole archive when a server ignores Range.
+
+**Fixed — Endfield package update failed at extraction (user report, 2026-10-17)**
+
+- Updates failed right after downloading with "Failed to extract Beyond_Release_...official.zip.001: End of Central Directory record could not be found": the official `pkg.packs` are **byte volumes of one archive** (59 volumes ~58GiB measured on 1.6.4, `.zip.001...059`), and each volume used to be extracted as if it were a standalone zip - the central directory and EOCD live in the last volume only, so per-volume extraction always fails. `SplitVolumeStream` now presents the volumes as one continuous seekable stream and extracts the archive once (no concatenated copy on disk, so tens of GiB of volumes do not need an equal amount of scratch space), effective on both the fresh-install and predownload/apply chains; already-downloaded volumes are reused (size+MD5) on retry instead of being fetched again.
+- Volume sets whose numbering is not contiguous, or that use multiple base names (self-contradictory server data), are now rejected up front with an explanation - users no longer download tens of GiB first only to hit a categoriless EOCD error at extraction time.
 
 **Fixed — other**
 
