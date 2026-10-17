@@ -116,6 +116,7 @@ public class GryphlineChannelApiTests
         var manifest = await CreateApi().GetManifestAsync(Server(), "1.2.0");
 
         Assert.True(manifest.EntriesAreArchives);
+        Assert.False(manifest.ArchivesAreSplitVolumes); // 多条独立压缩包不是分卷（无 .001..NNN 序号形态）
         Assert.Equal("1.2.0", manifest.Version);
         Assert.Equal(2, manifest.Files.Count);
 
@@ -124,6 +125,57 @@ public class GryphlineChannelApiTests
         Assert.Equal(1024, first.Size);
         Assert.Equal("aaaa", first.Md5);
         Assert.Equal("https://cdn.example.com/game-pkg-0.zip", first.Url);
+    }
+
+    [Fact]
+    public async Task GetManifest_SplitVolumePacks_FlagsManifestAndOrdersByVolumeNumber()
+    {
+        // 终末地实测形态（2026-10-17 国服/国际服 1.6.4 均 59 卷，各卷 1GiB 除末卷）：
+        // packs 是同名归档的字节分卷，单卷不是合法 zip——渠道识别后按序号排序并置
+        // 分卷标记，交安装器拼接解压（响应顺序不可依赖）
+        RegisterBatchResponse("""
+            {
+              "version": "1.6.4", "action": 1,
+              "pkg": {
+                "packs": [
+                  { "url": "https://beyond.example.com/packs/Beyond_1.6.4.zip.003", "md5": "cc", "package_size": "3" },
+                  { "url": "https://beyond.example.com/packs/Beyond_1.6.4.zip.001", "md5": "aa", "package_size": "1" },
+                  { "url": "https://beyond.example.com/packs/Beyond_1.6.4.zip.002", "md5": "bb", "package_size": "2" }
+                ],
+                "total_size": "6"
+              }
+            }
+            """);
+
+        var manifest = await CreateApi().GetManifestAsync(Server(), "1.6.4");
+
+        Assert.True(manifest.ArchivesAreSplitVolumes);
+        Assert.Equal(
+            new[] { "Beyond_1.6.4.zip.001", "Beyond_1.6.4.zip.002", "Beyond_1.6.4.zip.003" },
+            manifest.Files.Select(f => f.Path).ToArray());
+    }
+
+    [Fact]
+    public async Task GetManifest_SplitVolumeNumberingNotContiguous_ThrowsBeforeAnyDownload()
+    {
+        // 分卷序号缺号（缺 002）：拼接结果必然不是合法归档。必须在下几十 GB 之前拒收，
+        // 而不是等到解压阶段才抛出无分类的 EOCD 报错（用户实报形态）
+        RegisterBatchResponse("""
+            {
+              "version": "1.6.4", "action": 1,
+              "pkg": {
+                "packs": [
+                  { "url": "https://beyond.example.com/packs/Beyond_1.6.4.zip.001", "md5": "aa", "package_size": "1" },
+                  { "url": "https://beyond.example.com/packs/Beyond_1.6.4.zip.003", "md5": "cc", "package_size": "3" }
+                ]
+              }
+            }
+            """);
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => CreateApi().GetManifestAsync(Server(), "1.6.4"));
+
+        Assert.Contains("volume", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

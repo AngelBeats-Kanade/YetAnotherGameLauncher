@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using YetAnotherGameLauncher.Channels.Hypergryph.Models;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
+using YetAnotherGameLauncher.Core.Utilities;
 
 namespace YetAnotherGameLauncher.Channels.Hypergryph;
 
@@ -17,8 +18,10 @@ namespace YetAnotherGameLauncher.Channels.Hypergryph;
 /// 缺省回退国际服（launcher.gryphline.com）实测值。
 /// 国服：apiBase=https://launcher.hypergryph.com/api、appcode=6LL0KJuqHBVz33WK、
 /// channel=1、subChannel=1；B 服 channel=2、subChannel=2（2026-09 实测，响应结构与国际服一致）。
+/// packs 为同一归档的字节分卷（…zip.001…059，2026-10-17 国服/国际服 1.6.4 实测），
+/// 置 <see cref="GameManifest.ArchivesAreSplitVolumes"/> 并排序后交安装器拼接解压。
 /// </summary>
-public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger = null) : IGameChannelApi
+public sealed partial class GryphlineChannelApi(HttpClient httpClient, ILogger? logger = null) : IGameChannelApi
 {
     public const string ApiBaseOptionKey = GryphlineProtocol.ApiBaseOptionKey;
     public const string AppcodeOptionKey = "appcode";
@@ -192,7 +195,40 @@ public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger =
                 Url: pack.Url));
         }
 
-        return new GameManifest { Version = version, EntriesAreArchives = true, Files = files };
+        var archivesAreSplitVolumes = TryOrderAsSplitVolumes(files, static file => file.Path);
+        return new GameManifest
+        {
+            Version = version,
+            EntriesAreArchives = true,
+            ArchivesAreSplitVolumes = archivesAreSplitVolumes,
+            Files = files,
+        };
+    }
+
+    /// <summary>
+    /// packs 条目按分卷规则就序：Ordered 时按序号重排并返回 true；NotVolumes 保持原样返回 false；
+    /// Broken 抛 UpdateException 提前拒收（拼接结果必然不是合法归档，否则用户要先下几十 GiB 才在
+    /// 解压阶段撞上无分类的 EOCD 报错）。
+    /// </summary>
+    private static bool TryOrderAsSplitVolumes(List<ManifestFile> files, Func<ManifestFile, string> nameSelector)
+    {
+        var (kind, order) = SplitVolumeNaming.Classify([.. files.Select(nameSelector)]);
+        if (kind == SplitVolumeSet.NotVolumes)
+        {
+            return false;
+        }
+
+        if (kind == SplitVolumeSet.Broken)
+        {
+            throw new UpdateException(
+                "GRYPHLINE packs are not a contiguous single set of split volumes: " +
+                string.Join(", ", files.Select(f => f.Path)));
+        }
+
+        var reordered = order.Select(index => files[index]).ToList();
+        files.Clear();
+        files.AddRange(reordered);
+        return true;
     }
 
     private static string? GetFileNameFromUrl(string url)

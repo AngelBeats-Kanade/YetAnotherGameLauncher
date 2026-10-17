@@ -43,4 +43,13 @@ public sealed class GameManifest
     /// 包式渠道标记（如终末地）：Files 条目不是最终游戏文件，而是下载后需解压进安装目录的压缩包。
     /// </summary>
     public bool EntriesAreArchives { get; init; }
+
+    /// <summary>
+    /// 分卷归档标记（终末地 packs 实测形态，2026-10-17 国服/国际服 1.6.4 均 59 卷 ≈58 GiB）：
+    /// Files 每个条目是同一归档的一片字节分卷（<c>…zip.001/002/…</c>），不是各自独立的压缩包——
+    /// 单片不是合法 zip（中央目录与 EOCD 在末卷），逐片解压必报
+    /// "End of Central Directory record could not be found"，必须先按 <see cref="Files"/> 顺序
+    /// 拼接成一个归档再解压一次（Files 顺序 = 分卷顺序，渠道已按序号排好）。
+    /// </summary>
+    public bool ArchivesAreSplitVolumes { get; init; }
 }

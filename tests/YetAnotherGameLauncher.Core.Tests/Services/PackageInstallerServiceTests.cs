@@ -8,6 +8,7 @@ using YetAnotherGameLauncher.TestSupport;
 
 namespace YetAnotherGameLauncher.Core.Tests.Services;
 
+[Collection("sequential")]
 public class PackageInstallerServiceTests : IDisposable
 {
     private readonly TempDir _tempDir = new();
@@ -282,6 +283,379 @@ public class PackageInstallerServiceTests : IDisposable
     }
 }
 
+/// <summary>
+/// 包式渠道的分卷归档（终末地 packs 实测形态，2026-10-17 国服/国际服 1.6.4 均 59 卷）：
+/// 同名归档的 <c>.zip.001/.002/…</c> 各卷只是字节切片，单卷不是合法 zip（中央目录与
+/// EOCD 在末卷）——必须按分卷顺序拼接成一个归档再解压。
+/// </summary>
+[Collection("sequential")]
+public class PackageInstallerSplitVolumeTests : IDisposable
+{
+    private readonly TempDir _tempDir = new();
+    private readonly FakeDownloader _downloader = new();
+
+    public void Dispose() => _tempDir.Dispose();
+
+    private static readonly byte[] ZipBytes = TestZip.Create(
+        ("game.exe", "MZ-stub-split-volume-payload"),
+        ("data/config.ini", "cfg=1"));
+
+    private static string VolumeUrl(int number) => $"https://cdn.example.com/game.zip.{number:D3}";
+
+    /// <summary>把归档字节切成连续分卷（尽量均分、末卷收尾），模拟 CDN 的 .001/.002… 形态。</summary>
+    private static byte[][] SplitIntoVolumes(byte[] archive, int volumeCount)
+    {
+        var size = (archive.Length + volumeCount - 1) / volumeCount;
+        var volumes = new byte[volumeCount][];
+        for (var i = 0; i < volumeCount; i++)
+        {
+            var start = Math.Min(archive.Length, i * size);
+            volumes[i] = archive[start..Math.Min(archive.Length, start + size)];
+        }
+
+        return volumes;
+    }
+
+    private static GameManifest SplitVolumeManifest(byte[][] volumes) => new()
+    {
+        Version = "1.6.4",
+        EntriesAreArchives = true,
+        ArchivesAreSplitVolumes = true,
+        Files =
+        [
+            .. volumes.Select((volume, index) => new ManifestFile(
+                $"game.zip.{index + 1:D3}", volume.Length, Hashing.Md5Hex(volume), Url: VolumeUrl(index + 1))),
+        ],
+    };
+
+    private void ServeVolumes(byte[][] volumes)
+    {
+        for (var i = 0; i < volumes.Length; i++)
+        {
+            _downloader.Responses[VolumeUrl(i + 1)] = volumes[i];
+        }
+    }
+
+    [Fact]
+    public async Task InstallAsync_SplitVolumes_ExtractsConcatenatedArchiveOnce()
+    {
+        // 用户实报（终末地 1.6.4 更新，59 卷 ≈ 58 GiB）：逐卷当独立 zip 解压，首卷必然
+        // "End of Central Directory record could not be found"（EOCD 只在末卷）。
+        // 红证据即该 UpdateException；修复 = 按分卷顺序拼接后整体解压一次
+        var volumes = SplitIntoVolumes(ZipBytes, 3);
+        ServeVolumes(volumes);
+
+        var ex = await Record.ExceptionAsync(() =>
+            new PackageInstallerService(_downloader).InstallAsync(_tempDir.Path, SplitVolumeManifest(volumes)));
+
+        Assert.Null(ex);
+        Assert.Equal("MZ-stub-split-volume-payload", await File.ReadAllTextAsync(_tempDir.FilePath("game.exe")));
+        Assert.Equal("cfg=1", await File.ReadAllTextAsync(_tempDir.FilePath("data", "config.ini")));
+        Assert.False(Directory.Exists(Path.Combine(_tempDir.Path, ".yagl", "packages"))); // 分卷随包目录清理
+    }
+
+    [Fact]
+    public void ExtractSplitArchive_NoVolumes_ThrowsUpdateException()
+    {
+        // 空分卷集（手改暂存清单等形态）：折算成可操作报错，不给裸 ArgumentException
+        var ex = Record.Exception(() => PackageInstallerService.ExtractSplitArchive([], _tempDir.Path));
+
+        Assert.IsType<UpdateException>(ex);
+        Assert.Contains("no volumes", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ApplyPredownload_SplitVolumes_ExtractsStagedVolumesWithoutReDownload()
+    {
+        // 两段式（预下载 → 应用）同形态：暂存清单 JSON 往返必须保留分卷标记，否则应用阶段
+        // 又退回逐卷解压
+        var volumes = SplitIntoVolumes(ZipBytes, 3);
+        ServeVolumes(volumes);
+        var service = new PackageInstallerService(_downloader);
+
+        await service.PredownloadAsync(_tempDir.Path, SplitVolumeManifest(volumes));
+        var staged = IncrementalUpdateService.TryLoadStagedManifest(_tempDir.Path);
+        Assert.NotNull(staged);
+        Assert.True(staged.ArchivesAreSplitVolumes);
+        var requestsAfterPredownload = _downloader.Requests.Count;
+
+        var ex = await Record.ExceptionAsync(() => service.ApplyPredownloadAsync(_tempDir.Path, staged));
+
+        Assert.Null(ex);
+        Assert.Equal(requestsAfterPredownload, _downloader.Requests.Count); // 应用阶段零下载
+        Assert.Equal("MZ-stub-split-volume-payload", await File.ReadAllTextAsync(_tempDir.FilePath("game.exe")));
+        Assert.False(Directory.Exists(IncrementalUpdateService.PredownloadDir(_tempDir.Path)));
+    }
+
+    [Fact]
+    public async Task ApplyPredownload_StaleManifestWithoutSplitFlag_RestoresSplitExtraction()
+    {
+        // review 非阻塞 3（2026-10-17）：旧版本写入的暂存清单没有分卷标记（字段缺省 = false），
+        // 应用阶段会退回逐卷解压——正是用户报障形态，而此刻几十 GiB 已下载完。
+        // 安装器按同一规则复算：认定分卷 + 按序号重排（这里卷序故意是"响应顺序"），零下载救回
+        var volumes = SplitIntoVolumes(ZipBytes, 3);
+        ServeVolumes(volumes);
+        var service = new PackageInstallerService(_downloader);
+
+        Directory.CreateDirectory(PackageInstallerService.PackagesDir(_tempDir.Path));
+        for (var i = 0; i < volumes.Length; i++)
+        {
+            await File.WriteAllBytesAsync(
+                Path.Combine(PackageInstallerService.PackagesDir(_tempDir.Path), $"game.zip.{i + 1:D3}"), volumes[i]);
+        }
+
+        var responseOrder = new[] { 3, 1, 2 };
+        var stale = new GameManifest
+        {
+            Version = "1.6.4",
+            EntriesAreArchives = true,
+            Files =
+            [
+                .. responseOrder.Select(number => new ManifestFile(
+                    $"game.zip.{number:D3}", volumes[number - 1].Length, Hashing.Md5Hex(volumes[number - 1]),
+                    Url: VolumeUrl(number))),
+            ],
+        };
+        await IncrementalUpdateService.WriteStagedManifestAsync(
+            IncrementalUpdateService.PredownloadDir(_tempDir.Path), stale, CancellationToken.None);
+        var reloaded = IncrementalUpdateService.TryLoadStagedManifest(_tempDir.Path);
+        Assert.NotNull(reloaded);
+        Assert.False(reloaded.ArchivesAreSplitVolumes); // 旧形态：字段缺省 = false
+        var requestsBefore = _downloader.Requests.Count;
+
+        var ex = await Record.ExceptionAsync(() => service.ApplyPredownloadAsync(_tempDir.Path, reloaded));
+
+        Assert.Null(ex);
+        Assert.Equal(requestsBefore, _downloader.Requests.Count); // 已下载的几十 GiB 被复用，零下载
+        Assert.Equal("MZ-stub-split-volume-payload", await File.ReadAllTextAsync(_tempDir.FilePath("game.exe")));
+        Assert.Equal("cfg=1", await File.ReadAllTextAsync(_tempDir.FilePath("data", "config.ini")));
+    }
+
+    [Fact]
+    public async Task ApplyPredownload_StaleManifestWithGappedVolumes_ReportsActionableError()
+    {
+        // 像分卷但序号不连续（.001/.003）：拼接结果必定不是合法归档——在下载/解压前明确报错，
+        // 而不是等解压阶段撞上无分类的 "End of Central Directory" 报错
+        var volumes = SplitIntoVolumes(ZipBytes, 3);
+        ServeVolumes(volumes);
+        var gapped = new GameManifest
+        {
+            Version = "1.6.4",
+            EntriesAreArchives = true,
+            Files =
+            [
+                new ManifestFile("game.zip.001", volumes[0].Length, Hashing.Md5Hex(volumes[0]), Url: VolumeUrl(1)),
+                new ManifestFile("game.zip.003", volumes[2].Length, Hashing.Md5Hex(volumes[2]), Url: VolumeUrl(3)),
+            ],
+        };
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => new PackageInstallerService(_downloader).ApplyPredownloadAsync(_tempDir.Path, gapped));
+
+        Assert.Contains("not a contiguous single set", ex.Message);
+        Assert.Empty(_downloader.Requests); // 一处不落盘、一个字节不下
+    }
+}
+
+/// <summary>
+/// 包式安装的旧版残留清理：官方清单点名的废弃文件（终末地 delete_files.txt）在解压完成后删除，
+/// 并回收腾空的目录；只删归档产物之外的文件（RF-C 同纪律），路径必须落在安装目录内。
+/// </summary>
+[Collection("sequential")]
+public class PackageInstallerObsoleteFilesTests : IDisposable
+{
+    private readonly TempDir _tempDir = new();
+    private readonly FakeDownloader _downloader = new();
+
+    public void Dispose() => _tempDir.Dispose();
+
+    private const string ZipUrl = "https://cdn.example.com/game-0.zip";
+
+    private static readonly byte[] ZipBytes = TestZip.Create(("game.exe", "MZ-stub"));
+
+    private static GameManifest Manifest() => new()
+    {
+        Version = "1.6.4",
+        EntriesAreArchives = true,
+        Files = [new ManifestFile("game.zip", ZipBytes.Length, Hashing.Md5Hex(ZipBytes), Url: ZipUrl)],
+    };
+
+    private string CreateStaleFile(string relative)
+    {
+        var path = _tempDir.FilePath([.. relative.Replace('/', Path.DirectorySeparatorChar).Split(Path.DirectorySeparatorChar)]);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "stale");
+        return path;
+    }
+
+    [Fact]
+    public async Task InstallAsync_EmptyManifestWithObsoleteList_DoesNotDeleteAnything()
+    {
+        // review P2-2（2026-10-17）：清单为空（服务器异常/空转）时绝不按废弃清单清理——
+        // 否则安装目录被清成半空、版本号还会被写新
+        var stale = CreateStaleFile("Endfield_Data/StreamingAssets/VFS/AAAA/old.chk");
+        var emptyManifest = new GameManifest
+        {
+            Version = "1.6.4",
+            EntriesAreArchives = true,
+            Files = [],
+        };
+
+        await new PackageInstallerService(_downloader).InstallAsync(
+            _tempDir.Path, emptyManifest, obsoleteFiles: ["Endfield_Data/StreamingAssets/VFS/AAAA/old.chk"]);
+
+        Assert.True(File.Exists(stale));
+        Assert.Empty(_downloader.Requests);
+    }
+
+    [Fact]
+    public async Task InstallAsync_ObsoleteFiles_DeletedAfterExtraction_AndEmptyDirectoriesPruned()
+    {
+        // 真机形态（2026-10-17 终末地 1.6.4）：官方 delete_files.txt 点名 324 个旧 VFS 分块
+        // （47.72 GiB），逐条删除后其专属分片目录应随之消失
+        _downloader.Responses[ZipUrl] = ZipBytes;
+        var stale = CreateStaleFile("Endfield_Data/StreamingAssets/VFS/AAAA/old.chk");
+        var keep = CreateStaleFile("Endfield_Data/StreamingAssets/VFS/BBBB/keep.chk");
+
+        await new PackageInstallerService(_downloader).InstallAsync(
+            _tempDir.Path, Manifest(), obsoleteFiles: ["Endfield_Data/StreamingAssets/VFS/AAAA/old.chk"]);
+
+        Assert.False(File.Exists(stale));
+        Assert.True(File.Exists(keep));
+        Assert.False(Directory.Exists(_tempDir.FilePath("Endfield_Data", "StreamingAssets", "VFS", "AAAA"))); // 空目录回收
+        Assert.True(Directory.Exists(_tempDir.FilePath("Endfield_Data", "StreamingAssets", "VFS", "BBBB")));
+        Assert.Equal("MZ-stub", await File.ReadAllTextAsync(_tempDir.FilePath("game.exe")));
+    }
+
+    [Fact]
+    public async Task InstallAsync_BackslashObsoletePaths_StillDelete()
+    {
+        // 官方清单用 '/'，但清单不可信：Windows 风格分隔符同样归一后命中
+        _downloader.Responses[ZipUrl] = ZipBytes;
+        var stale = CreateStaleFile("a/b/old.chk");
+
+        await new PackageInstallerService(_downloader).InstallAsync(
+            _tempDir.Path, Manifest(), obsoleteFiles: [@"a\b\old.chk"]);
+
+        Assert.False(File.Exists(stale));
+    }
+
+    [Fact]
+    public async Task InstallAsync_ObsoleteFileAlsoProducedByArchive_Spared()
+    {
+        // 清单自相矛盾（点名的废弃文件恰是本次产物）时以产物为准：删掉刚解压的文件会让
+        // 安装处于缺文件状态且无自愈路径（增量链 RF-C 同纪律）
+        _downloader.Responses[ZipUrl] = ZipBytes;
+
+        await new PackageInstallerService(_downloader).InstallAsync(
+            _tempDir.Path, Manifest(), obsoleteFiles: ["game.exe"]);
+
+        Assert.Equal("MZ-stub", await File.ReadAllTextAsync(_tempDir.FilePath("game.exe")));
+    }
+
+    [Fact]
+    public async Task InstallAsync_ObsoletePathEscapingSandbox_Skipped()
+    {
+        // 清单不可信：绝对路径与 ".." 穿越一律不删——受害者放在安装目录的上一级，任何一条
+        // 被放行都会立刻改写它
+        _downloader.Responses[ZipUrl] = ZipBytes;
+        var outside = Path.GetFullPath(Path.Combine(_tempDir.Path, "..", "escape-victim.txt"));
+        await File.WriteAllTextAsync(outside, "victim");
+        try
+        {
+            await new PackageInstallerService(_downloader).InstallAsync(
+                _tempDir.Path, Manifest(),
+                obsoleteFiles: ["../escape-victim.txt", "./../escape-victim.txt", outside]);
+
+            Assert.Equal("victim", await File.ReadAllTextAsync(outside));
+        }
+        finally
+        {
+            File.Delete(outside);
+        }
+    }
+
+    [Fact]
+    public async Task InstallAsync_MissingObsoleteFile_Tolerated()
+    {
+        // 废弃文件本就不在盘上（用户手删/上次已清）：幂等，不抛错
+        _downloader.Responses[ZipUrl] = ZipBytes;
+
+        await new PackageInstallerService(_downloader).InstallAsync(
+            _tempDir.Path, Manifest(), obsoleteFiles: ["gone/missing.chk"]);
+
+        Assert.Equal("MZ-stub", await File.ReadAllTextAsync(_tempDir.FilePath("game.exe")));
+    }
+
+    [Fact]
+    public async Task InstallAsync_StateDirEntries_NotTouched()
+    {
+        // 清理只针对游戏文件：状态目录（.yagl）即使被清单点名也不得删除
+        _downloader.Responses[ZipUrl] = ZipBytes;
+        var stateFile = Path.Combine(_tempDir.Path, LocalStateService.StateDirName, "keep.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(stateFile)!);
+        await File.WriteAllTextAsync(stateFile, "{}");
+
+        await new PackageInstallerService(_downloader).InstallAsync(
+            _tempDir.Path, Manifest(), obsoleteFiles: [".yagl/keep.json"]);
+
+        Assert.True(File.Exists(stateFile));
+    }
+
+    [Fact]
+    public async Task InstallAsync_ObsoleteFileBehindSymlinkedDirectory_Skipped()
+    {
+        // F19 同族：既有目录符号链接会让删除穿透到沙箱之外——词法路径完全合法（无 ".."）
+        // 也必须拒绝，否则清单点名 linked/victim 就能删掉链接目标里的文件
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("目录符号链接创建在 Windows 需特权，仅 Linux 确定性");
+        }
+
+        _downloader.Responses[ZipUrl] = ZipBytes;
+        var outsideDir = _tempDir.FilePath("outside");
+        Directory.CreateDirectory(outsideDir);
+        var victim = Path.Combine(outsideDir, "victim.chk");
+        await File.WriteAllTextAsync(victim, "victim");
+        Directory.CreateSymbolicLink(_tempDir.FilePath("linked"), outsideDir);
+
+        await new PackageInstallerService(_downloader).InstallAsync(
+            _tempDir.Path, Manifest(), obsoleteFiles: ["linked/victim.chk"]);
+
+        Assert.Equal("victim", await File.ReadAllTextAsync(victim));
+        Assert.True(Directory.Exists(outsideDir)); // 链接目标目录本身也没被回收
+    }
+
+    [Fact]
+    public async Task InstallAsync_ObsoleteFiles_ReportsCleaningUpPhase()
+    {
+        _downloader.Responses[ZipUrl] = ZipBytes;
+        CreateStaleFile("stale/old.chk");
+        var progress = new UpdateProgressCollector();
+
+        await new PackageInstallerService(_downloader).InstallAsync(
+            _tempDir.Path, Manifest(), progress, obsoleteFiles: ["stale/old.chk"]);
+
+        Assert.Contains(progress.Frames, frame => frame.Phase == UpdatePhase.CleaningUp);
+    }
+
+    [Fact]
+    public async Task ApplyPredownloadAsync_ObsoleteFiles_Deleted()
+    {
+        _downloader.Responses[ZipUrl] = ZipBytes;
+        var stale = CreateStaleFile("Endfield_Data/VFS/old.chk");
+        var service = new PackageInstallerService(_downloader);
+        await service.PredownloadAsync(_tempDir.Path, Manifest());
+
+        await service.ApplyPredownloadAsync(
+            _tempDir.Path, Manifest(), obsoleteFiles: ["Endfield_Data/VFS/old.chk"]);
+
+        Assert.False(File.Exists(stale));
+        Assert.Equal("MZ-stub", await File.ReadAllTextAsync(_tempDir.FilePath("game.exe")));
+    }
+}
+
+[Collection("sequential")]
 public class PackageInstallerMissingInfoTests : IDisposable
 {
     private readonly TempDir _tempDir = new();
@@ -316,6 +690,7 @@ public class PackageInstallerMissingInfoTests : IDisposable
     }
 }
 
+[Collection("sequential")]
 public class PackageInstallerCollisionTests : IDisposable
 {
     private readonly TempDir _tempDir = new();

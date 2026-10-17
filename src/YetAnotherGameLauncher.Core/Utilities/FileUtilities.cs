@@ -156,6 +156,43 @@ public static class FileUtilities
         }
     }
 
+    /// <summary>
+    /// 落笔前的叶子复核（F19/F43 同族，2026-10-17 复审）：目标名若已被符号链接（含悬空形态）
+    /// 或硬链接占位，直接写会跟随链接/截断共享 inode——写到沙箱之外。临时名
+    /// （*.yagl-delta/*.yagl-new）在不可信清单的命名空间里，必须当成外部数据对待。
+    /// 命中即删掉这个目录项（删链接本身，不动其指向与同 inode 的其它名），随后写入全新文件。
+    /// </summary>
+    internal static void RemoveLinkedLeaf(string path, ILogger? logger)
+    {
+        if (IsReparsePoint(path))
+        {
+            logger?.LogWarning("Removing a pre-existing link before writing: {Path}", path);
+            DeleteQuiet(path);
+            EnsureLeafUnlinked(path);
+            return;
+        }
+
+        if (File.Exists(path) && HardLinkCount(path) > 1)
+        {
+            logger?.LogWarning("Removing a pre-existing hard-linked file before writing: {Path}", path);
+            DeleteQuiet(path);
+            EnsureLeafUnlinked(path);
+        }
+    }
+
+    /// <summary>
+    /// 解除后复查（复审 nit，2026-10-17）：DeleteQuiet 吞掉失败后若继续写入，就绕过了这道新防线
+    /// （粘滞目录 + 他人所有的链接等极端形态）。仍在链接占位即抛 IOException——宁可响亮失败，
+    /// 也不能让写入跟随链接落到沙箱之外。
+    /// </summary>
+    private static void EnsureLeafUnlinked(string path)
+    {
+        if (IsReparsePoint(path) || (File.Exists(path) && HardLinkCount(path) > 1))
+        {
+            throw new IOException($"Unable to remove a pre-existing link before writing: {path}");
+        }
+    }
+
     /// <summary>路径是否为符号链接/junction 等重解析点；探测失败按否处理（后续删除自会再兜）。
     /// FNFE/DNFE 均是 IOException 子类（官方继承链，2026-09-25 探针复核），"路径不存在"天然被
     /// IOException 臂覆盖——catch 真正防的是 UOE（权限）与竞态 IO 错误；不存在 = 非链接。</summary>
@@ -268,6 +305,35 @@ public static class FileUtilities
         }
 
         return clean;
+    }
+
+    /// <summary>
+    /// 确保落点的父目录链（沙箱根之下）不含既有符号链接/reparse 点（F19）：不可信清单/载荷的
+    /// 产物落点若穿过链接，写出/删除都会落到沙箱之外。命中即抛 IOException 由调用方折算。
+    /// 解压（PackageInstallerService）与增量载荷落位（DeltaPackageApplier）共用。
+    /// </summary>
+    internal static void EnsureNoReparseWithin(string rootDirectory, string target)
+    {
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootDirectory));
+        var fullTarget = Path.GetFullPath(target);
+        if (!fullTarget.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+            && !string.Equals(fullTarget, root, StringComparison.Ordinal))
+        {
+            throw new IOException($"Archive target escapes sandbox: {target}");
+        }
+
+        var current = Path.GetDirectoryName(fullTarget);
+        while (current is not null
+               && !string.Equals(current, root, StringComparison.Ordinal)
+               && current.Length > root.Length)
+        {
+            if (Directory.Exists(current) && IsReparsePoint(current))
+            {
+                throw new IOException($"Archive target traverses a symlinked directory: {current}");
+            }
+
+            current = Path.GetDirectoryName(current);
+        }
     }
 
     /// <summary>gameId 只保留文件名安全字符，其余替换为 '-'；清洗后为空返回 "game"（启动日志等文件名用）。</summary>

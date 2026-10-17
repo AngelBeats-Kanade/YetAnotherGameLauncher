@@ -18,20 +18,24 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
     public static string PackagesDir(string installDir) => Path.Combine(
         installDir, LocalStateService.StateDirName, IncrementalUpdateService.PredownloadDirName, "packages");
 
-    /// <summary>下载并解压全部压缩包（完整安装/更新）。</summary>
+    /// <summary>下载并解压全部压缩包（完整安装/更新）。obsoleteFiles = 官方点名的废弃文件相对路径
+    /// （渠道 GetObsoleteFilesAsync，可为 null）：解压完成后删除，回收上一版本的残留
+    /// （终末地旧 VFS 分块实测 47.72 GiB）。</summary>
     public async Task InstallAsync(
         string installDir,
         GameManifest packageManifest,
         IProgress<UpdateProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<string>? obsoleteFiles = null)
     {
         var packagesDir = Path.Combine(installDir, LocalStateService.StateDirName, "packages");
         var staged = await DownloadPackagesAsync(packagesDir, packageManifest, progress, cancellationToken).ConfigureAwait(false);
 
         progress?.Report(new UpdateProgress(UpdatePhase.Patching, 0, 0, packageManifest.Files.Count, packageManifest.Files.Count, null));
-        foreach (var (manifestFile, archivePath) in staged)
+        var produced = ExtractStagedArchives(staged, packageManifest.ArchivesAreSplitVolumes, installDir);
+        DeleteObsoleteFiles(installDir, obsoleteFiles, produced, progress, logger);
+        foreach (var (_, archivePath) in staged)
         {
-            ExtractArchive(archivePath, installDir, manifestFile.Path);
             // 刚写完的 zip 可能正被杀软扫描锁定（Windows）：删不掉就留给下方目录清理重试，别打断安装
             FileUtilities.DeleteQuiet(archivePath);
         }
@@ -92,14 +96,21 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
         string installDir,
         GameManifest packageManifest,
         IProgress<UpdateProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<string>? obsoleteFiles = null)
     {
+        // 旧版本写入的暂存清单没有 ArchivesAreSplitVolumes（字段缺省 = false）：分卷暂存会在
+        // 应用时被逐卷当独立 zip 解压——正是"End of Central Directory record could not be found"
+        // 的用户报障形态，而此刻几十 GiB 已经下载完。按同一分卷规则复算救回这段存量状态
+        // （review 非阻塞 3，2026-10-17）
+        var manifest = EnsureSplitVolumeManifest(packageManifest);
         var staging = IncrementalUpdateService.PredownloadDir(installDir);
         var stagedDir = PackagesDir(installDir);
-        var total = packageManifest.Files.Count;
+        var total = manifest.Files.Count;
 
         progress?.Report(new UpdateProgress(UpdatePhase.Patching, 0, 0, 0, total, null));
-        foreach (var (file, index) in packageManifest.Files.Select((f, i) => (f, i)))
+        var staged = new List<(ManifestFile File, string ArchivePath)>(total);
+        foreach (var (file, index) in manifest.Files.Select((f, i) => (f, i)))
         {
             ManifestChecks.EnsureDownloadUrl(file.Url, "Package entry", file.Path);
 
@@ -112,16 +123,214 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
             }
 
             progress?.Report(new UpdateProgress(UpdatePhase.Patching, 0, 0, index, total, file.Path));
-            ExtractArchive(archivePath, installDir, file.Path);
+            staged.Add((file, archivePath));
         }
+
+        // 解压统一在全部条目就绪之后：分卷归档必须凑齐所有分卷才能拼成一个流
+        var produced = ExtractStagedArchives(staged, manifest.ArchivesAreSplitVolumes, installDir);
+        DeleteObsoleteFiles(installDir, obsoleteFiles, produced, progress, logger);
 
         if (Directory.Exists(staging))
         {
             FileUtilities.TryDeleteDirectory(staging, logger);
         }
 
-        logger?.LogInformation("Predownload applied: {Version} ({Count} archives)", packageManifest.Version, total);
+        logger?.LogInformation("Predownload applied: {Version} ({Count} archives)", manifest.Version, total);
         progress?.Report(new UpdateProgress(UpdatePhase.Done, 0, 0, total, total, null));
+    }
+
+    /// <summary>
+    /// 旧暂存清单的分卷标记复算（review 非阻塞 3，2026-10-17）：字段缺失 = false 会让分卷暂存
+    /// 退回逐卷解压（用户报障形态），而此刻下载已完成。按 <see cref="SplitVolumeNaming"/>
+    /// （渠道共用同一规则）复算：Ordered → 认定分卷并重排（老清单的卷序可能是服务器响应顺序）；
+    /// Broken → 明确报错（拼接结果必定不是合法归档，早报好过"下完几十 GiB 后 EOCD 报错"）。
+    /// 无序号形态/单文件/已是分卷标记的原样返回。
+    /// </summary>
+    private GameManifest EnsureSplitVolumeManifest(GameManifest manifest)
+    {
+        if (!manifest.EntriesAreArchives || manifest.ArchivesAreSplitVolumes || manifest.Files.Count < 2)
+        {
+            return manifest;
+        }
+
+        var (kind, order) = SplitVolumeNaming.Classify([.. manifest.Files.Select(f => f.Path)]);
+        if (kind == SplitVolumeSet.NotVolumes)
+        {
+            return manifest;
+        }
+
+        if (kind == SplitVolumeSet.Broken)
+        {
+            throw new UpdateException(
+                "Staged predownload looks like split volumes but is not a contiguous single set: " +
+                string.Join(", ", manifest.Files.Select(f => f.Path)) + "; re-run predownload.");
+        }
+
+        logger?.LogInformation(
+            "Staged manifest without the split-volume flag restored as split volumes: {Count} volumes.", manifest.Files.Count);
+        return new GameManifest
+        {
+            Version = manifest.Version,
+            Files = [.. order.Select(index => manifest.Files[index])],
+            Groups = manifest.Groups,
+            DeleteFiles = manifest.DeleteFiles,
+            EntriesAreArchives = manifest.EntriesAreArchives,
+            ArchivesAreSplitVolumes = true,
+        };
+    }
+
+    /// <summary>
+    /// 解压一批已就绪的暂存包并返回产物（归一相对路径）：常规清单逐包解压；分卷清单
+    /// （<see cref="GameManifest.ArchivesAreSplitVolumes"/>）把各卷按清单顺序整体拼接后解压一次——
+    /// 分卷单取不是合法 zip（中央目录与 EOCD 在末卷）。产物集合供废弃文件清理扣除
+    /// （清单自相矛盾点名产物时不得删除，RF-C 同纪律）。
+    /// </summary>
+    private static List<string> ExtractStagedArchives(
+        IReadOnlyList<(ManifestFile File, string ArchivePath)> staged,
+        bool archivesAreSplitVolumes,
+        string installDir)
+    {
+        if (archivesAreSplitVolumes)
+        {
+            return ExtractSplitArchive([.. staged.Select(s => s.ArchivePath)], installDir);
+        }
+
+        var produced = new List<string>();
+        foreach (var (file, archivePath) in staged)
+        {
+            produced.AddRange(ExtractArchive(archivePath, installDir, file.Path));
+        }
+
+        return produced;
+    }
+
+    /// <summary>
+    /// 删除官方点名的废弃文件（渠道 GetObsoleteFilesAsync，终末地
+    /// delete_files.txt 实测 324 条 / 47.72 GiB）并回收腾空的目录：不清理会让旧版残留随版本累积
+    /// （包式渠道无逐文件清单，解压只覆盖不删除）。
+    /// 防线：路径归一后必须落在安装目录内且不穿过链接（清单不可信）；本次解压产物一律不删
+    /// （清单自相矛盾时以产物为准）；状态目录（<c>.yagl</c>）不删。单条失败只记日志继续
+    /// （Windows 占用等），清理失败不得让已完成的解压整体回滚。
+    /// </summary>
+    internal static int DeleteObsoleteFiles(
+        string installDir,
+        IReadOnlyList<string>? obsoleteFiles,
+        IReadOnlyCollection<string> produced,
+        IProgress<UpdateProgress>? progress,
+        ILogger? logger)
+    {
+        if (obsoleteFiles is not { Count: > 0 })
+        {
+            return 0;
+        }
+
+        if (produced.Count == 0)
+        {
+            // 本轮没有任何产物落地（清单为空/下载空转）：绝不按删除清单清理——否则会把安装目录
+            // 清成半空、随后版本号还被写新（review P2-2，2026-10-17）
+            logger?.LogWarning("Obsolete file cleanup skipped: this run produced no files.");
+            return 0;
+        }
+
+        progress?.Report(new UpdateProgress(UpdatePhase.CleaningUp, 0, 0, 0, obsoleteFiles.Count, null));
+        var producedSet = produced.ToHashSet(StagedPathComparer);
+        var deleted = 0;
+        var skipped = 0;
+        foreach (var obsolete in obsoleteFiles)
+        {
+            var normalized = NormalizeRelativePath(obsolete);
+            if (normalized is null
+                || producedSet.Contains(normalized)
+                || normalized.StartsWith(LocalStateService.StateDirName + "/", StringComparison.Ordinal))
+            {
+                skipped++;
+                continue;
+            }
+
+            var target = Path.Combine([installDir, .. normalized.Split('/')]);
+            try
+            {
+                // 既有目录符号链接会让删除穿透到沙箱之外（F19 同族）：命中即跳过该条
+                FileUtilities.EnsureNoReparseWithin(installDir, target);
+            }
+            catch (IOException ex)
+            {
+                // 沙箱复核兜住链接与拼合差异（词法 ".." 拒绝是前一层防线）
+                logger?.LogWarning("Skip obsolete file outside the sandbox or behind a link: {Path} ({Reason})", normalized, ex.Message);
+                skipped++;
+                continue;
+            }
+
+            try
+            {
+                if (!File.Exists(target))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                File.Delete(target);
+                deleted++;
+                PruneEmptyParents(installDir, Path.GetDirectoryName(target));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                logger?.LogWarning(ex, "Failed to delete obsolete file: {Path}", normalized);
+                skipped++;
+            }
+        }
+
+        logger?.LogInformation(
+            "Obsolete file cleanup finished: deleted {Deleted}, skipped {Skipped} (of {Total} listed).",
+            deleted, skipped, obsoleteFiles.Count);
+        return deleted;
+    }
+
+    /// <summary>
+    /// 删除废弃文件后回收腾空的目录：自落点父目录向上逐级删空目录，遇到非空/链接/安装根即停
+    /// （终末地旧分块删除后遗留成百上千个空分片目录）。
+    /// </summary>
+    private static void PruneEmptyParents(string installDir, string? directory)
+    {
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(installDir));
+        var current = directory;
+        while (current is not null
+               && current.Length > root.Length
+               && current.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+        {
+            try
+            {
+                if (!Directory.Exists(current)
+                    || FileUtilities.IsReparsePoint(current)
+                    || Directory.EnumerateFileSystemEntries(current).Any())
+                {
+                    return;
+                }
+
+                Directory.Delete(current);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return; // 目录被占用/删不动：留给下次清理，不是错误
+            }
+
+            current = Path.GetDirectoryName(current);
+        }
+    }
+
+    /// <summary>清单路径归一：''→'/'、去首部 '/'、去空段；含 ".." 或（归一后仍）为根路径的拒绝（返回 null）。</summary>
+    private static string? NormalizeRelativePath(string path)
+    {
+        var normalized = path.Replace('\\', '/');
+        if (Path.IsPathRooted(normalized))
+        {
+            return null;
+        }
+
+        var segments = normalized.Split('/').Where(segment => segment.Length > 0).ToArray();
+        return segments.Length == 0 || segments.Contains("..", StringComparer.Ordinal)
+            ? null
+            : string.Join('/', segments);
     }
 
     /// <summary>压缩包在包目录内的落盘路径（清单里的反斜杠路径取末段文件名）。</summary>
@@ -220,7 +429,7 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
 
     /// <summary>防御式 zip 解压（体量上限/路径逃逸/异常折算 UpdateException），包式渠道安装与
     /// 外部工具供给（如 hpatchz 自动下载，Channels.Kuro）共用。</summary>
-    public static void ExtractArchive(string archivePath, string installDir, string displayName,
+    public static List<string> ExtractArchive(string archivePath, string installDir, string displayName,
         long? maxExtractBytes = null)
     {
         try
@@ -228,68 +437,8 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
             // 体量上限取归档尺寸置于折算 try 内（D1）：归档被删/路径拼错的 FNFE（⊂ IOException）
             // 否则从 try 之前裸穿，与"除取消外全部折算"的分类纪律不一致
             var cap = maxExtractBytes ?? DeriveMaxExtractBytes(new FileInfo(archivePath).Length);
-            long declaredTotal = 0;
-            // 不用 ZipFile.ExtractToDirectory：它在 Unix 上把含 '\' 的条目名当字面文件名
-            // （dotnet/runtime#98247），Windows 打包器产出的包会在 Linux 解成安装根目录下的
-            // 一堆平铺垃圾文件。手动遍历统一归一 '/'，顺带做沙箱校验与只读属性处理。
             using var archive = ZipFile.OpenRead(archivePath);
-            foreach (var entry in archive.Entries)
-            {
-                // 目录条目（null）由 ResolveEntryTarget 校验后就地建目录；
-                // 调用方不得再用未清洗的原始条目名拼接，否则 rooted 名经 Path.Combine 逃出沙箱
-                var target = ResolveEntryTarget(installDir, entry.FullName);
-                if (target is null)
-                {
-                    continue;
-                }
-
-                // 体量记账：zip bomb 的体量在中央目录的声明尺寸可见，累计超阈值即拒，
-                // 超限条目不落盘（加固项，artifacts/bugs.md——威胁模型下路径有防线、体量原本没有）
-                declaredTotal += entry.Length;
-                if (declaredTotal > cap)
-                {
-                    throw new IOException(
-                        $"Archive declares {declaredTotal} bytes total, exceeding extraction cap {cap}: {displayName}");
-                }
-
-                // 既有目录符号链接会让词法沙箱失效：CreateDirectory 对链接目录是 no-op，
-                // ExtractToFile 经链接写出沙箱（F19——词法防穿越管不住 reparse 点）
-                EnsureNoReparseWithin(installDir, target);
-
-                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                // 目标自身是文件符号链接同样写穿：ExtractToFile 的 open(O_CREAT) 跟随链接
-                // 改写/创建沙箱外的真实文件（复审 R2 /tmp 探针实锤，含悬空链接变体）——
-                // 检查必须无条件执行：Windows 的 File.Exists 对悬空链接为 false，放在其门内
-                // 会让悬空形态绕过检查
-                if (FileUtilities.IsReparsePoint(target))
-                {
-                    throw new IOException($"Archive target is an existing symlink: {target}");
-                }
-
-                if (File.Exists(target))
-                {
-                    // 硬链接没有 ReparsePoint 标记（F43）：File.GetAttributes 返回共享 inode 的
-                    // 属性，上述符号链接防线对它全部失效——ExtractToFile(overwrite:true) 沿既有
-                    // inode 写会截断改写同卷沙箱外的真实文件。链接数 > 1 = 与沙箱外共享 inode，拒绝
-                    if (FileUtilities.HardLinkCount(target) > 1)
-                    {
-                        throw new IOException($"Archive target is an existing hard link: {target}");
-                    }
-
-                    // 只读属性会让 overwrite 失败（Windows），就地解除
-                    File.SetAttributes(target, File.GetAttributes(target) & ~FileAttributes.ReadOnly);
-                }
-
-                entry.ExtractToFile(target, overwrite: true);
-
-                // 中央目录可能谎报声明尺寸（定制炸弹声明 10 实际吐 GB 级）：写完实测对账，
-                // 撒谎条目在写入后立即暴露（诚实打包的条目两者恒等）
-                if (new FileInfo(target).Length != entry.Length)
-                {
-                    throw new IOException(
-                        $"Archive entry {entry.FullName} declares {entry.Length} bytes but wrote {new FileInfo(target).Length}");
-                }
-            }
+            return ExtractEntries(archive, installDir, displayName, cap);
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
         {
@@ -298,11 +447,121 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
     }
 
     /// <summary>
+    /// 分卷归档解压（<see cref="GameManifest.ArchivesAreSplitVolumes"/>，终末地 packs 形态）：
+    /// 把按分卷顺序排列的物理文件经 <see cref="SplitVolumeStream"/> 呈现为一个可寻址流交给
+    /// ZipArchive，不落盘拼接副本（数十 GB 分卷归档不产生等量临时文件与复制时间）。
+    /// 体量上限按分卷合计推导，防线与 <see cref="ExtractArchive"/> 共用同一解压循环。
+    /// </summary>
+    internal static List<string> ExtractSplitArchive(IReadOnlyList<string> volumePaths, string installDir)
+    {
+        try
+        {
+            if (volumePaths.Count == 0)
+            {
+                throw new IOException("Split archive has no volumes.");
+            }
+
+            // 体量上限取分卷合计尺寸，同样置于折算 try 内（D1）：分卷缺失的 FNFE 一并折算
+            long totalBytes = 0;
+            foreach (var path in volumePaths)
+            {
+                totalBytes += new FileInfo(path).Length;
+            }
+
+            using var archive = new ZipArchive(new SplitVolumeStream(volumePaths), ZipArchiveMode.Read);
+            return ExtractEntries(archive, installDir, SplitArchiveDisplayName(volumePaths), DeriveMaxExtractBytes(totalBytes));
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
+        {
+            throw new UpdateException($"Failed to extract {SplitArchiveDisplayName(volumePaths)}: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>分卷归档的展示名：末卷名去掉 <c>.NNN</c> 序号（…official.zip.059 → …official.zip）。</summary>
+    private static string SplitArchiveDisplayName(IReadOnlyList<string> volumePaths) =>
+        volumePaths.Count == 0 ? "split archive" : Path.GetFileNameWithoutExtension(volumePaths[^1]);
+
+    /// <summary>
+    /// 归档条目循环：体量记账（zip bomb）、沙箱与链接防线、逐条目落盘与声明尺寸对账。
+    /// 单文件归档与分卷拼接流共用（调用方负责打开归档流并把异常折算 UpdateException）。
+    /// </summary>
+    private static List<string> ExtractEntries(ZipArchive archive, string installDir, string displayName, long cap)
+    {
+        long declaredTotal = 0;
+        var produced = new List<string>(archive.Entries.Count);
+        // 不用 ZipFile.ExtractToDirectory：它在 Unix 上把含 '\' 的条目名当字面文件名
+        // （dotnet/runtime#98247），Windows 打包器产出的包会在 Linux 解成安装根目录下的
+        // 一堆平铺垃圾文件。手动遍历统一归一 '/'，顺带做沙箱校验与只读属性处理。
+        foreach (var entry in archive.Entries)
+        {
+            // 目录条目（null）由 ResolveEntryTarget 校验后就地建目录；
+            // 调用方不得再用未清洗的原始条目名拼接，否则 rooted 名经 Path.Combine 逃出沙箱
+            if (ResolveEntryTarget(installDir, entry.FullName) is not { } resolved)
+            {
+                continue;
+            }
+
+            var target = resolved.Target;
+            produced.Add(resolved.Relative);
+
+            // 体量记账：zip bomb 的体量在中央目录的声明尺寸可见，累计超阈值即拒，
+            // 超限条目不落盘（加固项，artifacts/bugs.md——威胁模型下路径有防线、体量原本没有）
+            declaredTotal += entry.Length;
+            if (declaredTotal > cap)
+            {
+                throw new IOException(
+                    $"Archive declares {declaredTotal} bytes total, exceeding extraction cap {cap}: {displayName}");
+            }
+
+            // 既有目录符号链接会让词法沙箱失效：CreateDirectory 对链接目录是 no-op，
+            // ExtractToFile 经链接写出沙箱（F19——词法防穿越管不住 reparse 点）
+            FileUtilities.EnsureNoReparseWithin(installDir, target);
+
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            // 目标自身是文件符号链接同样写穿：ExtractToFile 的 open(O_CREAT) 跟随链接
+            // 改写/创建沙箱外的真实文件（复审 R2 /tmp 探针实锤，含悬空链接变体）——
+            // 检查必须无条件执行：Windows 的 File.Exists 对悬空链接为 false，放在其门内
+            // 会让悬空形态绕过检查
+            if (FileUtilities.IsReparsePoint(target))
+            {
+                throw new IOException($"Archive target is an existing symlink: {target}");
+            }
+
+            if (File.Exists(target))
+            {
+                // 硬链接没有 ReparsePoint 标记（F43）：File.GetAttributes 返回共享 inode 的
+                // 属性，上述符号链接防线对它全部失效——ExtractToFile(overwrite:true) 沿既有
+                // inode 写会截断改写同卷沙箱外的真实文件。链接数 > 1 = 与沙箱外共享 inode，拒绝
+                if (FileUtilities.HardLinkCount(target) > 1)
+                {
+                    throw new IOException($"Archive target is an existing hard link: {target}");
+                }
+
+                // 只读属性会让 overwrite 失败（Windows），就地解除
+                File.SetAttributes(target, File.GetAttributes(target) & ~FileAttributes.ReadOnly);
+            }
+
+            entry.ExtractToFile(target, overwrite: true);
+
+            // 中央目录可能谎报声明尺寸（定制炸弹声明 10 实际吐 GB 级）：写完实测对账，
+            // 撒谎条目在写入后立即暴露（诚实打包的条目两者恒等）
+            if (new FileInfo(target).Length != entry.Length)
+            {
+                throw new IOException(
+                    $"Archive entry {entry.FullName} declares {entry.Length} bytes but wrote {new FileInfo(target).Length}");
+            }
+        }
+
+        return produced;
+    }
+
+    /// <summary>
     /// 解压条目落点：归一 '\'→'/'、去首部 '/'，拒绝 ".." 段与盘符根（清单不可信，防穿越——
     /// 目录条目与文件条目一视同仁）；目录条目（含空名）在校验通过后就地建目录并返回 null，
-    /// 普通条目返回安装目录内的绝对路径。所有路径拼接只使用校验后的分段。
+    /// 普通条目返回（安装目录内绝对落点, 归一相对路径）——相对路径供废弃文件清理扣除本次产物。
+    /// 所有路径拼接只使用校验后的分段。
     /// </summary>
-    private static string? ResolveEntryTarget(string installDir, string entryName)
+    private static (string Target, string Relative)? ResolveEntryTarget(string installDir, string entryName)
     {
         var normalized = entryName.Replace('\\', '/').TrimStart('/');
         var segments = normalized.Split('/').Where(p => p.Length > 0).ToArray();
@@ -314,40 +573,12 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
         if (segments.Length == 0 || normalized.EndsWith('/'))
         {
             var dirTarget = Path.Combine([installDir, .. segments]);
-            EnsureNoReparseWithin(installDir, dirTarget); // 目录条目同样不得穿过既有链接（F19）
+            FileUtilities.EnsureNoReparseWithin(installDir, dirTarget); // 目录条目同样不得穿过既有链接（F19）
             Directory.CreateDirectory(dirTarget);
             return null;
         }
 
-        return Path.Combine([installDir, .. segments]);
+        return (Path.Combine([installDir, .. segments]), string.Join('/', segments));
     }
 
-    /// <summary>
-    /// 确保落点的父目录链（安装根之下）不含既有符号链接/reparse 点（F19）：清单不可信威胁
-    /// 模型下，游戏自带或搬盘手法留下的目录链接会让解压产物落到沙箱之外。命中即抛
-    /// IOException（由 ExtractArchive 统一折算 UpdateException）。
-    /// </summary>
-    private static void EnsureNoReparseWithin(string installDir, string target)
-    {
-        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(installDir));
-        var fullTarget = Path.GetFullPath(target);
-        if (!fullTarget.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal)
-            && !string.Equals(fullTarget, root, StringComparison.Ordinal))
-        {
-            throw new IOException($"Archive target escapes sandbox: {target}");
-        }
-
-        var current = Path.GetDirectoryName(fullTarget);
-        while (current is not null
-               && !string.Equals(current, root, StringComparison.Ordinal)
-               && current.Length > root.Length)
-        {
-            if (Directory.Exists(current) && FileUtilities.IsReparsePoint(current))
-            {
-                throw new IOException($"Archive target traverses a symlinked directory: {current}");
-            }
-
-            current = Path.GetDirectoryName(current);
-        }
-    }
 }
