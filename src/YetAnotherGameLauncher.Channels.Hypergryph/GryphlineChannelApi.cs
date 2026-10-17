@@ -34,6 +34,22 @@ public sealed partial class GryphlineChannelApi(HttpClient httpClient, ILogger? 
     /// <summary>官方补丁包内的废弃文件清单条目名（delete_files.txt）。</summary>
     private const string ObsoleteListEntryName = "delete_files.txt";
 
+    /// <summary>v2 载荷里差分条目的前缀（清单的 patch 字段相对它，2026-10-17 实测）。</summary>
+    private const string DeltaPatchEntryPrefix = "vfs_files/vfs_patch/";
+
+    /// <summary>v2 载荷里不属于游戏内容的条目前缀（差分与 VFS 节点都不走"静态整文件"复制）。</summary>
+    private static readonly string[] DeltaStaticExcludedPrefixes = ["vfs_files/", "diff_"];
+
+    /// <summary>v2 载荷里的清单类条目（不是游戏文件，不落位）。</summary>
+    private static readonly string[] DeltaStaticExcludedNames =
+        ["patch.json", "delete_files.txt", "game_files", "package_files", "verify_files", "verify_files.json"];
+
+    /// <summary>v2 载荷静态条目的目标改写：官方把 config.ini 写成 config.ini.new
+    /// （社区参考实现同款行为，2026-10-17 沿用；真机验收时观察游戏是否自行接管）。</summary>
+    private static readonly Dictionary<string, string> DeltaStaticRewrites = new(StringComparer.Ordinal)
+    {
+        ["config.ini"] = "config.ini.new",
+    };
     public const string DefaultChannelId = "6";
     public const string DefaultSubChannelId = "9999";
 
@@ -170,6 +186,125 @@ public sealed partial class GryphlineChannelApi(HttpClient httpClient, ILogger? 
             return null;
         }
     }
+
+    /// <summary>
+    /// v2 增量更新计划（终末地实测形态）：带本地版本请求 get_latest_game，patch 节点给出一条
+    /// "本地版本 → 最新版本"的增量载荷（9 卷 ≈8.72 GiB，对比整包 58 GiB）与明文清单
+    /// （v2_patch_info_url）；清单逐文件给出目标 md5/size 与差分基文件。
+    /// 无法给出计划（无补丁节点/字段缺失/服务器已前移/分卷集异常/网络失败）返回 null，
+    /// 由调用方回退整包更新——这里不抛错（整包永远可用）。
+    /// </summary>
+    public async Task<DeltaPackagePlan?> GetDeltaPackageAsync(
+        GameServer server, string fromVersion, string toVersion, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(fromVersion)
+            || string.IsNullOrEmpty(toVersion)
+            || string.Equals(fromVersion, toVersion, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        try
+        {
+            var response = await PostGetLatestGameAsync(server, cancellationToken, fromVersion).ConfigureAwait(false);
+            if (!string.Equals(response.Version, toVersion, StringComparison.Ordinal))
+            {
+                logger?.LogInformation(
+                    "Delta package skipped: server serves {Served}, target was {Target}.", response.Version, toVersion);
+                return null;
+            }
+
+            if (response.Patch is not { ValueKind: JsonValueKind.Object } patch)
+            {
+                return null;
+            }
+
+            EndfieldPatchNode? node;
+            try
+            {
+                node = patch.Deserialize<EndfieldPatchNode>(GryphlineProtocol.JsonOptions);
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+
+            if (node is null
+                || string.IsNullOrEmpty(node.CdKey)
+                || node.Patches is not { Count: > 0 } volumeDtos
+                || string.IsNullOrEmpty(node.V2PatchInfoUrl))
+            {
+                return null;
+            }
+
+            var (kind, order) = SplitVolumeNaming.Classify([.. volumeDtos.Select(v => VolumeName(v.Url))]);
+            if (kind != SplitVolumeSet.Ordered)
+            {
+                logger?.LogWarning("Delta package skipped: payload volumes are not a contiguous split set.");
+                return null;
+            }
+
+            var volumes = order.Select(index => volumeDtos[index])
+                .Select(v => new DeltaPackageVolume(v.Url, ParseSize(v.PackageSize), v.Md5))
+                .ToArray();
+
+            using var manifestResponse = await httpClient.GetAsync(node.V2PatchInfoUrl, cancellationToken).ConfigureAwait(false);
+            if (!manifestResponse.IsSuccessStatusCode)
+            {
+                logger?.LogWarning("Delta manifest fetch failed with {Status}.", (int)manifestResponse.StatusCode);
+                return null;
+            }
+
+            var manifest = await manifestResponse.Content
+                .ReadFromJsonAsync<EndfieldPatchManifest>(GryphlineProtocol.JsonOptions, cancellationToken).ConfigureAwait(false);
+            if (manifest?.Files is not { Count: > 0 } manifestFiles
+                || string.IsNullOrEmpty(manifest.VfsBasePath)
+                || !string.Equals(manifest.Version, toVersion, StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            var files = manifestFiles.Select(file => new DeltaPackageFile(
+                Name: file.Name,
+                Md5: file.Md5,
+                Size: file.Size,
+                DiffType: file.DiffType,
+                FullFilePayloadPath: string.IsNullOrEmpty(file.LocalPath) ? null : file.LocalPath,
+                Patches: [.. (file.Patches ?? []).Select(p => new DeltaPatchSource(
+                    BaseFile: p.BaseFile,
+                    BaseMd5: p.BaseMd5,
+                    BaseSize: p.BaseSize,
+                    PatchPath: DeltaPatchEntryPrefix + p.Patch,
+                    PatchSize: p.PatchSize))])).ToArray();
+
+            logger?.LogInformation(
+                "Delta package for {From} -> {To}: {Volumes} volumes ({Bytes} bytes), {Files} file nodes.",
+                fromVersion, toVersion, volumes.Length, volumes.Sum(v => v.Size), files.Length);
+            return new DeltaPackagePlan(
+                FromVersion: fromVersion,
+                ToVersion: toVersion,
+                VfsBasePath: manifest.VfsBasePath,
+                CdKey: node.CdKey,
+                Volumes: volumes,
+                Files: files,
+                StaticEntryExcludedPrefixes: DeltaStaticExcludedPrefixes,
+                StaticEntryExcludedNames: DeltaStaticExcludedNames,
+                StaticEntryRewrites: DeltaStaticRewrites);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger?.LogWarning(ex, "Delta package resolution failed for {From} -> {To}; falling back to the full package.", fromVersion, toVersion);
+            return null;
+        }
+    }
+
+    private static long ParseSize(string value) => long.TryParse(value, out var size) ? size : 0;
+
+    /// <summary>载荷条目名（URL 末段）。</summary>
+    private static string VolumeName(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Segments.Length > 0
+            ? Uri.UnescapeDataString(uri.Segments[^1].TrimEnd('/'))
+            : url;
 
     /// <summary>
     /// 发一次 batch_proxy get_latest_game。<paramref name="version"/> = 客户端当前版本（官方语义）：

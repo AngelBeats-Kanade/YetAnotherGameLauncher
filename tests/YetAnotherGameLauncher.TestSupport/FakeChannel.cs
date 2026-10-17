@@ -47,6 +47,12 @@ public sealed class FakeChannel : IGameChannelApi
     /// <summary>废弃清单请求记录（from→to）。</summary>
     public List<(string From, string To)> ObsoleteFilesRequests { get; } = [];
 
+    /// <summary>v2 增量更新计划（null = 渠道给不出，编排应回退整包）。</summary>
+    public DeltaPackagePlan? DeltaPlan { get; set; }
+
+    /// <summary>增量计划请求记录（from→to）。</summary>
+    public List<(string From, string To)> DeltaPackageRequests { get; } = [];
+
     public List<string> ManifestRequests { get; } = [];
 
     /// <summary>增量清单请求记录（from→to）；负向断言"未发起增量拉取"用（2026-09-20 补）。</summary>
@@ -107,6 +113,13 @@ public sealed class FakeChannel : IGameChannelApi
         }
 
         return Task.FromResult(PredownloadManifest);
+    }
+
+    public Task<DeltaPackagePlan?> GetDeltaPackageAsync(
+        GameServer server, string fromVersion, string toVersion, CancellationToken cancellationToken = default)
+    {
+        DeltaPackageRequests.Add((fromVersion, toVersion));
+        return Task.FromResult(DeltaPlan);
     }
 
     public Task<IReadOnlyList<string>?> GetObsoleteFilesAsync(

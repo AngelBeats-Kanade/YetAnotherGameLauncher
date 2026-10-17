@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
+using YetAnotherGameLauncher.Core.Utilities;
 
 namespace YetAnotherGameLauncher.Core.Services;
 
@@ -22,7 +23,8 @@ public sealed class GameUpdateService(
     IDownloader downloader,
     IPatchApplier patchApplier,
     GameInstallServiceOptions? options = null,
-    ILogger? logger = null)
+    ILogger? logger = null,
+    IFilePatchApplier? filePatchApplier = null)
 {
     /// <summary>一步到位更新：检查版本并生成计划，按计划走增量或全量，成功后把新版本写入本地状态。</summary>
     public async Task<UpdateOutcome> UpdateAsync(
@@ -217,6 +219,13 @@ public sealed class GameUpdateService(
 
         if (manifest.EntriesAreArchives)
         {
+            // 增量优先（终末地 v2：8.72 GiB 载荷 vs 整包数十 GiB）；不适用则回退整包
+            if (await TryApplyDeltaPackageAsync(installDir, server, channel, plan, progress, cancellationToken)
+                    .ConfigureAwait(false))
+            {
+                return 0;
+            }
+
             var packages = new PackageInstallerService(downloader, logger);
             await packages.InstallAsync(
                 installDir, manifest, progress, cancellationToken,
@@ -306,6 +315,77 @@ public sealed class GameUpdateService(
 
         var installer = new GameInstallService(downloader, options, logger);
         return await installer.SyncAsync(installDir, manifest, progress, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 优先走 v2 增量载荷：渠道给不出计划（含未注入单文件补丁器的装配）、计划不适用于当前安装
+    /// （基文件缺失/内容与官方清单不符）或载荷自身不可用（条目读不出/产出与官方清单不符，
+    /// <see cref="DeltaPackageUnusableException"/>，按 Warning 记录）时返回 false 由调用方回退
+    /// 整包——回退时清掉载荷暂存（已经没用，留着白占数 GiB）。本地 IO/路径越界等真错误照常抛出。
+    /// </summary>
+    private async Task<bool> TryApplyDeltaPackageAsync(
+        string installDir,
+        GameServer server,
+        IGameChannelApi channel,
+        UpdatePlan plan,
+        IProgress<UpdateProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (filePatchApplier is null)
+        {
+            return false;
+        }
+
+        var deltaPlan = await channel.GetDeltaPackageAsync(server, plan.FromVersion, plan.ToVersion, cancellationToken)
+            .ConfigureAwait(false);
+        if (deltaPlan is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var applier = new DeltaPackageApplier(downloader, filePatchApplier, logger);
+            await applier.ApplyAsync(installDir, deltaPlan, progress, cancellationToken).ConfigureAwait(false);
+
+            // 增量成功后，整包安装路径的暂存（.yagl/packages，实测可达数十 GiB）已无用：它服务
+            // 直接安装/整包回退（InstallAsync）的重跑复用，而本次版本已由增量落地，留着只占盘
+            // （2026-10-17 用户机实测 58 GiB）。注意只碰这个直接安装暂存目录——
+            // 预下载内容在 .yagl/predownload（含 packages 子目录），不得触碰
+            var installPackages = Path.Combine(installDir, LocalStateService.StateDirName, "packages");
+            if (Directory.Exists(installPackages))
+            {
+                logger?.LogInformation("Removing the now-useless full-package staging after a successful delta apply.");
+                if (!FileUtilities.TryDeleteDirectory(installPackages, logger))
+                {
+                    logger?.LogWarning("Full-package staging could not be removed: {Path}", installPackages);
+                }
+            }
+
+            logger?.LogInformation("Delta package applied for {From} -> {To}.", plan.FromVersion, plan.ToVersion);
+            return true;
+        }
+        catch (DeltaPackageNotApplicableException ex)
+        {
+            // "载荷不可用"（条目读不出/产出与清单不符）是异常信号，按 Warning 记以便诊断；
+            // "安装不适用"（基文件被改/缺失）是预期形态，记 Information
+            if (ex is DeltaPackageUnusableException)
+            {
+                logger?.LogWarning(ex, "Delta payload is unusable; falling back to the full package.");
+            }
+            else
+            {
+                logger?.LogInformation(ex, "Delta package not applicable; falling back to the full package.");
+            }
+
+            var payloadDir = DeltaPackageApplier.PayloadDir(installDir);
+            if (Directory.Exists(payloadDir) && !FileUtilities.TryDeleteDirectory(payloadDir, logger))
+            {
+                logger?.LogWarning("Delta payload staging could not be removed: {Path}", payloadDir);
+            }
+
+            return false;
+        }
     }
 
     /// <summary>

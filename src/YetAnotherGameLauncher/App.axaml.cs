@@ -150,13 +150,17 @@ public partial class App : Application
         services.AddSingleton<IAutostartService>(sp => OperatingSystem.IsLinux()
             ? new LinuxAutostartService()
             : new WindowsAutostartService(sp.GetRequiredService<IProcessRunner>()));
-        services.AddSingleton<IPatchApplier>(sp => new HpatchzApplier(
+        // 同一个 hpatchz 应用器同时供目录差分（鸣潮 krpdiff，IPatchApplier）与单文件差分
+        // （终末地 v2 增量载荷，IFilePatchApplier）——两个接口共享一份工具解析/供给/执行链
+        services.AddSingleton(sp => new HpatchzApplier(
             sp.GetRequiredService<IProcessRunner>(),
             logger: sp.GetRequiredService<ILoggerFactory>().CreateLogger<HpatchzApplier>(),
             // PATH 无自备 hpatchz 时自动下载社区验证构建（2026-10-02；解析顺序：显式路径 > PATH > 供给）
             provisioner: new HpatchzProvisioner(
                 sp.GetRequiredService<IDownloader>(),
                 sp.GetRequiredService<ILoggerFactory>().CreateLogger<HpatchzProvisioner>())));
+        services.AddSingleton<IPatchApplier>(sp => sp.GetRequiredService<HpatchzApplier>());
+        services.AddSingleton<IFilePatchApplier>(sp => sp.GetRequiredService<HpatchzApplier>());
 
         // 渠道（keyed by games.json 的 game.channel）
         services.AddKuroChannel();
@@ -167,7 +171,8 @@ public partial class App : Application
         services.AddSingleton(sp => new GameUpdateService(
             sp.GetRequiredService<IDownloader>(),
             sp.GetRequiredService<IPatchApplier>(),
-            logger: sp.GetRequiredService<ILoggerFactory>().CreateLogger<GameUpdateService>()));
+            logger: sp.GetRequiredService<ILoggerFactory>().CreateLogger<GameUpdateService>(),
+            filePatchApplier: sp.GetRequiredService<IFilePatchApplier>()));
         services.AddSingleton(sp => new GameLauncherService(
             sp.GetRequiredService<IProcessRunner>(),
             logger: sp.GetRequiredService<ILoggerFactory>().CreateLogger<GameLauncherService>()));

@@ -38,4 +38,12 @@ public interface IGameChannelApi
         GameServer server, string fromVersion, string toVersion, CancellationToken cancellationToken = default)
         => Task.FromResult<IReadOnlyList<string>?>(null);
 
+    /// <summary>
+    /// 获取 "<paramref name="fromVersion"/> → <paramref name="toVersion"/>" 的 v2 增量更新计划
+    /// （包式渠道：官方 patches 载荷 + cd_key + 逐文件清单，终末地 8.72 GiB 替代整包数十 GiB）。
+    /// 不适用/不可得返回 null——调用方回退整包更新。默认返回 null（文件式渠道不用）。
+    /// </summary>
+    Task<DeltaPackagePlan?> GetDeltaPackageAsync(
+        GameServer server, string fromVersion, string toVersion, CancellationToken cancellationToken = default)
+        => Task.FromResult<DeltaPackagePlan?>(null);
 }

@@ -6,8 +6,9 @@ using YetAnotherGameLauncher.Core.Utilities;
 namespace YetAnotherGameLauncher.Channels.Kuro;
 
 /// <summary>
-/// 基于 hpatchz 的补丁应用器（库洛 krpdiff 即 HDiffPatch 目录差分格式）。
-/// 命令形如：hpatchz -f &lt;oldDir&gt; &lt;patchFile&gt; &lt;newDir&gt;。
+/// 基于 hpatchz 的补丁应用器（库洛 krpdiff 即 HDiffPatch 目录差分格式；终末地 v2 更新载荷的
+/// 单文件补丁同源，见 <see cref="ApplyFileAsync"/>）。
+/// 命令形如：hpatchz -f &lt;oldPath&gt; &lt;patchFile&gt; &lt;newPath&gt;（目录与文件两种模式参数形状一致）。
 /// 供给形态（HpatchzProvisioner 的社区验证构建）在 Linux 上经 wine 运行 hpatchz.exe
 ///（独立 WINEPREFIX、Z: 盘路径映射）；用户自备二进制原生直跑。
 /// </summary>
@@ -15,11 +16,25 @@ public sealed class HpatchzApplier(
     IProcessRunner processRunner,
     HpatchzApplierOptions? options = null,
     ILogger? logger = null,
-    IHpatchzProvisioner? provisioner = null) : IPatchApplier
+    IHpatchzProvisioner? provisioner = null) : IPatchApplier, IFilePatchApplier
 {
     private readonly HpatchzApplierOptions _options = options ?? new();
 
     public async Task ApplyAsync(string patchFilePath, string oldDir, string newDir, CancellationToken cancellationToken = default)
+    {
+        // 目录模式需要产物目录存在（hpatchz 目录模式自己建深层目录的行为未验证，显式建更稳）
+        Directory.CreateDirectory(newDir);
+        await RunPatchAsync(oldDir, patchFilePath, newDir, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>单文件模式（终末地 v2 更新载荷的 .chk_patch）：hpatchz -f oldFile patchFile newFile。
+    /// 产物目录由调用方保证存在——本方法不建目录（编排方的暂存目录是它的职责）。</summary>
+    public Task ApplyFileAsync(
+        string patchFilePath, string oldFilePath, string newFilePath, CancellationToken cancellationToken = default)
+        => RunPatchAsync(oldFilePath, patchFilePath, newFilePath, cancellationToken);
+
+    /// <summary>两种模式共用的执行链：工具解析（自备优先 → 供给兜底）→ 参数拼装（wine 映射）→ 执行 → 非零退出折算。</summary>
+    private async Task RunPatchAsync(string oldPath, string patchFilePath, string newPath, CancellationToken cancellationToken)
     {
         // 预检先行：缺失/不可执行时给出可操作错误，而不是等 CreateProcess 抛难懂的 Win32Exception
         // （Windows 上 "拒绝访问"、Linux 上 "cannot find the file" 都看不出真实原因）。
@@ -33,7 +48,7 @@ public sealed class HpatchzApplier(
         if (selfProvided is not null)
         {
             fileName = selfProvided;
-            arguments = $"-f {QuoteArg(oldDir)} {QuoteArg(patchFilePath)} {QuoteArg(newDir)}";
+            arguments = $"-f {QuoteArg(oldPath)} {QuoteArg(patchFilePath)} {QuoteArg(newPath)}";
         }
         else if (provisioner is not null)
         {
@@ -44,8 +59,8 @@ public sealed class HpatchzApplier(
             // Windows 供给的 exe 原生直跑（空前缀，路径原样）
             var prefix = tool.ArgumentPrefix.Length > 0 ? tool.ArgumentPrefix + " " : "";
             var isWine = tool.ArgumentPrefix.Length > 0;
-            arguments = $"{prefix}-f {QuoteArg(MapPath(oldDir, isWine))} " +
-                        $"{QuoteArg(MapPath(patchFilePath, isWine))} {QuoteArg(MapPath(newDir, isWine))}";
+            arguments = $"{prefix}-f {QuoteArg(MapPath(oldPath, isWine))} " +
+                        $"{QuoteArg(MapPath(patchFilePath, isWine))} {QuoteArg(MapPath(newPath, isWine))}";
         }
         else
         {
@@ -55,7 +70,6 @@ public sealed class HpatchzApplier(
                 "or point HpatchzPath at the full binary path.");
         }
 
-        Directory.CreateDirectory(newDir);
         logger?.LogDebug("Running {Exe} {Args}", fileName, arguments);
 
         var result = await processRunner.RunAsync(

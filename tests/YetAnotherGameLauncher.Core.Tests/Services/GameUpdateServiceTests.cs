@@ -7,6 +7,7 @@ using YetAnotherGameLauncher.TestSupport;
 
 namespace YetAnotherGameLauncher.Core.Tests.Services;
 
+[Collection("sequential")]
 public class GameUpdateServiceTests : IDisposable
 {
     private readonly TempDir _tempDir = new();
@@ -448,6 +449,153 @@ public class GameUpdateServiceTests : IDisposable
     }
 
     // ---------- 包式渠道（整包分发，如终末地） ----------
+
+    [Fact]
+    public async Task UpdateAsync_DeltaPlanAvailable_AppliesDeltaInsteadOfFullPackage()
+    {
+        // v2 增量优先（终末地 8.72 GiB vs 整包 58 GiB）：渠道给出计划时走增量，
+        // 整包压缩包一个都不下；差分经单文件补丁器合成并落到安装目录
+        await WriteLocalState("1.5.3");
+        var fullContent = "delta-produced"u8.ToArray();
+        var payload = TestPayload.BuildPayload(
+            TestPayload.PlainEntry("GameAssembly.dll", "static"u8.ToArray()), // 静态整文件条目（覆盖游戏根）
+            TestPayload.AesEntryFragment,
+            TestPayload.PlainEntry(DeltaPackageApplier.ObsoleteListEntryName, Array.Empty<byte>()));
+        var volumeUrl = "https://cdn.example.com/delta/payload.zip.001";
+        _downloader.Responses[volumeUrl] = payload;
+        var baseFile = _tempDir.FilePath("Endfield_Data", "StreamingAssets", "VFS", "base", "origin.chk");
+        Directory.CreateDirectory(Path.GetDirectoryName(baseFile)!);
+        File.WriteAllText(baseFile, "base-content");
+        _channel.VersionInfo = new ChannelVersionInfo { LatestVersion = "1.6.4" };
+        _channel.Manifests["1.6.4"] = new GameManifest
+        {
+            Version = "1.6.4",
+            EntriesAreArchives = true,
+            Files = [new ManifestFile("game-0.zip", 10, "aa", Url: Url("game-0.zip"))], // 整包（不应被下载）
+        };
+        _channel.DeltaPlan = new DeltaPackagePlan(
+            FromVersion: "1.5.3",
+            ToVersion: "1.6.4",
+            VfsBasePath: "Endfield_Data/StreamingAssets/VFS",
+            CdKey: TestPayload.AesPassword,
+            Volumes: [new DeltaPackageVolume(volumeUrl, payload.Length, Md5(payload))],
+            Files:
+            [
+                new DeltaPackageFile("AA11/bb22.chk", Hashing.Md5Hex(fullContent), fullContent.Length, 1, null,
+                    [new DeltaPatchSource("base/origin.chk", Md5(File.ReadAllBytes(baseFile)), 12, "binary.bin", 0)]),
+            ],
+            StaticEntryExcludedPrefixes: ["vfs_files/", "diff_"],
+            StaticEntryExcludedNames: [DeltaPackageApplier.ObsoleteListEntryName],
+            StaticEntryRewrites: new Dictionary<string, string>(StringComparer.Ordinal));
+        var filePatcher = new FakeFilePatchApplier { Output = fullContent };
+        // 模拟"此前整包更新失败留下 58 GiB 暂存"
+        Directory.CreateDirectory(Path.Combine(_tempDir.Path, ".yagl", "packages"));
+        await File.WriteAllTextAsync(Path.Combine(_tempDir.Path, ".yagl", "packages", "stale.zip.001"), "stale");
+
+        var outcome = await new GameUpdateService(_downloader, _applier, filePatchApplier: filePatcher)
+            .UpdateAsync(_tempDir.Path, _game, _server, _channel);
+
+        Assert.Equal("1.6.4", outcome.ToVersion);
+        Assert.Equal(fullContent, await File.ReadAllBytesAsync(
+            _tempDir.FilePath("Endfield_Data", "StreamingAssets", "VFS", "AA11", "bb22.chk")));
+        Assert.Equal("static", await File.ReadAllTextAsync(_tempDir.FilePath("GameAssembly.dll"))); // 静态条目落游戏根
+        Assert.DoesNotContain(Url("game-0.zip"), _downloader.Requests); // 整包未被下载
+        Assert.Single(filePatcher.Calls);
+        Assert.Equal([("1.5.3", "1.6.4")], _channel.DeltaPackageRequests);
+        // 上一轮整包尝试留下的数十 GiB 暂存随增量成功一并清掉（不清理就会永久占盘）
+        Assert.False(Directory.Exists(Path.Combine(_tempDir.Path, ".yagl", "packages")));
+    }
+
+    [Fact]
+    public async Task UpdateAsync_DeltaNotApplicable_FallsBackToFullPackageAndDropsPayload()
+    {
+        // 增量不适用（基文件缺失）：自动回退整包，并把白占数 GiB 的载荷暂存清掉
+        await WriteLocalState("1.5.3");
+        var zipBytes = TestZip.Create(("game.exe", "MZ-stub"));
+        _downloader.Responses[Url("game-0.zip")] = zipBytes;
+        var payload = TestPayload.BuildPayload(
+            TestPayload.PlainEntry("vfs_files/files/static.dat", "static"u8.ToArray()));
+        var volumeUrl = "https://cdn.example.com/delta/payload.zip.001";
+        _downloader.Responses[volumeUrl] = payload;
+        _channel.VersionInfo = new ChannelVersionInfo { LatestVersion = "1.6.4" };
+        _channel.Manifests["1.6.4"] = new GameManifest
+        {
+            Version = "1.6.4",
+            EntriesAreArchives = true,
+            Files = [new ManifestFile("game-0.zip", zipBytes.Length, Md5(zipBytes), Url: Url("game-0.zip"))],
+        };
+        _channel.DeltaPlan = new DeltaPackagePlan(
+            FromVersion: "1.5.3",
+            ToVersion: "1.6.4",
+            VfsBasePath: "Endfield_Data/StreamingAssets/VFS",
+            CdKey: TestPayload.AesPassword,
+            Volumes: [new DeltaPackageVolume(volumeUrl, payload.Length, Md5(payload))],
+            Files:
+            [
+                new DeltaPackageFile("AA11/bb22.chk", "00", 0, 1, null,
+                    [new DeltaPatchSource("gone/base.chk", "00", 0, "binary.bin", 0)]),
+            ],
+            StaticEntryExcludedPrefixes: ["vfs_files/"],
+            StaticEntryExcludedNames: [],
+            StaticEntryRewrites: new Dictionary<string, string>(StringComparer.Ordinal));
+        var filePatcher = new FakeFilePatchApplier();
+
+        var outcome = await new GameUpdateService(_downloader, _applier, filePatchApplier: filePatcher)
+            .UpdateAsync(_tempDir.Path, _game, _server, _channel);
+
+        Assert.Equal("1.6.4", outcome.ToVersion);
+        Assert.Equal("MZ-stub", await File.ReadAllTextAsync(_tempDir.FilePath("game.exe"))); // 整包路径生效
+        Assert.Contains(Url("game-0.zip"), _downloader.Requests);
+        Assert.Empty(filePatcher.Calls);
+        Assert.False(Directory.Exists(DeltaPackageApplier.PayloadDir(_tempDir.Path)));
+    }
+
+    [Fact]
+    public async Task UpdateAsync_DeltaPayloadUnusable_FallsBackToFullPackage()
+    {
+        // review 非阻塞 4：载荷自身不可用（条目读不出）必须有整包逃生口——否则同一版本过渡内
+        // 服务器一直返回同一份坏计划，用户重试恒失败（"整包永远可用"原则）
+        await WriteLocalState("1.5.3");
+        var zipBytes = TestZip.Create(("game.exe", "MZ-stub"));
+        _downloader.Responses[Url("game-0.zip")] = zipBytes;
+        var payload = TestPayload.BuildPayload(TestPayload.PlainEntry("static.dat", "static"u8.ToArray()));
+        var volumeUrl = "https://cdn.example.com/delta/payload.zip.001";
+        _downloader.Responses[volumeUrl] = payload;
+        var baseFile = _tempDir.FilePath("Endfield_Data", "StreamingAssets", "VFS", "base", "origin.chk");
+        Directory.CreateDirectory(Path.GetDirectoryName(baseFile)!);
+        File.WriteAllText(baseFile, "base-content");
+        _channel.VersionInfo = new ChannelVersionInfo { LatestVersion = "1.6.4" };
+        _channel.Manifests["1.6.4"] = new GameManifest
+        {
+            Version = "1.6.4",
+            EntriesAreArchives = true,
+            Files = [new ManifestFile("game-0.zip", zipBytes.Length, Md5(zipBytes), Url: Url("game-0.zip"))],
+        };
+        _channel.DeltaPlan = new DeltaPackagePlan(
+            FromVersion: "1.5.3",
+            ToVersion: "1.6.4",
+            VfsBasePath: "Endfield_Data/StreamingAssets/VFS",
+            CdKey: TestPayload.AesPassword,
+            Volumes: [new DeltaPackageVolume(volumeUrl, payload.Length, Md5(payload))],
+            Files:
+            [
+                // 基文件在盘且内容相符，但载荷里没有这条补丁条目（PatchPath = binary.bin）→ 载荷不可用
+                new DeltaPackageFile("AA11/bb22.chk", "00", 0, 1, null,
+                    [new DeltaPatchSource("base/origin.chk", Md5("base-content"u8.ToArray()), 12, "binary.bin", 0)]),
+            ],
+            StaticEntryExcludedPrefixes: ["vfs_files/"],
+            StaticEntryExcludedNames: [],
+            StaticEntryRewrites: new Dictionary<string, string>(StringComparer.Ordinal));
+        var filePatcher = new FakeFilePatchApplier();
+
+        var outcome = await new GameUpdateService(_downloader, _applier, filePatchApplier: filePatcher)
+            .UpdateAsync(_tempDir.Path, _game, _server, _channel);
+
+        Assert.Equal("1.6.4", outcome.ToVersion);
+        Assert.Equal("MZ-stub", await File.ReadAllTextAsync(_tempDir.FilePath("game.exe"))); // 整包路径生效
+        Assert.Empty(filePatcher.Calls); // 载荷坏 → 未触达补丁器
+        Assert.False(Directory.Exists(DeltaPackageApplier.PayloadDir(_tempDir.Path)));
+    }
 
     [Fact]
     public async Task UpdateAsync_PackageManifest_ExtractsAndSavesState()

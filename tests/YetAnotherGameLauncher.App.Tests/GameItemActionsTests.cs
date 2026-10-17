@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
+using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Utilities;
@@ -350,6 +351,19 @@ public class GameItemActionsTests : IDisposable
         await settings.SaveProxyCommand.ExecuteAsync(null);
         Assert.True(settings.ProxySave.Failed);
         Assert.Equal("None", ReadProxyMode(_ctx.ConfigPath), ignoreCase: true);
+    }
+
+    [Fact]
+    public void CompositionRoot_WiresFilePatchApplier_SharedWithDirectoryApplier()
+    {
+        // 终末地 v2 增量（单文件差分）与鸣潮目录差分共用同一个 hpatchz 应用器实例：
+        // 装配漏挂 IFilePatchApplier 会让增量静默退化成"永远回退整包"，故由组合根断言钉住
+        using var sp = YetAnotherGameLauncher.App.BuildServices();
+
+        var directory = sp.GetRequiredService<IPatchApplier>();
+        var filePatcher = sp.GetRequiredService<IFilePatchApplier>();
+
+        Assert.Same(directory, filePatcher);
     }
 
     [Fact]

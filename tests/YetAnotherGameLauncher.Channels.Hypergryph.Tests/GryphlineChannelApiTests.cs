@@ -306,6 +306,128 @@ public class GryphlineChannelApiTests
         Assert.Null(await CreateApi().GetObsoleteFilesAsync(Server(), "1.5.3", "1.6.4"));
     }
 
+    [Fact]
+    public async Task GetDeltaPackage_BuildsPlanFromPatchNodeAndManifest()
+    {
+        // 终末地实测形态（2026-10-17）：patch 节点带 cd_key + 9 卷载荷 + 明文清单 URL；
+        // 清单逐文件给目标 md5/size 与差分基文件；差分条目的载荷路径需拼 vfs_files/vfs_patch/ 前缀
+        const string manifestUrl = "https://cdn.example.com/delta/1.6.4_1.5.3/patch.json";
+        _handler.Map(manifestUrl, """
+            {
+              "version": "1.6.4",
+              "vfs_base_path": "Endfield_Data/StreamingAssets/VFS",
+              "files": [
+                { "name": "AAAA/one.chk", "md5": "aa", "size": 10, "diffType": 1, "local_path": "vfs_files/files/AAAA/one.chk" },
+                { "name": "BBBB/two.chk", "md5": "bb", "size": 20, "diffType": 1,
+                  "patch": [ { "base_file": "BBBB/old.chk", "base_md5": "cc", "base_size": 9, "patch": "diff_1.6.4_1.5.3/BBBB_two.chk_patch", "patch_size": 100 } ] },
+                { "name": "CCCC/keep.chk", "md5": "dd", "size": 30, "diffType": 1 }
+              ]
+            }
+            """);
+        RegisterBatchResponse("""
+            {
+              "version": "1.6.4", "action": 1,
+              "pkg": { "packs": [ { "url": "https://cdn.example.com/full.zip.001", "md5": "aa", "package_size": "1" } ] },
+              "patch": {
+                "url": "https://cdn.example.com/delta/patch_1_6_4_1_5_3.zip",
+                "md5": "bb", "package_size": "9364065772", "total_size": "20399962935",
+                "cd_key": "g53IPllRAszPG6tMUNozS9JtWxLmvqzp",
+                "v2_patch_info_url": "__MANIFEST__",
+                "v2_verify_files_url": "https://cdn.example.com/delta/verify_files.json",
+                "v2_verify_category_list": [ "move", "patch" ],
+                "patches": [
+                  { "url": "https://cdn.example.com/delta/payload.zip.003", "md5": "3", "package_size": "300" },
+                  { "url": "https://cdn.example.com/delta/payload.zip.001", "md5": "1", "package_size": "100" },
+                  { "url": "https://cdn.example.com/delta/payload.zip.002", "md5": "2", "package_size": "200" }
+                ]
+              }
+            }
+            """.Replace("__MANIFEST__", manifestUrl));
+
+        var plan = await CreateApi().GetDeltaPackageAsync(Server(), "1.5.3", "1.6.4");
+
+        Assert.NotNull(plan);
+        Assert.Equal("1.5.3", plan.FromVersion);
+        Assert.Equal("1.6.4", plan.ToVersion);
+        Assert.Equal("Endfield_Data/StreamingAssets/VFS", plan.VfsBasePath);
+        Assert.Equal("g53IPllRAszPG6tMUNozS9JtWxLmvqzp", plan.CdKey);
+        Assert.Equal(["https://cdn.example.com/delta/payload.zip.001", "https://cdn.example.com/delta/payload.zip.002", "https://cdn.example.com/delta/payload.zip.003"],
+            plan.Volumes.Select(v => v.Url));
+        Assert.Equal(600, plan.Volumes.Sum(v => v.Size));
+        Assert.Equal(3, plan.Files.Count);
+        Assert.Equal("vfs_files/files/AAAA/one.chk", plan.Files[0].FullFilePayloadPath);
+        Assert.Null(plan.Files[2].FullFilePayloadPath); // 只读校验节点
+        var patchNode = Assert.Single(plan.Files[1].Patches);
+        Assert.Equal("BBBB/old.chk", patchNode.BaseFile);
+        Assert.Equal("cc", patchNode.BaseMd5);
+        Assert.Equal("vfs_files/vfs_patch/diff_1.6.4_1.5.3/BBBB_two.chk_patch", patchNode.PatchPath);
+        Assert.Contains("vfs_files/", plan.StaticEntryExcludedPrefixes);
+        Assert.Contains("delete_files.txt", plan.StaticEntryExcludedNames);
+        Assert.Equal("config.ini.new", plan.StaticEntryRewrites["config.ini"]);
+        var body = await _handler.Requests[0].Content!.ReadAsStringAsync();
+        Assert.Contains("\"version\":\"1.5.3\"", body);
+    }
+
+    [Fact]
+    public async Task GetDeltaPackage_MissingV2Fields_ReturnsNull()
+    {
+        RegisterBatchResponse("""
+            {
+              "version": "1.6.4", "action": 1,
+              "pkg": { "packs": [ { "url": "https://cdn.example.com/full.zip.001", "md5": "aa", "package_size": "1" } ] },
+              "patch": { "url": "https://cdn.example.com/delta/patch.zip", "md5": "bb", "package_size": "9" }
+            }
+            """);
+
+        Assert.Null(await CreateApi().GetDeltaPackageAsync(Server(), "1.5.3", "1.6.4")); // 无 cd_key/patches/清单 URL
+    }
+
+    [Fact]
+    public async Task GetDeltaPackage_SameVersionOrMovedServer_ReturnsNull()
+    {
+        Assert.Null(await CreateApi().GetDeltaPackageAsync(Server(), "1.6.4", "1.6.4"));
+        Assert.Null(await CreateApi().GetDeltaPackageAsync(Server(), "", "1.6.4"));
+        Assert.Empty(_handler.Requests);
+
+        RegisterBatchResponse("""
+            {
+              "version": "1.7.0", "action": 1,
+              "pkg": { "packs": [ { "url": "https://cdn.example.com/full.zip.001", "md5": "aa", "package_size": "1" } ] },
+              "patch": { "cd_key": "k", "v2_patch_info_url": "https://cdn.example.com/x.json",
+                         "patches": [ { "url": "https://cdn.example.com/delta/payload.zip.001", "md5": "1", "package_size": "1" } ] }
+            }
+            """);
+
+        Assert.Null(await CreateApi().GetDeltaPackageAsync(Server(), "1.5.3", "1.6.4"));
+    }
+
+    [Fact]
+    public async Task GetDeltaPackage_BrokenVolumeSetOrUnreachableManifest_ReturnsNull()
+    {
+        // 分卷序号不连续：不适用（回退整包），而不是硬错误
+        RegisterBatchResponse("""
+            {
+              "version": "1.6.4", "action": 1,
+              "pkg": { "packs": [ { "url": "https://cdn.example.com/full.zip.001", "md5": "aa", "package_size": "1" } ] },
+              "patch": { "cd_key": "k", "v2_patch_info_url": "https://cdn.example.com/x.json",
+                         "patches": [ { "url": "https://cdn.example.com/delta/payload.zip.001", "md5": "1", "package_size": "1" },
+                                      { "url": "https://cdn.example.com/delta/payload.zip.003", "md5": "3", "package_size": "3" } ] }
+            }
+            """);
+        Assert.Null(await CreateApi().GetDeltaPackageAsync(Server(), "1.5.3", "1.6.4"));
+
+        // 清单 URL 不可达（404）
+        RegisterBatchResponse("""
+            {
+              "version": "1.6.4", "action": 1,
+              "pkg": { "packs": [ { "url": "https://cdn.example.com/full.zip.001", "md5": "aa", "package_size": "1" } ] },
+              "patch": { "cd_key": "k", "v2_patch_info_url": "https://cdn.example.com/gone.json",
+                         "patches": [ { "url": "https://cdn.example.com/delta/payload.zip.001", "md5": "1", "package_size": "1" } ] }
+            }
+            """);
+        Assert.Null(await CreateApi().GetDeltaPackageAsync(Server(), "1.5.3", "1.6.4"));
+    }
+
     [Theory]
     [InlineData("""{ "version": "1.6.4", "action": 1, "pkg": { "packs": [] } }""", "empty packs")]
     [InlineData("""{ "version": "1.6.4", "action": 1, "pkg": { "packs": null } }""", "null packs")]

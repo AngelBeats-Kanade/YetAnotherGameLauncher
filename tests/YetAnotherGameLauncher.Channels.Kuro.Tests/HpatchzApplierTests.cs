@@ -162,6 +162,75 @@ public class HpatchzApplierTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyFileAsync_BuildsFileModeCommandWithQuotedPaths()
+    {
+        // 终末地 v2 更新：逐文件 HDiffPatch 补丁（.chk_patch）走文件模式——
+        // hpatchz -f <oldFile> <patchFile> <newFile>
+        var tool = StubTool();
+        var applier = new HpatchzApplier(_runner, new HpatchzApplierOptions { HpatchzPath = tool });
+        var patch = _tempDir.FilePath("delta.chk_patch");
+        await File.WriteAllTextAsync(patch, "stub");
+
+        await applier.ApplyFileAsync(patch, _tempDir.FilePath("base.chk"), _tempDir.FilePath("new.chk"));
+
+        var spec = Assert.Single(_runner.Specs);
+        Assert.Equal(tool, spec.FileName);
+        Assert.Contains("-f", spec.Arguments);
+        Assert.Contains($"\"{_tempDir.FilePath("base.chk")}\"", spec.Arguments);
+        Assert.Contains($"\"{patch}\"", spec.Arguments);
+        Assert.Contains($"\"{_tempDir.FilePath("new.chk")}\"", spec.Arguments);
+    }
+
+    [Fact]
+    public async Task ApplyFileAsync_DoesNotCreateOutputDirectory()
+    {
+        // 文件模式不建目录：编排方（暂存目录）负责目录存在性，工具不该悄悄造树
+        var applier = new HpatchzApplier(_runner, new HpatchzApplierOptions { HpatchzPath = StubTool() });
+        var patch = _tempDir.FilePath("delta.chk_patch");
+        await File.WriteAllTextAsync(patch, "stub");
+
+        await applier.ApplyFileAsync(
+            patch, _tempDir.FilePath("base.chk"), _tempDir.FilePath("staging", "new.chk"));
+
+        Assert.False(Directory.Exists(_tempDir.FilePath("staging")));
+    }
+
+    [Fact]
+    public async Task ApplyFileAsync_WineShapedProvisionedTool_MapsPathsToZDrive()
+    {
+        // 与目录模式共用执行链：wine 形态（Linux 供给）下三个路径参数都要转 Z: 盘
+        var provisionedExe = _tempDir.FilePath("provisioned", "hpatchz.exe");
+        var provisioner = new StubProvisioner("/fake/wine", argumentPrefix: $"\"{provisionedExe}\"");
+        var applier = new HpatchzApplier(
+            _runner, new HpatchzApplierOptions { HpatchzPath = "hpatchz-not-on-path-xyz" }, provisioner: provisioner);
+        var patch = _tempDir.FilePath("delta.chk_patch");
+        await File.WriteAllTextAsync(patch, "stub");
+
+        await applier.ApplyFileAsync(patch, _tempDir.FilePath("base.chk"), _tempDir.FilePath("new.chk"));
+
+        var spec = Assert.Single(_runner.Specs);
+        Assert.Equal("/fake/wine", spec.FileName);
+        Assert.StartsWith($"\"{provisionedExe}\" -f ", spec.Arguments);
+        Assert.Contains("\"Z:", spec.Arguments);
+        Assert.DoesNotContain($"\"{_tempDir.FilePath("base.chk")}\"", spec.Arguments);
+    }
+
+    [Fact]
+    public async Task ApplyFileAsync_NonZeroExit_ThrowsWithStderr()
+    {
+        _runner.Handler = _ => new ProcessResult(16, "", "patch run ERROR!");
+        var applier = new HpatchzApplier(_runner, new HpatchzApplierOptions { HpatchzPath = StubTool() });
+        var patch = _tempDir.FilePath("delta.chk_patch");
+        await File.WriteAllTextAsync(patch, "stub");
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => applier.ApplyFileAsync(patch, _tempDir.FilePath("base.chk"), _tempDir.FilePath("new.chk")));
+
+        Assert.Contains("16", ex.Message);
+        Assert.Contains("patch run ERROR!", ex.Message);
+    }
+
+    [Fact]
     public async Task ApplyAsync_CreatesOutputDirectory()
     {
         var applier = new HpatchzApplier(_runner, new HpatchzApplierOptions { HpatchzPath = StubTool() });
