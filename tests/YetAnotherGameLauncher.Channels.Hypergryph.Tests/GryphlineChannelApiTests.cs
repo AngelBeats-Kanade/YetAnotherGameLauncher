@@ -231,6 +231,96 @@ public class GryphlineChannelApiTests
     }
 
     [Fact]
+    public async Task GetObsoleteFiles_ReturnsDeleteListFromPatchZip()
+    {
+        // 终末地实测形态（2026-10-17）：带本地版本号请求 → patch.url 指向 1.5.3→1.6.4 补丁包，
+        // 包内 delete_files.txt 是官方点名的废弃文件清单（324 条 / 47.72 GiB 旧 VFS 分块）。
+        // 补丁包单文件形态约 49 GiB：清单只能经 Range 分段取（整包下载不可接受）
+        const string patchUrl = "https://cdn.example.com/patches/patch_1_6_4_1_5_3.zip";
+        _handler.Map(patchUrl, TestZip.Create(("delete_files.txt", "a/old1.chk\n\n b/old2.chk \n")));
+        RegisterBatchResponse($$"""
+            {
+              "version": "1.6.4", "action": 1,
+              "pkg": { "packs": [ { "url": "https://cdn.example.com/full.zip.001", "md5": "aa", "package_size": "1" } ] },
+              "patch": { "url": "{{patchUrl}}", "md5": "bb", "package_size": "9", "patches": [] }
+            }
+            """);
+
+        var obsolete = await CreateApi().GetObsoleteFilesAsync(Server(), "1.5.3", "1.6.4");
+
+        Assert.NotNull(obsolete);
+        Assert.Equal(["a/old1.chk", "b/old2.chk"], obsolete);
+        var body = await _handler.Requests[0].Content!.ReadAsStringAsync();
+        Assert.Contains("\"version\":\"1.5.3\"", body); // 必须是"从本地版本出发"的补丁请求
+    }
+
+    [Fact]
+    public async Task GetObsoleteFiles_SameOrEmptyVersion_ReturnsNullWithoutRequest()
+    {
+        var obsolete = await CreateApi().GetObsoleteFilesAsync(Server(), "1.6.4", "1.6.4");
+        Assert.Null(obsolete);
+        Assert.Null(await CreateApi().GetObsoleteFilesAsync(Server(), "", "1.6.4"));
+
+        Assert.Empty(_handler.Requests); // 无过渡即无清单，不发请求
+    }
+
+    [Fact]
+    public async Task GetObsoleteFiles_NoPatchNode_ReturnsNull()
+    {
+        RegisterBatchResponse("""
+            { "version": "1.6.4", "action": 1, "pkg": { "packs": [ { "url": "https://cdn.example.com/full.zip.001", "md5": "aa", "package_size": "1" } ] } }
+            """);
+
+        Assert.Null(await CreateApi().GetObsoleteFilesAsync(Server(), "1.5.3", "1.6.4"));
+    }
+
+    [Fact]
+    public async Task GetObsoleteFiles_ServerVersionMovedPastTarget_ReturnsNull()
+    {
+        // 服务器已前移（1.7.0）：该过渡的补丁可能已下架或换内容，按"拿不到清单"处理，
+        // 不得把 1.7.0 的清单当成 1.5.3→1.6.4 的删除依据（补丁可达也不取）
+        const string patchUrl = "https://cdn.example.com/patches/patch_1_7_0.zip";
+        _handler.Map(patchUrl, TestZip.Create(("delete_files.txt", "wrong/version.chk\n")));
+        RegisterBatchResponse($$"""
+            {
+              "version": "1.7.0", "action": 1,
+              "pkg": { "packs": [ { "url": "https://cdn.example.com/full.zip.001", "md5": "aa", "package_size": "1" } ] },
+              "patch": { "url": "{{patchUrl}}", "md5": "bb", "package_size": "9" }
+            }
+            """);
+
+        Assert.Null(await CreateApi().GetObsoleteFilesAsync(Server(), "1.5.3", "1.6.4"));
+    }
+
+    [Fact]
+    public async Task GetObsoleteFiles_PatchZipUnreachable_ReturnsNull()
+    {
+        RegisterBatchResponse("""
+            {
+              "version": "1.6.4", "action": 1,
+              "pkg": { "packs": [ { "url": "https://cdn.example.com/full.zip.001", "md5": "aa", "package_size": "1" } ] },
+              "patch": { "url": "https://cdn.example.com/patches/gone.zip", "md5": "bb", "package_size": "9" }
+            }
+            """);
+
+        Assert.Null(await CreateApi().GetObsoleteFilesAsync(Server(), "1.5.3", "1.6.4"));
+    }
+
+    [Theory]
+    [InlineData("""{ "version": "1.6.4", "action": 1, "pkg": { "packs": [] } }""", "empty packs")]
+    [InlineData("""{ "version": "1.6.4", "action": 1, "pkg": { "packs": null } }""", "null packs")]
+    public async Task GetManifest_EmptyOrNullPacks_IsRejectedInsteadOfEmptyManifest(string rspJson, string _)
+    {
+        // review P2-2/P3-3（2026-10-17）：空 packs 收下会走"空转下载 → 按废弃清单清理"，
+        // 把安装目录清成半空且版本号被写新——与其他契约拒收（空版本/缺 pkg）同款处理
+        RegisterBatchResponse(rspJson);
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(() => CreateApi().GetManifestAsync(Server(), "1.6.4"));
+
+        Assert.Contains("packs", ex.Message);
+    }
+
+    [Fact]
     public async Task MissingApiBase_Throws()
     {
         var server = new GameServer { Id = "x", Name = "X" };

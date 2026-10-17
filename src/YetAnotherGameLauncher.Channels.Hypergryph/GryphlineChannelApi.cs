@@ -30,6 +30,10 @@ public sealed partial class GryphlineChannelApi(HttpClient httpClient, ILogger? 
 
     // 国际服（osWinRel）实测参数，作为 options 未提供时的缺省值（背景接口等复用）
     public const string DefaultGameAppcode = "YDUTE5gscDZ229CW";
+
+    /// <summary>官方补丁包内的废弃文件清单条目名（delete_files.txt）。</summary>
+    private const string ObsoleteListEntryName = "delete_files.txt";
+
     public const string DefaultChannelId = "6";
     public const string DefaultSubChannelId = "9999";
 
@@ -105,8 +109,74 @@ public sealed partial class GryphlineChannelApi(HttpClient httpClient, ILogger? 
             : ToPackageManifest(patchVersion, pkg);
     }
 
+    /// <summary>
+    /// 官方点名的废弃文件清单（本渠道 = 补丁包内的 <c>delete_files.txt</c>，实测 324 条 /
+    /// 47.72 GiB 旧 VFS 分块；2026-10-17 真机实证）：带本地版本请求时 patch.url 指向
+    /// "本地版本 → 最新版本"的更新补丁，清单在其中。补丁包单文件形态约 49 GiB，清单经
+    /// <see cref="RemoteZipEntryReader"/> 的 Range 分段读取取出（绝不整包下载）。
+    /// 取不到（无补丁节点/服务器已前移/网络与形态失败）一律返回 null：清理是尽力而为，
+    /// 不得让更新失败——但失败原因记日志保持可诊断。
+    /// </summary>
+    public async Task<IReadOnlyList<string>?> GetObsoleteFilesAsync(
+        GameServer server, string fromVersion, string toVersion, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(fromVersion)
+            || string.IsNullOrEmpty(toVersion)
+            || string.Equals(fromVersion, toVersion, StringComparison.Ordinal))
+        {
+            return null; // 无版本过渡即无废弃清单（也已避免一次无意义的请求）
+        }
+
+        try
+        {
+            var response = await PostGetLatestGameAsync(server, cancellationToken, fromVersion).ConfigureAwait(false);
+            // 版本守卫（Kuro dst 解析缝同族）：清单接口只服务"当前最新"，服务器已前移时
+            // 该过渡的补丁可能已下架或换了内容，按拿不到清单处理
+            if (!string.Equals(response.Version, toVersion, StringComparison.Ordinal))
+            {
+                logger?.LogInformation(
+                    "Obsolete file list skipped: server serves {Served}, target was {Target}.", response.Version, toVersion);
+                return null;
+            }
+
+            if (response.Patch is not { ValueKind: JsonValueKind.Object } patch
+                || !patch.TryGetProperty("url", out var urlElement)
+                || urlElement.ValueKind != JsonValueKind.String
+                || urlElement.GetString() is not { Length: > 0 } patchUrl)
+            {
+                return null;
+            }
+
+            var content = await RemoteZipEntryReader
+                .TryReadEntryAsync(httpClient, patchUrl, ObsoleteListEntryName, logger, cancellationToken).ConfigureAwait(false);
+            if (content is null)
+            {
+                return null;
+            }
+
+            var obsolete = System.Text.Encoding.UTF8.GetString(content)
+                .Split('\n')
+                .Select(line => line.Trim('\r', ' ', '\t'))
+                .Where(line => line.Length > 0)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            logger?.LogInformation(
+                "Obsolete file list for {From} -> {To}: {Count} entries.", fromVersion, toVersion, obsolete.Length);
+            return obsolete;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger?.LogWarning(ex, "Failed to fetch the obsolete file list for {From} -> {To}.", fromVersion, toVersion);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 发一次 batch_proxy get_latest_game。<paramref name="version"/> = 客户端当前版本（官方语义）：
+    /// 留空取"最新版本 + 预下载 patch 节点"，填本地版本时 patch 节点变成"从该版本出发的更新补丁"。
+    /// </summary>
     private async Task<GameVersionResponse> PostGetLatestGameAsync(
-        GameServer server, CancellationToken cancellationToken)
+        GameServer server, CancellationToken cancellationToken, string version = "")
     {
         var apiBase = server.Options.TryGetValue(ApiBaseOptionKey, out var apiBaseValue)
             && !string.IsNullOrWhiteSpace(apiBaseValue)
@@ -122,7 +192,7 @@ public sealed partial class GryphlineChannelApi(HttpClient httpClient, ILogger? 
                     Kind = "get_latest_game",
                     GetLatestGameReq = new GetLatestGameReq
                     {
-                        Version = "", // 官方语义为"客户端当前版本"，取最新清单时留空
+                        Version = version,
                         Appcode = GryphlineProtocol.OptionOrDefault(server.Options, AppcodeOptionKey, DefaultGameAppcode),
                         Channel = GryphlineProtocol.OptionOrDefault(server.Options, ChannelOptionKey, DefaultChannelId),
                         SubChannel = GryphlineProtocol.OptionOrDefault(server.Options, SubChannelOptionKey, DefaultSubChannelId),
@@ -184,10 +254,17 @@ public sealed partial class GryphlineChannelApi(HttpClient httpClient, ILogger? 
 
     private static GameManifest ToPackageManifest(string version, PackageInfo pkg)
     {
-        var files = new List<ManifestFile>(pkg.Packs.Count);
-        for (var i = 0; i < pkg.Packs.Count; i++)
+        // 空/缺失 packs = 无内容可装的清单：收下它会走"空转下载→按废弃清单清理"（review P2-2 的源头），
+        // 与预下载路径同款拒收（F40 同族）
+        if (pkg.Packs is not { Count: > 0 } packs)
         {
-            var pack = pkg.Packs[i];
+            throw new UpdateException("GRYPHLINE response has no package entries (pkg.packs is empty).");
+        }
+
+        var files = new List<ManifestFile>(packs.Count);
+        for (var i = 0; i < packs.Count; i++)
+        {
+            var pack = packs[i];
             files.Add(new ManifestFile(
                 Path: GetFileNameFromUrl(pack.Url) ?? $"package-{i}.bin",
                 Size: long.TryParse(pack.PackageSize, out var size) ? size : 0,

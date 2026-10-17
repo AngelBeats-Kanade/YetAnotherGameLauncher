@@ -205,7 +205,7 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
     }
 
     /// <summary>
-    /// 删除官方点名的废弃文件（渠道 GetObsoleteFilesAsync，终末地
+    /// 删除官方点名的废弃文件（渠道 <see cref="IGameChannelApi.GetObsoleteFilesAsync"/>，终末地
     /// delete_files.txt 实测 324 条 / 47.72 GiB）并回收腾空的目录：不清理会让旧版残留随版本累积
     /// （包式渠道无逐文件清单，解压只覆盖不删除）。
     /// 防线：路径归一后必须落在安装目录内且不穿过链接（清单不可信）；本次解压产物一律不删

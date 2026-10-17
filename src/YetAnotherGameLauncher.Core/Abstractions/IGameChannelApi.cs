@@ -27,4 +27,15 @@ public interface IGameChannelApi
     Task<GameManifest?> GetPredownloadManifestAsync(
         GameServer server, CancellationToken cancellationToken = default)
         => Task.FromResult<GameManifest?>(null);
+
+    /// <summary>
+    /// 获取 "<paramref name="fromVersion"/> → <paramref name="toVersion"/>" 过渡中官方点名的废弃文件
+    /// （包式渠道：补丁包内的 delete_files.txt；更新落地后删除它们才不残留旧版本文件）。
+    /// 该渠道不适用（文件式渠道的废弃文件随增量清单 DeleteFiles 下发）或暂时取不到时返回 null——
+    /// 清理是尽力而为，调用方不得因 null/失败让更新失败。默认返回 null。
+    /// </summary>
+    Task<IReadOnlyList<string>?> GetObsoleteFilesAsync(
+        GameServer server, string fromVersion, string toVersion, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<string>?>(null);
+
 }

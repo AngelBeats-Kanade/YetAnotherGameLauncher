@@ -130,8 +130,13 @@ public sealed class GameUpdateService(
         int repaired;
         if (staged.EntriesAreArchives)
         {
+            // 应用前的本地版本即清理清单的起点（落盘版本在下方才更新）
+            var applyFrom = GetLocalVersion(new LocalStateService(installDir), game, server) ?? "";
             var packages = new PackageInstallerService(downloader, logger);
-            await packages.ApplyPredownloadAsync(installDir, staged, progress, cancellationToken).ConfigureAwait(false);
+            await packages.ApplyPredownloadAsync(
+                installDir, staged, progress, cancellationToken,
+                await TryGetObsoleteFilesAsync(channel, server, applyFrom, staged.Version, cancellationToken)
+                    .ConfigureAwait(false)).ConfigureAwait(false);
             repaired = 0;
         }
         else
@@ -213,7 +218,10 @@ public sealed class GameUpdateService(
         if (manifest.EntriesAreArchives)
         {
             var packages = new PackageInstallerService(downloader, logger);
-            await packages.InstallAsync(installDir, manifest, progress, cancellationToken).ConfigureAwait(false);
+            await packages.InstallAsync(
+                installDir, manifest, progress, cancellationToken,
+                await TryGetObsoleteFilesAsync(channel, server, plan.FromVersion, plan.ToVersion, cancellationToken)
+                    .ConfigureAwait(false)).ConfigureAwait(false);
             return 0;
         }
 
@@ -298,6 +306,30 @@ public sealed class GameUpdateService(
 
         var installer = new GameInstallService(downloader, options, logger);
         return await installer.SyncAsync(installDir, manifest, progress, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 官方废弃文件清单（包式更新后的旧版残留清理；终末地实测 47.72 GiB）：渠道不支持
+    /// （默认实现返回 null）或拉取失败都折算 null——清不掉残留不该让更新失败，失败原因
+    /// 记 Warning 保持可诊断（更新链自身的错误另有出处，不会在这里被吞）。取消照常传播。
+    /// </summary>
+    private async Task<IReadOnlyList<string>?> TryGetObsoleteFilesAsync(
+        IGameChannelApi channel,
+        GameServer server,
+        string fromVersion,
+        string toVersion,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await channel.GetObsoleteFilesAsync(server, fromVersion, toVersion, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger?.LogWarning(
+                ex, "Obsolete file list unavailable for {From} -> {To}; stale files will not be cleaned.", fromVersion, toVersion);
+            return null;
+        }
     }
 
     private static string? GetLocalVersion(LocalStateService state, GameDefinition game, GameServer server) =>

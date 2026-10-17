@@ -38,6 +38,15 @@ public sealed class FakeChannel : IGameChannelApi
     /// <summary>预下载清单拉取注入的异常（非 null 时 GetPredownloadManifestAsync 抛出）。</summary>
     public Exception? PredownloadManifestError { get; set; }
 
+    /// <summary>官方废弃文件清单（渠道 GetObsoleteFilesAsync；null = 该渠道/该过渡没有清单）。</summary>
+    public IReadOnlyList<string>? ObsoleteFiles { get; set; }
+
+    /// <summary>废弃清单拉取的注入异常（非 null 时抛出；模拟取不到——清理必须尽力而为）。</summary>
+    public Exception? ObsoleteFilesError { get; set; }
+
+    /// <summary>废弃清单请求记录（from→to）。</summary>
+    public List<(string From, string To)> ObsoleteFilesRequests { get; } = [];
+
     public List<string> ManifestRequests { get; } = [];
 
     /// <summary>增量清单请求记录（from→to）；负向断言"未发起增量拉取"用（2026-09-20 补）。</summary>
@@ -98,5 +107,17 @@ public sealed class FakeChannel : IGameChannelApi
         }
 
         return Task.FromResult(PredownloadManifest);
+    }
+
+    public Task<IReadOnlyList<string>?> GetObsoleteFilesAsync(
+        GameServer server, string fromVersion, string toVersion, CancellationToken cancellationToken = default)
+    {
+        ObsoleteFilesRequests.Add((fromVersion, toVersion));
+        if (ObsoleteFilesError is { } obsoleteError)
+        {
+            return Task.FromException<IReadOnlyList<string>?>(obsoleteError);
+        }
+
+        return Task.FromResult(ObsoleteFiles);
     }
 }

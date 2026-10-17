@@ -470,6 +470,89 @@ public class GameUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateAsync_PackageChannel_DeletesOfficialObsoleteFilesAndPrunesEmptyDirectories()
+    {
+        // 用户实报空间占用（2026-10-17）：包式更新只覆盖不删除，旧版 VFS 分块随版本累积
+        // （终末地 1.5.3→1.6.4 实测残留 47.72 GiB）。渠道给出官方废弃清单后，更新落地即删除
+        var zipBytes = TestZip.Create(("game.exe", "MZ-stub"));
+        _downloader.Responses[Url("game-0.zip")] = zipBytes;
+        await WriteLocalState("1.0.0");
+        _channel.VersionInfo = new ChannelVersionInfo { LatestVersion = "2.0.0" };
+        _channel.Manifests["2.0.0"] = new GameManifest
+        {
+            Version = "2.0.0",
+            EntriesAreArchives = true,
+            Files = [new ManifestFile("game-0.zip", zipBytes.Length, Md5(zipBytes), Url: Url("game-0.zip"))],
+        };
+        _channel.ObsoleteFiles = ["Endfield_Data/VFS/AAAA/old.chk"];
+        var stale = _tempDir.FilePath("Endfield_Data", "VFS", "AAAA", "old.chk");
+        Directory.CreateDirectory(Path.GetDirectoryName(stale)!);
+        await File.WriteAllTextAsync(stale, "stale");
+
+        var outcome = await CreateService().UpdateAsync(_tempDir.Path, _game, _server, _channel);
+
+        Assert.Equal(UpdateStrategy.FullSync, outcome.Strategy);
+        Assert.False(File.Exists(stale));
+        Assert.False(Directory.Exists(_tempDir.FilePath("Endfield_Data"))); // 空目录随清理回收
+        Assert.Equal([("1.0.0", "2.0.0")], _channel.ObsoleteFilesRequests); // 按"本地版本 → 目标版本"请求
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ObsoleteListUnavailable_UpdateStillSucceeds()
+    {
+        // 清理是尽力而为：渠道取不到清单（网络/协议漂移）不得让更新失败
+        var zipBytes = TestZip.Create(("game.exe", "MZ-stub"));
+        _downloader.Responses[Url("game-0.zip")] = zipBytes;
+        await WriteLocalState("1.0.0");
+        _channel.VersionInfo = new ChannelVersionInfo { LatestVersion = "2.0.0" };
+        _channel.Manifests["2.0.0"] = new GameManifest
+        {
+            Version = "2.0.0",
+            EntriesAreArchives = true,
+            Files = [new ManifestFile("game-0.zip", zipBytes.Length, Md5(zipBytes), Url: Url("game-0.zip"))],
+        };
+        _channel.ObsoleteFilesError = new UpdateException("offline");
+
+        var outcome = await CreateService().UpdateAsync(_tempDir.Path, _game, _server, _channel);
+
+        Assert.Equal("2.0.0", outcome.ToVersion);
+        Assert.Equal("MZ-stub", await File.ReadAllTextAsync(_tempDir.FilePath("game.exe")));
+    }
+
+    [Fact]
+    public async Task ApplyPredownloadAsync_PackageChannel_DeletesOfficialObsoleteFiles()
+    {
+        // 两段式（预下载 → 应用）同样清理：清单按"应用前的本地版本 → 暂存版本"请求
+        var zipBytes = TestZip.Create(("config.ini", "cfg=1"));
+        _downloader.Responses[Url("patch-2.0.0.zip")] = zipBytes;
+        await WriteLocalState("1.0.0");
+        _channel.VersionInfo = new ChannelVersionInfo
+        {
+            LatestVersion = "1.0.0",
+            PredownloadAvailable = true,
+            PredownloadVersion = "2.0.0",
+        };
+        _channel.PredownloadManifest = new GameManifest
+        {
+            Version = "2.0.0",
+            EntriesAreArchives = true,
+            Files = [new ManifestFile("patch-2.0.0.zip", zipBytes.Length, Md5(zipBytes), Url: Url("patch-2.0.0.zip"))],
+        };
+        _channel.ObsoleteFiles = ["old/stale.chk"];
+        var stale = _tempDir.FilePath("old", "stale.chk");
+        Directory.CreateDirectory(Path.GetDirectoryName(stale)!);
+        await File.WriteAllTextAsync(stale, "stale");
+        var service = CreateService();
+        await service.PredownloadAsync(_tempDir.Path, _game, _server, _channel);
+
+        await service.ApplyPredownloadAsync(_tempDir.Path, _game, _server, _channel);
+
+        Assert.False(File.Exists(stale));
+        Assert.False(Directory.Exists(_tempDir.FilePath("old")));
+        Assert.Equal([("1.0.0", "2.0.0")], _channel.ObsoleteFilesRequests);
+    }
+
+    [Fact]
     public async Task PredownloadThenApply_PackageChannel_ExtractsStagedArchive()
     {
         var zipBytes = TestZip.Create(("config.ini", "cfg=1"));
