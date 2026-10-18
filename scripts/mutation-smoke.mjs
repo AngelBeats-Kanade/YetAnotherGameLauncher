@@ -416,6 +416,39 @@ const MUTATIONS = [
     dll: 'tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Hypergryph.Tests.dll',
     method: 'YetAnotherGameLauncher.Channels.Hypergryph.Tests.GryphlineChannelApiTests.GetObsoleteFiles_ServerVersionMovedPastTarget_ReturnsNull',
   },
+  {
+    // 2026-10-18 诱饵父进程桥：候选顺序（PlatformProcess → UnityCrashHandler64 → Endfield）是
+    // 修复契约的一部分——顺序被破坏时挑选用例必须红
+    id: 'M44-decoy-candidate-order',
+    file: 'src/YetAnotherGameLauncher.Core/Services/Umu/DecoyParentBridge.cs',
+    find: '["PlatformProcess.exe", "UnityCrashHandler64.exe", "Endfield.exe"];',
+    replace: '["UnityCrashHandler64.exe", "PlatformProcess.exe", "Endfield.exe"];',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.DecoyParentBridgeTests.TryPrepare_PicksFirstExistingCandidateInOrder',
+  },
+  {
+    // 2026-10-18 诱饵父进程桥：桥命令行里含空格的游戏参数必须加引号
+    //（游戏侧按 Windows 命令行规则拆分；不加引号会被拆散）
+    id: 'M45-bridge-commandline-quoting',
+    file: 'src/YetAnotherGameLauncher.Core/Services/Umu/NativeUmuLauncher.cs',
+    find: 'command += argument.Contains(\' \') ? $" \\"{argument}\\"" : $" {argument}";',
+    replace: 'command += $" {argument}";',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.NativeUmuDecoyParentTests.LaunchAsync_DecoyParent_GameArgumentsRideInBridgeCommandLine',
+  },
+  {
+    // 2026-10-18 复审加固：helper 环境变量名是 C↔C# 跨语言契约——重命名 C# 常量时
+    // 源码锚点测试必须红（否则失败形态是 helper 退出 2、游戏不出现而 UI 报「已启动」）
+    id: 'M46-bridge-env-contract-anchor',
+    file: 'src/YetAnotherGameLauncher.Core/Services/Umu/DecoyParentBridge.cs',
+    find: 'public const string DecoyVariable = "YAGL_BRIDGE_DECOY";',
+    replace: 'public const string DecoyVariable = "YAGL_BRIDGE_DECOY_X";',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.DecoyParentBridgeTests.BridgeSource_MatchesManagedBridgeContract',
+  },
 ];
 
 function run(cmd, args) {
