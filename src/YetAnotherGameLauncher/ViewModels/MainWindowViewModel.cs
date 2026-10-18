@@ -767,6 +767,7 @@ public partial class MainWindowViewModel : ViewModelBase
             await MigrateFromSampleAsync(catalog, cancellationToken);
             await MigrateLinuxBareLaunchTemplatesAsync(catalog, cancellationToken);
             await MigrateLinuxLegacyUmuTemplatesAsync(catalog, cancellationToken);
+            await MigrateDecoyParentFlagAsync(catalog, cancellationToken);
         }
 
         _downloader.Limiter.BytesPerSecond = catalog.Settings.DownloadSpeedLimitBytes;
@@ -1185,6 +1186,44 @@ public partial class MainWindowViewModel : ViewModelBase
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // 迁移写回失败不致命（与 schemaVersion 3 迁移同款）：版本号未落盘，下次启动幂等重试
+        }
+    }
+
+    /// <summary>
+    /// schemaVersion 6 一次性迁移：诱饵父进程桥（终末地 1.6.3+ 启动校验的修复，2026-10-18）——
+    /// 内置样例给终末地条目开了 launch.decoyParent，存量配置在本次启动补上同一旗标
+    /// （仅"样例开启且 id 相同"的游戏；运行时只对 native-umu 链生效，其余平台/模板下为无害标记）。
+    /// 版本号 ≥ 6 后永不执行。
+    /// </summary>
+    private async Task MigrateDecoyParentFlagAsync(GameCatalog catalog, CancellationToken cancellationToken)
+    {
+        if (catalog.Settings.SchemaVersion >= 6)
+        {
+            return;
+        }
+
+        catalog.Settings.SchemaVersion = 6;
+        var templateJson = _defaultConfigTemplateFactory?.Invoke();
+        if (templateJson is not null)
+        {
+            var sample = GameCatalogService.Parse(templateJson);
+            foreach (var game in catalog.Games)
+            {
+                if (!game.Launch.DecoyParent
+                    && sample.Games.FirstOrDefault(g => g.Id == game.Id) is { Launch.DecoyParent: true })
+                {
+                    game.Launch.DecoyParent = true;
+                }
+            }
+        }
+
+        try
+        {
+            await _catalogService.SaveAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 迁移写回失败不致命（与 schemaVersion 3/4/5 迁移同款）：版本号未落盘，下次启动幂等重试
         }
     }
 

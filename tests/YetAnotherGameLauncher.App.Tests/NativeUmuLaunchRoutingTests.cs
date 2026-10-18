@@ -171,6 +171,64 @@ public class NativeUmuLaunchRoutingTests : IDisposable
             $"游戏参数应按序追加在 exe 之后，实际：{spec.Arguments}");
     }
 
+    [Fact]
+    public async Task DecoyParentFlag_RoutesThroughBridgeHelper()
+    {
+        // 诱饵父进程桥（2026-10-18，终末地 1.6.3+ 启动校验）：GameItemViewModel 启动入口
+        // 把 Game.Launch.DecoyParent 透传给 NativeUmuLauncher → 容器目标换成桥 helper、
+        // 游戏命令行经 YAGL_BRIDGE_* 传递（真机验证见 artifacts/bugs.md）
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("原生 umu 链仅 Linux（由 Linux 腿覆盖）");
+        }
+
+        var protonDir = CreateFakeProton();
+        var runtimeDir = UmuPaths.RuntimeDirectory("steamrt4", _temp.Path);
+        Directory.CreateDirectory(runtimeDir);
+        File.WriteAllText(Path.Combine(runtimeDir, "_v2-entry-point"), "#!/bin/sh\n");
+        File.WriteAllText(Path.Combine(runtimeDir, UmuPaths.InstallMarkerName), "ok");
+        var provisioner = new FakeProvisioner(protonDir);
+
+        var launcher = new NativeUmuLauncher(_runner, provisioner, dataHome: _temp.Path);
+        using var ctx = VmFactory.Build(nativeUmu: launcher);
+        await ctx.Vm.InitializeAsync();
+        var game = ctx.Vm.Games[0];
+
+        var installDir = _temp.FilePath("game");
+        Directory.CreateDirectory(installDir);
+        await File.WriteAllTextAsync(Path.Combine(installDir, "Game.exe"), "x");
+        await File.WriteAllTextAsync(Path.Combine(installDir, "PlatformProcess.exe"), "signed-decoy");
+
+        var launchSettings = new LaunchSettingsViewModel(
+            game.Game, game.InstallDirPath, ctx.CatalogService, game.Loc, game,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            protonVersions: ["GE-Proton10-9"],
+            dataHome: _temp.Path,
+            umuProvisioner: provisioner);
+        launchSettings.InstallDirDraft = installDir;
+        launchSettings.ExecutableDraft = "Game.exe";
+        await launchSettings.SaveCommand.ExecuteAsync(null);
+        Assert.False(launchSettings.Save.Failed);
+
+        // 模拟磁盘加载到的存量旗标（设置卡不编辑该字段）
+        game.Game.Launch.DecoyParent = true;
+
+        await game.LaunchAsync();
+        var spec = Assert.Single(_runner.Specs);
+        var exe = Path.GetFullPath(Path.Combine(installDir, "Game.exe"));
+
+        Assert.Contains("yagl-parent-bridge.exe", spec.Arguments, StringComparison.Ordinal);
+        Assert.DoesNotContain(exe, spec.Arguments, StringComparison.Ordinal);
+
+        var env = spec.Environment!;
+        var decoy = Path.Combine(installDir, ".yagl", "bridge", "Games.exe");
+        Assert.Equal(DecoyParentBridge.ToWindowsPath(decoy), env[DecoyParentBridge.DecoyVariable]);
+        Assert.Equal(DecoyParentBridge.ToWindowsPath(exe), env[DecoyParentBridge.TargetVariable]);
+        Assert.Equal($"\"{DecoyParentBridge.ToWindowsPath(exe)}\"", env[DecoyParentBridge.CommandLineVariable]);
+        Assert.True(File.Exists(decoy));
+        Assert.Equal("signed-decoy", File.ReadAllText(decoy));
+    }
+
     /// <summary>可编程组件准备器：EnsureProtonAsync 返回预先落盘的假 Proton 目录。</summary>
     private sealed class FakeProvisioner(string protonDir) : IUmuComponentProvisioner
     {

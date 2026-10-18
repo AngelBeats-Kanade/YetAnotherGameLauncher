@@ -857,7 +857,8 @@ public partial class GameItemViewModel(
                     cancellationToken: cancellationToken,
                     umuId: Game.Launch.UmuId,
                     resourceQualityTier: Game.Launch.ResourceQualityTier,
-                    gameArguments: Game.Launch.Arguments);
+                    gameArguments: Game.Launch.Arguments,
+                    decoyParent: Game.Launch.DecoyParent);
             }
             else
             {

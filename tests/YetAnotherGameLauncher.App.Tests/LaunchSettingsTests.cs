@@ -596,4 +596,51 @@ public class LaunchSettingsTests : IDisposable
         Assert.False(launch.UseWayland, "发行版窄通道不得把未保存的开关草稿一并落盘");
         Assert.True(settings.IsDirty, "开关草稿仍未保存，脏标应保持点亮");
     }
+
+    [Fact]
+    public async Task Save_PreservesDecoyParentFlag()
+    {
+        // 诱饵父进程桥旗标（2026-10-18）不经设置卡编辑：保存逐字段重建 LaunchOptions 时必须取已存值
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        game.Game.Launch.DecoyParent = true; // 模拟磁盘加载到的存量旗标
+
+        var settings = new LaunchSettingsViewModel(
+            game.Game, game.InstallDirPath, _ctx.CatalogService, game.Loc, game,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            protonVersions: ["GE-Proton10-9"]);
+        await settings.SaveCommand.ExecuteAsync(null);
+        Assert.False(settings.Save.Failed);
+
+        var reloader = new YetAnotherGameLauncher.Core.Services.GameCatalogService(_ctx.ConfigPath);
+        await reloader.LoadAsync();
+        Assert.True(reloader.Catalog!.Games[0].Launch.DecoyParent);
+        Assert.True(game.Game.Launch.DecoyParent);
+    }
+
+    [Fact]
+    public async Task ProtonFlavorSwitch_NarrowSave_KeepsDecoyParentFlag()
+    {
+        // 发行版窄通道即时保存只动 PROTONPATH：托管外的诱饵父进程桥旗标必须透传
+        await _ctx.Vm.InitializeAsync();
+        var game = _ctx.Vm.Games[0];
+        var settings = new LaunchSettingsViewModel(
+            game.Game, game.InstallDirPath, _ctx.CatalogService, game.Loc, game,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            protonVersions: ["GE-Proton10-9"]);
+        await settings.SaveCommand.ExecuteAsync(null); // 初始推荐链落盘
+        game.Game.Launch.DecoyParent = true; // 模拟磁盘加载后的存量旗标
+
+        settings.SelectedProtonFlavor = "GE-Proton";
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline
+            && !File.ReadAllText(_ctx.ConfigPath).Contains("GE-Proton", StringComparison.Ordinal))
+        {
+            await Task.Delay(25);
+        }
+
+        var reloader = new YetAnotherGameLauncher.Core.Services.GameCatalogService(_ctx.ConfigPath);
+        await reloader.LoadAsync();
+        Assert.True(reloader.Catalog!.Games[0].Launch.DecoyParent);
+    }
 }

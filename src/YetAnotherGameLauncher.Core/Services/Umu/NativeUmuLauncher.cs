@@ -24,6 +24,9 @@ public sealed class NativeUmuLauncher(
     ILogger? logger = null,
     string? dataHome = null)
 {
+    /// <summary>诱饵父进程桥准备器（终末地 1.6.3+ 启动校验；无状态，可安全共享）。</summary>
+    private readonly DecoyParentBridge _decoyBridge = new(logger);
+
     /// <summary>
     /// 解析 Proton 路径（绝对目录或版本代号），必要时经 provisioner 下载，
     /// 再解析 toolmanifest 所需 Runtime 并确保就绪。
@@ -70,7 +73,8 @@ public sealed class NativeUmuLauncher(
         return (protonPath, manifest, runtime);
     }
 
-    /// <summary>构建启动计划（不启动进程）：prefix + 环境 + 容器命令。umuId 覆盖 UMU_ID（空 = umu-{gameId}）。</summary>
+    /// <summary>构建启动计划（不启动进程）：prefix + 环境 + 容器命令。umuId 覆盖 UMU_ID（空 = umu-{gameId}）。
+    /// decoyParent 非空时切换诱饵父进程桥：容器目标换成桥 helper，游戏命令行经 YAGL_BRIDGE_* 环境变量传递。</summary>
     public UmuNativeLaunchPlan BuildPlan(
         string gameId,
         string installDir,
@@ -83,7 +87,8 @@ public sealed class NativeUmuLauncher(
         string? dataHomeOverride = null,
         string? umuId = null,
         string? resourceQualityTier = null,
-        IReadOnlyList<string>? gameArguments = null)
+        IReadOnlyList<string>? gameArguments = null,
+        DecoyParentPreparation? decoyParent = null)
     {
         EnsureLinux();
 
@@ -161,9 +166,27 @@ public sealed class NativeUmuLauncher(
             gameArgumentList.Add($"-krqlv={resourceQualityTier!.Trim()}");
         }
 
+        // 诱饵父进程桥（decoyParent 非空，2026-10-18）：容器目标换成桥 helper，游戏可执行文件与
+        // 命令行经 YAGL_BRIDGE_* 传给 wine 侧 helper（它以挂起诱饵为父进程再拉起游戏）。
+        // 写在用户环境合并之后：桥是基础设施键，不允许用户同名变量反超（与 PROTONPATH 同纪律）。
+        var launchTarget = exe;
+        IReadOnlyList<string>? launchArguments = gameArgumentList;
+        if (decoyParent is not null)
+        {
+            var targetWindows = DecoyParentBridge.ToWindowsPath(exe);
+            environment[DecoyParentBridge.DecoyVariable] = decoyParent.DecoyWindowsPath;
+            environment[DecoyParentBridge.TargetVariable] = targetWindows;
+            environment[DecoyParentBridge.CommandLineVariable] =
+                ComposeWindowsCommandLine(targetWindows, gameArgumentList);
+            environment[DecoyParentBridge.WorkingDirectoryVariable] =
+                DecoyParentBridge.ToWindowsPath(installFullPath);
+            launchTarget = decoyParent.HelperPath;
+            launchArguments = null;
+        }
+
         var entry = BuildEntryCommand(
-            manifest, runtime, environment["PROTON_VERB"], exe, dataHomeOverride ?? dataHome,
-            gameArguments: gameArgumentList);
+            manifest, runtime, environment["PROTON_VERB"], launchTarget, dataHomeOverride ?? dataHome,
+            gameArguments: launchArguments);
         var arguments = QuoteArgs(entry.Skip(1));
 
         // Debug 级全量启动面（2026-10-02 用户需求）：与 GameLauncherService 同型；Release 构建
@@ -187,7 +210,7 @@ public sealed class NativeUmuLauncher(
 
     /// <summary>解析组件 → 构建计划 → 即启即走启动，返回日志路径。umuId 覆盖 UMU_ID（空 = umu-{gameId}）；
     /// resourceQualityTier（鸣潮 hd/sd/uhd）与 gameArguments（自定义启动选项 %command% 之后的用户参数）
-    /// 按序追加在游戏 exe 之后，空 = 不追加。</summary>
+    /// 按序追加在游戏 exe 之后，空 = 不追加。decoyParent = true 时走诱饵父进程桥（prepare 失败静默回退直启）。</summary>
     public async Task<LaunchResult> LaunchAsync(
         string gameId,
         string installDir,
@@ -199,14 +222,24 @@ public sealed class NativeUmuLauncher(
         CancellationToken cancellationToken = default,
         string? umuId = null,
         string? resourceQualityTier = null,
-        IReadOnlyList<string>? gameArguments = null)
+        IReadOnlyList<string>? gameArguments = null,
+        bool decoyParent = false)
     {
         var (protonPath, manifest, runtime) = await ResolveComponentsAsync(
             protonRequest, progress, cancellationToken).ConfigureAwait(false);
+
+        // 诱饵父进程桥（2026-10-18）：开启时先把诱饵与 helper 落盘。准备失败静默回退直启
+        // （不阻断玩家；原因由 DecoyParentBridge 记日志）——游戏侧会照旧弹「请通过官方启动器」。
+        DecoyParentPreparation? decoy = null;
+        if (decoyParent)
+        {
+            decoy = _decoyBridge.TryPrepare(installDir);
+        }
+
         var plan = BuildPlan(
             gameId, installDir, executablePath, protonPath, manifest, runtime,
             extraEnvironment, store, umuId: umuId, resourceQualityTier: resourceQualityTier,
-            gameArguments: gameArguments);
+            gameArguments: gameArguments, decoyParent: decoy);
 
         var logDirectory = Path.Combine(AppPaths.DataDirectory, "logs");
         Directory.CreateDirectory(logDirectory);
@@ -303,4 +336,19 @@ public sealed class NativeUmuLauncher(
     /// <summary>把含空格的参数包上双引号后以空格拼接。</summary>
     private static string QuoteArgs(IEnumerable<string> args) =>
         string.Join(' ', args.Select(a => a.Contains(' ') ? $"\"{a}\"" : a));
+
+    /// <summary>
+    /// 桥模式下的游戏命令行（YAGL_BRIDGE_CMD）：exe 恒加引号（Windows 路径可能含空格），
+    /// 参数按 <see cref="QuoteArgs"/> 同规则按需加引号。这串最终成为游戏进程的 lpCommandLine。
+    /// </summary>
+    private static string ComposeWindowsCommandLine(string windowsExe, IReadOnlyList<string> gameArguments)
+    {
+        var command = $"\"{windowsExe}\"";
+        foreach (var argument in gameArguments)
+        {
+            command += argument.Contains(' ') ? $" \"{argument}\"" : $" {argument}";
+        }
+
+        return command;
+    }
 }

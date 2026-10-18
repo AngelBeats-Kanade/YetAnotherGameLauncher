@@ -44,6 +44,17 @@ public sealed class LaunchOptions
     /// </summary>
     public string? ResourceQualityTier { get; set; }
 
+    /// <summary>
+    /// 诱饵父进程桥（2026-10-18）：终末地 1.6.3+ 启动时校验直接父进程（镜像名 + Authenticode
+    /// 签名 + 证书指纹白名单，见 docs/ARCHITECTURE.md §3.1）。直启时父进程是启动链中间进程
+    /// （wine 侧为 umu.exe），会被游戏拒绝（弹「请通过官方启动器打开游戏」，退出码 5）。
+    /// 开启后：Linux 原生 umu 链在启动前把游戏目录里鹰角签名的可执行文件
+    /// （PlatformProcess.exe → UnityCrashHandler64.exe → Endfield.exe 首个存在者）复制为
+    /// 游戏目录 .yagl/bridge/Games.exe，以挂起状态作为游戏进程的父进程，游戏退出后回收；
+    /// 候选缺失或准备失败时静默回退直启。仅 native-umu 链生效，其它启动方式忽略。
+    /// </summary>
+    public bool DecoyParent { get; set; }
+
     /// <summary>附加环境变量（值同样支持 {installDir} 占位符）。</summary>
     public Dictionary<string, string> Environment { get; set; } = new();
 

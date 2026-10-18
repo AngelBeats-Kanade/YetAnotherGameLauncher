@@ -725,9 +725,10 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 WorkingDirectory = originalLaunch.WorkingDirectory,
                 Environment = environment,
                 // 窄通道只动 PROTONPATH：已存 %command% 游戏参数与开关/档位同为托管外字段，
-                // 取已存值——即时保存不得静默丢参数
+                // 取已存值——即时保存不得静默丢参数；诱饵父进程桥旗标（decoyParent）同理透传
                 Arguments = originalLaunch.Arguments,
                 UmuId = originalLaunch.UmuId,
+                DecoyParent = originalLaunch.DecoyParent,
                 // 窄通道只动 PROTONPATH：开关与资源档位取已存值——未保存的草稿不得被即时保存静默带走
                 // （toast 也不会提及，2026-09-28 review F-A）
                 UseWayland = originalLaunch.UseWayland,
@@ -1007,7 +1008,8 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             || EnableProtonLogDraft != _game.Launch.EnableProtonLog
             || (SelectedResourceQuality?.Tier ?? "") != (_game.Launch.ResourceQualityTier ?? "").Trim();
 
-        // games.json 的 launch.umuId 不经设置卡编辑，重建 Launch 时必须保留（否则 UMU_ID 退化为 umu-{gameId}）
+        // games.json 的 launch.umuId 不经设置卡编辑，重建 Launch 时必须保留（否则 UMU_ID 退化为 umu-{gameId}）；
+        // launch.decoyParent（诱饵父进程桥旗标）同理属托管外字段
         var newLaunch = new LaunchOptions
         {
             CommandTemplate = CommandTemplate.Trim(),
@@ -1016,6 +1018,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             // 空参数列表归一为 null（"没写 %command%" 与"写了空的"语义相同，落盘形态干净）
             Arguments = userArguments.Count > 0 ? userArguments : null,
             UmuId = _game.Launch.UmuId,
+            DecoyParent = _game.Launch.DecoyParent,
             UseWayland = UseWaylandDraft,
             UpgradeDlss = UpgradeDlssDraft,
             EnableProtonLog = EnableProtonLogDraft,

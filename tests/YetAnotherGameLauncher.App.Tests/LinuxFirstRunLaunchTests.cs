@@ -133,7 +133,7 @@ public class LinuxFirstRunLaunchTests
 
         var saved = DeserializeConfig(ctx.ConfigPath);
         Assert.Equal("native-umu {exe}", saved.Games[0].Launch.CommandTemplate);
-        Assert.Equal(5, saved.Settings.SchemaVersion);
+        Assert.Equal(6, saved.Settings.SchemaVersion);
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public class LinuxFirstRunLaunchTests
 
         var saved = DeserializeConfig(ctx.ConfigPath);
         Assert.Equal("steam -applaunch 2530", saved.Games[0].Launch.CommandTemplate); // 自定义模板不动
-        Assert.Equal(5, saved.Settings.SchemaVersion); // 但迁移标记落盘
+        Assert.Equal(6, saved.Settings.SchemaVersion); // 但迁移标记落盘
     }
 
     [Fact]
@@ -166,7 +166,7 @@ public class LinuxFirstRunLaunchTests
         var saved = DeserializeConfig(ctx.ConfigPath);
         var launch = saved.Games[0].Launch;
         Assert.Equal("native-umu {exe}", launch.CommandTemplate);
-        Assert.Equal(5, saved.Settings.SchemaVersion);
+        Assert.Equal(6, saved.Settings.SchemaVersion);
         Assert.Equal("umu-wuthering-waves", launch.Environment.GetValueOrDefault("GAMEID")); // 既有 umu 环境保留
         Assert.Equal("DW-Proton", launch.Environment.GetValueOrDefault("PROTONPATH")); // 缺省发行版代号落盘
         Assert.False(string.IsNullOrWhiteSpace(launch.Environment.GetValueOrDefault("STEAM_COMPAT_DATA_PATH")));
@@ -188,7 +188,7 @@ public class LinuxFirstRunLaunchTests
 
         var saved = DeserializeConfig(ctx.ConfigPath);
         Assert.Equal("native-umu {exe}", saved.Games[0].Launch.CommandTemplate); // 裸模板被 schema4 迁移升级
-        Assert.Equal(5, saved.Settings.SchemaVersion); // 版本推进到 5（此后永不触碰）
+        Assert.Equal(6, saved.Settings.SchemaVersion); // 版本推进到最新迁移标记（此后永不触碰）
     }
 
     [Fact]
@@ -204,7 +204,7 @@ public class LinuxFirstRunLaunchTests
 
         var saved = DeserializeConfig(ctx.ConfigPath);
         Assert.Equal("umu-run {exe}", saved.Games[0].Launch.CommandTemplate);
-        Assert.Equal(5, saved.Settings.SchemaVersion);
+        Assert.Equal(6, saved.Settings.SchemaVersion);
         Assert.False(saved.Games[0].Launch.Environment.ContainsKey("PROTONPATH"));
     }
 
@@ -321,6 +321,130 @@ public class LinuxFirstRunLaunchTests
                 "commandTemplate": "umu-run {exe}",
                 "workingDirectory": "{installDir}",
                 "environment": {}
+              }
+            }
+          ]
+        }
+        """;
+
+    // ---------- schemaVersion 6 迁移：终末地诱饵父进程桥旗标并入存量配置 ----------
+
+    [Fact]
+    public async Task Migration_Schema6_EndfieldDecoyParentFlagMergedFromSample()
+    {
+        // 诱饵父进程桥（终末地 1.6.3+ 启动校验，2026-10-18）落地时存量配置没有旗标——
+        // 由样例对照一次性补上（新装模板自带）；版本推进到 6
+        using var ctx = VmFactory.Build(
+            configJson: Schema5EndfieldConfigJson,
+            templateFactory: () => DecoyFlagSampleJson,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            linuxProtonVersions: ["GE-Proton10-9"]);
+
+        await ctx.Vm.InitializeAsync();
+
+        var saved = DeserializeConfig(ctx.ConfigPath);
+        Assert.True(saved.Games.Single(g => g.Id == "arknights-endfield").Launch.DecoyParent);
+        Assert.Equal(6, saved.Settings.SchemaVersion);
+    }
+
+    [Fact]
+    public async Task Migration_Schema6_AlreadyMigrated_FlagNotRewritten()
+    {
+        // schema ≥ 6 后永不执行：旗标被显式关掉（false）也不被样例反向改写
+        using var ctx = VmFactory.Build(
+            configJson: Schema6EndfieldNoFlagConfigJson,
+            templateFactory: () => DecoyFlagSampleJson,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            linuxProtonVersions: ["GE-Proton10-9"]);
+
+        await ctx.Vm.InitializeAsync();
+
+        var saved = DeserializeConfig(ctx.ConfigPath);
+        Assert.False(saved.Games.Single(g => g.Id == "arknights-endfield").Launch.DecoyParent);
+        Assert.Equal(6, saved.Settings.SchemaVersion);
+    }
+
+    [Fact]
+    public async Task Migration_Schema6_SampleLacksFlag_NotForced()
+    {
+        // 只有样例开启旗标且 id 相同才并入；样例未开启时一概不动
+        using var ctx = VmFactory.Build(
+            configJson: Schema5EndfieldConfigJson,
+            templateFactory: () => VmFactory.SampleConfigJson,
+            platformInfo: new FakePlatformInfo(isLinux: true),
+            linuxProtonVersions: ["GE-Proton10-9"]);
+
+        await ctx.Vm.InitializeAsync();
+
+        var saved = DeserializeConfig(ctx.ConfigPath);
+        Assert.False(saved.Games.Single(g => g.Id == "arknights-endfield").Launch.DecoyParent);
+        Assert.Equal(6, saved.Settings.SchemaVersion);
+    }
+
+    /// <summary>schema 5 存量配置：终末地条目已带 native-umu 模板，但尚无诱饵父进程桥旗标。</summary>
+    private const string Schema5EndfieldConfigJson = """
+        {
+          "settings": { "installRoot": "~/yagl-test-games", "theme": "Dark", "maxParallelDownloads": 4, "schemaVersion": 5 },
+          "games": [
+            {
+              "id": "arknights-endfield",
+              "displayName": "明日方舟：终末地",
+              "nameLocalized": { "zh-CN": "明日方舟：终末地", "en-US": "Arknights: Endfield" },
+              "channel": "hypergryph",
+              "installDir": "ArknightsEndfield",
+              "executable": "Endfield.exe",
+              "servers": [ { "id": "global", "name": "国际服" } ],
+              "launch": {
+                "commandTemplate": "native-umu {exe}",
+                "workingDirectory": "{installDir}",
+                "environment": {}
+              }
+            }
+          ]
+        }
+        """;
+
+    /// <summary>schema 6（迁移已完成）且旗标为 false 的配置：迁移不得反向改写。</summary>
+    private const string Schema6EndfieldNoFlagConfigJson = """
+        {
+          "settings": { "installRoot": "~/yagl-test-games", "theme": "Dark", "maxParallelDownloads": 4, "schemaVersion": 6 },
+          "games": [
+            {
+              "id": "arknights-endfield",
+              "displayName": "明日方舟：终末地",
+              "nameLocalized": { "zh-CN": "明日方舟：终末地", "en-US": "Arknights: Endfield" },
+              "channel": "hypergryph",
+              "installDir": "ArknightsEndfield",
+              "executable": "Endfield.exe",
+              "servers": [ { "id": "global", "name": "国际服" } ],
+              "launch": {
+                "commandTemplate": "native-umu {exe}",
+                "workingDirectory": "{installDir}",
+                "environment": {}
+              }
+            }
+          ]
+        }
+        """;
+
+    /// <summary>与内置样例同形：终末地条目带诱饵父进程桥旗标（decoyParent=true）。</summary>
+    private const string DecoyFlagSampleJson = """
+        {
+          "settings": { "installRoot": "~/yagl-test-games", "theme": "Dark", "maxParallelDownloads": 4 },
+          "games": [
+            {
+              "id": "arknights-endfield",
+              "displayName": "明日方舟：终末地",
+              "nameLocalized": { "zh-CN": "明日方舟：终末地", "en-US": "Arknights: Endfield" },
+              "channel": "hypergryph",
+              "installDir": "ArknightsEndfield",
+              "executable": "Endfield.exe",
+              "servers": [ { "id": "global", "name": "国际服" } ],
+              "launch": {
+                "commandTemplate": "native-umu {exe}",
+                "workingDirectory": "{installDir}",
+                "environment": {},
+                "decoyParent": true
               }
             }
           ]

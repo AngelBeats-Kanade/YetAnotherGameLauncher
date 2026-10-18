@@ -8,6 +8,9 @@
     <!-- 内置依赖清单（Wine prefix 依赖安装，DependencyCatalog.LoadEmbedded 读取）；
          资源逻辑名 = AssemblyName.Dependencies.catalog.json -->
     <EmbeddedResource Include="Dependencies\catalog.json" />
+    <!-- 诱饵父进程桥 helper：Wine 链上无法使用 .NET 运行时，必须以原生 PE 嵌入并落盘运行；
+         源码/构建/自检见 tools/wine-parent-bridge/README.md -->
+    <EmbeddedResource Include="Resources\yagl-parent-bridge.exe" LogicalName="yagl-parent-bridge.exe" />
   </ItemGroup>
 
   <ItemGroup>
