@@ -200,6 +200,22 @@ UMU_ID 由 `launch.umuId` 覆盖（对齐 umu 数据库规范 ID：鸣潮 `umu-3
    `{runtime}/_v2-entry-point --verb=… -- {proton}/proton <verb> {exe} [游戏参数…]` 启动
    （`IProcessRunner`，即启即走）
 
+**诱饵父进程桥（终末地 1.6.3+ 启动校验，2026-10-18）**：游戏启动时会校验**直接父进程**
+（实现于游戏目录 `OneChannelLC.dll`，四步）：① Toolhelp 快照取直接父进程；② 镜像文件名与
+`parentNames` 忽略大小写全等比对（不中 → `10100`）；③ 对镜像文件调 `WinVerifyTrust`
+（`WINTRUST_ACTION_GENERIC_VERIFY_V2`，签名不可信/取不到 → `10101`）；④ 枚举签名者证书比对
+SHA-1/SHA-256 指纹白名单（不中 → `10102`）。原生 umu 链直启时父进程是容器侧 `umu.exe`，
+会被拒绝（弹「请通过官方启动器打开游戏」、退出码 5）。`launch.decoyParent=true` 时启动链先经
+`DecoyParentBridge` 准备：把游戏目录里鹰角签名的可执行文件（`PlatformProcess.exe` →
+`UnityCrashHandler64.exe` → `Endfield.exe` 首个存在者；与官方启动器 `Games.exe` 同一张签名证书）
+复制为 `.yagl/bridge/Games.exe`，并把嵌入式 helper（`Resources/yagl-parent-bridge.exe`，Wine 侧
+原生 PE，源码/构建/自检见 `tools/wine-parent-bridge/`）落盘；`NativeUmuLauncher` 把容器目标换成
+helper、游戏可执行文件与命令行经 `YAGL_BRIDGE_DECOY/TARGET/CMD/CWD` 环境变量传递。helper 以
+`CREATE_SUSPENDED` 创建诱饵且永不恢复、经 `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` 指定为游戏
+父进程、等游戏退出后 `TerminateProcess` 回收诱饵并透传退出码——**零下载、不依赖官方启动器、
+不改游戏文件与 ACE 环境**。候选缺失/准备失败静默回退直启；三层判据与三种失败码均经真机
+对照实验与通过态实录验证（见 `artifacts/bugs.md`）。
+
 **功能开关 → 环境变量**的映射单一事实源是 `CompatTools.FeatureEnvironment`：
 `useWayland` → `PROTON_USE_WAYLAND=1`（DW 同时接受 PROTON_ENABLE_WAYLAND 别名，同一 compat 选项）；
 `upgradeDlss` → `PROTON_DLSS_UPGRADE=1` + `PROTON_ENABLE_NVAPI=1`（DLSS 依赖 NVAPI；由 protonfixes

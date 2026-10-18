@@ -25,7 +25,7 @@ Currently supported games:
 
 - **Wuthering Waves** (Kuro Games official launcher protocol; CN / Bilibili / Global servers)
 - **Arknights: Endfield** (GRYPHLINE / Hypergryph launcher protocol; CN / Global / Bilibili servers)
-  - ⚠️ Known issue (confirmed on a real machine, 2026-10-17): Endfield **1.6.4** requires starting through the **official launcher** (the parent-process signature check was introduced in 1.6.3 per community reverse engineering); starting it from this launcher is refused by the game (dialog + exit code 5). **Updating is unaffected**; workaround: start the game with the official launcher.
+  - ✅ Linux launch check fixed (2026-10-18): since 1.6.3, Endfield **1.6.4** requires its direct parent process to be the official launcher; the native umu chain now includes a **decoy parent bridge** - a suspended copy of a Hypergryph-signed executable from the game directory serves as the parent (zero downloads, no official launcher needed), so "Launch" works again (the Windows direct-launch path is not covered yet).
 
 > [!NOTE]
 > Both games are Windows programs; running them on Linux depends on **wine / Proton**.
@@ -37,6 +37,7 @@ Currently supported games:
 
 - 🎮 **One-click launch** — Command templates with `{exe}` / `{installDir}` placeholders + custom launch options injection; pre-launch checks report categorized, localized errors; game output is captured to a launch log; failures show a themed error card (with an open-log-folder button)
 - 🐧 **Native Linux umu launch chain** — No external umu-run required: Proton and Steam Runtime are downloaded automatically per the Proton toolmanifest, with container and prefix set up for you; choose between DW-Proton (default) / GE-Proton / UMU-Proton — **selection is saved instantly**, download assets match the host architecture (x86_64/aarch64); each flavor ships a "check for updates" action that upgrades and cleans up old versions
+- 🛡️ **Endfield launch check (Linux)** — the 1.6.3+ direct-parent signature check is handled by a built-in **decoy parent bridge**: a suspended copy of a Hypergryph-signed game executable serves as the parent process (zero downloads, no official launcher, no game files modified), with automatic fallback to a direct launch; see [ARCHITECTURE §3.1](docs/ARCHITECTURE.md)
 - ⬇️ **Full download + resume** — Per-file manifest sync (Wuthering Waves) / archive extraction (Endfield; official `.001..NNN` volumes concatenated automatically) with size+MD5 verification; `.temp` files + HTTP Range resume; linear-backoff retries for transient network errors; adjustable download speed limit
 - 📊 **Real-time byte progress + speed** — Download progress advances per byte (no more per-file jumps) with an EMA-smoothed speed readout; failed pre-downloads/updates resume by re-verifying intact staged files (size+MD5 skip, Range resume); permanent HTTP 4xx errors fail fast without retries
 - 🩹 **Incremental updates + pre-download** — Wuthering Waves uses official krpdiff patch packages applied via native `hpatchz` (HDiffPatch) with `.yagl-bak` backup rollback; two-phase pre-download (stage first, apply when official servers open); package-based channels can register an already-installed game with zero downloads
@@ -209,7 +210,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### Running tests (1372 tests, measured 2026-10-17)
+### Running tests (1391 tests, measured 2026-10-18)
 
 ```bash
 # Run the 4 test projects' compiled binaries directly (on Windows you can run the .exe;
@@ -252,11 +253,12 @@ community-recommended chain (native umu → Proton → wine; native umu needs no
 Runtime are downloaded automatically at launch) and writes compatibility environment variables; this upgrade only
 happens once at first-run generation, and any user edits afterwards are never overwritten.
 
-**Upgrading from older versions**: legacy configs are migrated automatically on first load — official servers and
-localized names added to a game are filled in from the built-in template (`schemaVersion 3`); bare `{exe}`
-(`schemaVersion 4`) and legacy `umu-run {exe}` (`schemaVersion 5`, a historically auto-generated form) launch
-templates are upgraded to the recommended chain once each. Each migration runs only once and the status bar
-reports the result. For the full field reference and an "add a new game" tutorial, see
+**Upgrading from older versions**: legacy configs are migrated automatically on first load (each migration runs
+only once) — official servers and localized names added to a game are filled in from the built-in template
+(`schemaVersion 3`); bare `{exe}` (`schemaVersion 4`) and legacy `umu-run {exe}` (`schemaVersion 5`, a
+historically auto-generated form) launch templates are upgraded to the recommended chain, with the status bar
+reporting the result; Endfield's decoy-parent bridge flag `launch.decoyParent` (`schemaVersion 6`) is merged
+from the built-in template as well. For the full field reference and an "add a new game" tutorial, see
 [docs/GAME_CONFIG.md](docs/GAME_CONFIG.md).
 
 ### Example: launching via wine/Proton on Linux
@@ -308,6 +310,7 @@ YetAnotherGameLauncher.slnx
 │   ├── YetAnotherGameLauncher.Channels.Hypergryph/    # GRYPHLINE channel (Endfield)
 │   └── YetAnotherGameLauncher/                        # Avalonia UI (MVVM)
 ├── tools/IconGen/                                     # app icon generator (original anime artwork, headless render → multi-size ICO)
+├── tools/wine-parent-bridge/                          # decoy-parent bridge helper (C source + build/verify scripts; embedded as an assembly resource)
 ├── tests/                                             # xunit.v3 (MTP) + Avalonia.Headless
 ├── samples/games.json                                 # sample config
 └── docs/                                              # development/architecture/config docs

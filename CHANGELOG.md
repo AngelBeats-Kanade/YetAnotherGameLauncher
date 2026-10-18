@@ -10,7 +10,7 @@
 Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻留 + 关闭按钮行为设置
 （退出应用 / 关闭窗口驻留托盘，下载与依赖安装后台继续）；资源包档位、实时下载进度
 与速度；hpatchz 自动供给与鸣潮 krpdiff 增量更新链终局修复；终末地更新链路（分卷解压修复、官方废弃清单清理、改走官方 v2 增量补丁）。
-1372 个测试全绿（2026-10-17 实测）。
+1391 个测试全绿（2026-10-18 实测）。
 
 ### 新增
 
@@ -144,6 +144,11 @@ Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻�
 - 清理的防线：只删清单点名且不在本次解压产物里的文件（官方清单与新归档实测零重叠，仍按"产物优先"兜底）；路径必须落在安装目录内且不穿过链接；状态目录 `.yagl` 不删；删除后回收腾空目录；单条失败只记日志继续。清单取不到（渠道不支持/服务器已前移/网络失败）不影响更新，只是残留保留到下次。
 - 顺带修复了真机复现的一次瞬态网络失败会让清理静默失效：远程分段读取对 5xx/408/429/连接中断做线性退避重试（4xx 其余判永久失败），并在服务器忽略 Range 回整包时拒绝缓冲（体量闸）。
 
+**终末地启动校验：诱饵父进程桥（Linux，免官方启动器，2026-10-18）**
+
+- 终末地 1.6.3+ 启动时会校验**直接父进程**（镜像名 + `WinVerifyTrust` 签名 + 签名者证书指纹白名单，实现在游戏目录 `OneChannelLC.dll`）；原生 umu 链直启时父进程是容器侧 `umu.exe`，会被拒绝（弹"请通过官方启动器打开游戏"、退出码 5）。现在启动链内置**诱饵父进程桥**：把游戏目录里鹰角签名的可执行文件（`PlatformProcess.exe` → `UnityCrashHandler64.exe` → `Endfield.exe`，取首个存在者；与官方启动器 `Games.exe` 同一张签名证书）复制为 `.yagl/bridge/Games.exe`，以挂起状态充当游戏进程的父进程——wine 侧由随包嵌入的小 helper 编排（创建挂起诱饵 → 以父进程属性拉起游戏 → 游戏退出后回收诱饵），**零下载、不安装官方启动器、不改游戏文件**。
+- 由 `launch.decoyParent` 开关控制（内置样例的终末地条目已开启；存量配置由 schemaVersion 6 一次性迁移补上）；候选文件缺失或准备失败静默回退直启。父进程名/签名/指纹三层判据与三种失败码（10100/10101/10102）均经真机对照实验与通过态实录验证，详见 `artifacts/bugs.md`。
+
 **其他**
 
 - 关于页第三方许可清单修正：HDiffPatch 与 FFmpeg.AutoGen 标注 MIT（对照上游 LICENSE / NuGet 许可文件核验），补上 Avalonia.Fonts.Inter（MIT 包，Inter 字体 OFL-1.1）。
@@ -152,9 +157,9 @@ Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻�
 
 ### 已知问题
 
-**终末地 1.6.4 拒绝非官方启动器启动（1.6.3 起据社区逆向引入该校验；1.5.3 及更早实测可启动；2026-10-17 实机确认〔1.6.4〕，另行排期）**
+**终末地启动校验的 Windows 直启路径未接入（Linux 已修复，2026-10-18）**
 
-- 游戏侧 `U8SDK.dll`/`OneChannelLC.dll` 会校验直接父进程的镜像名与数字签名（`U8StartLaunchCheck`；签名/指纹细节为社区逆向），非官方启动器拉起时弹"请通过官方启动器打开游戏"并以退出码 5 结束；实测"把 `config.ini.new` 换名为 `config.ini`"不解决（实验已做并还原）。**更新功能不受影响**（本启动器仍可把游戏更新到最新版），仅"从此启动器进入游戏"暂不可用；临时绕行 = 用官方启动器启动。详见 `artifacts/bugs.md` 立项记录。
+- 本次修复覆盖 Linux 原生 umu 链；Windows 上本启动器仍以直启方式启动游戏（父进程是启动器本体而非官方启动器，同因会被游戏拒绝）。后续可按同一机制在 Windows 侧补齐（P/Invoke `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS`），需 Windows 真机验证。**更新功能不受影响**。
 
 ### English · 0.1.3 — unreleased
 
@@ -169,7 +174,7 @@ and dependency installs kept running); resource quality tier selection;
 real-time byte-granular download progress with a speed readout;
 automatic hpatchz provisioning and the definitive fix for the Wuthering
 Waves krpdiff incremental-update chain, plus the split-volume extraction
-fix for Endfield package updates plus stale-file cleanup and the delta update path. 1372 tests green (measured 2026-10-17).
+fix for Endfield package updates plus stale-file cleanup and the delta update path; the Endfield launch check is now handled on Linux by a decoy parent bridge (no official launcher needed). 1391 tests green (measured 2026-10-18).
 
 **Added — UI overhaul**
 
@@ -282,9 +287,14 @@ fix for Endfield package updates plus stale-file cleanup and the delta update pa
 - Falling back is automatic whenever the delta does not apply (missing or modified base files, broken volume set, unreachable manifest, unusable payload such as an unreadable entry or output that does not match the official manifest): the launcher silently falls back to the full package and drops the now-useless payload staging, so the only visible effect is a larger download (payload-side problems are logged as warnings for diagnostics).
 - Static files in the payload (dlls/exe/...) overwrite the game root; `config.ini` is written as `config.ini.new` per the official convention.
 
-**Known issue: Endfield 1.6.4 refuses to start unless launched by the official launcher (the parent-process check was introduced in 1.6.3 per community reverse engineering; 1.5.3 and earlier verified to start; confirmed on a real machine for 1.6.4 on 2026-10-17; separate work item)**
+**Endfield launch check - suspended decoy parent bridge (Linux, no official launcher required, 2026-10-18)**
 
-- The game's `U8SDK.dll`/`OneChannelLC.dll` verify the direct parent process image name and digital signature (`U8StartLaunchCheck`; signature/fingerprint details come from community reverse engineering); when started by another launcher it shows "please open the game through the official launcher" and exits with code 5. Renaming `config.ini.new` to `config.ini` does not help (experiment performed and reverted). **Updating is unaffected** (this launcher can still update the game), only starting the game from it is currently unavailable; workaround: start it with the official launcher. See the filed item in `artifacts/bugs.md`.
+- Since 1.6.3, Endfield verifies its **direct parent process** (image name + `WinVerifyTrust` signature + signer certificate fingerprint whitelist, implemented in the game's `OneChannelLC.dll`); a direct launch through the native umu chain used to present the container-side `umu.exe` as the parent and was refused (dialog "please open the game through the official launcher", exit code 5). The launch chain now ships a **decoy parent bridge**: a Hypergryph-signed executable already present in the game directory (`PlatformProcess.exe` -> `UnityCrashHandler64.exe` -> `Endfield.exe`, first hit; same signing certificate as the official launcher's `Games.exe`) is copied to `.yagl/bridge/Games.exe` and created suspended as the game process's parent - a tiny helper bundled with the app orchestrates this inside wine (create the suspended decoy -> start the game with the parent attribute -> reap the decoy when the game exits), with **zero downloads, no official launcher install and no game files modified**.
+- Gated by `launch.decoyParent` (enabled for Endfield in the built-in sample; existing configs receive it via the one-time schemaVersion 6 migration); missing candidates or preparation failures silently fall back to a direct launch. All three conditions (parent name / signature / fingerprint) plus the three failure codes (10100/10101/10102) were verified by controlled experiments and a passing real-machine run - see `artifacts/bugs.md`.
+
+**Known issue: the Windows direct-launch path is not covered (fixed on Linux, 2026-10-18)**
+
+- This fix covers the Linux native umu chain; on Windows the launcher still starts the game directly (the parent is the launcher itself rather than the official launcher, so the game refuses it for the same reason). The same mechanism can be ported to Windows later (P/Invoke `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS`) and needs verification on a real Windows machine. **Updating is unaffected**.
 
 **Fixed - pre-downloaded split volumes from an older launcher build are no longer wasted (2026-10-17)**
 

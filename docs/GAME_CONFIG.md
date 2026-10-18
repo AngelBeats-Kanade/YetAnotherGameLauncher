@@ -43,7 +43,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `proxyMode` | `"System" \| "None" \| "Manual"` | `"System"` | 出站网络代理：System 跟随系统代理 / None 直连 / Manual 使用 `proxyAddress` |
 | `proxyAddress` | string | | 手动代理地址（如 `http://127.0.0.1:7890`）；`proxyMode` 为 `"Manual"` 时必填且须为可解析的 http(s) URL，其余模式可有可无 |
 | `closeAction` | `"Exit" \| "HideToTray"` | `"Exit"` | 标题栏关闭按钮行为：`Exit` 退出应用 / `HideToTray` 只隐藏窗口并驻留系统托盘（托盘图标唤回，下载与依赖安装继续）。可在设置页切换 |
-| `schemaVersion` | int | `0` | 配置结构版本（内部使用）。旧版本配置首次被新版加载时自动迁移并写回版本号，仅执行一次：`3` 补齐内置模板中同一游戏新增的官方服务器、本地化名称与缺失图标；`4` 把 Linux 裸 `{exe}` 启动模板升级为推荐链；`5` 把存量 `umu-run {exe}` 模板（历史自动生成形态）升级为推荐链 |
+| `schemaVersion` | int | `0` | 配置结构版本（内部使用）。旧版本配置首次被新版加载时自动迁移并写回版本号，仅执行一次：`3` 补齐内置模板中同一游戏新增的官方服务器、本地化名称与缺失图标；`4` 把 Linux 裸 `{exe}` 启动模板升级为推荐链；`5` 把存量 `umu-run {exe}` 模板（历史自动生成形态）升级为推荐链；`6` 把内置样例中终末地条目开启的 `launch.decoyParent`（诱饵父进程桥）旗标并入存量配置 |
 
 ### games[]（GameDefinition）
 
@@ -74,6 +74,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `upgradeDlss` | bool | `false` | 注入 `PROTON_DLSS_UPGRADE=1`（连带 `PROTON_ENABLE_NVAPI=1`）：启动时由 protonfixes 把游戏内 DLSS 换成 Proton 内置新版。仅 NVIDIA 显卡生效。设置页「功能开关 → 升级 DLSS 模型」 |
 | `enableProtonLog` | bool | `false` | 注入 `PROTON_LOG=1` + `PROTON_LOG_DIR={应用日志目录}`，记录 Proton 运行日志。设置页「功能开关 → 打印 Proton 日志」 |
 | `resourceQualityTier` | string | | 鸣潮资源包档位：`hd` / `sd` / `uhd` 之一（白名单外/大写拒收），启动时以 `-krqlv=<tier>` 命令行参数传给游戏（官方启动器同款参数，两条启动链均生效）；留空 = 跟随游戏内设置、不追加参数。设置页下拉仅鸣潮渠道显示；启动链不按渠道过滤——手改 JSON 给非鸣潮游戏填了该值仍会传参，非鸣潮请保持留空。注意：档位当前只作用于启动参数——官方增量/全量清单实测仅含 HD 档资源（2026-10-02 端点实测，SD/UHD 不经 CDN 清单下发）。设置页「资源包档位」下拉（鸣潮专属显示，2026-10-02 增） |
+| `decoyParent` | bool | `false` | 诱饵父进程桥（终末地 1.6.3+ 启动校验的修复，2026-10-18）：仅 Linux 原生 umu 链生效。开启后在启动前把游戏目录里鹰角签名的可执行文件（`PlatformProcess.exe` → `UnityCrashHandler64.exe` → `Endfield.exe` 首个存在者）复制为 `<安装目录>/.yagl/bridge/Games.exe`，以挂起状态作为游戏进程的父进程（直启时游戏会弹「请通过官方启动器打开游戏」并以退出码 5 结束）；候选缺失或准备失败静默回退直启。内置样例的终末地条目已开启；存量配置由 `schemaVersion 6` 一次性迁移补上；机制、三层判据与真机实测见 [ARCHITECTURE.md §3.1](ARCHITECTURE.md) |
 
 可用占位符：
 

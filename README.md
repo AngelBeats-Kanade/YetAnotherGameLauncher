@@ -23,7 +23,7 @@
 
 - 《鸣潮》（库洛官方启动器协议，支持 国服 / B服 / 国际服）
 - 《明日方舟：终末地》（GRYPHLINE / 鹰角启动器协议，支持 国服 / 国际服 / B服）
-  - ⚠️ 已知问题（2026-10-17 实机确认）：终末地 **1.6.4**（实测）要求由**官方启动器**启动（1.6.3 起据社区逆向引入父进程签名校验），本启动器直接「启动」会被游戏拒绝（弹窗 + 退出码 5）；**更新功能不受影响**，临时绕行 = 用官方启动器进游戏
+  - ✅ Linux 启动校验已修复（2026-10-18）：终末地 **1.6.4**（实测）自 1.6.3 起要求"直接父进程"是官方启动器；原生 umu 链现已内置**诱饵父进程桥**——用游戏目录里同为鹰角签名的可执行文件副本挂起充当父进程，零下载、不依赖官方启动器，可直接「启动」（Windows 直启路径暂未接入）
 
 > [!NOTE]
 > 《鸣潮》《明日方舟：终末地》均为 Windows 程序，在 Linux 上运行依赖 **wine / Proton**。
@@ -34,6 +34,7 @@
 
 - 🎮 **一键启动** — 命令模板 `{exe}` / `{installDir}` 占位符 + 自定义启动选项注入；启动预检给出类目化中文错误，游戏输出落盘启动日志，失败弹主题化错误卡（含打开日志目录）
 - 🐧 **Linux 原生 umu 启动链** — 无需外部 umu-run：按 Proton 的 toolmanifest 自动下载 Proton 与 Steam Runtime 并搭建容器与 prefix；DW-Proton（默认）/ GE-Proton / UMU-Proton 发行版可选，**选择即保存**，下载资产按主机架构（x86_64/aarch64）匹配；发行版带「检查更新」，确认后升级并自动清理旧目录
+- 🛡️ **终末地启动校验（Linux）** — 1.6.3+ 的"直接父进程"签名校验由启动链内置**诱饵父进程桥**化解：挂起游戏目录里同为鹰角签名的可执行文件副本充任父进程（零下载、不装官方启动器、不改游戏文件），候选缺失自动回退直启；机制与实测见 [ARCHITECTURE §3.1](docs/ARCHITECTURE.md)
 - ⬇️ **全量下载 + 断点续传** — 官方清单逐文件同步（鸣潮）/ 压缩包整包解压（终末地，官方 `.001..NNN` 分卷自动拼接后一次解压），size+MD5 双校验；`.temp` 临时文件 + HTTP Range 续传，瞬态网络错误线性退避重试，下载限速可调
 - 📊 **字节级实时进度 + 下载速度** — 下载进度按字节实时推进（不再按文件跳变），EMA 平滑显示实时下载速度；预载/更新失败重跑只补缺失部分（完好暂存按 size+MD5 核验跳过、断点续传）；HTTP 4xx 永久错误不重试
 - 🩹 **增量更新 + 预下载** — 鸣潮走官方 krpdiff 差分包，调用原生 `hpatchz`（HDiffPatch）合成，`.yagl-bak` 备份回滚；两段式预更新先暂存后一键应用；包式渠道检测到本机已装游戏可零下载直接登记
@@ -191,7 +192,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（1372 个，2026-10-17 实测）
+### 运行测试（1391 个，2026-10-18 实测）
 
 ```bash
 # 4 个测试工程分别运行编译产物（Windows 亦可直接跑 .exe；本机 dotnet test 可能发现 0 个测试）：
@@ -232,10 +233,11 @@ Linux 上生成时会顺带把默认 `{exe}` 模板升级为社区推荐链
 启动时自动下载 Proton 与 Steam Runtime）并写入兼容环境变量；
 此升级只在首运生成时发生一次，用户此后的任何修改都不会被覆盖。
 
-**从旧版本升级**：旧配置首次被新版加载时会自动迁移——按内置模板补齐同一游戏新增的
-官方服务器与本地化名称（`schemaVersion 3`）；裸 `{exe}`（`schemaVersion 4`）与存量
-`umu-run {exe}`（`schemaVersion 5`，历史自动生成形态）启动模板一次性升级为推荐链；
-均仅执行一次，状态栏会提示迁移结果。
+**从旧版本升级**：旧配置首次被新版加载时会自动迁移（均仅执行一次）——按内置模板补齐同一
+游戏新增的官方服务器与本地化名称（`schemaVersion 3`）；裸 `{exe}`（`schemaVersion 4`）与
+存量 `umu-run {exe}`（`schemaVersion 5`，历史自动生成形态）启动模板一次性升级为推荐链，
+状态栏会提示迁移结果；终末地诱饵父进程桥旗标 `launch.decoyParent`（`schemaVersion 6`）
+按内置模板并入存量配置。
 完整字段说明与"添加新游戏"教程见 [docs/GAME_CONFIG.md](docs/GAME_CONFIG.md)。
 
 ### Linux 上通过 wine/Proton 启动的配置示例
@@ -287,6 +289,7 @@ YetAnotherGameLauncher.slnx
 │   ├── YetAnotherGameLauncher.Channels.Hypergryph/    # GRYPHLINE 渠道（终末地）
 │   └── YetAnotherGameLauncher/                        # Avalonia UI（MVVM）
 ├── tools/IconGen/                                     # 应用图标生成工具（原创二次元形象，headless 渲染 → 多尺寸 ICO）
+├── tools/wine-parent-bridge/                          # 诱饵父进程桥 helper（C 源码 + 构建/自检脚本；嵌入为程序集资源）
 ├── tests/                                             # xunit.v3（MTP）+ Avalonia.Headless
 ├── samples/games.json                                 # 示例配置
 └── docs/                                              # 开发/架构/配置文档
