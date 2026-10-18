@@ -539,9 +539,51 @@ public class GameItemActionsTests : IDisposable
 
         Assert.True(endfield.IsInstalled);
         Assert.False(endfield.HasUpdate);
-        Assert.Equal("已是最新版本", endfield.StatusText);
+        // 零校验登记不再冒充"已是最新版本"（2026-10-18，半更新掩盖事故立案）：状态行明示未校验、
+        // 指向已有的校验修复入口（主按钮），避免"看起来是完整最新安装"误导玩家启动坏安装
+        Assert.Equal(endfield.Loc["status_registeredUnverified"], endfield.StatusText);
+        Assert.Equal(endfield.Loc["status_registeredUnverifiedShort"], endfield.SidebarStatusText);
+        Assert.False(new LocalStateService(endfield.InstallDirPath)
+            .Load(endfield.Game.Id, endfield.SelectedServer.Id)!.Verified);
         Assert.Equal(downloadsBefore, _ctx.Downloader.Requests.Count); // 零下载
         Assert.Equal("校验修复", endfield.InstallButtonText);
+    }
+
+    [Fact]
+    public async Task VerifyRepair_AfterBlindRegistration_MarksStateVerified()
+    {
+        // 未校验登记 → 用户执行"校验修复"（包式渠道 = 整包重下）→ 状态转回"已是最新版本"，
+        // 且落盘状态重新标记为已验证（盲登记的标注被真实安装流程覆盖）
+        await _ctx.Vm.InitializeAsync();
+        var endfield = _ctx.Vm.Games[1];
+        var exePath = Path.Combine(endfield.InstallDirPath, "Endfield.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(exePath)!);
+        await File.WriteAllBytesAsync(exePath, "MZ"u8.ToArray());
+        await endfield.RefreshAsync();
+        await endfield.InstallOrUpdateCommand.ExecuteAsync(null); // 盲登记（零下载）
+
+        Assert.False(new LocalStateService(endfield.InstallDirPath)
+            .Load(endfield.Game.Id, endfield.SelectedServer.Id)!.Verified); // 盲登记先落未校验标注
+
+        var zipBytes = TestZip.Create(("Endfield.exe", "MZ"));
+        _ctx.Gryphline.VersionInfo = new ChannelVersionInfo { LatestVersion = "2.0.0" };
+        _ctx.Gryphline.Manifests["2.0.0"] = new GameManifest
+        {
+            Version = "2.0.0",
+            EntriesAreArchives = true,
+            Files = [new ManifestFile("ef.zip", zipBytes.Length, Hashing.Md5Hex(zipBytes), Url: "https://cdn/ef.zip")],
+        };
+        _ctx.Downloader.Responses["https://cdn/ef.zip"] = zipBytes;
+
+        await endfield.ConfirmRepairAsync();
+
+        // 校验修复的结果文案（包式渠道 = 整包重下）由 RunUpdateAsync 的 isVerify 语义给出，
+        // 之后刷新出的"已是最新版本"在下次导航/刷新落地；本用例钉住的是状态标注的翻转
+        Assert.Equal(endfield.Loc["verify_reinstalled"], endfield.StatusText);
+        Assert.True(new LocalStateService(endfield.InstallDirPath)
+            .Load(endfield.Game.Id, endfield.SelectedServer.Id)!.Verified);
+        await endfield.RefreshAsync();
+        Assert.Equal("已是最新版本", endfield.StatusText);
     }
 
     [Fact]

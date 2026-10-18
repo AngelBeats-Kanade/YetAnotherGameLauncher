@@ -47,7 +47,7 @@
                                FontSize="13" FontWeight="SemiBold"
                                Foreground="{DynamicResource AppOnArtworkBrush}"/>
                 </Grid>
-                <ProgressBar Maximum="100" Value="{Binding ProgressPercent}" Height="6"/>
+                <ProgressBar Maximum="100" Value="{Binding ProgressPercent}" Height="6" Classes="on-artwork"/>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                 <!-- 鸣潮专属：唤取记录入口（游戏文件在本地即可用），玻璃胶囊图标钮 -->
@@ -89,9 +89,12 @@
                         Content="{Binding Loc[game_applyPredownload]}"
                         Classes="pressable glass-onart"
                         Padding="20,12" VerticalAlignment="Center"/>
-                <!-- 未安装时隐藏（评审 P1-2：禁用钮常驻改隐藏，安装钮已是主 CTA）；busy 安装中同步隐藏 -->
+                <!-- 未安装时隐藏（评审 P1-2：禁用钮常驻改隐藏，安装钮已是主 CTA）；
+                     下载/更新等忙碌期禁用（2026-10-18 用户点名：此前只有命令内 IsBusy 早退，外观仍可点，
+                     误触像"什么都没发生"；禁用观感由 accent-onart:disabled 样式承担） -->
                 <Button Classes="pressable" Command="{Binding LaunchCommand}"
                         IsVisible="{Binding CanLaunch}"
+                        IsEnabled="{Binding !IsBusy}"
                         Classes.glass-onart="{Binding !CanLaunch}"
                         Classes.accent-onart="{Binding CanLaunch}"
                         Padding="32,12">

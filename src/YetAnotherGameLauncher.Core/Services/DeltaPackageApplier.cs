@@ -11,7 +11,7 @@ public sealed record DeltaApplyResult(int Patched, int Copied, int Verified, int
 /// <summary>
 /// 包式渠道 v2 增量更新的应用器（终末地实测形态，2026-10-17）：
 /// 下载 9 卷载荷（≈8.72 GiB，对比整包 58 GiB）→ 逐文件按官方清单合成（差分经 hpatchz /
-/// 整文件直接落位 / verify-only 只核在盘）→ 删除官方废弃清单 → 清理载荷目录。
+/// 整文件直接落位 / verify-only 核对在盘（尺寸 + 内容 md5））→ 删除官方废弃清单 → 清理载荷目录。
 /// 关键事实（真机实证）：差分节点与目标**零重叠**（224/224），因此可就地逐文件替换，
 /// 不需要数十 GiB 的暂存区；应用中途失败保持可重试（旧文件只在被替换时丢弃，且没有别的
 /// 节点依赖它）。
@@ -41,6 +41,7 @@ public sealed class DeltaPackageApplier(IDownloader downloader, IFilePatchApplie
     {
         var payloadDir = PayloadDir(installDir);
         EnsureApplicable(installDir, plan);
+        EnsureEnoughFreeSpace(installDir, payloadDir, plan);
 
         var volumes = await DownloadVolumesAsync(payloadDir, plan, progress, cancellationToken).ConfigureAwait(false);
         var total = plan.Files.Count;
@@ -65,20 +66,13 @@ public sealed class DeltaPackageApplier(IDownloader downloader, IFilePatchApplie
             }
             else if (!string.IsNullOrEmpty(file.FullFilePayloadPath))
             {
-                CopyFullFile(installDir, payload, plan, file, relative, target);
+                CopyFullFile(installDir, payload, plan, file, relative, target, cancellationToken);
                 copied++;
             }
             else
             {
-                // verify-only：前置校验已确认在盘；尺寸也核一下（便宜且能抓住截断/串位，
-                // 内容级核对待消费官方 verify_files.json，记为缺口）
-                var existing = new FileInfo(target);
-                if (file.Size > 0 && existing.Length != file.Size)
-                {
-                    throw new DeltaPackageNotApplicableException(
-                        $"Delta update not applicable: unchanged file has an unexpected size ({file.Name}); use the full update.");
-                }
-
+                // verify-only：前置校验已确认在盘；尺寸 + **内容 md5** 都在此核对
+                await VerifyUnchangedAsync(target, file, index, total, progress, cancellationToken).ConfigureAwait(false);
                 verified++;
             }
 
@@ -101,7 +95,7 @@ public sealed class DeltaPackageApplier(IDownloader downloader, IFilePatchApplie
 
     /// <summary>
     /// 前置校验（便宜、不落盘）：每个差分节点的基文件在盘、每个 verify-only 节点在盘。
-    /// 内容级核对在逐文件应用时进行（基文件 md5 与官方清单不符同样折算"不适用"）；
+    /// 基文件 md5 与"仅校验"节点的内容 md5 都在逐文件应用时核对（不符同样折算"不适用"）；
     /// 由于没有节点以其它节点的产物为基文件，"先应用一部分再失败"仍是可重试的安全状态。
     /// </summary>
     private static void EnsureApplicable(string installDir, DeltaPackagePlan plan)
@@ -142,6 +136,102 @@ public sealed class DeltaPackageApplier(IDownloader downloader, IFilePatchApplie
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// 空闲空间预检（2026-10-17 立案③：增量补完所需空间 = 缺失新内容 + 载荷，实测曾超过当期空闲）：
+    /// 需求 = 载荷全量（下载全程占盘）+ 各载荷节点的净增长（新尺寸 − 现存尺寸，缺失按 0 计）
+    /// + 最大单节点尺寸（产出临时文件与旧文件并存的一次性瞬态）。
+    /// 探不到空闲值（平台/权限）直接放行——预检是防呆，不能变成新的阻断源；
+    /// 空间不足抛可操作错误，且**不回退整包**（整包只会要得更多）。
+    /// </summary>
+    private static void EnsureEnoughFreeSpace(string installDir, string payloadDir, DeltaPackagePlan plan)
+    {
+        var payloadBytes = plan.Volumes.Sum(v => v.Size);
+        long growth = 0;
+        long largest = 0;
+        foreach (var file in plan.Files)
+        {
+            if (file.Patches.Count == 0 && string.IsNullOrEmpty(file.FullFilePayloadPath))
+            {
+                continue; // 仅校验节点不产出内容
+            }
+
+            var target = Path.Combine(
+                installDir, ToLocalPath(NormalizeManifestPath(file.Name, plan.VfsBasePath)));
+            var existing = File.Exists(target) ? new FileInfo(target).Length : 0;
+            growth += Math.Max(0, file.Size - existing);
+            largest = Math.Max(largest, file.Size);
+        }
+
+        var required = payloadBytes + growth + largest;
+        var probes = new[] { DiskSpace.TryGetAvailableFreeBytes(payloadDir), DiskSpace.TryGetAvailableFreeBytes(installDir) }
+            .Where(free => free.HasValue)
+            .Select(free => free!.Value)
+            .ToArray();
+        if (probes.Length == 0 || probes.Min() >= required)
+        {
+            return;
+        }
+
+        var available = probes.Min();
+        throw new UpdateException(
+            $"Not enough free disk space for the delta update on the target volume: " +
+            $"{required / (double)(1L << 30):F2} GiB required (payload {payloadBytes / (double)(1L << 30):F2} GiB " +
+            $"+ produced content), {available / (double)(1L << 30):F2} GiB available. " +
+            "Free up space and retry - a previously downloaded payload is reused.");
+    }
+
+    /// <summary>
+    /// "仅校验"节点的在位核对：尺寸 + **内容 md5**（2026-10-18 立案补齐）。官方 <c>verify_files.json</c>
+    /// 是二进制加密块、社区参考实现也不用它——增量清单自带的目标 md5 是唯一可用判据。尺寸相同但内容
+    /// 损坏/被换过的文件在这里暴露，折算"安装不适用"回退整包（该节点没有载荷，增量无法自愈它）。
+    /// 读取为流式异步（可取消、逐块上报 Verifying 进度帧）：1.6.4 计划里 717 条、可达数十 GiB，
+    /// 不能同步阻塞调用线程。
+    /// </summary>
+    private static async Task VerifyUnchangedAsync(
+        string target,
+        DeltaPackageFile file,
+        int index,
+        int total,
+        IProgress<UpdateProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (file.Size > 0 && new FileInfo(target).Length != file.Size)
+        {
+            throw new DeltaPackageNotApplicableException(
+                $"Delta update not applicable: unchanged file has an unexpected size ({file.Name}); use the full update.");
+        }
+
+        if (string.IsNullOrEmpty(file.Md5))
+        {
+            return; // 清单未给 md5（防御）：只能按在位处理
+        }
+
+        progress?.Report(new UpdateProgress(UpdatePhase.Verifying, 0, 0, index, total, file.Name));
+        var actual = await Hashing.Md5HexAsync(target, cancellationToken).ConfigureAwait(false);
+        if (!actual.Equals(file.Md5, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new DeltaPackageNotApplicableException(
+                $"Delta update not applicable: unchanged file content differs from the official manifest ({file.Name}); " +
+                "use the full update.");
+        }
+    }
+
+    /// <summary>
+    /// 只下载（并核验）载荷分卷到 <c>.yagl/delta</c>，不应用——预下载链用（2026-10-18 接线）。
+    /// 与 <see cref="ApplyAsync"/> 共用下载与空间预检逻辑；返回载荷总字节数。
+    /// </summary>
+    public async Task<long> StagePayloadAsync(
+        string installDir,
+        DeltaPackagePlan plan,
+        IProgress<UpdateProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var payloadDir = PayloadDir(installDir);
+        EnsureEnoughFreeSpace(installDir, payloadDir, plan);
+        await DownloadVolumesAsync(payloadDir, plan, progress, cancellationToken).ConfigureAwait(false);
+        return plan.Volumes.Sum(volume => volume.Size);
     }
 
     /// <summary>下载全部分卷（完整暂存则跳过；字节级进度经聚合器节流投递）。</summary>
@@ -210,9 +300,6 @@ public sealed class DeltaPackageApplier(IDownloader downloader, IFilePatchApplie
                 $"Delta update not applicable: base file content differs from the official manifest " +
                 $"({string.Join(", ", file.Patches.Select(p => p.BaseFile))}); use the full update.");
 
-        var delta = MultiPartZipEntryReader.TryReadContent(payload, source.PatchPath, plan.CdKey, logger)
-                    ?? throw new DeltaPackageUnusableException(
-                        $"Delta payload entry is unreadable: {source.PatchPath}; falling back to the full update.");
         EnsureSafeTarget(installDir, target, relative);
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         var deltaPath = target + ".yagl-delta";
@@ -223,7 +310,18 @@ public sealed class DeltaPackageApplier(IDownloader downloader, IFilePatchApplie
             // 放在 try 内让解除失败走下面的 IO 折算（响亮失败，不静默写穿）
             FileUtilities.RemoveLinkedLeaf(deltaPath, logger);
             FileUtilities.RemoveLinkedLeaf(outputPath, logger);
-            await File.WriteAllBytesAsync(deltaPath, delta, cancellationToken).ConfigureAwait(false);
+            // 流式落盘（2026-10-18 大条目内存峰值立案）：补丁载荷边解密边写，不在内存里成型；
+            // 读不出/认证不符折算"载荷不可用"，半成品由 finally 删除
+            using (var destination = new FileStream(deltaPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                if (!MultiPartZipEntryReader.TryCopyContentTo(
+                        payload, source.PatchPath, plan.CdKey, destination, cancellationToken, logger))
+                {
+                    throw new DeltaPackageUnusableException(
+                        $"Delta payload entry is unreadable: {source.PatchPath}; falling back to the full update.");
+                }
+            }
+
             await ApplyPatchFileAsync(deltaPath, basePath, outputPath, relative, cancellationToken).ConfigureAwait(false);
             VerifyProduced(outputPath, file, relative);
             Replace(target, outputPath);
@@ -268,12 +366,11 @@ public sealed class DeltaPackageApplier(IDownloader downloader, IFilePatchApplie
     }
 
     /// <summary>
-    /// 补丁工具执行（复审 P2-3 / 第六轮 P2-1 / 第七轮 P3-5，2026-10-17）：`UpdateException`
-    /// （非零退出/超时/工具缺失）与 `Win32Exception`（进程起不来：TOCTOU 被删/坏 exe/wine 启动失败；
-    /// 含 `SocketException` 这一子类的理论逃逸——供给下载器只折 `DownloadException`）都折算
-    /// "载荷不可用"→ 编排回退整包（并按既有链清掉载荷暂存，是"重下载荷 + 整包"的代价，知情接受），
-    /// 不再形成"同一版本过渡内重试恒失败"；整包路径不需要 hpatchz，回退对用户更好，
-    /// 按 Unusable 语义记 Warning。取消不吞。
+    /// 补丁工具执行的三分类（2026-10-18，复审 P3-5 分家）：工具不可用/供给失败/进程起不来 →
+    /// <see cref="DeltaPackageSupplyException"/>（载荷是好的，调用方保留载荷暂存供零重下重试）；
+    /// 非零退出/超时（<see cref="UpdateException"/>）→ <see cref="DeltaPackageUnusableException"/>
+    /// （补丁内容对不上，重试同一份计划不会自愈）。取消不吞。
+    /// 两类的共同点：都不再形成"同一版本过渡内重试恒失败"的形态。
     /// </summary>
     private async Task ApplyPatchFileAsync(
         string deltaPath, string basePath, string outputPath, string relative, CancellationToken cancellationToken)
@@ -282,32 +379,50 @@ public sealed class DeltaPackageApplier(IDownloader downloader, IFilePatchApplie
         {
             await patchApplier.ApplyFileAsync(deltaPath, basePath, outputPath, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is UpdateException or System.ComponentModel.Win32Exception)
+        catch (PatchToolUnavailableException ex)
+        {
+            throw new DeltaPackageSupplyException($"Patch tool unavailable for {relative}: {ex.Message}", ex);
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            // 补丁器实现直接抛 Win32Exception（未经 HpatchzApplier 折算）：进程起不来 = 工具/环境侧
+            throw new DeltaPackageSupplyException($"Patch tool failed to start for {relative}: {ex.Message}", ex);
+        }
+        catch (UpdateException ex)
         {
             throw new DeltaPackageUnusableException(
                 $"Patch application failed for {relative}: {ex.Message}; falling back to the full update.", ex);
         }
     }
 
-    /// <summary>整文件节点：从载荷读内容（AES 条目经 cd_key 解密）→ 核对 md5/尺寸 → 就地落位。</summary>
+    /// <summary>整文件节点：从载荷流式读出内容（AES 条目经 cd_key 解密）→ 核对 md5/尺寸 → 就地落位。
+    /// 2026-10-18 起走流式通道：1.6.4 实测有 5 个 &gt;512 MiB 的整文件条目（最大 1199.9 MiB），
+    /// 入内存成型约 2 倍峰值。</summary>
     private void CopyFullFile(
         string installDir,
         SplitVolumeStream payload,
         DeltaPackagePlan plan,
         DeltaPackageFile file,
         string relative,
-        string target)
+        string target,
+        CancellationToken cancellationToken)
     {
-        var content = MultiPartZipEntryReader.TryReadContent(payload, file.FullFilePayloadPath!, plan.CdKey, logger)
-                      ?? throw new DeltaPackageUnusableException(
-                          $"Delta payload entry is unreadable: {file.FullFilePayloadPath}; falling back to the full update.");
         EnsureSafeTarget(installDir, target, relative);
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         var outputPath = target + ".yagl-new";
         try
         {
             FileUtilities.RemoveLinkedLeaf(outputPath, logger);
-            File.WriteAllBytes(outputPath, content);
+            using (var destination = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                if (!MultiPartZipEntryReader.TryCopyContentTo(
+                        payload, file.FullFilePayloadPath!, plan.CdKey, destination, cancellationToken, logger))
+                {
+                    throw new DeltaPackageUnusableException(
+                        $"Delta payload entry is unreadable: {file.FullFilePayloadPath}; falling back to the full update.");
+                }
+            }
+
             VerifyProduced(outputPath, file, relative);
             Replace(target, outputPath);
         }
@@ -394,16 +509,22 @@ public sealed class DeltaPackageApplier(IDownloader downloader, IFilePatchApplie
             // 逐条落点日志（review nit）：静态条目是"denylist 之外一律覆盖游戏根"，没有审计线索时
             // 协议日后新增的元数据条目会被静默写进游戏根
             logger?.LogInformation("Delta payload static entry: {Entry} -> {RelativePath}", name, relative);
-            var content = MultiPartZipEntryReader.TryReadContent(payload, name, plan.CdKey, logger)
-                          ?? throw new DeltaPackageUnusableException(
-                              $"Delta payload static entry is unreadable: {name}; falling back to the full update.");
             EnsureSafeTarget(installDir, target, relative); // F19 同族：链接目录不得写穿（写前即核）
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             var outputPath = target + ".yagl-new";
             try
             {
                 FileUtilities.RemoveLinkedLeaf(outputPath, logger);
-                File.WriteAllBytes(outputPath, content);
+                using (var destination = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    if (!MultiPartZipEntryReader.TryCopyContentTo(
+                            payload, name, plan.CdKey, destination, cancellationToken, logger))
+                    {
+                        throw new DeltaPackageUnusableException(
+                            $"Delta payload static entry is unreadable: {name}; falling back to the full update.");
+                    }
+                }
+
                 Replace(target, outputPath);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

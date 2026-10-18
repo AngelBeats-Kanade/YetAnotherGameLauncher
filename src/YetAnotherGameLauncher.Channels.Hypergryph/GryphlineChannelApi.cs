@@ -207,15 +207,25 @@ public sealed partial class GryphlineChannelApi(HttpClient httpClient, ILogger? 
         try
         {
             var response = await PostGetLatestGameAsync(server, cancellationToken, fromVersion).ConfigureAwait(false);
-            if (!string.Equals(response.Version, toVersion, StringComparison.Ordinal))
+            if (response.Patch is not { ValueKind: JsonValueKind.Object } patch)
             {
-                logger?.LogInformation(
-                    "Delta package skipped: server serves {Served}, target was {Target}.", response.Version, toVersion);
                 return null;
             }
 
-            if (response.Patch is not { ValueKind: JsonValueKind.Object } patch)
+            // 目标匹配（复核 P1，2026-10-18）：patch 节点描述"本地版本 → patch.version"的补丁。
+            // 更新期 patch.version == response.version（线上版本），两条件等价；但**预下载窗口期**
+            // response.version 仍是线上版本、patch.version 才是预下载目标（窗口形态见
+            // GetVersionInfo_PredownloadAvailable_WhenPatchHasVersion 夹具与 Kuro 真机 predownload 块）——
+            // 只认 response.version 会让窗口期的预下载计划恒取不到、静默退回整包。任一命中即视为
+            // 该补丁属于请求目标；清单 version 逐字符核对（下方 manifest.Version）仍是内容兜底。
+            var patchVersion = patch.TryGetProperty("version", out var versionElement)
+                && versionElement.ValueKind == JsonValueKind.String ? versionElement.GetString() : null;
+            if (!string.Equals(response.Version, toVersion, StringComparison.Ordinal)
+                && !string.Equals(patchVersion, toVersion, StringComparison.Ordinal))
             {
+                logger?.LogInformation(
+                    "Delta package skipped: server serves {Served}, patch targets {Patch}, requested {Target}.",
+                    response.Version, patchVersion ?? "none", toVersion);
                 return null;
             }
 

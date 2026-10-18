@@ -50,7 +50,8 @@
 - 旧"页中上方居中合并胶囊"与"标题上墙"（DisplayName 30px + `DetailMetaText` 元信息行）已删除（2026-09-16 起仅留 chips 簇，`detail_meta_*` 本地化键一并移除）。
 - 无插画回退层 `ArtworkFallback`：`AppArtworkFallbackBrush` 底 + 图标水印（`MaxWidth/MaxHeight 380`、Margin `0,0,56,72`、Opacity 0.13）。
 - 校验修复确认条：`ShowRepairConfirm` 驱动（Padding `16,12`、CornerRadius 12、文本 `MaxWidth 430` Wrap、`danger-onart` + `glass-onart` 按钮）。
-- 操作坞内部：dock Padding `18,12`、信息行行距 22、唤取入口图标 19px、启动钮 Padding `32,12`（`DetailActionDock.axaml` / `WindowStyles.axaml`）。
+- 操作坞内部：dock Padding `16,12`、信息行行距 22、唤取入口图标 19px、启动钮 Padding `32,12`（`DetailActionDock.axaml` / `WindowStyles.axaml`）；**下载/更新等忙碌期启动钮禁用**（`IsEnabled={Binding !IsBusy}`，2026-10-18 用户点名——此前仅命令内早退、外观仍可点），禁用观感由 `accent-onart:disabled` / `glass-onart:disabled`（卡底 + 次级前景，亮暗同一组插画上令牌）承担。
+- 操作坞忙碌态：进度条 `ProgressBar.on-artwork`（轨道 `AppOnArtworkTrack` rgba(255,255,255,.20)、填充 `AppOnArtworkBrush`，亮暗同值——Fluent 主题轨道在亮色下压深色坞实测 1.03:1 不可见，2026-10-19 judge 实锤后令牌化，坞体两主题逐像素一致由 `Export_BusyDock_ForReview` 断言）；禁用按钮的内容区图标随 `Button.*:disabled` 的 Foreground 一起下沉（此前是"白图标 + 灰字"混合态）。
 
 ## 4. 游戏设置页
 
@@ -69,7 +70,7 @@
 ## 5. 覆盖层与浮动层
 
 - 启动失败覆盖层 = `LaunchErrorOverlay` 控件挂详情页 Panel 末尾（`GameItemViewModel.LaunchError` 驱动）。重试/关闭主次随 `CanRetry` 经 Classes 条件绑定对调：可重试时"重试"是 `launch-error-primary`、"关闭"退居 `launch-error-secondary`，不可重试时反转且重试隐藏（评审 P1-4）。回归 `DangerActionStyleTests`。
-- **toast 门控**：启动失败覆盖层在场（CurrentPage 为游戏页且 HasLaunchError）时 `ShowToast` 直接丢弃新 toast——瞬态消息不得压过模态错误，覆盖层退场自动恢复（评审 P3-13）。回归 `ReviewPolishTests`。toast 卡用专属近实心底 `AppToastBackground`（亮暗成对；层次靠 1px 描边，不用 BoxShadow，原因见 skills `avalonia-ui`）。宿主挂主窗口右上（Margin `0,52,12,0`）；卡 `MinWidth 260 / MaxWidth 360`、Padding `14,12`、圆角令牌 10、关闭钮 22×22（CornerRadius 11）、状态点 9px（`Themes/WindowStyles.axaml`、`Controls/ToastHost.axaml`）。
+- **toast 门控**：启动失败覆盖层在场（CurrentPage 为游戏页且 HasLaunchError）时 `ShowToast` 直接丢弃新 toast——瞬态消息不得压过模态错误，覆盖层退场自动恢复（评审 P3-13）。回归 `ReviewPolishTests`。toast 卡用专属近实心底 `AppToastBackground`（亮暗成对；层次靠 1px 描边，不用 BoxShadow，原因见 skills `avalonia-ui`）。宿主挂主窗口右上（Margin `0,52,12,0`）；卡 `MinWidth 260 / MaxWidth 360`、Padding `16,12`、圆角令牌 10、关闭钮 22×22（CornerRadius 11）、状态点 9px（`Themes/WindowStyles.axaml`、`Controls/ToastHost.axaml`）。
 - 启动遮蔽层 `BootSplash`：主窗口根 Panel 末位，`IsBooting` 驱动，默认 false 不影响测试/截图；生产路径经 `BeginBootSplash` 开启、`RunBootGateAsync` 放行（放行矩阵/时序见 docs/ARCHITECTURE.md §3.7，纯决策 `BootGate.ShouldRelease`）；代码后置自泵脉动条 + 0.25s 淡出，`SplashAnimationEnabled` 测试开关；Transform 不能 x:Name，脉动条位移运行时挂。视觉常数：图标框 88×88 圆角 22、图标 52×52、进度轨道 200×4、滑块 48×4、Spacing 20（`MainWindow.axaml`）。
 
 ## 6. 关于页

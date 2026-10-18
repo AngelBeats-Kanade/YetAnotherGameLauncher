@@ -52,4 +52,11 @@ public sealed class GameManifest
     /// 拼接成一个归档再解压一次（Files 顺序 = 分卷顺序，渠道已按序号排好）。
     /// </summary>
     public bool ArchivesAreSplitVolumes { get; init; }
+
+    /// <summary>
+    /// 预下载暂存标记（2026-10-18）：该暂存不是整包也不是文件式增量，而是包式渠道的 v2 增量载荷
+    /// （分卷已下到 <c>.yagl/delta</c>，应用计划在暂存目录的 <c>delta.json</c>）。应用阶段据此走
+    /// <c>DeltaPackageApplier</c>；旧暂存清单缺该字段时缺省 false，行为不变。
+    /// </summary>
+    public bool StagedAsDeltaPackage { get; init; }
 }

@@ -232,10 +232,10 @@ Steam Runtime 容器与 Proton，发行版三选一），由启动器自动生�
 
 | 路径（相对安装目录） | 内容 |
 |---|---|
-| `.yagl/state.json` | 本地版本状态：`gameId`、`serverId`、`version`（切换游戏/服务器错配时视为未安装） |
-| `.yagl/predownload/` | 预下载暂存：`manifest.json`（暂存清单）+ `patches/`、`files/` 或 `packages/` |
+| `.yagl/state.json` | 本地版本状态：`gameId`、`serverId`、`version`、`verified`（切换游戏/服务器错配时视为未安装）。`verified=false` = 仅由包式渠道"检测到现有文件 → 登记为渠道最新版"的零校验流程写入（未核对任何内容；UI 明示未校验并指向校验修复，旧文件缺该字段时缺省 true） |
+| `.yagl/predownload/` | 预下载暂存：`manifest.json`（暂存清单，`stagedAsDeltaPackage=true` 表示增量预下载）+ `patches/`、`files/` 或 `packages/`；增量预下载另有 `delta.json`（v2 应用计划，与 `.yagl/delta` 的载荷配套） |
 | `.yagl/packages` | 包式**整包安装（直接安装/更新、整包回退）的暂存目录**：文件名 + size/MD5 完整时可复用（中断重跑零下载），解压成功后清理；增量更新成功后也会清理它回收空间（实测可达数十 GiB）。预下载内容在 `.yagl/predownload/`，不受影响 |
-| `.yagl/delta` | v2 增量载荷分卷暂存（9 卷 ≈8.72 GiB，应用成功即清理；失败保留供复用） |
+| `.yagl/delta` | v2 增量载荷分卷暂存（9 卷 ≈8.72 GiB）：直接更新时应用成功即清理、失败保留供复用；预下载链同样落这里（应用由暂存清单的 `stagedAsDeltaPackage` 标记识别） |
 | `*.yagl-bak` | 差分替换的备份文件（成功即删，仅失败恢复时短暂存在） |
 | `*.yagl-delta` / `*.yagl-new` | 增量载荷逐文件合成的临时产物（核对通过即替换目标，随后删除） |
 

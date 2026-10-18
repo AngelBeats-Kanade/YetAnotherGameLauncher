@@ -162,6 +162,8 @@
   "status_detectedShort": "检测到游戏文件",
   "status_notInstalledShort": "未安装",
   "status_predownload": "可预下载新版本",
+  "status_registeredUnverified": "已登记版本（未校验）——建议执行校验修复",
+  "status_registeredUnverifiedShort": "未校验",
   "verify_ok": "校验完成，全部文件完整",
   "verify_repaired": "发现并修复 {0} 个文件",
   "verify_reinstalled": "已重新下载并校验完整安装包",

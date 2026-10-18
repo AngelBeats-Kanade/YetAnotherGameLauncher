@@ -11,7 +11,7 @@
                 HorizontalAlignment="Center" VerticalAlignment="Center"
                 MaxWidth="480" Margin="24">
             <StackPanel Spacing="12">
-                <StackPanel Orientation="Horizontal" Spacing="10">
+                <StackPanel Orientation="Horizontal" Spacing="8">
                     <Path Data="M12,2 C17.52,2 22,6.48 22,12 C22,17.52 17.52,22 12,22 C6.48,22 2,17.52 2,12 C2,6.48 6.48,2 12,2 Z M11,7 L13,7 L13,13 L11,13 Z M11,15 L13,15 L13,17 L11,17 Z"
                           Fill="{DynamicResource AppErrorText}" Stretch="Uniform"
                           Width="21" VerticalAlignment="Center"/>
@@ -54,7 +54,7 @@
                                          TextWrapping="Wrap" FontSize="12"
                                          Foreground="{DynamicResource AppTextSecondary}"/>
                 </Expander>
-                <StackPanel Orientation="Horizontal" Spacing="10"
+                <StackPanel Orientation="Horizontal" Spacing="8"
                             HorizontalAlignment="Right">
                     <Button Classes="launch-error-secondary"
                             Command="{Binding LaunchError.OpenLogDirectoryCommand}"

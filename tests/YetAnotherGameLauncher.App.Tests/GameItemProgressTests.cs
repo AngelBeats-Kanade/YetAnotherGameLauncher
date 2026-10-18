@@ -61,32 +61,10 @@ public class GameItemProgressTests : IDisposable
 
         await wuwa.InstallOrUpdateCommand.ExecuteAsync(null);
 
-        // 排空等待：终值"完成"出现且稳定 200ms 不被覆盖（F55 三次观测实锤：Progress 报告在
-        // 产生端乱序——并行文件的 Downloading 报告可晚于 Done 落地，把"完成"覆盖回下载文案；
-        // 只判"出现过完成"会被迟到的下载报告翻掉，须等稳定期）
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        var stableSince = DateTime.MinValue;
-        while (DateTime.UtcNow < deadline)
-        {
-            if (wuwa.ProgressText == "完成")
-            {
-                if (stableSince == DateTime.MinValue)
-                {
-                    stableSince = DateTime.UtcNow;
-                }
-                else if (DateTime.UtcNow - stableSince >= TimeSpan.FromMilliseconds(200))
-                {
-                    break;
-                }
-            }
-            else
-            {
-                stableSince = DateTime.MinValue; // 被迟到的下载报告覆盖：重新计时
-            }
-
-            await Task.Delay(25);
-        }
-
+        // 终值确定性（F55 根因修复，2026-10-18）：进度经 OperationProgress 串行投递 + 操作结束即
+        // 代际失效，完成时终值必已落地、且不会再被迟到报告改写——原先的"等 200ms 稳定期"轮询
+        // 是对线程池乱序投递的规避（探针实锤），已随根因修复移除。乱序/迟到面由
+        // OperationProgressTests 与 LateProgressReportAfterCompletion_DoesNotClobberFinalState 钉住。
         Assert.Equal("完成", wuwa.ProgressText);
         Assert.Equal(100, wuwa.ProgressPercent);
         Assert.False(wuwa.IsBusy); // 完成清卡：忙碌态释放
@@ -99,6 +77,28 @@ public class GameItemProgressTests : IDisposable
             Assert.Contains("正在校验文件完整性…", phaseHistory);
             Assert.Contains("正在清理…", phaseHistory);
         }
+    }
+
+    [Fact]
+    public async Task LateProgressReportAfterCompletion_DoesNotClobberFinalState()
+    {
+        // F55 根因回归钉（2026-10-18）：测试线程无 SynchronizationContext，裸 Progress<T> 退化为
+        // 线程池并发投递——迟到的 Downloading 报告能把终值"完成"覆盖回下载文案，稳定期轮询等满
+        // 10 s 后断言失败（台账四次观测形态）。修复 = OperationProgress 串行投递 + 操作结束代际失效：
+        // 完成后的报告（无论来自哪个线程）一律丢弃，终值稳定。
+        SetupKuroUpToDate();
+        await _ctx.Vm.InitializeAsync();
+        var wuwa = _ctx.Vm.Games[0];
+
+        await wuwa.InstallOrUpdateCommand.ExecuteAsync(null);
+        Assert.Equal("完成", wuwa.ProgressText);
+
+        var scope = wuwa.ProgressScopeForTests;
+        Assert.NotNull(scope);
+        scope.Report(new UpdateProgress(UpdatePhase.Downloading, 264, 100, 0, 2, "late-report"));
+
+        Assert.Equal("完成", wuwa.ProgressText); // 红（修复前）：被打回 "正在下载…" 文案
+        Assert.Equal(100, wuwa.ProgressPercent);
     }
 
     [Fact]
@@ -132,26 +132,7 @@ public class GameItemProgressTests : IDisposable
 
         await endfield.InstallOrUpdateCommand.ExecuteAsync(null);
 
-        // 同上的排空等待
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        var lastCount = -1;
-        while (DateTime.UtcNow < deadline)
-        {
-            int count;
-            lock (phaseHistory)
-            {
-                count = phaseHistory.Count;
-            }
-
-            if (endfield.ProgressText == "完成" && count == lastCount)
-            {
-                break;
-            }
-
-            lastCount = count;
-            await Task.Delay(50);
-        }
-
+        // 终值确定性同 Install_ProgressConsumed_AndCardClearedOnCompletion（F55 根因修复后无需稳定期轮询）
         Assert.Equal("完成", endfield.ProgressText);
         lock (phaseHistory)
         {

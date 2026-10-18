@@ -351,8 +351,8 @@ public class DeltaPackageApplierTests : IDisposable
     [Fact]
     public async Task ApplyAsync_PatchToolFailure_UnusableInsteadOfHardError()
     {
-        // review P2-3：补丁工具执行失败（非零退出/超时/工具缺失）必须折算"载荷不可用"→ 回退整包，
-        // 不再形成同一版本过渡内"重试恒失败"
+        // review P2-3：补丁工具非零退出（补丁内容对不上，载荷侧问题）必须折算"载荷不可用"→ 回退整包，
+        // 不再形成同一版本过渡内"重试恒失败"；工具缺失/起不来另归 Supply（见下方两个用例）
         var baseFile = CreateFile("Endfield_Data/StreamingAssets/VFS/base/origin.chk", "base-content");
         var payload = BuildPayload("vfs_files/files/x.dat", "abc"u8.ToArray(), string.Empty);
         _downloader.Responses[VolumeUrl] = payload;
@@ -369,10 +369,10 @@ public class DeltaPackageApplierTests : IDisposable
     }
 
     [Fact]
-    public async Task ApplyAsync_PatchToolStartFailure_UnusableInsteadOfHardError()
+    public async Task ApplyAsync_PatchToolStartFailure_SupplyInsteadOfUnusable()
     {
-        // 复审第六轮 P2-1：进程起不来（Win32Exception：TOCTOU 被删/坏 exe/wine 启动失败）同样必须
-        // 折算"载荷不可用"——否则又是"同一版本过渡内重试恒失败"
+        // 2026-10-18 分家：进程起不来（Win32Exception：TOCTOU 被删/坏 exe/wine 启动失败）属工具/环境侧
+        // → Supply（载荷保留、可修复后重试），不再折算成"载荷不可用"（那会清掉数 GiB 载荷暂存）
         var baseFile = CreateFile("Endfield_Data/StreamingAssets/VFS/base/origin.chk", "base-content");
         var payload = BuildPayload("vfs_files/files/x.dat", "abc"u8.ToArray(), string.Empty);
         _downloader.Responses[VolumeUrl] = payload;
@@ -380,10 +380,28 @@ public class DeltaPackageApplierTests : IDisposable
         var plan = BuildPlan(payload,
             [PatchFile("AA11/bb22.chk", "expected"u8.ToArray(), "base/origin.chk", Hashing.Md5Hex(baseFile))]);
 
-        var ex = await Assert.ThrowsAsync<DeltaPackageUnusableException>(
+        var ex = await Assert.ThrowsAsync<DeltaPackageSupplyException>(
             () => new DeltaPackageApplier(_downloader, _applier).ApplyAsync(_tempDir.Path, plan));
 
-        Assert.Contains("Patch application failed", ex.Message);
+        Assert.Contains("failed to start", ex.Message);
+        Assert.NotNull(baseFile);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_PatchToolUnavailable_SupplyInsteadOfUnusable()
+    {
+        // 工具缺失/供给失败（HpatchzApplier 折算的专用类型）同样是 Supply：载荷本身是好的
+        var baseFile = CreateFile("Endfield_Data/StreamingAssets/VFS/base/origin.chk", "base-content");
+        var payload = BuildPayload("vfs_files/files/x.dat", "abc"u8.ToArray(), string.Empty);
+        _downloader.Responses[VolumeUrl] = payload;
+        _applier.Failure = new PatchToolUnavailableException("hpatchz could not be provisioned: network down");
+        var plan = BuildPlan(payload,
+            [PatchFile("AA11/bb22.chk", "expected"u8.ToArray(), "base/origin.chk", Hashing.Md5Hex(baseFile))]);
+
+        var ex = await Assert.ThrowsAsync<DeltaPackageSupplyException>(
+            () => new DeltaPackageApplier(_downloader, _applier).ApplyAsync(_tempDir.Path, plan));
+
+        Assert.Contains("Patch tool unavailable", ex.Message);
         Assert.NotNull(baseFile);
     }
 
@@ -456,6 +474,95 @@ public class DeltaPackageApplierTests : IDisposable
 
         Assert.Equal(0, result.Deleted);
         Assert.Equal("new-dll", await File.ReadAllTextAsync(_tempDir.FilePath("GameAssembly.dll")));
+    }
+
+    [Fact]
+    public async Task ApplyAsync_NotEnoughFreeSpace_ActionableErrorBeforeDownload()
+    {
+        // 2026-10-17 立案③：增量补完所需空间（载荷 + 缺失新内容）曾超过当期空闲——预检必须在下载前
+        // 拦下（空间不足不回退整包：整包只会要得更多）
+        var payload = BuildPayload("vfs_files/files/x.dat", "abc"u8.ToArray(), string.Empty);
+        _downloader.Responses[VolumeUrl] = payload;
+        var plan = BuildPlan(payload, []);
+        try
+        {
+            DiskSpace.AvailableFreeBytesForTests = _ => 10; // 远小于载荷（BuildPayload 数十字节起）
+
+            var ex = await Assert.ThrowsAsync<UpdateException>(
+                () => new DeltaPackageApplier(_downloader, _applier).ApplyAsync(_tempDir.Path, plan));
+
+            Assert.Contains("Not enough free disk space", ex.Message);
+            Assert.Contains("available", ex.Message);
+            Assert.Empty(_downloader.Requests); // 预检先于下载
+        }
+        finally
+        {
+            DiskSpace.AvailableFreeBytesForTests = null;
+        }
+    }
+
+    [Fact]
+    public async Task ApplyAsync_EnoughFreeSpace_ProceedsNormally()
+    {
+        // 误杀面：空闲充足时预检必须放行（缝给大值，正常走完应用与载荷清理）
+        var payload = BuildPayload("vfs_files/files/x.dat", "abc"u8.ToArray(), string.Empty);
+        _downloader.Responses[VolumeUrl] = payload;
+        var plan = BuildPlan(payload, []);
+        try
+        {
+            DiskSpace.AvailableFreeBytesForTests = _ => long.MaxValue;
+
+            var result = await new DeltaPackageApplier(_downloader, _applier).ApplyAsync(_tempDir.Path, plan);
+
+            Assert.Equal(0, result.Verified);
+            Assert.False(Directory.Exists(DeltaPackageApplier.PayloadDir(_tempDir.Path)));
+        }
+        finally
+        {
+            DiskSpace.AvailableFreeBytesForTests = null;
+        }
+    }
+
+    [Fact]
+    public async Task ApplyAsync_VerifyOnlyContentMismatch_NotApplicable()
+    {
+        // 内容级核对（2026-10-18 立案补齐）：尺寸对得上但内容被换过/损坏的"仅校验"节点必须折算
+        // "不适用"回退整包——该节点没有载荷，增量无法自愈它。官方 verify_files.json 是二进制
+        // 加密块、参考实现也不用，清单自带的目标 md5 是唯一可用判据（红：修复前只核尺寸，静默放行）
+        var existing = CreateFile("Endfield_Data/StreamingAssets/VFS/keep/keep.chk", "actual");
+        var payload = BuildPayload("vfs_files/files/x.dat", "abc"u8.ToArray(), string.Empty);
+        _downloader.Responses[VolumeUrl] = payload;
+        var plan = BuildPlan(payload,
+        [
+            new DeltaPackageFile(
+                "keep/keep.chk", Hashing.Md5Hex("expected"u8.ToArray()), "actual"u8.Length, 1, null, []),
+        ]);
+
+        var ex = await Assert.ThrowsAsync<DeltaPackageNotApplicableException>(
+            () => new DeltaPackageApplier(_downloader, _applier).ApplyAsync(_tempDir.Path, plan));
+
+        Assert.Contains("content differs", ex.Message);
+        Assert.True(File.Exists(existing)); // 未被动过
+    }
+
+    [Fact]
+    public async Task ApplyAsync_VerifyOnlyContentMatches_Verified()
+    {
+        // 正向面：内容与清单 md5 一致的"仅校验"节点照常通过（尺寸 + 内容双核对不误杀）
+        var existing = CreateFile("Endfield_Data/StreamingAssets/VFS/keep/keep.chk", "unchanged");
+        var payload = BuildPayload("vfs_files/files/x.dat", "abc"u8.ToArray(), string.Empty);
+        _downloader.Responses[VolumeUrl] = payload;
+        var plan = BuildPlan(payload,
+        [
+            new DeltaPackageFile(
+                "keep/keep.chk", Hashing.Md5Hex(existing), "unchanged"u8.Length, 1, null, []),
+        ]);
+        var progress = new UpdateProgressCollector();
+
+        var result = await new DeltaPackageApplier(_downloader, _applier).ApplyAsync(_tempDir.Path, plan, progress);
+
+        Assert.Equal(1, result.Verified);
+        Assert.Contains(progress.Frames, f => f.Phase == UpdatePhase.Verifying);
     }
 
     [Fact]

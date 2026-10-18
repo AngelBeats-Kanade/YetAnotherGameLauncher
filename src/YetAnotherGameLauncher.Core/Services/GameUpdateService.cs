@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
@@ -107,6 +108,43 @@ public sealed class GameUpdateService(
             return new PredownloadSummary(plan.FromVersion, plan.ToVersion, totalBytes);
         }
 
+        // 包式渠道：优先预下载 v2 增量载荷（8.72 GiB 替代整包数十 GiB，2026-10-17 立案"预下载链未接增量"）：
+        // 计划不可得/下载失败/载荷不可用则回退整包预下载（整包永远可用）
+        if (filePatchApplier is not null)
+        {
+            var deltaPlan = await channel.GetDeltaPackageAsync(server, plan.FromVersion, plan.ToVersion, cancellationToken)
+                .ConfigureAwait(false);
+            if (deltaPlan is not null)
+            {
+                try
+                {
+                    var applier = new DeltaPackageApplier(downloader, filePatchApplier, logger);
+                    var bytes = await applier.StagePayloadAsync(installDir, deltaPlan, progress, cancellationToken)
+                        .ConfigureAwait(false);
+                    await WriteStagedDeltaAsync(installDir, deltaPlan, cancellationToken).ConfigureAwait(false);
+                    // 上轮整包预下载的暂存（.yagl/predownload/packages）已被增量取代：留着重占数十 GiB
+                    if (FileUtilities.TryDeleteDirectory(PackageInstallerService.PackagesDir(installDir), logger))
+                    {
+                        logger?.LogInformation("Removed the superseded full-package predownload staging.");
+                    }
+
+                    logger?.LogInformation(
+                        "Delta predownload staged: {Bytes} bytes for {From} -> {To}.", bytes, plan.FromVersion, plan.ToVersion);
+                    progress?.Report(new UpdateProgress(
+                        UpdatePhase.Done, 0, 0, deltaPlan.Volumes.Count, deltaPlan.Volumes.Count, null));
+                    return new PredownloadSummary(plan.FromVersion, plan.ToVersion, bytes);
+                }
+                catch (Exception ex) when (ex is DeltaPackageNotApplicableException or DownloadException)
+                {
+                    // 载荷下载/形态问题：只清增量侧半成品，回退整包预下载（与直接更新链同哲学）。
+                    // 不整删 .yagl/predownload（复核 P1，2026-10-18）：其中的 packages/ 是上轮整包
+                    // 预下载的暂存，回退路径按 size/MD5 复用它——整删会让用户零下载可得的内容重下数十 GiB
+                    logger?.LogWarning(ex, "Delta predownload failed; falling back to the full package predownload.");
+                    ClearStagedDeltaSide(installDir);
+                }
+            }
+        }
+
         // 包式渠道（整包预下载）
         var packageManifest = await channel.GetPredownloadManifestAsync(server, cancellationToken).ConfigureAwait(false)
                               ?? throw new UpdateException(
@@ -129,6 +167,25 @@ public sealed class GameUpdateService(
         var staged = IncrementalUpdateService.TryLoadStagedManifest(installDir)
                      ?? throw new UpdateException("No preloaded update found; run predownload first.");
 
+        if (staged.StagedAsDeltaPackage)
+        {
+            // v2 增量预下载（2026-10-18 接线）：应用预置载荷；不适用则清掉后走常规更新流程
+            if (await TryApplyStagedDeltaAsync(installDir, staged, progress, cancellationToken).ConfigureAwait(false))
+            {
+                await new LocalStateService(installDir).SaveAsync(
+                    new LocalGameState { GameId = game.Id, ServerId = server.Id, Version = staged.Version },
+                    cancellationToken).ConfigureAwait(false);
+                return new UpdateOutcome(UpdateStrategy.FullSync, "", staged.Version, 0);
+            }
+
+            // 暂存增量已不适用：常规更新会重探当前最新版本（内部再试增量、必要时回退整包），
+            // 避免把"下载时的目标版本"当成"当前最新"落盘（服务器可能已前移）
+            logger?.LogInformation(
+                "Staged delta predownload is no longer applicable; running the regular update flow.");
+            return await UpdateAsync(installDir, game, server, channel, progress, cancellationToken).ConfigureAwait(false);
+        }
+
+        var strategy = staged.EntriesAreArchives ? UpdateStrategy.FullSync : UpdateStrategy.Incremental;
         int repaired;
         if (staged.EntriesAreArchives)
         {
@@ -155,9 +212,117 @@ public sealed class GameUpdateService(
             new LocalGameState { GameId = game.Id, ServerId = server.Id, Version = staged.Version },
             cancellationToken).ConfigureAwait(false);
 
-        return new UpdateOutcome(
-            staged.EntriesAreArchives ? UpdateStrategy.FullSync : UpdateStrategy.Incremental,
-            "", staged.Version, repaired);
+        return new UpdateOutcome(strategy, "", staged.Version, repaired);
+    }
+
+    /// <summary>
+    /// 应用预下载的 v2 增量计划（2026-10-18）：成功 true（清单/计划暂存清理，载荷由应用器清理）；
+    /// 计划缺失/载荷不可用/装配无单文件补丁器 → false（调用方回退整包）；补丁工具不可用 →
+    /// 抛带"载荷已保留"指引的可重试错误（与直接更新链同语义，绝不静默丢载荷）。
+    /// </summary>
+    private async Task<bool> TryApplyStagedDeltaAsync(
+        string installDir,
+        GameManifest staged,
+        IProgress<UpdateProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        var plan = TryLoadStagedDeltaPlan(installDir);
+        if (filePatchApplier is null || plan is null)
+        {
+            logger?.LogWarning(
+                "Staged delta plan is missing or the single-file patch applier is not wired; falling back to the full package.");
+            ClearStagedDelta(installDir);
+            return false;
+        }
+
+        try
+        {
+            var applier = new DeltaPackageApplier(downloader, filePatchApplier, logger);
+            await applier.ApplyAsync(installDir, plan, progress, cancellationToken).ConfigureAwait(false);
+            ClearStagedDelta(installDir);
+            logger?.LogInformation(
+                "Staged delta package applied for {From} -> {To}.", plan.FromVersion, staged.Version);
+            return true;
+        }
+        catch (DeltaPackageSupplyException ex)
+        {
+            logger?.LogWarning(ex, "Patch tool is unavailable; keeping the staged delta payload for a later retry.");
+            throw new UpdateException(
+                $"{ex.Message} The downloaded delta payload is kept; fix the patch tool and retry the update.", ex);
+        }
+        catch (DeltaPackageNotApplicableException ex)
+        {
+            logger?.LogWarning(ex, "Staged delta package is not applicable; falling back to the full package.");
+            ClearStagedDelta(installDir);
+            return false;
+        }
+    }
+
+    /// <summary>预下载的 v2 增量计划文件名（与暂存清单同目录）。</summary>
+    internal const string StagedDeltaPlanFileName = "delta.json";
+
+    /// <summary>写暂存增量计划与标记清单（应用阶段据此识别"增量预下载"）。</summary>
+    private static async Task WriteStagedDeltaAsync(
+        string installDir, DeltaPackagePlan plan, CancellationToken cancellationToken)
+    {
+        var staging = IncrementalUpdateService.PredownloadDir(installDir);
+        Directory.CreateDirectory(staging);
+        await FileUtilities.WriteAtomicAsync(
+            Path.Combine(staging, StagedDeltaPlanFileName),
+            JsonSerializer.Serialize(plan, Json.Default),
+            cancellationToken).ConfigureAwait(false);
+        await IncrementalUpdateService.WriteStagedManifestAsync(
+            staging,
+            new GameManifest
+            {
+                Version = plan.ToVersion,
+                EntriesAreArchives = true,
+                StagedAsDeltaPackage = true,
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>读取预下载的增量计划；没有/损坏返回 null（按"暂存未知"处理）。</summary>
+    internal static DeltaPackagePlan? TryLoadStagedDeltaPlan(string installDir)
+    {
+        var path = Path.Combine(IncrementalUpdateService.PredownloadDir(installDir), StagedDeltaPlanFileName);
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<DeltaPackagePlan>(File.ReadAllText(path), Json.Default);
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>清掉增量预下载的全部暂存（载荷分卷 + 计划 + 标记清单）。</summary>
+    private void ClearStagedDelta(string installDir)
+    {
+        FileUtilities.TryDeleteDirectory(DeltaPackageApplier.PayloadDir(installDir), logger);
+        FileUtilities.TryDeleteDirectory(IncrementalUpdateService.PredownloadDir(installDir), logger);
+    }
+
+    /// <summary>
+    /// 回退整包前的增量侧清理（复核 P1，2026-10-18）：载荷分卷 + 计划（delta.json）+ 增量标记清单；
+    /// **保留** .yagl/predownload/packages——那是整包预下载的暂存，回退路径要按 size/MD5 复用
+    /// （整删预下载目录会把数十 GiB 已暂存整包作废，用户零下载可得的内容重下）。
+    /// 标记清单只在它确实是增量形态时删：包式整包预下载写的是同一个 manifest.json。
+    /// </summary>
+    private void ClearStagedDeltaSide(string installDir)
+    {
+        FileUtilities.TryDeleteDirectory(DeltaPackageApplier.PayloadDir(installDir), logger);
+        var staging = IncrementalUpdateService.PredownloadDir(installDir);
+        FileUtilities.DeleteQuiet(Path.Combine(staging, StagedDeltaPlanFileName));
+        if (IncrementalUpdateService.TryLoadStagedManifest(installDir) is { StagedAsDeltaPackage: true })
+        {
+            FileUtilities.DeleteQuiet(Path.Combine(staging, IncrementalUpdateService.StagedManifestFileName));
+        }
     }
 
     /// <summary>组级回退的产物直链解析缝：懒取目标版本全量清单建 相对路径→URL 映射，仅在首个
@@ -321,7 +486,10 @@ public sealed class GameUpdateService(
     /// 优先走 v2 增量载荷：渠道给不出计划（含未注入单文件补丁器的装配）、计划不适用于当前安装
     /// （基文件缺失/内容与官方清单不符）或载荷自身不可用（条目读不出/产出与官方清单不符，
     /// <see cref="DeltaPackageUnusableException"/>，按 Warning 记录）时返回 false 由调用方回退
-    /// 整包——回退时清掉载荷暂存（已经没用，留着白占数 GiB）。本地 IO/路径越界等真错误照常抛出。
+    /// 整包——回退时清掉载荷暂存（已经没用，留着白占数 GiB；供给失败例外，见下）。本地 IO/路径越界等真错误照常抛出。
+    /// 例外（2026-10-18）：<see cref="DeltaPackageSupplyException"/> = 补丁工具/供给不可用——载荷是好的，
+    /// <b>不清</b>载荷暂存、也不回退整包，改抛带"载荷已保留"指引的 <see cref="UpdateException"/>，
+    /// 用户修复工具后重试即可零重下。
     /// </summary>
     private async Task<bool> TryApplyDeltaPackageAsync(
         string installDir,
@@ -364,6 +532,14 @@ public sealed class GameUpdateService(
 
             logger?.LogInformation("Delta package applied for {From} -> {To}.", plan.FromVersion, plan.ToVersion);
             return true;
+        }
+        catch (DeltaPackageSupplyException ex)
+        {
+            // 补丁工具/供给侧失败：载荷本身是好的——保留载荷暂存（修复工具后重试零重下），
+            // 也不静默回退整包（整包会白费这份载荷，且工具问题同样可能挡住后续链）
+            logger?.LogWarning(ex, "Patch tool is unavailable; keeping the staged delta payload for a later retry.");
+            throw new UpdateException(
+                $"{ex.Message} The downloaded delta payload is kept; fix the patch tool and retry the update.", ex);
         }
         catch (DeltaPackageNotApplicableException ex)
         {

@@ -14,6 +14,11 @@
 - **Windows 的 `CreateProcess` 对裸命令名自动补 `.exe`，而 `File.Exists`/`IsExecutableFile` 不会**：预检 PATH 上的裸命令（如 "hpatchz"）必须补试 `name + ".exe"`（`HpatchzApplier.ResolvePatchTool`），否则 Windows 误报工具缺失。Linux 还额外要求执行位（`FileUtilities.IsExecutableFile` 已含）。
 - **写 catch 前查官方异常表全列；加 catch 后必须推演"接住之后呢"**：①`Process.Kill(entireProcessTree:true)` 官方抛 Win32Exception（无法终止/正在终止）+ AggregateException（子树未全终止），不止 InvalidOperationException；②同族 TOCTOU 异常类不同——`FileInfo.Length` 对文件缺失抛 FNFE、`File.OpenRead` 对父目录缺失抛 DNFE，catch 收窄即漏；③**接住异常不是终点**——接住后的下游路径（挂死/泄漏/分类丢失）要重新推演，等待类调用一律有界（实锤 F22-2 补 catch 后引入"Kill 真失败 → `WaitForExitAsync(None)` 永久挂"新风险）。
 - **`System.Text.Json.JsonException` 直接继承 `Exception`，不是 `FormatException`**（2026-09-29 /tmp 探针实证，net10.0；F59 修复时按记忆假设"JsonException ⊂ FormatException"写 catch 过滤器，被红测当场击穿——测试红了两次才去实证）：catch 过滤器接畸形 JSON 响应必须显式列 `JsonException`；`FormatException` 在协议链路里对应的是畸形 URL 构造请求抛的 `UriFormatException`，是另一回事。凡要把"异常继承链"写进 catch/注释，先探针实证再落笔。
+- **`DeflateStream`/`GZipStream` 默认 Dispose 会连带关闭内层流**（2026-10-18 实锤：流式 AES 解密器被
+  `DeflateStream` 作用域提前 Dispose，随后的"读尽剩余密文再验 HMAC"直接 `ObjectDisposedException`）：
+  内层流在解压器退出后还要继续用（补读尾部/校验/复用）时必须 `new DeflateStream(inner, mode, leaveOpen: true)`；
+  该重载 .NET 9 起才有。另：增量 HMAC 用 `IncrementalHash.CreateHMAC(SHA1, key)`（`AppendData`/
+  `GetHashAndReset`），`HMACSHA1` 本类没有增量方法。
 - **数组长度硬上限 `Array.MaxLength` = 2,147,483,591（2 GiB − 57 B）**（2026-10-17 net10.0.11 探针实证）：64 位机上 `new byte[Array.MaxLength]` 可分配，`+1` 抛 `OutOfMemoryException`（开 `System.GC.AllowVeryLargeObjects` 亦然）；**编译期常量**负长度是 CS0248 编译错，**运行期**算出的负长度进 `new byte[负]` 抛 `OverflowException`。规则：条目/缓冲尺寸上限常量取 ≤ `Array.MaxLength` 的值（先例 `MultiPartZipEntryReader.MaxEntryBytes = Array.MaxLength`——旧 512 MiB 上限曾在实机把 1199.9 MiB 的真实条目挡成更新中断；`WinZipAesReader` 的 inflate 上限同理 `Math.Min(uncompressedSize, (uint)Array.MaxLength)`）；外部读入的宽尺寸做 `(int)` 收窄前先判范围。
 
 ## 2. 文件系统与跨平台

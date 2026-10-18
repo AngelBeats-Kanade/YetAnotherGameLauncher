@@ -141,6 +141,9 @@
             <SolidColorBrush x:Key="AppOnArtworkDockBrush" Color="#C70D101A"/>
             <!-- 插画上卡片描边（方案 A rgba(255,255,255,.09)）：操作坞/玻璃件的 1px 轮廓 -->
             <SolidColorBrush x:Key="AppOnArtworkCardBorder" Color="#17FFFFFF"/>
+            <!-- 插画上进度条轨道（rgba(255,255,255,.20)，亮暗同值）：操作坞恒为深色玻璃，
+                 Fluent 主题轨道在亮色下接近黑——压深色坞实测 1.03:1，轨道肉眼消失（2026-10-18 judge 实锤） -->
+            <SolidColorBrush x:Key="AppOnArtworkTrack" Color="#33FFFFFF"/>
             <!-- 详情页顶部渐变纱带（方案 A .ch rgba(6,9,18,.55)→透明）：给 chips 提供可读底。
                  2026-09-25 曾为压官方烧录 Logo 加深（0.70 顶/三 stop），随自绘标题移除回调本值 -->
             <LinearGradientBrush x:Key="AppOnArtworkScrimBrush" StartPoint="0%,0%" EndPoint="0%,100%">

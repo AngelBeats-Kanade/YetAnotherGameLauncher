@@ -598,6 +598,59 @@ public class GameUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateAsync_DeltaSupplyFailure_KeepsPayloadAndDoesNotFallBack()
+    {
+        // 2026-10-18 分家（复审 P3-5 可选设计落地）：补丁工具不可用属工具/环境侧——载荷本身是好的，
+        // 必须保留已下载的载荷暂存（修复工具后重试零重下），也不静默回退整包（整包会白费这份载荷）
+        await WriteLocalState("1.5.3");
+        // 载荷必须自带补丁条目（AES 片段，PatchPath 指向它），否则失败点停在"条目读不出"而非补丁器
+        var payload = TestPayload.BuildPayload(
+            TestPayload.PlainEntry("static.dat", "static"u8.ToArray()), TestPayload.AesEntryFragment);
+        var volumeUrl = "https://cdn.example.com/delta/payload.zip.001";
+        _downloader.Responses[volumeUrl] = payload;
+        var baseFile = _tempDir.FilePath("Endfield_Data", "StreamingAssets", "VFS", "base", "origin.chk");
+        Directory.CreateDirectory(Path.GetDirectoryName(baseFile)!);
+        File.WriteAllText(baseFile, "base-content");
+        _channel.VersionInfo = new ChannelVersionInfo { LatestVersion = "1.6.4" };
+        _channel.Manifests["1.6.4"] = new GameManifest
+        {
+            Version = "1.6.4",
+            EntriesAreArchives = true,
+            Files = [new ManifestFile("game-0.zip", 10, "00", Url: Url("game-0.zip"))],
+        };
+        _channel.DeltaPlan = new DeltaPackagePlan(
+            FromVersion: "1.5.3",
+            ToVersion: "1.6.4",
+            VfsBasePath: "Endfield_Data/StreamingAssets/VFS",
+            CdKey: TestPayload.AesPassword,
+            Volumes: [new DeltaPackageVolume(volumeUrl, payload.Length, Md5(payload))],
+            Files:
+            [
+                // 基文件在盘且 md5 相符 → 走到补丁器；补丁器报工具不可用（Supply）
+                new DeltaPackageFile("AA11/bb22.chk", "00", 0, 1, null,
+                    [new DeltaPatchSource("base/origin.chk", Md5("base-content"u8.ToArray()), 12, "binary.bin", 0)]),
+            ],
+            StaticEntryExcludedPrefixes: ["vfs_files/"],
+            StaticEntryExcludedNames: [],
+            StaticEntryRewrites: new Dictionary<string, string>(StringComparer.Ordinal));
+        var filePatcher = new FakeFilePatchApplier
+        {
+            Failure = new PatchToolUnavailableException("hpatchz not found"),
+        };
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => new GameUpdateService(_downloader, _applier, filePatchApplier: filePatcher)
+                .UpdateAsync(_tempDir.Path, _game, _server, _channel));
+
+        Assert.Contains("payload is kept", ex.Message);
+        Assert.Contains("hpatchz not found", ex.Message);
+        Assert.True(
+            File.Exists(Path.Combine(DeltaPackageApplier.PayloadDir(_tempDir.Path), "payload.zip.001")),
+            "Supply 失败必须保留已下载的载荷暂存");
+        Assert.DoesNotContain(Url("game-0.zip"), _downloader.Requests); // 不得静默回退整包
+    }
+
+    [Fact]
     public async Task UpdateAsync_PackageManifest_ExtractsAndSavesState()
     {
         var zipBytes = TestZip.Create(("game.exe", "MZ-stub"));
@@ -727,6 +780,199 @@ public class GameUpdateServiceTests : IDisposable
         Assert.Equal("cfg=1", await File.ReadAllTextAsync(_tempDir.FilePath("config.ini")));
         Assert.Equal("2.0.0", outcome.ToVersion);
         Assert.Equal("2.0.0", new LocalStateService(_tempDir.Path).Load(_game.Id, _server.Id)?.Version);
+    }
+
+    // ---------- 预下载链的 v2 增量（2026-10-18 接线） ----------
+
+    /// <summary>造一个"1.0.0 → 2.0.0"的 v2 增量计划：单差分节点（载荷条目 binary.bin）。</summary>
+    private DeltaPackagePlan BuildDeltaPlan(byte[] payload, string volumeUrl, string baseFile)
+    {
+        var produced = "produced"u8.ToArray();
+        return new DeltaPackagePlan(
+            FromVersion: "1.0.0",
+            ToVersion: "2.0.0",
+            VfsBasePath: "Endfield_Data/StreamingAssets/VFS",
+            CdKey: TestPayload.AesPassword,
+            Volumes: [new DeltaPackageVolume(volumeUrl, payload.Length, Md5(payload))],
+            Files:
+            [
+                new DeltaPackageFile("AA11/bb22.chk", Md5(produced), produced.Length, 1, null,
+                    [new DeltaPatchSource("base/origin.chk", Hashing.Md5Hex(baseFile), new FileInfo(baseFile).Length, "binary.bin", 0)]),
+            ],
+            StaticEntryExcludedPrefixes: ["vfs_files/"],
+            StaticEntryExcludedNames: [],
+            StaticEntryRewrites: new Dictionary<string, string>(StringComparer.Ordinal));
+    }
+
+    private async Task<string> CreateDeltaBaseFileAsync()
+    {
+        var baseFile = _tempDir.FilePath("Endfield_Data", "StreamingAssets", "VFS", "base", "origin.chk");
+        Directory.CreateDirectory(Path.GetDirectoryName(baseFile)!);
+        await File.WriteAllTextAsync(baseFile, "base-content");
+        return baseFile;
+    }
+
+    private void SetupPackageWindow(byte[] zipBytes)
+    {
+        _downloader.Responses[Url("patch-2.0.0.zip")] = zipBytes;
+        _channel.PredownloadManifest = new GameManifest
+        {
+            Version = "2.0.0",
+            EntriesAreArchives = true,
+            Files = [new ManifestFile("patch-2.0.0.zip", zipBytes.Length, Md5(zipBytes), Url: Url("patch-2.0.0.zip"))],
+        };
+    }
+
+    [Fact]
+    public async Task PredownloadAsync_PackageChannelWithDeltaPlan_StagesDeltaInsteadOfPackages()
+    {
+        // 2026-10-17 立案"预下载链未接增量"：计划可得时预下载走 v2 载荷（8.72 GiB）而不是整包（数十 GiB）
+        var payload = TestPayload.BuildPayload(TestPayload.AesEntryFragment);
+        var volumeUrl = "https://cdn.example.com/delta/payload.zip.001";
+        _downloader.Responses[volumeUrl] = payload;
+        var zipBytes = TestZip.Create(("config.ini", "cfg=1"));
+        SetupPackageWindow(zipBytes);
+        await WriteLocalState("1.0.0");
+        _channel.VersionInfo = new ChannelVersionInfo
+        {
+            LatestVersion = "1.0.0",
+            PredownloadAvailable = true,
+            PredownloadVersion = "2.0.0",
+        };
+        _channel.DeltaPlan = BuildDeltaPlan(payload, volumeUrl, await CreateDeltaBaseFileAsync());
+
+        var summary = await new GameUpdateService(_downloader, _applier, filePatchApplier: new FakeFilePatchApplier())
+            .PredownloadAsync(_tempDir.Path, _game, _server, _channel);
+
+        Assert.Equal(payload.Length, summary.TotalBytes);
+        var staged = IncrementalUpdateService.TryLoadStagedManifest(_tempDir.Path);
+        Assert.NotNull(staged);
+        Assert.True(staged.StagedAsDeltaPackage); // 应用阶段据此走增量
+        Assert.Equal("2.0.0", staged.Version);
+        var plan = GameUpdateService.TryLoadStagedDeltaPlan(_tempDir.Path); // 计划可往返
+        Assert.NotNull(plan);
+        Assert.Equal("2.0.0", plan.ToVersion);
+        Assert.Equal(TestPayload.AesPassword, plan.CdKey);
+        Assert.Single(plan.Files);
+        Assert.True(File.Exists(Path.Combine(DeltaPackageApplier.PayloadDir(_tempDir.Path), "payload.zip.001")));
+        Assert.DoesNotContain(Url("patch-2.0.0.zip"), _downloader.Requests); // 整包未下载
+    }
+
+    [Fact]
+    public async Task PredownloadAsync_DeltaDownloadFails_FallsBackToPackageAndKeepsPreviousStaging()
+    {
+        // 复核 P1（2026-10-18）：回退整包只清增量侧——整删 .yagl/predownload 会把上轮整包预下载
+        // 的暂存（packages/，数十 GiB）一起作废，回退路径从零重下（本批之前只有"增量成功后清旧整包
+        // 暂存"的路径，回收是有意的；这条回退路径的整删是回归）
+        var zipBytes = TestZip.Create(("config.ini", "cfg=1"));
+        SetupPackageWindow(zipBytes);
+        await WriteLocalState("1.0.0");
+        _channel.VersionInfo = new ChannelVersionInfo
+        {
+            LatestVersion = "1.0.0",
+            PredownloadAvailable = true,
+            PredownloadVersion = "2.0.0",
+        };
+        var service = new GameUpdateService(_downloader, _applier, filePatchApplier: new FakeFilePatchApplier());
+
+        // (1) 先按"增量计划不可得"完成一次整包预下载：packages/ + 整包暂存清单
+        await service.PredownloadAsync(_tempDir.Path, _game, _server, _channel);
+        var requestsAfterPackageStaging = _downloader.Requests.Count;
+        var stagedArchive = Path.Combine(PackageInstallerService.PackagesDir(_tempDir.Path), "patch-2.0.0.zip");
+        Assert.True(File.Exists(stagedArchive), "夹具前置失败：整包暂存未落盘");
+
+        // (2) 窗口打开且分卷下载失败（CDN 瞬态）：应回退整包，且零重下复用上轮暂存
+        var payload = TestPayload.BuildPayload(TestPayload.AesEntryFragment);
+        var volumeUrl = "https://cdn.example.com/delta/payload.zip.001";
+        _downloader.Responses[volumeUrl] = payload;
+        _downloader.FailUrls.Add(volumeUrl);
+        _channel.DeltaPlan = BuildDeltaPlan(payload, volumeUrl, await CreateDeltaBaseFileAsync());
+
+        var summary = await service.PredownloadAsync(_tempDir.Path, _game, _server, _channel);
+
+        Assert.Equal(zipBytes.Length, summary.TotalBytes); // 回退到整包摘要
+        Assert.True(File.Exists(stagedArchive), "回退整包后上轮暂存包被删：整删 .yagl/predownload 的回归");
+        Assert.Equal([volumeUrl], _downloader.Requests.Skip(requestsAfterPackageStaging)); // 只试了增量分卷，整包零重下
+        var staged = IncrementalUpdateService.TryLoadStagedManifest(_tempDir.Path);
+        Assert.NotNull(staged);
+        Assert.False(staged.StagedAsDeltaPackage); // 暂存清单回到整包形态
+        Assert.True(staged.EntriesAreArchives);
+        Assert.False(Directory.Exists(DeltaPackageApplier.PayloadDir(_tempDir.Path))); // 增量侧半成品已清
+        Assert.Null(GameUpdateService.TryLoadStagedDeltaPlan(_tempDir.Path));
+    }
+
+    [Fact]
+    public async Task ApplyPredownloadAsync_StagedDelta_AppliesWithoutRedownload()
+    {
+        var payload = TestPayload.BuildPayload(TestPayload.AesEntryFragment);
+        var volumeUrl = "https://cdn.example.com/delta/payload.zip.001";
+        _downloader.Responses[volumeUrl] = payload;
+        SetupPackageWindow(TestZip.Create(("config.ini", "cfg=1")));
+        await WriteLocalState("1.0.0");
+        _channel.VersionInfo = new ChannelVersionInfo
+        {
+            LatestVersion = "1.0.0",
+            PredownloadAvailable = true,
+            PredownloadVersion = "2.0.0",
+        };
+        _channel.DeltaPlan = BuildDeltaPlan(payload, volumeUrl, await CreateDeltaBaseFileAsync());
+        var patcher = new FakeFilePatchApplier { Output = "produced"u8.ToArray() };
+        var service = new GameUpdateService(_downloader, _applier, filePatchApplier: patcher);
+        await service.PredownloadAsync(_tempDir.Path, _game, _server, _channel);
+        var requestsAfterPredownload = _downloader.Requests.Count;
+
+        var outcome = await service.ApplyPredownloadAsync(_tempDir.Path, _game, _server, _channel);
+
+        Assert.Equal("2.0.0", outcome.ToVersion);
+        Assert.Equal(UpdateStrategy.FullSync, outcome.Strategy);
+        Assert.Equal(
+            "produced",
+            await File.ReadAllTextAsync(_tempDir.FilePath("Endfield_Data", "StreamingAssets", "VFS", "AA11", "bb22.chk")));
+        Assert.Equal("2.0.0", new LocalStateService(_tempDir.Path).Load(_game.Id, _server.Id)?.Version);
+        Assert.Single(patcher.Calls);
+        Assert.Equal(requestsAfterPredownload, _downloader.Requests.Count); // 载荷复用：零重下
+        Assert.False(Directory.Exists(DeltaPackageApplier.PayloadDir(_tempDir.Path)));
+        Assert.False(Directory.Exists(IncrementalUpdateService.PredownloadDir(_tempDir.Path)));
+        Assert.DoesNotContain(Url("patch-2.0.0.zip"), _downloader.Requests);
+    }
+
+    [Fact]
+    public async Task ApplyPredownloadAsync_StagedDeltaNotApplicable_FallsBackToFullPackage()
+    {
+        // 暂存好了但安装已不适用（基文件缺失）：清掉增量暂存、回退整包（整包永远可用）
+        var payload = TestPayload.BuildPayload(TestPayload.AesEntryFragment);
+        var volumeUrl = "https://cdn.example.com/delta/payload.zip.001";
+        _downloader.Responses[volumeUrl] = payload;
+        var zipBytes = TestZip.Create(("config.ini", "cfg=1"));
+        SetupPackageWindow(zipBytes);
+        await WriteLocalState("1.0.0");
+        _channel.VersionInfo = new ChannelVersionInfo
+        {
+            LatestVersion = "1.0.0",
+            PredownloadAvailable = true,
+            PredownloadVersion = "2.0.0",
+        };
+        _channel.DeltaPlan = BuildDeltaPlan(payload, volumeUrl, await CreateDeltaBaseFileAsync());
+        var service = new GameUpdateService(_downloader, _applier, filePatchApplier: new FakeFilePatchApplier());
+        await service.PredownloadAsync(_tempDir.Path, _game, _server, _channel);
+        Directory.Delete(Path.GetDirectoryName(_tempDir.FilePath(
+            "Endfield_Data", "StreamingAssets", "VFS", "base", "origin.chk"))!, recursive: true); // 基文件没了
+        // 应用时服务器已切到目标版本（窗口关闭）：回退走常规更新流程
+        _channel.VersionInfo = new ChannelVersionInfo { LatestVersion = "2.0.0" };
+        _channel.Manifests["2.0.0"] = new GameManifest
+        {
+            Version = "2.0.0",
+            EntriesAreArchives = true,
+            Files = [new ManifestFile("patch-2.0.0.zip", zipBytes.Length, Md5(zipBytes), Url: Url("patch-2.0.0.zip"))],
+        };
+
+        var outcome = await service.ApplyPredownloadAsync(_tempDir.Path, _game, _server, _channel);
+
+        Assert.Equal("2.0.0", outcome.ToVersion);
+        Assert.Equal("cfg=1", await File.ReadAllTextAsync(_tempDir.FilePath("config.ini"))); // 整包路径生效
+        Assert.Contains(Url("patch-2.0.0.zip"), _downloader.Requests);
+        Assert.False(Directory.Exists(DeltaPackageApplier.PayloadDir(_tempDir.Path)));
+        Assert.False(Directory.Exists(IncrementalUpdateService.PredownloadDir(_tempDir.Path)));
     }
 }
 

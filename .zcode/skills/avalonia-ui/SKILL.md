@@ -63,17 +63,18 @@ Avalonia 12（本项目 12.1.3，版本以 `Directory.Packages.props` 为准）+
 
 1. xunit.v3 自动入口点生成命名空间会裁掉 `Tests` 尾词——测试项目命名空间不要以 `App` 等与主程序集类型同名的词结尾（CS0435）。
 2. `Application.Current` 属于 UI 线程；后台线程改主题/控件需投递 Dispatcher。
-3. `Progress<T>` 回调异步投递且**不保证顺序**；测试收集用 `ConcurrentQueue`（见 `avalonia-headless-testing`）。
+3. 裸 `Progress<T>` 回调异步投递且**不保证顺序**（无同步上下文的测试线程尤甚——F55 偶发根因，2026-10-18）。VM 的更新/预下载进度一律走 `Services/OperationProgress`（有同步上下文按 FIFO 串行、无上下文就地持锁、操作结束代际失效并丢弃迟到报告）；测试收集不要再按乱序假设或 `ConcurrentQueue` 写（见 `avalonia-headless-testing`）。
 4. Avalonia 12 的 `AvaloniaUI.DiagnosticsSupport` 包仅 Debug 有效，csproj 已条件化。
 5. ComboBox 绑定枚举：`ItemsSource` 给 `IReadOnlyList<Enum>` 属性 + `SelectedItem` 双向绑定，配合 `JsonStringEnumConverter`。**`SelectedItem` 按引用匹配**：从枚举"解析"出的选项若不是 `ItemsSource` 集合内的同一实例，下拉框显示空白（`LaunchSettingsViewModel.DetectLaunchMode` 返回 `LaunchModes.First(...)` 即此故）。
 6. 列表项 hover 高亮、按钮 accent 样式都走 `Classes` + 伪类选择器，不要内联触发器。
 7. **`IsHitTestVisible=False` 的视觉会被连整棵子树剪出命中测试**（与 WPF 不同，子级设回 `True` 翻不回来）：想要"宿主面板穿透、仅卡片可点"，靠宿主**无背景（null）不参与命中**的默认语义即达（无背景的控件不挡点击；需要可点时才显式 `Background="Transparent"`），不要在宿主上写显式 False——toast 关闭钮因此点不动过（2026-09-17 实锤；回归必须走真实指针，见 `avalonia-headless-testing`）。
 8. **Transform 上不能写 `x:Name`**（AVLN2000）；该错误还可能让后续增量构建产出缺预编译 XAML 的程序集（运行时报 "No precompiled XAML"）——见到此错误先清 bin/obj 全量重建。
-9. **Fluent 主题的状态样式在模板 presenter 层写前景**：`Button` 的 `:pointerover`/`:pressed`/`:disabled` 把主题前景直接设在 `ContentPresenter#PART_ContentPresenter` 上，会压过 Button 本体的任何 Foreground（含继承）。自定义按钮的固定前景必须同样下沉到 presenter 层逐状态覆盖（先例：`Button.glass-onart` 组，Themes/WindowStyles.axaml）。
+9. **Fluent 主题的状态样式在模板 presenter 层写前景**：`Button` 的 `:pointerover`/`:pressed`/`:disabled` 把主题前景直接设在 `ContentPresenter#PART_ContentPresenter` 上，会压过 Button 本体的任何 Foreground（含继承）。自定义按钮的固定前景必须同样下沉到 presenter 层逐状态覆盖（先例：`Button.glass-onart` 组，Themes/WindowStyles.axaml）。内容区图标若绑的是 `Button.Foreground`（`Path Fill="{Binding $parent[Button].Foreground}"`），`:disabled` 等状态还必须在 Button 本体同设 Foreground，否则 presenter 的禁用前景管不到内容区，出现"白图标 + 灰字"混合态（2026-10-19 judge 实锤：启动钮播放图标）。
 10. **`Image` 的 `UniformToFill` 默认按控件对齐居中裁切**：需要保住某一边（如海报左缘完整贴侧栏）时，设 `HorizontalAlignment="Left"` + `VerticalAlignment="Top"`，让测量出的封面尺寸向右/下溢出，由外层 `ClipToBounds` 裁掉。
 11. **Animation API（2026-09-21 实测，本项目编舞已弃用之，改手写驱动——见 docs/UI_STRUCTURE.md §2.1）**：`RunAsync` 目标必须是控件（Visual）；keyframe 属性写 `TranslateTransform.YProperty`/`ScaleTransform.ScaleYProperty`；keyframe 缓动用 `KeySpline`（没有 `Easing` 属性），且 **KeySpline 作用于"进入该帧"的段落**（帧 i 的样条管 i-1→i 段）；一个 KeyFrame 带多个 Setter 与拆成多条单属性动画**功能等价**（真机 A/B 插桩实测，引擎源码 `Animation.InterpretKeyframes`/`TransformAnimator` 逐层核对）——不要用"两动画失步"解释卡顿。空闲渲染循环下 Animation 时钟无法自举的根因见 docs/ARCHITECTURE.md §3.7。
 12. **系统托盘（TrayIcon/SNI，2026-09-29 实证）**：Linux 托盘走 D-Bus StatusNotifierItem，KDE Wayland 原生可用（与显示协议无关）；但 **SNI 回调到达 Tmds 总线线程，直接碰窗口/VM 会 SIGSEGV**——必须 `Dispatcher.UIThread.Post` 同步 Action。`NativeMenuItem` 在 12.1.3 **无公开 Clicked 事件**（探针实证只有 `Command`），Command 执行线程同样无文档保证，一律包裹。`TrayIcon.IsVisible` 恒 true，无法探测托盘 host 是否存在；无 SNI host 的环境（GNOME 默认）图标不显示。机制与关闭分流见 docs/ARCHITECTURE.md §3.10。
 13. **原生 Wayland 的 `Activate()` 是 no-op**（上游 #21943，xdg-activation 未实现）：`Hide()`→`Show()` 唤回窗口本身可靠（重映射崩溃 bug 已随 12.1.1 修复），但唤回**不保证抢到焦点**；托盘唤回接受该限制。
+14. **Fluent 主题资源会漏进恒深色的插画上表面**（2026-10-19 judge 实锤）：控件默认取主题资源，`ProgressBar` 在亮色主题的轨道接近黑——压在恒为深色玻璃的操作坞上实测 1.03:1，肉眼等于没有进度条。恒深色表面上的控件一律改用插画上令牌（`AppOnArtworkTrack`/`AppOnArtworkBrush`，定义在 ThemeDictionaries 之外的亮暗同值组）并显式覆盖主题资源；配"两主题下该区域逐像素一致"的截图断言兜底（先例：`ProgressBar.on-artwork` + `Export_BusyDock_ForReview`，2026-10-18 起）。
 
 ## 写完 UI 后必做
 

@@ -369,6 +369,77 @@ public class GryphlineChannelApiTests
     }
 
     [Fact]
+    public async Task GetDeltaPackage_PredownloadWindow_TargetsPatchVersion()
+    {
+        // 复核 P1（2026-10-18）：预下载窗口形态 = response.version 仍是线上版本、patch.version 才是
+        // 预下载目标（GryphlineChannelApiTests:84 与 Kuro 真机记录同构）。守卫此前只认
+        // response.version == toVersion，窗口期的预下载计划必然取不到 → 静默退回数十 GiB 整包，
+        // 正是本批要消掉的行为。
+        const string manifestUrl = "https://cdn.example.com/delta/1.3.0_1.1.0/patch.json";
+        _handler.Map(manifestUrl, """
+            {
+              "version": "1.3.0",
+              "vfs_base_path": "Endfield_Data/StreamingAssets/VFS",
+              "files": [ { "name": "AAAA/one.chk", "md5": "aa", "size": 10, "diffType": 1, "local_path": "vfs_files/files/AAAA/one.chk" } ]
+            }
+            """);
+        RegisterBatchResponse("""
+            {
+              "version": "1.2.0", "action": 1,
+              "pkg": { "packs": [ { "url": "https://cdn.example.com/full.zip.001", "md5": "aa", "package_size": "1" } ] },
+              "patch": {
+                "version": "1.3.0",
+                "url": "https://cdn.example.com/delta/patch_1_3_0_1_1_0.zip",
+                "md5": "bb", "package_size": "300",
+                "cd_key": "g53IPllRAszPG6tMUNozS9JtWxLmvqzp",
+                "v2_patch_info_url": "__MANIFEST__",
+                "patches": [
+                  { "url": "https://cdn.example.com/delta/payload.zip.002", "md5": "2", "package_size": "200" },
+                  { "url": "https://cdn.example.com/delta/payload.zip.001", "md5": "1", "package_size": "100" }
+                ]
+              }
+            }
+            """.Replace("__MANIFEST__", manifestUrl));
+
+        var plan = await CreateApi().GetDeltaPackageAsync(Server(), "1.1.0", "1.3.0");
+
+        Assert.NotNull(plan);
+        Assert.Equal("1.1.0", plan.FromVersion);
+        Assert.Equal("1.3.0", plan.ToVersion);
+        Assert.Equal(["https://cdn.example.com/delta/payload.zip.001", "https://cdn.example.com/delta/payload.zip.002"],
+            plan.Volumes.Select(v => v.Url));
+    }
+
+    [Fact]
+    public async Task GetDeltaPackage_PredownloadWindow_LiveVersionTargetStaysNull()
+    {
+        // 同一窗口形态下问"到线上版本（1.2.0）"的增量计划：patch 节点属于预下载目标（1.3.0），
+        // 不能张冠李戴把预下载内容当成线上版本的补丁（清单 version 逐字符核对是兜底）
+        const string manifestUrl = "https://cdn.example.com/delta/1.3.0_1.1.0/patch.json";
+        _handler.Map(manifestUrl, """
+            {
+              "version": "1.3.0",
+              "vfs_base_path": "Endfield_Data/StreamingAssets/VFS",
+              "files": [ { "name": "AAAA/one.chk", "md5": "aa", "size": 10, "diffType": 1, "local_path": "vfs_files/files/AAAA/one.chk" } ]
+            }
+            """);
+        RegisterBatchResponse("""
+            {
+              "version": "1.2.0", "action": 1,
+              "pkg": { "packs": [ { "url": "https://cdn.example.com/full.zip.001", "md5": "aa", "package_size": "1" } ] },
+              "patch": {
+                "version": "1.3.0",
+                "cd_key": "g53IPllRAszPG6tMUNozS9JtWxLmvqzp",
+                "v2_patch_info_url": "__MANIFEST__",
+                "patches": [ { "url": "https://cdn.example.com/delta/payload.zip.001", "md5": "1", "package_size": "100" } ]
+              }
+            }
+            """.Replace("__MANIFEST__", manifestUrl));
+
+        Assert.Null(await CreateApi().GetDeltaPackageAsync(Server(), "1.1.0", "1.2.0"));
+    }
+
+    [Fact]
     public async Task GetDeltaPackage_MissingV2Fields_ReturnsNull()
     {
         RegisterBatchResponse("""

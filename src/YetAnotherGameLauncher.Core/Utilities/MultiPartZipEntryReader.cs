@@ -48,48 +48,13 @@ public static class MultiPartZipEntryReader
         ArgumentNullException.ThrowIfNull(stream);
         try
         {
-            var length = stream.Length;
-            if (length <= 0 || !stream.CanSeek)
+            if (!TryLocateEntry(stream, entryName, out var offset, out var span, logger))
             {
                 return null;
             }
 
-            var (cdOffset, cdSize) = LocateCentralDirectory(stream, length, logger);
-            if (cdOffset <= 0 || cdSize <= 0 || cdSize > MaxCentralDirectoryBytes || cdOffset + cdSize > length)
-            {
-                logger?.LogWarning("Multi-part zip: unusable central directory (offset {Offset}, size {Size}).", cdOffset, cdSize);
-                return null;
-            }
-
-            var centralDirectory = ReadRange(stream, cdOffset, (int)cdSize);
-            var entries = ZipCentralDirectory.Parse(centralDirectory);
-            var entry = ZipCentralDirectory.Find(entries, entryName);
-            if (entry is null || entry.LocalHeaderOffset > long.MaxValue)
-            {
-                logger?.LogDebug("Multi-part zip: entry {Entry} not found ({Count} entries).", entryName, entries.Count);
-                return null;
-            }
-
-            // 真实跨度：下一条目本地头偏移（末条 = 中央目录起点）− 本条目偏移
-            var nextOffset = cdOffset;
-            foreach (var candidate in entries)
-            {
-                if (candidate.LocalHeaderOffset > entry.LocalHeaderOffset
-                    && candidate.LocalHeaderOffset < (ulong)nextOffset)
-                {
-                    nextOffset = (long)candidate.LocalHeaderOffset;
-                }
-            }
-
-            var span = nextOffset - (long)entry.LocalHeaderOffset;
-            if (span < 30 || span > EffectiveMaxEntryBytes)
-            {
-                logger?.LogWarning("Multi-part zip: entry {Entry} has an implausible span ({Span}).", entryName, span);
-                return null;
-            }
-
-            var blob = ReadRange(stream, (long)entry.LocalHeaderOffset, (int)span);
-            if (BinaryPrimitives.ReadUInt32LittleEndian(blob) != 0x04034b50)
+            var blob = ReadRange(stream, offset, (int)span);
+            if (blob.Length < 30 || BinaryPrimitives.ReadUInt32LittleEndian(blob) != 0x04034b50)
             {
                 logger?.LogWarning("Multi-part zip: entry {Entry} has no local file header.", entryName);
                 return null;
@@ -102,6 +67,143 @@ public static class MultiPartZipEntryReader
             logger?.LogWarning(ex, "Multi-part zip entry read failed: {Entry}.", entryName);
             return null;
         }
+    }
+
+    /// <summary>
+    /// 定位条目"本地头 + 数据"块的偏移与真实跨度（跨度 = 下一条目本地头偏移 − 本条目偏移，
+    /// 末条 = 中央目录起点；中央目录声明的尺寸不可信）。<see cref="TryReadEntry"/> 与流式读取共用。
+    /// </summary>
+    internal static bool TryLocateEntry(
+        Stream stream, string entryName, out long offset, out long span, ILogger? logger)
+    {
+        offset = 0;
+        span = 0;
+        var length = stream.Length;
+        if (length <= 0 || !stream.CanSeek)
+        {
+            return false;
+        }
+
+        var (cdOffset, cdSize) = LocateCentralDirectory(stream, length, logger);
+        if (cdOffset <= 0 || cdSize <= 0 || cdSize > MaxCentralDirectoryBytes || cdOffset + cdSize > length)
+        {
+            logger?.LogWarning("Multi-part zip: unusable central directory (offset {Offset}, size {Size}).", cdOffset, cdSize);
+            return false;
+        }
+
+        var centralDirectory = ReadRange(stream, cdOffset, (int)cdSize);
+        var entries = ZipCentralDirectory.Parse(centralDirectory);
+        var entry = ZipCentralDirectory.Find(entries, entryName);
+        if (entry is null || entry.LocalHeaderOffset > long.MaxValue)
+        {
+            logger?.LogDebug("Multi-part zip: entry {Entry} not found ({Count} entries).", entryName, entries.Count);
+            return false;
+        }
+
+        // 真实跨度：下一条目本地头偏移（末条 = 中央目录起点）− 本条目偏移
+        var nextOffset = cdOffset;
+        foreach (var candidate in entries)
+        {
+            if (candidate.LocalHeaderOffset > entry.LocalHeaderOffset
+                && candidate.LocalHeaderOffset < (ulong)nextOffset)
+            {
+                nextOffset = (long)candidate.LocalHeaderOffset;
+            }
+        }
+
+        span = nextOffset - (long)entry.LocalHeaderOffset;
+        if (span < 30 || span > EffectiveMaxEntryBytes)
+        {
+            logger?.LogWarning("Multi-part zip: entry {Entry} has an implausible span ({Span}).", entryName, span);
+            return false;
+        }
+
+        offset = (long)entry.LocalHeaderOffset;
+        return true;
+    }
+
+    /// <summary>
+    /// 把条目内容流式写入 <paramref name="destination"/>（本地头之后的载荷；AES 条目经口令解密），
+    /// 大条目不再在内存里成型（2026-10-18：终末地 1.6.4 实测 1.2 GiB 条目约 2.4 GiB 峰值）。
+    /// 返回 false = 条目不可读/认证不符——**destination 可能已被写入部分内容**，调用方负责丢弃
+    /// 半成品（生产路径写 *.yagl-new / *.yagl-delta 临时文件，失败即删）。
+    /// </summary>
+    public static bool TryCopyContentTo(
+        Stream stream,
+        string entryName,
+        string? password,
+        Stream destination,
+        CancellationToken cancellationToken = default,
+        ILogger? logger = null)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(destination);
+        try
+        {
+            if (!TryLocateEntry(stream, entryName, out var offset, out var span, logger))
+            {
+                return false;
+            }
+
+            var header = ReadRange(stream, offset, 30);
+            if (header.Length < 30)
+            {
+                return false;
+            }
+
+            var flags = BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(6));
+            var compressedSize = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(18));
+            var uncompressedSize = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(22));
+            var nameLength = BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(26));
+            var extraLength = BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(28));
+            var dataOffset = offset + 30 + nameLength + extraLength;
+            // 数据长度取自本地头（载荷片段形态没有可信中央目录可核）；csize 为 0 时吃到块末尾
+            var dataLength = compressedSize > 0 ? compressedSize : span - 30 - nameLength - extraLength;
+            if (dataLength <= 0 || dataOffset + dataLength > offset + span)
+            {
+                logger?.LogWarning("Multi-part zip: entry {Entry} has an implausible data range.", entryName);
+                return false;
+            }
+
+            if ((flags & 0x1) == 0)
+            {
+                return CopyRange(stream, dataOffset, dataLength, destination, cancellationToken, logger);
+            }
+
+            var extra = ReadRange(stream, offset + 30 + nameLength, extraLength);
+            return WinZipAesReader.TryCopyDecrypted(
+                stream, dataOffset, dataLength, extra, uncompressedSize, password, destination,
+                cancellationToken, logger);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger?.LogWarning(ex, "Multi-part zip streaming read failed: {Entry}.", entryName);
+            return false;
+        }
+    }
+
+    /// <summary>固定缓冲区把流的一段拷到目标（短读返回 false）；每块之间响应取消。</summary>
+    internal static bool CopyRange(
+        Stream source, long offset, long count, Stream destination, CancellationToken cancellationToken, ILogger? logger)
+    {
+        source.Seek(offset, SeekOrigin.Begin);
+        var buffer = new byte[64 * 1024];
+        var remaining = count;
+        while (remaining > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var got = source.Read(buffer, 0, (int)Math.Min(buffer.Length, remaining));
+            if (got <= 0)
+            {
+                logger?.LogWarning("Multi-part zip: short read ({Remaining} bytes missing).", remaining);
+                return false;
+            }
+
+            destination.Write(buffer, 0, got);
+            remaining -= got;
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -237,7 +339,7 @@ public static class MultiPartZipEntryReader
     }
 
     /// <summary>从流里按绝对偏移读一段（流是分卷拼接视图，跨卷由流自身处理）。</summary>
-    private static byte[] ReadRange(Stream stream, long offset, int count)
+    internal static byte[] ReadRange(Stream stream, long offset, int count)
     {
         stream.Seek(offset, SeekOrigin.Begin);
         var buffer = new byte[count];

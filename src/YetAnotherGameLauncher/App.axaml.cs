@@ -32,7 +32,7 @@ public partial class App : Application
             // 有意不持有/Dispose ServiceProvider：退出期平台拆除会弄坏 GPU 解码栈等原生资源，
             // IDisposable 单例的释放由下方 ShutdownRequested 的 videoPlayer.Stop() 显式承担；
             // 若未来出现有真实释放逻辑的 IDisposable 单例，需先补 provider 的关闭路径再依赖其 Dispose
-            var services = BuildServices();
+            var services = BuildServices(Path.Combine(Core.AppPaths.DataDirectory, "logs"));
             var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("YetAnotherGameLauncher");
             InstallGlobalExceptionLogging(logger);
             var viewModel = services.GetRequiredService<MainWindowViewModel>();
@@ -111,19 +111,30 @@ public partial class App : Application
             logger.LogCritical(e.ExceptionObject as Exception, "进程级未处理异常（IsTerminating={IsTerminating}）", e.IsTerminating);
     }
 
-    /// <summary>组合根：全部服务的 DI 注册（UI 只依赖 Core 抽象与渠道实现）。</summary>
-    public static ServiceProvider BuildServices()
+    /// <summary>组合根：全部服务的 DI 注册（UI 只依赖 Core 抽象与渠道实现）。
+    /// <paramref name="logDirectory"/> 非 null 时额外落一份应用级日志文件（生产路径）；
+    /// 测试传缺省 null——测试不得写真实用户数据目录。</summary>
+    public static ServiceProvider BuildServices(string? logDirectory = null)
     {
         var services = new ServiceCollection();
 
         // Debug 构建输出 Debug 级日志便于排查;Release 构建从 Info 起减少控制台噪音
-        services.AddLogging(builder => builder
+        services.AddLogging(builder =>
+        {
 #if DEBUG
-            .SetMinimumLevel(LogLevel.Debug)
+            builder.SetMinimumLevel(LogLevel.Debug);
 #else
-            .SetMinimumLevel(LogLevel.Information)
+            builder.SetMinimumLevel(LogLevel.Information);
 #endif
-            .AddSimpleConsole(options => options.SingleLine = true));
+
+            builder.AddSimpleConsole(options => options.SingleLine = true);
+            if (!string.IsNullOrWhiteSpace(logDirectory))
+            {
+                // 应用级日志文件（与游戏启动日志同目录）：更新/后台任务的排障尾巴
+                //（2026-10-17 立案④——此前事故复盘只能靠文件 mtime）
+                builder.AddProvider(new Services.FileLoggerProvider(logDirectory));
+            }
+        });
 
         // 基础设施（代理管理器持有共享 SocketsHttpHandler：设置保存后代理即时生效）
         services.AddSingleton<NetworkProxyManager>();

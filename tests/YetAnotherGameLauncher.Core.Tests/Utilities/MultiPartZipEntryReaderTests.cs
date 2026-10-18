@@ -207,6 +207,123 @@ public class MultiPartZipEntryReaderTests : IDisposable
         Assert.Null(MultiPartZipEntryReader.TryReadContent(stream, "binary.bin"));
     }
 
+    [Fact]
+    public void TryCopyContentTo_PlainEntry_StreamsInsteadOfBufferingWholeEntry()
+    {
+        // 2026-10-18 大条目流式化立案：1.6.4 实测 5 个 >512 MiB 整文件条目（最大 1199.9 MiB），
+        // 旧路径 TryReadContent 全量入内存（约 2 倍峰值）。断言 = 内容正确 + 拷贝期间分配量
+        // 远小于条目本身（红：旧路径分配 ≈ 条目大小）。
+        var content = new byte[4 * 1024 * 1024];
+        Random.Shared.NextBytes(content);
+        var payload = TestPayload.BuildPayload(TestPayload.PlainEntry("big.bin", content));
+        using var source = new MemoryStream(payload);
+        var target = _tempDir.FilePath("big.bin");
+        bool ok;
+        long allocated;
+        using (var destination = new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            ok = MultiPartZipEntryReader.TryCopyContentTo(source, "big.bin", null, destination, default);
+            allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        }
+
+        Assert.True(ok);
+        Assert.Equal(content, File.ReadAllBytes(target));
+        Assert.True(
+            allocated < content.Length / 2,
+            $"拷贝 {content.Length} 字节条目分配了 {allocated} 字节——未走流式通道");
+    }
+
+    [Fact]
+    public void TryCopyContentTo_AesDeflatedEntry_DecryptsToDestination()
+    {
+        // 终末地载荷主形态：AES + deflate（夹具首条目 binary.bin）经流式通道解密解压
+        var payload = TestPayload.BuildPayload(TestPayload.AesEntryFragment);
+        using var source = new MemoryStream(payload);
+        using var destination = new MemoryStream();
+
+        var ok = MultiPartZipEntryReader.TryCopyContentTo(
+            source, "binary.bin", TestPayload.AesPassword, destination, default);
+
+        Assert.True(ok);
+        Assert.Equal(TestPayload.ExpectedAesFragmentContent, destination.ToArray());
+    }
+
+    [Fact]
+    public void TryCopyContentTo_AesStoredEntry_DecryptsToDestination()
+    {
+        // AES + stored（夹具第三条目 text.txt）：走 stored 直通分支
+        var payload = TestPayload.BuildPayload(EntryFragment(TestPayload.AesFixtureZip, index: 2));
+        using var source = new MemoryStream(payload);
+        using var destination = new MemoryStream();
+
+        var ok = MultiPartZipEntryReader.TryCopyContentTo(
+            source, "text.txt", TestPayload.AesPassword, destination, default);
+
+        Assert.True(ok);
+        Assert.Equal("v2-delta-payload-fixture", System.Text.Encoding.UTF8.GetString(destination.ToArray()));
+    }
+
+    [Fact]
+    public void TryCopyContentTo_AesTamperedCiphertext_ReturnsFalse()
+    {
+        // 认证码覆盖全部密文：任一字节被改都必须拒收（流式通道不得绕过 HMAC）
+        var fragment = TestPayload.AesEntryFragment;
+        var nameLength = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(fragment.AsSpan(26));
+        var extraLength = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(fragment.AsSpan(28));
+        var ciphertextOffset = 30 + nameLength + extraLength + 16 + 2; // 头 + salt + 口令校验值
+        fragment[ciphertextOffset + 3] ^= 0xFF;
+        var payload = TestPayload.BuildPayload(fragment);
+        using var source = new MemoryStream(payload);
+        using var destination = new MemoryStream();
+
+        var ok = MultiPartZipEntryReader.TryCopyContentTo(
+            source, "binary.bin", TestPayload.AesPassword, destination, default);
+
+        Assert.False(ok);
+    }
+
+    [Fact]
+    public void TryCopyContentTo_WrongPassword_ReturnsFalse()
+    {
+        var payload = TestPayload.BuildPayload(TestPayload.AesEntryFragment);
+        using var source = new MemoryStream(payload);
+        using var destination = new MemoryStream();
+
+        Assert.False(MultiPartZipEntryReader.TryCopyContentTo(
+            source, "binary.bin", "wrong-password", destination, default));
+    }
+
+    [Fact]
+    public void TryCopyContentTo_MissingEntry_ReturnsFalse()
+    {
+        var volumes = BuildLyingPayload(volumeCount: 2);
+        using var stream = new SplitVolumeStream(volumes);
+
+        Assert.False(MultiPartZipEntryReader.TryCopyContentTo(
+            stream, "missing.bin", null, new MemoryStream(), default));
+    }
+
+    /// <summary>从完整 AES 夹具里切出第 <paramref name="index"/> 个条目的"本地头 + 数据"片段。</summary>
+    private static byte[] EntryFragment(byte[] zip, int index)
+    {
+        var offset = 0;
+        for (var i = 0; i < index; i++)
+        {
+            offset += LocalEntryLength(zip, offset);
+        }
+
+        return zip.AsSpan(offset, LocalEntryLength(zip, offset)).ToArray();
+    }
+
+    private static int LocalHeaderLength(byte[] zip, int offset) =>
+        30 + System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(zip.AsSpan(offset + 26))
+           + System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(zip.AsSpan(offset + 28));
+
+    private static int LocalEntryLength(byte[] zip, int offset) =>
+        LocalHeaderLength(zip, offset)
+        + (int)System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(zip.AsSpan(offset + 18));
+
     /// <summary>取条目块的数据段（跳过本地头；不依赖中央目录的撒谎尺寸）。</summary>
     private static byte[] EntryData(byte[] blob)
     {

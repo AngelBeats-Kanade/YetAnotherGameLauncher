@@ -39,6 +39,39 @@ public sealed class LocalStateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task SaveThenLoad_PreservesUnverifiedRegistrationFlag()
+    {
+        // 零校验登记的标注（2026-10-18，半更新掩盖事故立案）：登记态 Verified=false 必须落盘并在读回时保留
+        var service = CreateService();
+        await service.SaveAsync(new LocalGameState
+        {
+            GameId = "g",
+            ServerId = "s",
+            Version = "1.0.0",
+            Verified = false,
+        });
+
+        var state = service.Load("g", "s");
+
+        Assert.NotNull(state);
+        Assert.False(state.Verified);
+    }
+
+    [Fact]
+    public async Task Load_LegacyStateWithoutVerifiedField_TreatedAsVerified()
+    {
+        // 旧态（本字段之前写入的 state.json）缺省为已验证：登记态语义只作用于新的"检测到现有文件"写入
+        var service = CreateService();
+        Directory.CreateDirectory(Path.GetDirectoryName(StatePath)!);
+        await File.WriteAllTextAsync(StatePath, """{"gameId":"g","serverId":"s","version":"1.0.0"}""");
+
+        var state = service.Load("g", "s");
+
+        Assert.NotNull(state);
+        Assert.True(state.Verified);
+    }
+
+    [Fact]
     public async Task Load_CorruptedJson_ReturnsNull()
     {
         var service = CreateService();

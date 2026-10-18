@@ -40,7 +40,7 @@ Currently supported games:
 - 🛡️ **Endfield launch check (Linux)** — the 1.6.3+ direct-parent signature check is handled by a built-in **decoy parent bridge**: a suspended copy of a Hypergryph-signed game executable serves as the parent process (zero downloads, no official launcher, no game files modified), with automatic fallback to a direct launch; see [ARCHITECTURE §3.1](docs/ARCHITECTURE.md)
 - ⬇️ **Full download + resume** — Per-file manifest sync (Wuthering Waves) / archive extraction (Endfield; official `.001..NNN` volumes concatenated automatically) with size+MD5 verification; `.temp` files + HTTP Range resume; linear-backoff retries for transient network errors; adjustable download speed limit
 - 📊 **Real-time byte progress + speed** — Download progress advances per byte (no more per-file jumps) with an EMA-smoothed speed readout; failed pre-downloads/updates resume by re-verifying intact staged files (size+MD5 skip, Range resume); permanent HTTP 4xx errors fail fast without retries
-- 🩹 **Incremental updates + pre-download** — Wuthering Waves uses official krpdiff patch packages applied via native `hpatchz` (HDiffPatch) with `.yagl-bak` backup rollback; two-phase pre-download (stage first, apply when official servers open); package-based channels can register an already-installed game with zero downloads
+- 🩹 **Incremental updates + pre-download** — Wuthering Waves uses official krpdiff patch packages applied via native `hpatchz` (HDiffPatch) with `.yagl-bak` backup rollback; two-phase pre-download (stage first, apply when official servers open); package-based channels can register an already-installed game with zero downloads (the status says "unverified" and points at verify & repair); Endfield updates and pre-downloads both prefer the official v2 delta payload (8.72 GiB instead of tens of GiB, apply reuses it with zero re-download), with a free-space check before applying and the downloaded payload kept when the patch tool is unavailable
 - 🎚️ **Resource quality tier (Wuthering Waves)** — Pick HD / SD / UHD in game settings; passed to the game as the official `-krqlv` launch argument; defaults to following in-game settings (note: the official incremental-update manifest ships HD-tier resources only - the tier currently affects the launch argument only)
 - 🧰 **Verify & repair** — Post-install manifest verification (MD5) that automatically repairs missing/corrupted files and cleans orphaned files (keeping `Saved/` game saves)
 - 🖥️ **One-click server switching** — Wuthering Waves CN/Bilibili/Global, Endfield CN/Global/Bilibili, all configuration-driven
@@ -63,7 +63,7 @@ Currently supported games:
 | Resume support | `.temp` files + HTTP Range resume; linear-backoff retries for transient network errors |
 | Speed limit | Download speed can be capped in bytes/second |
 | Incremental update | Wuthering Waves: matches the official `patchConfig` diff entry, downloads krpdiff patch packages, applies them with native `hpatchz` (HDiffPatch), `.yagl-bak` backup rollback |
-| Pre-download | Two-phase: "pre-download" stages into `.yagl/predownload`, then a one-click "apply" once official servers open; krpdiff packages for Wuthering Waves, full packages for Endfield |
+| Pre-download | Two-phase: "pre-download" stages into `.yagl/predownload`, then a one-click "apply" once official servers open; krpdiff packages for Wuthering Waves, the v2 delta payload for Endfield (full package when no delta plan is available) |
 | Register version | Package-based channels can register an already-installed game with zero downloads (Endfield detected state) |
 | Verify & repair | Post-install manifest verification (MD5); automatically repairs missing/corrupted files and cleans orphaned files (keeping `Saved/` saves) |
 | Multi-server | Wuthering Waves CN/Bilibili/Global, Endfield CN/Global/Bilibili — one-click switching, all configuration-driven |
@@ -210,7 +210,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### Running tests (1391 tests, measured 2026-10-18)
+### Running tests (1437 tests, measured 2026-10-19)
 
 ```bash
 # Run the 4 test projects' compiled binaries directly (on Windows you can run the .exe;

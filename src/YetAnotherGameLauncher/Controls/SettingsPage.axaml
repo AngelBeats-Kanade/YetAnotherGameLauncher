@@ -15,7 +15,7 @@
 
                 <!-- 外观 -->
                 <Border Classes="card">
-                    <StackPanel Spacing="10">
+                    <StackPanel Spacing="8">
                         <TextBlock Text="{Binding Loc[settings_appearance]}" FontSize="15" FontWeight="SemiBold"/>
                         <Grid ColumnDefinitions="*,*" ColumnSpacing="24">
                             <StackPanel Grid.Column="0" Spacing="6">
@@ -89,7 +89,7 @@
                                    Classes.failed="{Binding InstallRootSave.Failed}"/>
                         <StackPanel Spacing="4" Margin="0,8,0,0">
                             <TextBlock Text="{Binding Loc[settings_downloadLimit]}" Classes="card-caption"/>
-                            <StackPanel Orientation="Horizontal" Spacing="10">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
                                 <TextBox Text="{Binding SpeedLimitMbDraft}" Width="140"/>
                                 <TextBlock Text="{Binding Loc[settings_downloadLimitHint]}" Classes="card-caption"
                                            VerticalAlignment="Center"/>

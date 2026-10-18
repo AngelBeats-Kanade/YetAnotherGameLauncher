@@ -282,7 +282,7 @@ public class HpatchzApplierTests : IDisposable
         var patch = _tempDir.FilePath("patch.krpdiff");
         await File.WriteAllTextAsync(patch, "stub");
 
-        var ex = await Assert.ThrowsAsync<UpdateException>(
+        var ex = await Assert.ThrowsAsync<PatchToolUnavailableException>(
             () => applier.ApplyAsync(patch, _tempDir.FilePath("old"), _tempDir.FilePath("new")));
 
         Assert.Contains(_tempDir.FilePath("no-such-tool"), ex.Message);
@@ -305,9 +305,10 @@ public class HpatchzApplierTests : IDisposable
         var patch = _tempDir.FilePath("patch.krpdiff");
         await File.WriteAllTextAsync(patch, "stub");
 
-        await Assert.ThrowsAsync<UpdateException>(
+        var ex = await Assert.ThrowsAsync<PatchToolUnavailableException>(
             () => applier.ApplyAsync(patch, _tempDir.FilePath("old"), _tempDir.FilePath("new")));
 
+        Assert.Contains("not found or not executable", ex.Message);
         Assert.Empty(_runner.Specs);
     }
 
@@ -384,10 +385,51 @@ public class HpatchzApplierTests : IDisposable
         var patch = _tempDir.FilePath("patch.krpdiff");
         await File.WriteAllTextAsync(patch, "stub");
 
-        var ex = await Assert.ThrowsAsync<UpdateException>(
+        var ex = await Assert.ThrowsAsync<PatchToolUnavailableException>(
             () => applier.ApplyAsync(patch, _tempDir.FilePath("old"), _tempDir.FilePath("new")));
 
         Assert.Contains("not found or not executable", ex.Message);
         Assert.Empty(_runner.Specs);
+    }
+
+    [Fact]
+    public async Task ProvisionerFailure_FoldsToPatchToolUnavailable()
+    {
+        // 2026-10-18 分家：自动供给失败（下载/校验/平台不支持）折算 PatchToolUnavailable——增量链
+        // 据此保留载荷暂存（与"补丁内容对不上"的 Unusable 区分开）
+        var provisioner = new FailingProvisioner(new UpdateException("download failed: CDN 503"));
+        var applier = new HpatchzApplier(
+            _runner, new HpatchzApplierOptions { HpatchzPath = "hpatchz-not-on-path-xyz" }, provisioner: provisioner);
+        var patch = _tempDir.FilePath("patch.krpdiff");
+        await File.WriteAllTextAsync(patch, "stub");
+
+        var ex = await Assert.ThrowsAsync<PatchToolUnavailableException>(
+            () => applier.ApplyFileAsync(patch, _tempDir.FilePath("old"), _tempDir.FilePath("new")));
+
+        Assert.Contains("could not be provisioned", ex.Message);
+        Assert.Contains("CDN 503", ex.Message);
+        Assert.IsType<UpdateException>(ex.InnerException); // 原根因保留
+        Assert.Empty(_runner.Specs);
+    }
+
+    [Fact]
+    public async Task ProvisionerFailure_Cancellation_Propagates()
+    {
+        // 取消不是供给失败：OCE 必须穿透（否则用户取消会被折算成"工具不可用"）
+        var provisioner = new FailingProvisioner(new OperationCanceledException());
+        var applier = new HpatchzApplier(
+            _runner, new HpatchzApplierOptions { HpatchzPath = "hpatchz-not-on-path-xyz" }, provisioner: provisioner);
+        var patch = _tempDir.FilePath("patch.krpdiff");
+        await File.WriteAllTextAsync(patch, "stub");
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => applier.ApplyFileAsync(patch, _tempDir.FilePath("old"), _tempDir.FilePath("new")));
+    }
+
+    /// <summary>供给器桩：抛固定异常（供给失败折算的观察点）。</summary>
+    private sealed class FailingProvisioner(Exception failure) : IHpatchzProvisioner
+    {
+        public Task<HpatchzTool> EnsureAvailableAsync(CancellationToken cancellationToken = default) =>
+            throw failure;
     }
 }

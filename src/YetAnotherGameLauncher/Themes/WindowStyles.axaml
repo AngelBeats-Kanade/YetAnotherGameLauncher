@@ -77,7 +77,7 @@
         <Setter Property="Padding" Value="16,8"/>
     </Style>
     <Style Selector="Button.back-btn">
-        <Setter Property="Padding" Value="20,9"/>
+        <Setter Property="Padding" Value="20,8"/>
         <Setter Property="HorizontalAlignment" Value="Left"/>
     </Style>
 
@@ -121,6 +121,11 @@
         <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
         <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkSecondary}"/>
     </Style>
+    <!-- 内容区图标（Path Fill 绑 Button.Foreground）随禁用前景一起下沉：presenter 层的前景管不到
+         内容区，否则禁用态是"白图标 + 灰字"的混合观感（2026-10-18 judge P3） -->
+    <Style Selector="Button.glass-onart:disabled">
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkSecondary}"/>
+    </Style>
 
     <!-- 海报上的主题色主操作按钮：accent 底 + 白字；四态下沉 presenter（同 glass-onart 规则） -->
     <Style Selector="Button.accent-onart">
@@ -142,6 +147,10 @@
     </Style>
     <Style Selector="Button.accent-onart:disabled /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkSecondary}"/>
+    </Style>
+    <!-- 同 glass-onart：内容区图标随禁用前景下沉（2026-10-18 judge P3，播放图标此前恒为白色） -->
+    <Style Selector="Button.accent-onart:disabled">
         <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkSecondary}"/>
     </Style>
 
@@ -246,7 +255,7 @@
     <!-- 唤取入口图标钮：常显玻璃底胶囊——次级功能但需要被看见，不与主 CTA 争夺 -->
     <Style Selector="Button.gacha-onart">
         <Setter Property="Background" Value="{DynamicResource AppOnArtworkCard}"/>
-        <Setter Property="Padding" Value="10"/>
+        <Setter Property="Padding" Value="8"/>
         <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}"/>
         <Setter Property="HorizontalContentAlignment" Value="Center"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
@@ -272,7 +281,13 @@
         <Setter Property="BorderBrush" Value="{DynamicResource AppOnArtworkCardBorder}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="CornerRadius" Value="14"/>
-        <Setter Property="Padding" Value="18,12"/>
+        <Setter Property="Padding" Value="16,12"/>
+    </Style>
+    <!-- 坞内忙碌进度条走插画上令牌（2026-10-18 judge 实锤）：Fluent 主题轨道在亮色主题下
+         接近黑（实测 1.03:1），压在恒深色的坞上等于不可见；填充与百分比同色，两主题逐像素一致 -->
+    <Style Selector="ProgressBar.on-artwork">
+        <Setter Property="Background" Value="{DynamicResource AppOnArtworkTrack}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AppOnArtworkBrush}"/>
     </Style>
     <Style Selector="TextBlock.dock-caption">
         <!-- 方案 A .info i：12px 三级弱化标签，比值列暗一档撑起层级（11px 过小，评审 P2-7） -->
@@ -473,7 +488,7 @@
         <Setter Property="BorderBrush" Value="{DynamicResource AppCardBorder}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="CornerRadius" Value="{StaticResource ButtonCornerRadius}"/>
-        <Setter Property="Padding" Value="14,12"/>
+        <Setter Property="Padding" Value="16,12"/>
         <Setter Property="MinWidth" Value="260"/>
         <Setter Property="MaxWidth" Value="360"/>
     </Style>

@@ -19,9 +19,9 @@ public static class WinZipAesReader
     private const int Pbkdf2Iterations = 1000;
 
     /// <summary>AES 数据块：salt(16) + 口令校验值(2) + 密文 + 认证码(10)。</summary>
-    private const int SaltLength = 16;
-    private const int PasswordVerifierLength = 2;
-    private const int AuthCodeLength = 10;
+    internal const int SaltLength = 16;
+    internal const int PasswordVerifierLength = 2;
+    internal const int AuthCodeLength = 10;
 
     /// <summary>
     /// 读取 <paramref name="blob"/> 中名为 <paramref name="entryName"/> 的 AES 加密条目；
@@ -192,7 +192,7 @@ public static class WinZipAesReader
     }
 
     /// <summary>0x9901 扩展字段：版本(1=AE-1/2=AE-2) + "AE" + 强度(1/2/3) + 真实压缩方法。</summary>
-    private static bool TryParseAesExtra(ReadOnlySpan<byte> extra, out ushort realMethod, out int keyLength)
+    internal static bool TryParseAesExtra(ReadOnlySpan<byte> extra, out ushort realMethod, out int keyLength)
     {
         realMethod = 0;
         keyLength = 0;
@@ -241,21 +241,311 @@ public static class WinZipAesReader
     /// <summary>AES-CTR：计数器为 16 字节小端、自 1 递增；密钥流块 = AES-ECB(计数器块)。</summary>
     private static void AesCtrXor(ReadOnlySpan<byte> key, ReadOnlySpan<byte> ciphertext, Span<byte> output)
     {
-        using var aes = Aes.Create();
-        aes.Key = key.ToArray();
-        Span<byte> counter = stackalloc byte[16];
-        Span<byte> keystream = stackalloc byte[16];
-        for (var offset = 0; offset < ciphertext.Length; offset += 16)
+        using var decryptor = new AesCtrDecryptor(key.ToArray());
+        decryptor.Decrypt(ciphertext, output);
+    }
+
+    /// <summary>
+    /// 流式读取一个 AES 条目的内容并写入 <paramref name="destination"/>（2026-10-18：大条目
+    /// 不再在内存里成型）。<paramref name="dataOffset"/>/<paramref name="dataLength"/> 界定
+    /// "salt+口令校验值+密文+认证码"数据块（由 <c>MultiPartZipEntryReader</c> 按条目跨度算出）。
+    /// 边解密边写、同步累计 HMAC；读尽后校验认证码与声明解压尺寸。返回 false = 形态/口令/认证
+    /// 不符——**此时 destination 可能已有部分内容**，调用方负责丢弃半成品（生产路径写临时文件）。
+    /// </summary>
+    internal static bool TryCopyDecrypted(
+        Stream source,
+        long dataOffset,
+        long dataLength,
+        ReadOnlySpan<byte> extra,
+        uint uncompressedSize,
+        string? password,
+        Stream destination,
+        CancellationToken cancellationToken,
+        ILogger? logger)
+    {
+        try
         {
-            counter.Clear();
-            BinaryPrimitives.WriteUInt64LittleEndian(counter, (ulong)(offset / 16 + 1));
-            aes.EncryptEcb(counter, keystream, PaddingMode.None);
-            var block = Math.Min(16, ciphertext.Length - offset);
-            for (var i = 0; i < block; i++)
+            if (string.IsNullOrEmpty(password))
             {
-                output[offset + i] = (byte)(ciphertext[offset + i] ^ keystream[i]);
+                logger?.LogWarning("WinZip AES entry is encrypted but no password was given.");
+                return false;
             }
+
+            if (!TryParseAesExtra(extra, out var realMethod, out var keyLength)
+                || dataLength < SaltLength + PasswordVerifierLength + AuthCodeLength)
+            {
+                logger?.LogDebug("Entry is not WinZip AES or its data block is truncated.");
+                return false;
+            }
+
+            var prefix = MultiPartZipEntryReader.ReadRange(source, dataOffset, SaltLength + PasswordVerifierLength);
+            if (prefix.Length < SaltLength + PasswordVerifierLength)
+            {
+                return false;
+            }
+
+            var keyMaterial = DeriveKeyMaterial(password, prefix.AsSpan(0, SaltLength), keyLength);
+            var encryptionKey = keyMaterial.AsSpan(0, keyLength).ToArray();
+            var authKey = keyMaterial.AsSpan(keyLength, keyLength).ToArray();
+            if (!CryptographicOperations.FixedTimeEquals(
+                    keyMaterial.AsSpan(keyLength * 2, PasswordVerifierLength),
+                    prefix.AsSpan(SaltLength, PasswordVerifierLength)))
+            {
+                logger?.LogWarning("WinZip AES password verification failed.");
+                return false;
+            }
+
+            var ciphertextOffset = dataOffset + SaltLength + PasswordVerifierLength;
+            var ciphertextLength = dataLength - SaltLength - PasswordVerifierLength - AuthCodeLength;
+            var expectedAuthCode = MultiPartZipEntryReader.ReadRange(
+                source, dataOffset + dataLength - AuthCodeLength, AuthCodeLength);
+            if (expectedAuthCode.Length < AuthCodeLength)
+            {
+                return false;
+            }
+
+            using var decrypting = new AesCtrDecryptingStream(
+                source, ciphertextOffset, ciphertextLength, encryptionKey, authKey, expectedAuthCode, cancellationToken);
+            long written;
+            if (realMethod == 0)
+            {
+                written = CopyCounting(decrypting, destination, cancellationToken);
+            }
+            else if (realMethod == 8)
+            {
+                using var inflater = new System.IO.Compression.DeflateStream(
+                    decrypting, System.IO.Compression.CompressionMode.Decompress, leaveOpen: true);
+                written = CopyCounting(inflater, destination, cancellationToken);
+            }
+            else
+            {
+                logger?.LogWarning("WinZip AES entry uses an unsupported compression method ({Method}).", realMethod);
+                return false;
+            }
+
+            decrypting.Drain(); // 密文必须读尽：认证码覆盖全部密文（deflate 提前收尾时补齐剩余）
+            if (!decrypting.IsAuthenticated)
+            {
+                logger?.LogWarning("WinZip AES authentication code mismatch (corrupted payload).");
+                return false;
+            }
+
+            if (uncompressedSize > 0 && written != uncompressedSize)
+            {
+                logger?.LogWarning(
+                    "WinZip AES entry size mismatch (expected {Expected}, wrote {Written}).", uncompressedSize, written);
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger?.LogWarning(ex, "WinZip AES streaming read failed.");
+            return false;
         }
     }
 
+    /// <summary>PBKDF2-HMAC-SHA1 派生密钥材料（加密密钥 + 认证密钥 + 口令校验值）。</summary>
+    internal static byte[] DeriveKeyMaterial(string password, ReadOnlySpan<byte> salt, int keyLength) =>
+        Rfc2898DeriveBytes.Pbkdf2(
+            Encoding.UTF8.GetBytes(password), salt.ToArray(), Pbkdf2Iterations, HashAlgorithmName.SHA1,
+            keyLength * 2 + PasswordVerifierLength);
+
+    /// <summary>固定缓冲区的流到流拷贝，返回写入字节数；每块之间响应取消。</summary>
+    private static long CopyCounting(Stream source, Stream destination, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[64 * 1024];
+        long written = 0;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var got = source.Read(buffer, 0, buffer.Length);
+            if (got <= 0)
+            {
+                return written;
+            }
+
+            destination.Write(buffer, 0, got);
+            written += got;
+        }
+    }
+
+    /// <summary>
+    /// AES-CTR 小端计数器解密器（跨调用连续）：同一密文流上多次 <see cref="Decrypt"/> 与
+    /// 一次性解密整段等价（密钥流按 16 字节块推进）。
+    /// </summary>
+    internal sealed class AesCtrDecryptor : IDisposable
+    {
+        private readonly Aes _aes = Aes.Create();
+        private readonly byte[] _counter = new byte[16];
+        private readonly byte[] _keystream = new byte[16];
+        private int _available; // 当前密钥流块剩余未用字节
+        private ulong _blocks;
+
+        public AesCtrDecryptor(byte[] key) => _aes.Key = key;
+
+        /// <summary>解密一段（计数器块 = 块序号 + 1，小端 16 字节）。</summary>
+        public void Decrypt(ReadOnlySpan<byte> input, Span<byte> output)
+        {
+            var consumed = 0;
+            while (consumed < input.Length)
+            {
+                if (_available == 0)
+                {
+                    _counter.AsSpan().Clear();
+                    System.Buffers.Binary.BinaryPrimitives.WriteUInt64LittleEndian(_counter, _blocks + 1);
+                    _aes.EncryptEcb(_counter, _keystream, PaddingMode.None);
+                    _blocks++;
+                    _available = 16;
+                }
+
+                var offsetInBlock = 16 - _available;
+                var take = Math.Min(_available, input.Length - consumed);
+                for (var i = 0; i < take; i++)
+                {
+                    output[consumed + i] = (byte)(input[consumed + i] ^ _keystream[offsetInBlock + i]);
+                }
+
+                consumed += take;
+                _available -= take;
+            }
+        }
+
+        public void Dispose() => _aes.Dispose();
+    }
+
+    /// <summary>
+    /// "密文段 + AES-CTR 解密"的只读流（同步累计 HMAC-SHA1）；读尽后 <see cref="IsAuthenticated"/>
+    /// 才可信（认证码是密文的函数，只能读到最后才能判）。
+    /// </summary>
+    private sealed class AesCtrDecryptingStream : Stream
+    {
+        private readonly Stream _source;
+        private readonly long _offset;
+        private readonly long _length;
+        private readonly AesCtrDecryptor _decryptor;
+        private readonly IncrementalHash _hmac;
+        private readonly byte[] _expectedAuthCode;
+        private readonly CancellationToken _cancellationToken;
+        private long _position;
+        private bool _verified;
+        private bool _authenticated;
+
+        public AesCtrDecryptingStream(
+            Stream source,
+            long offset,
+            long length,
+            byte[] encryptionKey,
+            byte[] authKey,
+            byte[] expectedAuthCode,
+            CancellationToken cancellationToken)
+        {
+            _source = source;
+            _offset = offset;
+            _length = length;
+            _decryptor = new AesCtrDecryptor(encryptionKey);
+            _hmac = IncrementalHash.CreateHMAC(HashAlgorithmName.SHA1, authKey);
+            _expectedAuthCode = expectedAuthCode;
+            _cancellationToken = cancellationToken;
+            _source.Seek(_offset, SeekOrigin.Begin);
+        }
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => _length;
+
+        public override long Position
+        {
+            get => _position;
+            set => throw new NotSupportedException();
+        }
+
+        /// <summary>认证码校验结果（读尽后有效；未读尽时为 false）。</summary>
+        public bool IsAuthenticated
+        {
+            get
+            {
+                Verify();
+                return _authenticated;
+            }
+        }
+
+        /// <summary>读尽剩余密文（deflate 提前收尾时补齐），使认证码校验生效。</summary>
+        public void Drain()
+        {
+            Span<byte> scratch = stackalloc byte[4096];
+            while (Read(scratch) > 0)
+            {
+                // 只丢弃，不解压
+            }
+        }
+
+        public override int Read(Span<byte> buffer)
+        {
+            _cancellationToken.ThrowIfCancellationRequested();
+            if (_position >= _length)
+            {
+                Verify();
+                return 0;
+            }
+
+            var want = (int)Math.Min(buffer.Length, _length - _position);
+            // 直接读进调用方缓冲区再原地解密（AES-CTR 是流密码：密文与明文等长）——
+            // 不额外分配，也不让 64 KiB 级的块拷贝带出每次读取的临时数组
+            var got = _source.Read(buffer[..want]);
+            if (got <= 0)
+            {
+                Verify();
+                return 0;
+            }
+
+            _hmac.AppendData(buffer[..got]);
+            _decryptor.Decrypt(buffer[..got], buffer[..got]);
+            _position += got;
+            return got;
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => Read(buffer.AsSpan(offset, count));
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _decryptor.Dispose();
+                _hmac.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+
+        private void Verify()
+        {
+            if (_verified)
+            {
+                return;
+            }
+
+            _verified = true;
+            Span<byte> mac = stackalloc byte[20];
+            _hmac.GetHashAndReset(mac);
+            _authenticated = _position >= _length
+                             && CryptographicOperations.FixedTimeEquals(
+                                 mac[..AuthCodeLength], _expectedAuthCode);
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
 }

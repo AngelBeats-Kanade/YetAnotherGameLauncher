@@ -52,7 +52,19 @@ public sealed class HpatchzApplier(
         }
         else if (provisioner is not null)
         {
-            var tool = await provisioner.EnsureAvailableAsync(cancellationToken).ConfigureAwait(false);
+            HpatchzTool tool;
+            try
+            {
+                tool = await provisioner.EnsureAvailableAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // 自动供给失败（下载/校验/平台不支持）与"补丁内容对不上"是两类问题：折算成
+                // PatchToolUnavailable，增量链据此保留载荷暂存供修复后零重下重试（2026-10-18）
+                throw new PatchToolUnavailableException(
+                    $"Patch tool could not be provisioned: {ex.Message}", ex);
+            }
+
             fileName = tool.FileName;
             environment = tool.Environment;
             // wine 形态：exe 路径作前缀参数，old/patch/new 转成 wine 的 Z: 盘路径；
@@ -64,7 +76,7 @@ public sealed class HpatchzApplier(
         }
         else
         {
-            throw new UpdateException(
+            throw new PatchToolUnavailableException(
                 $"Patch tool not found or not executable: {_options.HpatchzPath}. " +
                 "Install HDiffPatch and make sure hpatchz is on PATH (with the executable bit on Linux), " +
                 "or point HpatchzPath at the full binary path.");
@@ -72,9 +84,19 @@ public sealed class HpatchzApplier(
 
         logger?.LogDebug("Running {Exe} {Args}", fileName, arguments);
 
-        var result = await processRunner.RunAsync(
-            new ProcessStartSpec(fileName, arguments, TimeoutMilliseconds: _options.TimeoutMilliseconds, Environment: environment),
-            cancellationToken).ConfigureAwait(false);
+        ProcessResult result;
+        try
+        {
+            result = await processRunner.RunAsync(
+                new ProcessStartSpec(fileName, arguments, TimeoutMilliseconds: _options.TimeoutMilliseconds, Environment: environment),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            // 进程起不来（TOCTOU 被删/坏 exe/wine 启动失败）同属工具/环境侧，不是补丁内容问题
+            throw new PatchToolUnavailableException(
+                $"Patch tool failed to start ({fileName}): {ex.Message}", ex);
+        }
 
         if (!result.Succeeded)
         {

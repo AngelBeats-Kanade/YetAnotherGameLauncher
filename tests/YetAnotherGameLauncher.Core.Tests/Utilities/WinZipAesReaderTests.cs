@@ -128,6 +128,61 @@ public class WinZipAesReaderTests
         Assert.Null(WinZipAesReader.TryReadEntry(blob, Password));
     }
 
+    [Theory]
+    [InlineData(7)]
+    [InlineData(16)]
+    [InlineData(33)]
+    [InlineData(1000)]
+    public void AesCtrDecryptor_ChunkedCalls_MatchOneShotAndReference(int chunkSize)
+    {
+        // 复核非阻塞 3（2026-10-18）：真实大条目（实测 1.2 GiB 整文件条目）按读块多次 Decrypt、
+        // 每块 16 字节密钥流续推；既有夹具只有 ~1 KB 密文 = 单次调用——续块/偏移写错小夹具照样绿，
+        // 真机解出垃圾（HMAC 只盖密文、检不出，最终尺寸/md5 不符 → Unusable → 静默回退整包）。
+        // 这里按 7/16/33/1000 字节切块，与"一次性解密"和"独立 CTR 参考实现"双向逐字节对照。
+        var key = Enumerable.Range(0, 32).Select(i => (byte)(i * 7 + 3)).ToArray();
+        var cipher = new byte[1000];
+        new Random(20261018).NextBytes(cipher);
+
+        var expected = new byte[cipher.Length];
+        using (var aes = Aes.Create())
+        {
+            aes.Key = key;
+            Span<byte> counter = stackalloc byte[16];
+            Span<byte> keystream = stackalloc byte[16];
+            for (var offset = 0; offset < cipher.Length; offset += 16)
+            {
+                counter.Clear();
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt64LittleEndian(counter, (ulong)(offset / 16 + 1));
+                aes.EncryptEcb(counter, keystream, PaddingMode.None);
+                var block = Math.Min(16, cipher.Length - offset);
+                for (var i = 0; i < block; i++)
+                {
+                    expected[offset + i] = (byte)(cipher[offset + i] ^ keystream[i]);
+                }
+            }
+        }
+
+        var oneShot = new byte[cipher.Length];
+        using (var decryptor = new WinZipAesReader.AesCtrDecryptor(key))
+        {
+            decryptor.Decrypt(cipher, oneShot);
+        }
+
+        Assert.Equal(expected, oneShot);
+
+        var chunked = new byte[cipher.Length];
+        using (var decryptor = new WinZipAesReader.AesCtrDecryptor(key))
+        {
+            for (var offset = 0; offset < cipher.Length; offset += chunkSize)
+            {
+                var take = Math.Min(chunkSize, cipher.Length - offset);
+                decryptor.Decrypt(cipher.AsSpan(offset, take), chunked.AsSpan(offset, take));
+            }
+        }
+
+        Assert.Equal(expected, chunked);
+    }
+
     /// <summary>
     /// 测试侧 AES-256 加密器（独立实现，反向校验读取器）：stored 条目，密文在指定偏移被写入
     /// PK\x05\x06（按 CTR 对称性反解出对应明文，认证码按最终密文计算，故条目仍然合法）。

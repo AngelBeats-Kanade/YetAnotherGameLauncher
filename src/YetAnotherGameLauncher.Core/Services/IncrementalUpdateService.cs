@@ -23,6 +23,9 @@ public sealed class IncrementalUpdateService(
 {
     /// <summary>预下载暂存目录名，挂在 {installDir}/.yagl 之下。</summary>
     public const string PredownloadDirName = "predownload";
+
+    /// <summary>暂存清单文件名（预下载目录内；增量与包式两条链写同一个文件）。</summary>
+    public const string StagedManifestFileName = "manifest.json";
     private const string PatchWorkDirName = "patchwork";
     private const string BackupSuffix = ".yagl-bak";
 
@@ -38,7 +41,7 @@ public sealed class IncrementalUpdateService(
         string staging, GameManifest manifest, CancellationToken cancellationToken)
     {
         await FileUtilities.WriteAtomicAsync(
-            Path.Combine(staging, "manifest.json"),
+            Path.Combine(staging, StagedManifestFileName),
             JsonSerializer.Serialize(manifest, Json.Default),
             cancellationToken).ConfigureAwait(false);
     }
@@ -184,7 +187,7 @@ public sealed class IncrementalUpdateService(
     /// RefreshAsync 的弃元调用点，静默丢失状态刷新与完成提示（2026-09-20 复审修复）。</summary>
     public static GameManifest? TryLoadStagedManifest(string installDir)
     {
-        var path = Path.Combine(PredownloadDir(installDir), "manifest.json");
+        var path = Path.Combine(PredownloadDir(installDir), StagedManifestFileName);
         if (!File.Exists(path))
         {
             return null;

@@ -162,6 +162,8 @@
   "status_detectedShort": "Ready to launch",
   "status_notInstalledShort": "Not installed",
   "status_predownload": "Pre-download available",
+  "status_registeredUnverified": "Registered (unverified) - run verify & repair",
+  "status_registeredUnverifiedShort": "Unverified",
   "verify_ok": "Verification passed — all files intact",
   "verify_repaired": "Found and repaired {0} file(s)",
   "verify_reinstalled": "Full package re-downloaded and verified",

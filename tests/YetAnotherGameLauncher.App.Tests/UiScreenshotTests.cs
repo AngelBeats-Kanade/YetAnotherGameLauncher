@@ -9,6 +9,7 @@ using Xunit;
 using YetAnotherGameLauncher.AppTests;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
+using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Utilities;
 using YetAnotherGameLauncher.TestSupport;
 using YetAnotherGameLauncher.ViewModels;
@@ -759,6 +760,136 @@ public class UiScreenshotTests
             window.UpdateLayout();
             Capture("21-game-dependencies-installed-light.png");
 
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.NotEmpty(captured);
+        Assert.All(captured, c => Assert.True(c.Png is not null && c.Png.Length > 0, $"截图 {c.Name} 抓帧失败"));
+        foreach (var (name, png) in captured)
+        {
+            File.WriteAllBytes(Path.Combine(outDir, name), png!);
+        }
+    }
+
+    /// <summary>
+    /// 详情页操作坞忙碌态（下载/更新进行中启动钮禁用）的视觉自检（复核非阻塞 4，2026-10-18）：
+    /// 状态由真实更新流置位——挂在清单拉取处取帧，画面即"进度行 + 禁用启动钮"的真实同屏形态，
+    /// 暗/亮各一张；并断言操作坞在两主题下**逐像素一致**（on-artwork 令牌亮暗同值——Fluent 主题资源
+    /// 漏进坞内时亮色下会丢进度条轨道，judge 实锤后加）。
+    /// </summary>
+    [Fact]
+    public async Task Export_BusyDock_ForReview()
+    {
+        var outDir = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "..", "artifacts", "ui-review"));
+        Directory.CreateDirectory(outDir);
+
+        using var ctx = VmFactory.Build();
+        var zipBytes = TestZip.Create(("Client/game.exe", "MZ"));
+        ctx.Kuro.VersionInfo = new ChannelVersionInfo { LatestVersion = "3.6.0" };
+        ctx.Kuro.Manifests["3.6.0"] = new GameManifest
+        {
+            Version = "3.6.0",
+            Files =
+            [
+                new ManifestFile("Client/game.exe", zipBytes.Length, Hashing.Md5Hex(zipBytes), Url: "https://cdn/game.exe"),
+                new ManifestFile("Client/Binaries/Win64/Client-Win64-Shipping.exe", zipBytes.Length, Hashing.Md5Hex(zipBytes), Url: "https://cdn/game.exe"),
+            ],
+        };
+        ctx.Downloader.Responses["https://cdn/game.exe"] = zipBytes;
+
+        var captured = new List<(string Name, byte[]? Png)>();
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            RunToCompletion(() => ctx.Vm.InitializeAsync());
+            var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
+            window.NavIndicatorAnimationEnabled = false;
+            window.Show();
+            window.UpdateLayout();
+
+            var wuwa = ctx.Vm.Games[0];
+            var exePath = Path.Combine(
+                wuwa.InstallDirPath, "Client", "Binaries", "Win64", "Client-Win64-Shipping.exe");
+            Directory.CreateDirectory(Path.GetDirectoryName(exePath)!);
+            File.WriteAllBytes(exePath, "MZ"u8.ToArray());
+            RunToCompletion(() => new LocalStateService(wuwa.InstallDirPath).SaveAsync(
+                new LocalGameState { GameId = wuwa.Game.Id, ServerId = wuwa.SelectedServer.Id, Version = "3.5.0" }));
+            RunToCompletion(() => wuwa.RefreshAsync());
+            Assert.True(wuwa.CanLaunch && wuwa.HasUpdate, "夹具前置失败：未造出可启动 + 有更新的状态");
+
+            var dock = window.GetVisualDescendants().OfType<Border>()
+                .First(b => b.Classes.Contains("action-dock"));
+
+            // 帧内取操作坞像素：坞体令牌亮暗同值，两主题必须逐像素一致（主题资源漏进坞内即红）。
+            // themeProbe = 侧栏空白底色（主题相关）：先证明"亮帧真的是亮帧"，否则主题切换静默失效时
+            // 坞区相等断言会空洞通过（复核 nit，2026-10-19）
+            void Capture(string name, out byte[] dockPixels, out int themeProbe)
+            {
+                Thread.Sleep(150);
+                Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+                var frame = window.CaptureRenderedFrame();
+                if (frame is null)
+                {
+                    captured.Add((name, null));
+                    dockPixels = [];
+                    themeProbe = 0;
+                    return;
+                }
+
+                using (var ms = new MemoryStream())
+                {
+                    frame.Save(ms, new PngBitmapEncoderOptions());
+                    captured.Add((name, ms.ToArray()));
+                }
+
+                var origin = dock.TranslatePoint(new Point(0, 0), window)
+                    ?? throw new InvalidOperationException("操作坞不在窗口可视树内");
+                var x = (int)Math.Round(origin.X);
+                var y = (int)Math.Round(origin.Y);
+                var width = (int)Math.Round(dock.Bounds.Width);
+                var height = (int)Math.Round(dock.Bounds.Height);
+                dockPixels = new byte[width * height * 4];
+                using (var fb = frame.Lock())
+                {
+                    themeProbe = System.Runtime.InteropServices.Marshal.ReadInt32(
+                        fb.Address + (320 * fb.RowBytes) + (120 * 4));
+                    for (var row = 0; row < height; row++)
+                    {
+                        var src = fb.Address + ((y + row) * fb.RowBytes) + (x * 4);
+                        System.Runtime.InteropServices.Marshal.Copy(src, dockPixels, row * width * 4, width * 4);
+                    }
+                }
+
+                frame.Dispose();
+            }
+
+            // 真实更新流挂在拉清单处：IsBusy 已置位、进度行可见——禁用态出现的窗口
+            var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var fetchReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            ctx.Kuro.ManifestHandler = async (_, version, _) =>
+            {
+                fetchReached.TrySetResult();
+                await gate.Task;
+                return ctx.Kuro.Manifests[version];
+            };
+
+            var update = wuwa.InstallOrUpdateCommand.ExecuteAsync(null);
+            RunToCompletion(() => fetchReached.Task);
+            window.UpdateLayout();
+            Capture("22-game-detail-busy-dark.png", out var darkDock, out var darkProbe);
+
+            var light = ctx.Vm.ThemeModes.First(t => t.Mode == ThemeMode.Light);
+            ctx.Vm.SelectedTheme = light;
+            window.UpdateLayout();
+            Capture("23-game-detail-busy-light.png", out var lightDock, out var lightProbe);
+            ctx.Vm.SelectedTheme = ctx.Vm.ThemeModes.First(t => t.Mode == ThemeMode.Dark);
+
+            Assert.NotEqual(darkProbe, lightProbe); // 亮帧真的是亮帧：侧栏底色必须随主题变化
+            Assert.Equal(darkDock, lightDock); // 操作坞亮暗逐像素一致（on-artwork 令牌；Fluent 主题资源漏入即红）
+
+            gate.SetResult();
+            RunToCompletion(() => update);
             window.Close();
         }, CancellationToken.None);
 

@@ -386,13 +386,17 @@ public partial class GameItemViewModel(
             ? CanLaunch ? Loc["status_detected"] : Loc["status_notInstalled"]
             : HasUpdate
                 ? Loc["status_hasUpdate"]
-                : PredownloadAvailable ? Loc["status_predownload"] : Loc["status_upToDate"];
+                : PredownloadAvailable ? Loc["status_predownload"]
+                : state is { Verified: false } ? Loc["status_registeredUnverified"]
+                : Loc["status_upToDate"];
         RaiseStatusToast(newStatus, info.LatestVersion);
         // 侧栏短变体（评审 P2-11）：status_detected/notInstalled 的 EN(zh) 全文案在侧栏槽位
-        // 过长/可更短，用 Short 键；其余状态无 Short 变体，保持全文。
+        // 过长/可更短，用 Short 键；"未校验"同样给短变体（全文含操作指引，侧栏放不下）；
+        // 其余状态无 Short 变体，保持全文。
         // 显式赋值而非"覆盖滞留"机制——同值赋值不触发通知会滞留覆盖（修复轮 review）
         var sidebarStatus = newStatus == Loc["status_detected"] ? Loc["status_detectedShort"]
             : newStatus == Loc["status_notInstalled"] ? Loc["status_notInstalledShort"]
+            : newStatus == Loc["status_registeredUnverified"] ? Loc["status_registeredUnverifiedShort"]
             : newStatus;
         StatusText = newStatus;
         SidebarStatusText = sidebarStatus;
@@ -1037,7 +1041,7 @@ public partial class GameItemViewModel(
         }
 
         await RunUpdateAsync(
-            () => updateService.UpdateAsync(_installDir, Game, SelectedServer, channel, Progress, cancellationToken),
+            progress => updateService.UpdateAsync(_installDir, Game, SelectedServer, channel, progress, cancellationToken),
             isVerify: IsInstalled && !HasUpdate,
             cancellationToken);
     }
@@ -1065,7 +1069,15 @@ public partial class GameItemViewModel(
         {
             var info = await channel.GetVersionInfoAsync(SelectedServer, cancellationToken);
             await new LocalStateService(_installDir).SaveAsync(
-                new LocalGameState { GameId = Game.Id, ServerId = SelectedServer.Id, Version = info.LatestVersion },
+                new LocalGameState
+                {
+                    GameId = Game.Id,
+                    ServerId = SelectedServer.Id,
+                    Version = info.LatestVersion,
+                    // 零校验登记（2026-10-18）：包式渠道没有逐文件清单可核对，登记只声明"文件在盘"，
+                    // 不得呈现成"已是最新版本"——半更新安装（如中断的增量更新）曾因此被掩盖
+                    Verified = false,
+                },
                 cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -1103,7 +1115,7 @@ public partial class GameItemViewModel(
 
         ShowRepairConfirm = false;
         await RunUpdateAsync(
-            () => updateService.UpdateAsync(_installDir, Game, SelectedServer, channel, Progress, cancellationToken),
+            progress => updateService.UpdateAsync(_installDir, Game, SelectedServer, channel, progress, cancellationToken),
             isVerify: true,
             cancellationToken);
     }
@@ -1128,10 +1140,11 @@ public partial class GameItemViewModel(
         // （RefreshAsync 有代际门，紧随其后的 StatusText 写入没有，2026-09-20 复审修复）
         var originServer = SelectedServer;
         var message = "";
+        var progress = BeginProgressScope();
         try
         {
             var summary = await updateService.PredownloadAsync(
-                _installDir, Game, SelectedServer, channel, Progress, cancellationToken);
+                _installDir, Game, SelectedServer, channel, progress, cancellationToken);
             // Core 短路（F66）返回空操作摘要：提示"已是目标版本"，不显示"预下载完成…可随时
             // 应用"误导用户去找不存在的待应用预下载。判据与 Core 短路同口径（版本归一化比较，
             // R8）——版本串形态漂移（"3.6" vs "3.6.0"）时字面不等仍属"本地已覆盖目标"；
@@ -1149,6 +1162,7 @@ public partial class GameItemViewModel(
         }
         finally
         {
+            EndProgressScope();
             IsBusy = false;
 
             // 已取消时跳过收尾刷新：token 已取消且版本缓存未命中会让 RefreshAsync 从 finally 抛 OCE，
@@ -1174,7 +1188,7 @@ public partial class GameItemViewModel(
         }
 
         await RunUpdateAsync(
-            () => updateService.ApplyPredownloadAsync(_installDir, Game, SelectedServer, channel, Progress, cancellationToken),
+            progress => updateService.ApplyPredownloadAsync(_installDir, Game, SelectedServer, channel, progress, cancellationToken),
             isVerify: false,
             cancellationToken);
     }
@@ -1185,7 +1199,7 @@ public partial class GameItemViewModel(
     /// RefreshAsync 算出的状态行（如"可预下载新版本"），完成反馈由进度卡消失承担。
     /// </summary>
     private async Task RunUpdateAsync(
-        Func<Task<UpdateOutcome>> action, bool isVerify, CancellationToken cancellationToken)
+        Func<IProgress<UpdateProgress>, Task<UpdateOutcome>> action, bool isVerify, CancellationToken cancellationToken)
     {
         if (IsBusy)
         {
@@ -1199,10 +1213,11 @@ public partial class GameItemViewModel(
         ProgressPercent = 0;
         _speedSmoother.Reset();
         ProgressText = Loc["progress_preparing"];
+        var progress = BeginProgressScope();
         var message = "";
         try
         {
-            var outcome = await action();
+            var outcome = await action(progress);
             if (isVerify)
             {
                 message = outcome.RepairedFiles > 0
@@ -1216,6 +1231,7 @@ public partial class GameItemViewModel(
         }
         finally
         {
+            EndProgressScope();
             IsBusy = false;
 
             // 已取消时跳过收尾刷新：token 已取消且版本缓存未命中会让 RefreshAsync 从 finally 抛 OCE，
@@ -1231,13 +1247,30 @@ public partial class GameItemViewModel(
         }
     }
 
-    private IProgress<UpdateProgress>? _progress;
-
     /// <summary>下载速度平滑器（采样/EMA/回退重置；操作复位点 Reset——RF-2：不跨操作残留）。</summary>
     private readonly Services.DownloadSpeedSmoother _speedSmoother = new();
 
-    /// <summary>惰性创建进度转发器（在 UI 线程上下文中捕获同步上下文）。</summary>
-    private IProgress<UpdateProgress> Progress => _progress ??= new Progress<UpdateProgress>(OnProgress);
+    /// <summary>最新一次操作的进度转发器（internal 供单测注入"操作已结束后的迟到报告"验证代际门控）。</summary>
+    internal IProgress<UpdateProgress>? ProgressScopeForTests { get; private set; }
+
+    /// <summary>进度作用域代际：操作开始 +1、结束再 +1——旧代际（已结束操作）的迟到报告一律丢弃。</summary>
+    private int _progressGeneration;
+
+    /// <summary>为一次操作开启进度作用域：返回该操作专用的转发器（串行投递 + 代际门控，
+    /// 见 <see cref="Services.OperationProgress"/>）；生产端在 UI 线程创建，捕获派发器上下文。</summary>
+    private IProgress<UpdateProgress> BeginProgressScope()
+    {
+        var scope = new Services.OperationProgress(
+            OnProgress,
+            Interlocked.Increment(ref _progressGeneration),
+            () => Volatile.Read(ref _progressGeneration),
+            SynchronizationContext.Current);
+        ProgressScopeForTests = scope;
+        return scope;
+    }
+
+    /// <summary>结束进度作用域：代际前移，此后本操作的迟到报告一律丢弃（操作已完成，状态归收尾流程）。</summary>
+    private void EndProgressScope() => Interlocked.Increment(ref _progressGeneration);
 
     /// <summary>下载进度回调（后台线程触发）：换算百分比并生成阶段文案（下载阶段附带 EMA 平滑速度）。</summary>
     private void OnProgress(UpdateProgress p)

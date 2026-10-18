@@ -152,6 +152,9 @@ sequenceDiagram
 不用 `BeginOutputReadLine` 事件：`WaitForExit()` 只排空 stdout，stderr 会丢；
 日志路径模式的进程句柄在泵收尾后才释放，`using` 作用域提前 Dispose 会掐断管道）。
 游戏秒退的排查线索由日志尾注 + 应用日志共同记录：退出码与存活时长。
+**应用级日志**（2026-10-18 增）：组合根在 `logs/` 同目录再挂一份按天的 `yagl-yyyyMMdd.log`
+（保留 14 天；写失败静默——日志不得成为新的故障源），更新/预下载/后台任务的 Information 起
+事件与异常尾巴都在这里，事故复盘不再只能靠文件 mtime（2026-10-17 立案④）。
 
 **预检**（`BuildPlan` 内）：① 主程序存在（`ExecutableMissing`）；② 模板首段可执行——
 裸命令名按 PATH 解析（找不到 → `RuntimeMissing`），绝对路径缺执行位自动补
@@ -303,18 +306,36 @@ flowchart TD
     Q --> D
     B2 -.更新路径.-> K[官方废弃清单<br/>补丁包 delete_files.txt<br/>Range 分段读取]
     K -.解压后删除旧版残留.-> D
-    B -.预下载窗口.-> F[patch 节点 → 预下载包清单]
-    F --> G[暂存 .yagl/predownload/packages]
-    G --> H[用户确认 → 解压落盘 + 更新版本]
+    B -.预下载窗口.-> F[patch 节点 → v2 增量计划（优先）/ 预下载包清单]
+    F --> G[暂存 .yagl/delta + delta.json（增量）或 .yagl/predownload/packages（整包）]
+    G --> H[用户确认 → 应用增量载荷 / 解压整包 + 更新版本]
 ```
 
 增量要点（2026-10-17 实测与接线）：更新优先走官方 v2 增量载荷（`GetDeltaPackageAsync`，9 卷 ≈8.72 GiB 替代
 整包数十 GiB）：载荷是分卷 zip，条目为"本地头 + 数据"块且**中央目录尺寸不可信**（真实跨度按下一条目偏移界定，
 `MultiPartZipEntryReader`）；差分条目是 WinZip AES-256 内层 zip（口令 = `cd_key`，`WinZipAesReader` 自实现解密），
-解出即标准 HDiffPatch 单文件补丁（hpatchz 应用）；整文件条目直接落位、清单"仅校验"条目确认在盘、
+解出即标准 HDiffPatch 单文件补丁（hpatchz 应用）；整文件条目**流式落位**（边解密边写临时文件，
+1.2 GiB 条目不再入内存成型，2026-10-18）、清单"仅校验"条目核对在盘
+（尺寸 + 内容 md5——官方 `verify_files.json` 是二进制加密块、参考实现也不用，清单自带目标 md5 是唯一判据，2026-10-18）、
 静态条目（dll/exe 等）覆盖游戏根（`config.ini` → `config.ini.new`）；就地逐文件替换的前提是
 **基文件与目标零重叠**（实测 224/224，无需数十 GiB 暂存）。不适用（基文件缺失/内容不符/分卷异常/清单取不到/**载荷自身不可用**——条目读不出、产出与官方清单
-不符或补丁工具执行失败（`UpdateException`/`Win32Exception`），按 Warning 记录）静默回退整包并清掉载荷暂存。
+不符或补丁非零退出（`UpdateException`），按 Warning 记录）静默回退整包并清掉载荷暂存；
+**补丁工具不可用**（工具缺失/自动供给失败/进程起不来：`PatchToolUnavailableException`）则例外（2026-10-18）——
+折算 `DeltaPackageSupplyException`：载荷是好东西，**保留**载荷暂存（修复工具后重试零重下）且**不回退整包**，
+抛带"载荷已保留"指引的可重试错误。
+下载前另有**空闲空间预检**（需求 = 载荷 + 各载荷节点净增长 + 最大单节点瞬态；`DiskSpace` 探测不出即放行，
+空间不足抛可操作错误且不回退整包——整包只会要得更多）。
+
+**预下载链同样接 v2 增量**（2026-10-18 接线）：预下载窗口内先取增量计划，把载荷分卷下到 `.yagl/delta`
+并写 `delta.json`（计划）+ 带 `StagedAsDeltaPackage` 标记的暂存清单（应用阶段据此识别）；整包预下载的
+旧暂存（`.yagl/predownload/packages`）在增量暂存成功后清掉。计划的目标版本按 `patch.version` 认
+（2026-10-19 复核修正）：窗口期 `response.version` 仍是线上版本、patch 节点描述的是预下载目标，
+渠道守卫对两者取或（清单 `version` 仍逐字符核对），否则窗口内计划恒取不到、静默退回整包。
+载荷下载/形态失败回退整包时**只清增量侧**（载荷 + `delta.json` + 增量标记清单），保留 `packages/`
+供回退路径按 size/MD5 复用——整删预下载目录会把数十 GiB 已暂存整包作废重下。
+应用时载荷不适用/不可用 → 清掉增量暂存并
+**重走常规更新流程**（重探当前最新版本，内部再试增量、必要时回退整包）——不把"下载时的目标版本"
+当成"当前最新"落盘；补丁工具不可用则与直接链同语义（保留载荷、抛可重试错误）。
 
 清理要点：`GetObsoleteFilesAsync` 取不到（渠道不支持/服务器已前移/网络失败）不影响更新，只是
 残留保留到下次；删除只针对清单点名且**不在本次解压产物**中的文件（清单自相矛盾时以产物为准），
@@ -648,13 +669,15 @@ flowchart LR
 ## 4. 配置与状态的数据流
 
 - **配置（输入）**：`games.json`（渠道键、服务器选项、启动模板）→ `GameCatalogService` 解析 + 全量语义校验（错误集中返回）。
-- **状态（输出）**：`{installDir}/.yagl/state.json`（gameId/serverId/Version，防错配）；预下载暂存 `.yagl/predownload/`（含 `manifest.json`，应用阶段读取）。
+- **状态（输出）**：`{installDir}/.yagl/state.json`（gameId/serverId/Version + `verified`——`false` = 零校验登记态
+  〔检测到现有文件即登记为渠道最新版〕，UI 不得呈现成"已是最新版本"而应指向校验修复，2026-10-18）；
+  预下载暂存 `.yagl/predownload/`（含 `manifest.json`，应用阶段读取）。
 - **不修改**官方启动器的兼容文件（如 `launcherDownloadConfig.json`、`Saved/` 存档目录在清理时保留）。
 
 ## 5. 线程模型
 
 - ViewModel 命令在 UI 线程触发，网络/磁盘在任务池并行（`Parallel.ForEachAsync`，并行度为内部选项 `GameInstallServiceOptions.MaxParallelFiles`，默认 8，不作为用户配置项开放）。
-- 进度经 `Progress<T>` 回传（捕获同步上下文），聚合计数用 `Interlocked`/锁。
+- 进度经 `OperationProgress` 串行投递（有同步上下文按 FIFO、无上下文就地持锁；操作结束代际失效、迟到报告丢弃——F55 根因修复，2026-10-18；裸 `Progress<T>` 不保序，勿再引入），聚合计数用 `Interlocked`/锁。
 - `HttpFileDownloader` 内部自管理 `.temp` 文件，多文件并发互不相交。
 
 ## 6. 安全设计

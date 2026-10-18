@@ -31,8 +31,8 @@ dotnet tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLa
 - 保存：`frame.Save(path, new PngBitmapEncoderOptions())`。
 - 数据必须真实：用 `VmFactory` 样例数据（两个游戏、假渠道状态：已安装/有更新/预下载可用都摆出来）。
 - 截图窗口固定 1120×720（`UiScreenshotTests` 内写死，与主窗口默认 1464×720 无关，保证构图稳定）。
-- **清单（2026-09-29 实测；改动 UI 或新增导出后同步本清单）**：七个导出组共 25 张——
-  01-15 + 02b + 05b + 16 + 17/18 + 10b + 11b + 19 + 20/21。归属：`Export_UiScreenshots_ForReview` 12 张；
+- **清单（2026-10-19 实测；改动 UI 或新增导出后同步本清单）**：八个导出组共 27 张——
+  01-15 + 02b + 05b + 16 + 17/18 + 10b + 11b + 19 + 20/21 + 22/23。归属：`Export_UiScreenshots_ForReview` 12 张；
   `Export_LaunchErrorOverlay_ForReview` 6 张（10/10b/11/11b/12/14，10b=CanRetry=true 覆盖层；
   该导出同时覆盖启动失败覆盖层与 Linux 启动设置卡（2026-10-03 起 11/11b 含「自定义启动选项」改名与 ⓘ 图标）：umu 启动 + Proton 发行版下拉 + 检查更新按钮 +
   功能开关区 + 自定义启动选项框（ⓘ 图标引导）——11 用 1120×1200 专用窗口整卡入画且在 toast 注入前截
@@ -44,8 +44,10 @@ dotnet tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLa
   亮=已安装绿点重装钮，2026-09-27 增）。
   `Export_GachaPage_ForReview` 2 张（17/18 唤取页暗/亮，2026-09-23 补评审 P3-12 覆盖缺口）；
   `Export_EndfieldRealBackdrop_ForReview` 1 张（19 真实海报×终末地详情页——自绘标题移除后顶部无字标冲突的日常形态验收，机器无背景缓存时 Skip，2026-09-25 增）。
+  `Export_BusyDock_ForReview` 2 张（22/23 详情页操作坞忙碌态暗/亮：真实更新流挂在清单拉取处取帧——启动钮禁用 + 进度行；操作坞两主题逐像素一致由该测试断言，2026-10-19 增）。
   历史：2026-09-20 实测归属更正、2026-09-21 增启动页、2026-09-23 增唤取页、2026-09-25 增真实海报页、
-  2026-09-29 增设置页亮色 05b（05 滚动定位改到关闭行为卡 CloseActionCard，随 0.1.3 新增）。
+  2026-09-29 增设置页亮色 05b（05 滚动定位改到关闭行为卡 CloseActionCard，随 0.1.3 新增）、
+  2026-10-19 增操作坞忙碌态 22/23。
   输出到 `artifacts/ui-review/`（已 gitignore），改动 UI 后重跑并人工/judge 审查。
 
 ## 2. 看图检查清单（逐项过，亮暗各一遍）

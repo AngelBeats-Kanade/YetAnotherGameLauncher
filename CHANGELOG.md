@@ -10,7 +10,7 @@
 Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻留 + 关闭按钮行为设置
 （退出应用 / 关闭窗口驻留托盘，下载与依赖安装后台继续）；资源包档位、实时下载进度
 与速度；hpatchz 自动供给与鸣潮 krpdiff 增量更新链终局修复；终末地更新链路（分卷解压修复、官方废弃清单清理、改走官方 v2 增量补丁）。
-1391 个测试全绿（2026-10-18 实测）。
+1437 个测试全绿（2026-10-19 实测）。
 
 ### 新增
 
@@ -149,6 +149,19 @@ Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻�
 - 终末地 1.6.3+ 启动时会校验**直接父进程**（镜像名 + `WinVerifyTrust` 签名 + 签名者证书指纹白名单，实现在游戏目录 `OneChannelLC.dll`）；原生 umu 链直启时父进程是容器侧 `umu.exe`，会被拒绝（弹"请通过官方启动器打开游戏"、退出码 5）。现在启动链内置**诱饵父进程桥**：把游戏目录里鹰角签名的可执行文件（`PlatformProcess.exe` → `UnityCrashHandler64.exe` → `Endfield.exe`，取首个存在者；与官方启动器 `Games.exe` 同一张签名证书）复制为 `.yagl/bridge/Games.exe`，以挂起状态充当游戏进程的父进程——wine 侧由随包嵌入的小 helper 编排（创建挂起诱饵 → 以父进程属性拉起游戏 → 游戏退出后回收诱饵），**零下载、不安装官方启动器、不改游戏文件**。
 - 由 `launch.decoyParent` 开关控制（内置样例的终末地条目已开启；存量配置由 schemaVersion 6 一次性迁移补上）；候选文件缺失或准备失败静默回退直启。父进程名/签名/指纹三层判据与三种失败码（10100/10101/10102）均经真机对照实验与通过态实录验证，详见 `artifacts/bugs.md`。
 
+**终末地增量链补全（2026-10-18）**
+
+- 预下载也改走 v2 增量：预下载窗口内优先取官方增量计划，只下 8.72 GiB 载荷（此前预下载仍整包 58 GiB）；应用时复用已下载荷（零重下），载荷不适用则清掉暂存并重走常规更新（不会把下载时的目标版本当成"当前最新"落盘）。
+- 预下载窗口期的增量目标按 `patch.version` 匹配（复审修正）：窗口内线上版本仍是旧版、patch 节点描述的是预下载目标，此前守卫只认线上版本 → 增量计划恒取不到、静默退回 58 GiB 整包；清单 version 仍逐字符核对兜底。
+- 增量预下载下载失败回退整包时只清增量侧（载荷 + `delta.json` + 增量标记清单），保留上轮整包暂存 `.yagl/predownload/packages` 按 size/MD5 复用（复审修正）：此前回退会整删预下载目录，把数十 GiB 已暂存内容作废重下。
+- 应用前空闲空间预检：按"载荷 + 缺失新内容 + 最大单节点瞬态"估算，不足时给出所需/可用空间与"已下载载荷可复用"的提示（不回退整包——整包只会要得更多）。
+- 清单"仅校验"条目补内容级核对（尺寸 + md5）：尺寸相同但内容损坏/被换过的文件不再静默放行，判为不适用回退整包。
+- 大条目（1.6.4 实测 1.2 GiB）流式解密落盘：不再整块进内存（约 2 倍峰值）。
+- 补丁工具不可用（缺失/自动供给失败/进程起不来）与"载荷不可用"分家：保留已下载的 8.7 GiB 载荷、报可重试错误，修复工具后重试零重下（此前会清掉载荷并静默回退整包）。
+- 零校验登记不再冒充"已是最新版本"：检测到现有文件即登记时状态显示「已登记版本（未校验）——建议执行校验修复」，执行校验修复后恢复为已验证（半更新安装不再被掩盖）。
+- 新增应用级日志文件 `logs/yagl-yyyyMMdd.log`（保留 14 天，写失败静默）：更新/预下载等事件与异常尾巴有了可查的落盘记录，事故复盘不再只能靠文件 mtime。
+- 界面剩余离线间距/内边距收敛到 4pt 栅格：卡片内部、覆盖层按钮行、toast 卡片间隙与内边距同步齐平；下载/更新进行中「启动游戏」按钮禁用（此前只有命令内早退、外观仍可点），坞内忙碌进度条改走插画上令牌（亮色主题不再丢轨道），禁用按钮的内容图标随前景一起下沉。
+
 **其他**
 
 - 关于页第三方许可清单修正：HDiffPatch 与 FFmpeg.AutoGen 标注 MIT（对照上游 LICENSE / NuGet 许可文件核验），补上 Avalonia.Fonts.Inter（MIT 包，Inter 字体 OFL-1.1）。
@@ -174,7 +187,7 @@ and dependency installs kept running); resource quality tier selection;
 real-time byte-granular download progress with a speed readout;
 automatic hpatchz provisioning and the definitive fix for the Wuthering
 Waves krpdiff incremental-update chain, plus the split-volume extraction
-fix for Endfield package updates plus stale-file cleanup and the delta update path; the Endfield launch check is now handled on Linux by a decoy parent bridge (no official launcher needed). 1391 tests green (measured 2026-10-18).
+fix for Endfield package updates plus stale-file cleanup and the delta update path; the Endfield launch check is now handled on Linux by a decoy parent bridge (no official launcher needed). 1437 tests green (measured 2026-10-19).
 
 **Added — UI overhaul**
 
@@ -310,6 +323,19 @@ fix for Endfield package updates plus stale-file cleanup and the delta update pa
 
 - Updates failed right after downloading with "Failed to extract Beyond_Release_...official.zip.001: End of Central Directory record could not be found": the official `pkg.packs` are **byte volumes of one archive** (59 volumes ~58GiB measured on 1.6.4, `.zip.001...059`), and each volume used to be extracted as if it were a standalone zip - the central directory and EOCD live in the last volume only, so per-volume extraction always fails. `SplitVolumeStream` now presents the volumes as one continuous seekable stream and extracts the archive once (no concatenated copy on disk, so tens of GiB of volumes do not need an equal amount of scratch space), effective on both the fresh-install and predownload/apply chains; already-downloaded volumes are reused (size+MD5) on retry instead of being fetched again.
 - Volume sets whose numbering is not contiguous, or that use multiple base names (self-contradictory server data), are now rejected up front with an explanation - users no longer download tens of GiB first only to hit a categoriless EOCD error at extraction time.
+
+**Changed — Endfield delta chain completion (2026-10-18)**
+
+- Predownloads now use the v2 delta payload too: the predownload window stages the 8.72 GiB payload instead of the 58 GiB package, apply reuses it with zero re-download, and a no-longer-applicable staging is cleared before the regular update runs (the predownload target is never recorded as the current latest).
+- The predownload delta target is matched by `patch.version` (review fix): during the window the live version is still behind and the patch node describes the upcoming target, so the old guard returned no plan and silently fell back to the 58 GiB package; the manifest version is still checked character-for-character.
+- A failed delta predownload now clears only the delta side (payload, `delta.json`, delta marker manifest) and keeps the previously staged full package under `.yagl/predownload/packages`, reused by size+MD5 (review fix): falling back no longer discards tens of GiB already on disk.
+- Free-disk-space pre-check before applying (payload + missing new content + one transient file), with required/available figures and a "the payload is reused" hint; shortfalls do not fall back to the full package, which needs even more room.
+- The plan's verify-only nodes now get a content MD5 check on top of the size check; equal-sized but corrupted files are no longer waved through (the delta falls back to the full package).
+- Large payload entries (1.2 GiB measured in 1.6.4) stream from the archive straight to disk instead of being materialised in memory (~2x peak).
+- Patch-tool unavailability (missing tool / failed auto-provisioning / process cannot start) is now distinct from an unusable payload: the downloaded 8.7 GiB payload is kept and the error is retryable, so a fixed tool retries with zero re-download.
+- Blind version registration no longer poses as "up to date": the status reads "registered (unverified) - run verify & repair" until the verify & repair action completes (a half-applied install is no longer masked).
+- New app-level log file `logs/yagl-yyyyMMdd.log` (14-day retention, write failures swallowed) so update/predownload events and exception tails are on disk instead of being reconstructed from file mtimes.
+- The remaining off-grid spacing/padding converged to the 4pt grid (card internals, overlay button rows, toast gap and padding). The launch button is now disabled while a download/update runs (it used to only short-circuit inside the command), the busy progress bar uses on-artwork tokens (the track no longer disappears in the light theme), and content icons in disabled buttons follow the dimmed foreground.
 
 **Fixed — other**
 

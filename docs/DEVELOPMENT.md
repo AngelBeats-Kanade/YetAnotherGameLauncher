@@ -25,13 +25,15 @@ src/
     Models/         AppSettings（全局设置）、GameCatalog/GameDefinition/GameServer、GameManifest、UpdatePlan、DeltaPackage（v2 增量计划/分卷/文件节点）、
                     UpdateProgress、LocalGameState、ChannelVersionInfo、DownloadRequest（单文件下载请求）、
                     LaunchOptions（启动命令模板）、ThemeMode
-    Abstractions/   IGameChannelApi、IDownloader、IPatchApplier（目录差分）、IFilePatchApplier（单文件差分，终末地 v2 载荷）、IProcessRunner、异常类型（UpdateException/LaunchException + LaunchFailureKind、DeltaPackageNotApplicableException/DeltaPackageUnusableException）、
+    Abstractions/   IGameChannelApi、IDownloader、IPatchApplier（目录差分）、IFilePatchApplier（单文件差分，终末地 v2 载荷）、IProcessRunner、异常类型（UpdateException/LaunchException + LaunchFailureKind、DeltaPackageNotApplicableException/DeltaPackageUnusableException/DeltaPackageSupplyException、PatchToolUnavailableException）、
                     IPlatformInfo（平台环境：Linux/GPU 厂商探测、文件管理器打开目录，含 GpuVendor 枚举）、IBackdropResolver（详情页背景解析，含 BackdropKind/BackdropSource）、
                     IUmuComponentProvisioner（原生 umu 组件准备契约）
     Services/       GameCatalogService（含首次运行 CreateDefaultFileAsync）、HttpFileDownloader（+HttpFileDownloaderOptions）、
                     ManifestVerifier、UpdatePlanner、GameInstallService、IncrementalUpdateService、PackageInstallerService、
-                    GameUpdateService（增量优先/不适用回退整包）、DeltaPackageApplier（v2 增量载荷应用：分卷下载→
-                    静态条目→逐文件差分/整文件/只读校验→官方废弃清单→载荷清理；就地替换依据"基文件与目标零重叠"）、
+                    GameUpdateService（增量优先/不适用回退整包；预下载链同样优先 v2 增量载荷、暂存计划与标记清单，
+                    不适用时重走常规更新）、DeltaPackageApplier（v2 增量载荷应用：分卷下载/仅下载暂存→
+                    静态条目→逐文件差分/整文件/只读校验（尺寸+内容 md5）→官方废弃清单→载荷清理；就地替换依据
+                    "基文件与目标零重叠"；下载前空闲空间预检、供给失败保留载荷）、
                     GameLauncherService（启动预检/类目化错误/启动日志）、LocalStateService、SystemProcessRunner（输出泵落盘启动日志）、
                     NetworkProxyManager（全局共享 SocketsHttpHandler，代理切换即时生效）、SpeedLimiter（泄漏桶全局限速）、
                     ByteProgressAggregator（三条下载链共用的字节进度聚合：per-file 累计→全局增量→100ms 节流投递）、
@@ -45,7 +47,8 @@ src/
                     DependencyInstaller + IDependencyInstaller（下载→解压→字体落位→注册表导入→完成标记五阶段编排；zip 防御解压复用 PackageInstallerService；安装前 builtin 链接预检修复）、
                     WinePrefixBuiltinRepair（Proton 升级悬空 builtin 链接的检测/重链：RepairDangling 存量迁移 + RepointTree 换版即时迁移，prune 同用）、
                     WinePrefixTarget/DependencyException 等模型
-    Utilities/      Hashing（MD5/SHA-256 hex）、Json（统一序列化选项）、FileUtilities（原子写入/只读目标容错/目录树尽力删除/
+    Utilities/      Hashing（MD5/SHA-256 hex）、Json（统一序列化选项）、DiskSpace（路径所在卷的空闲空间探测：最长挂载点前缀匹配
+                    + 测试缝；增量更新的空间预检用，探测不出返回 null 让调用方跳过预检）、FileUtilities（原子写入/只读目标容错/目录树尽力删除/
                     启动日志唯一路径 + EnsureNoReparseWithin 沙箱链接复核 / RemoveLinkedLeaf 叶子链接解除，解压与增量落位共用）、
                     RemoteZipEntryReader（远程 zip 单条目的 HTTP Range 分段读取：尾部→中央目录→条目，
                     供渠道取官方补丁包内的 delete_files.txt——49 GiB 补丁只下 ~24 KB；含瞬态重试与体量闸）、
@@ -54,8 +57,9 @@ src/
                     ZipCentralDirectory（中央目录解析共享件：ZIP64 哨兵回填，远端/本地/AES 内层 zip 三处共用）、
                     RawDeflate（裸 deflate 解压共享件：带输出上限拒绝膨胀炸弹，远端/AES 两处共用）、
                     MultiPartZipEntryReader（多卷 zip 条目读取：真实跨度按"下一条目偏移"界定——载荷中央目录尺寸
-                    不可信；TryReadContent 归一 AES 与明文条目）、WinZipAesReader（WinZip AES-256/AE-2 解密：PBKDF2-HMAC-SHA1
-                    + AES-CTR + HMAC 校验，.NET zip 库不支持 AE-x）、
+                    不可信；TryReadContent 归一 AES 与明文条目、TryCopyContentTo 流式落盘（大条目不入内存，
+                    2026-10-18））、WinZipAesReader（WinZip AES-256/AE-2 解密：PBKDF2-HMAC-SHA1
+                    + AES-CTR + HMAC 校验，.NET zip 库不支持 AE-x；含流式解密 `TryCopyDecrypted`）、
                     LaunchOptionsText（自定义启动选项文本/参数解析与序列化：Steam 启动选项风格 shell 词法 + %command% 切分，严格/宽松解析与环境/参数序列化）
     Resources/      yagl-parent-bridge.exe（诱饵父进程桥 helper：Wine 侧原生 PE，挂起诱饵→以父进程属性拉起游戏→
                     退出回收；源码、构建脚本与 wine 下自检见 tools/wine-parent-bridge/；嵌入为程序集资源，
@@ -79,10 +83,14 @@ src/
                     TrayIconController（系统托盘驻留接线：TrayIcon+NativeMenu 装配与总线线程→UI 线程
                     投递；关闭分流逻辑在 MainWindowViewModel/MainWindow，机制见 ARCHITECTURE.md §3.10）；
                     LocalizationService/ILocalizationService（JSON 资源本地化）；
+                    FileLoggerProvider（应用级日志文件：按天 yagl-yyyyMMdd.log、保留期清理、写失败静默；
+                    组合根仅在 logDirectory 非 null 的装配里挂载——测试不写真实用户目录，直测见 App.Tests）；
                     FfmpegVideoBackdropPlayer/IVideoBackdropPlayer（FFmpeg 背景视频解码播放）+ FfmpegLibraryResolver（原生库准备/下载）；
                     SeamAnalyzer（循环接缝分析）+ PrerollHandoff（预卷零间隙交接状态机）实现无缝循环；
                     ImageRetireQueue（被替换 UI 位图的宽限退役队列：合成器在途引用 2s 宽限后释放）；
                     DownloadSpeedSmoother（下载速度 EMA 平滑：≥0.4s 采样、字节回退/操作复位重置，时钟可注入，直测见 App.Tests）；
+                    OperationProgress（一次操作的进度转发器：有同步上下文按 FIFO 投递、无上下文就地串行，且操作结束
+                    代际失效后丢弃迟到报告——裸 Progress&lt;T&gt; 在无上下文的测试环境会并发乱序执行回调，F55 根因；直测见 App.Tests）；
                     BootGate（启动门控纯决策：遮蔽放行矩阵——背景就绪/最小展示时长/超时兜底）；
                     BackgroundImageService（静态背景图加载与缓存：会话内存 + http 来源磁盘缓存，失败结果按 TTL 短暂缓存；ReloadAsync 绕过缓存强制重取）、
                     UmuComponentProvisioner（原生 umu 的 Proton/Runtime 下载与校验；Proton 发行版三源：

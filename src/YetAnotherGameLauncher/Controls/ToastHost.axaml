@@ -10,7 +10,7 @@
     <ItemsControl ItemsSource="{Binding Toasts}">
         <ItemsControl.ItemsPanel>
             <ItemsPanelTemplate>
-                <StackPanel Spacing="10"/>
+                <StackPanel Spacing="12"/>
             </ItemsPanelTemplate>
         </ItemsControl.ItemsPanel>
         <ItemsControl.ItemTemplate>
