@@ -61,7 +61,10 @@ public static class DiskSpace
                 normalizedRoot = normalizedRoot.Replace('\\', '/');
             }
 
-            var separator = isWindows ? '/' : Path.DirectorySeparatorChar;
+            // 匹配分隔符恒为 '/'：Windows 形态已在上方归一为 '/'，POSIX 形态本就按 '/' 语义。
+            // 不得回落 Path.DirectorySeparatorChar——Windows 主机上模拟 POSIX（windows: false）
+            // 会拿反斜杠去比 '/' 路径，目录边界判定全灭（2026-10-19 CI Windows 腿三例红）。
+            var separator = '/';
             var isDriveRoot = isWindows && normalizedRoot.Length == 2 && normalizedRoot[1] == ':';
             var matches = fullPath.StartsWith(normalizedRoot, comparison)
                 && (isDriveRoot
