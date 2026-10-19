@@ -18,6 +18,40 @@ internal sealed class KuroLauncherIndex
     /// </summary>
     [JsonPropertyName("predownloadSwitch")]
     public int? PredownloadSwitch { get; set; }
+
+    /// <summary>
+    /// 档位索引（index.json 的官方同源兄弟，2026-10-16 实测）顶层 CDN 列表——档位包配置块
+    /// 自身不带 cdnList，节点在顶层下发。
+    /// </summary>
+    [JsonPropertyName("cdnList")]
+    public List<KuroCdnNode> CdnList { get; set; } = [];
+
+    /// <summary>
+    /// 档位资源包（2026-10-16 实测：common/hd/sd/uhd 四包，每包带 indexFile 与逐来源版本 patchConfig）。
+    /// 标准 index.json 无该字段（null）。
+    /// </summary>
+    [JsonPropertyName("resourcePacks")]
+    public Dictionary<string, KuroResourcePack>? ResourcePacks { get; set; }
+}
+
+/// <summary>档位索引 resourcePacks 中的一个资源包（官方实测形态：与 config 节点同形的 indexFile 三件套 + 体积）。</summary>
+internal sealed class KuroResourcePack
+{
+    [JsonPropertyName("version")]
+    public string? Version { get; set; }
+
+    [JsonPropertyName("indexFile")]
+    public string? IndexFile { get; set; }
+
+    [JsonPropertyName("indexFileMd5")]
+    public string? IndexFileMd5 { get; set; }
+
+    [JsonPropertyName("baseUrl")]
+    public string? BaseUrl { get; set; }
+
+    /// <summary>该包（未压缩）总字节数；仅诊断用，落盘判定以逐文件清单为准。</summary>
+    [JsonPropertyName("size")]
+    public long Size { get; set; }
 }
 
 /// <summary>index.json 中 default / predownload 共用的资源块。</summary>

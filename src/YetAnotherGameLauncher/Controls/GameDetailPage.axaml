@@ -90,7 +90,8 @@
                             <Ellipse Classes="dot" Width="11" Height="11" VerticalAlignment="Center"
                                      Classes.installed="{Binding CanLaunch}"
                                      Classes.has-update="{Binding HasUpdate}"
-                                     Classes.predownload="{Binding ShowPredownloadCue}"/>
+                                     Classes.predownload="{Binding ShowPredownloadCue}"
+                                     Classes.needs-action="{Binding NeedsActionCue}"/>
                             <TextBlock Text="{Binding StatusText}" FontSize="14" FontWeight="SemiBold"
                                        MaxWidth="430" TextWrapping="Wrap"
                                        VerticalAlignment="Center"

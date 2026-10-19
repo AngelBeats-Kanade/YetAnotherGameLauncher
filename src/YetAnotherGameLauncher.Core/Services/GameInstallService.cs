@@ -174,6 +174,11 @@ public sealed class GameInstallService(
             .Select(p => p.Replace('\\', '/') + "/")
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+        // 渠道点名的保留前缀（档位模式下 = 未选中档位的资源目录，2026-10-19）：整段相对路径前缀匹配——
+        // 档位目录不在本次清单内时绝不能当游离文件删掉（删除只经用户的显式「清理其他档位」动作）。
+        // 首尾斜杠都归一：清单路径是无前导斜杠的相对路径，多写的斜杠只应失效在"误删"一侧（宽松保留）
+        var preservedPrefixes = ManifestVerifier.NormalizePreservedPrefixes(manifest.PreservedPaths);
+
         // ReparsePoint：绝不穿过目录符号链接/junction 递归——用户把安装目录内的子目录搬到
         // 别的盘再链接回来（Windows 玩家常见的搬盘手法）时，词法相对路径会把链接目标处的
         // 真实文件判成"清单外"并删到安装目录之外；跳过链接子树即守住"清理绝不越出 installDir"。
@@ -196,6 +201,11 @@ public sealed class GameInstallService(
 
             if (keptPrefixes.Contains(top + "/") ||
                 PreservedEntries.Contains(relative, StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (ManifestVerifier.IsUnderPreservedPrefix(relative, preservedPrefixes))
             {
                 continue;
             }

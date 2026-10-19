@@ -90,7 +90,7 @@ public class DetailActionDockHeadlessTests : IDisposable
             // 把更新挂在拉清单处：IsBusy 已置位、下载尚未结束——正是用户看得到进度条的窗口
             var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var reachedManifestFetch = 0;
-            _ctx.Kuro.ManifestHandler = async (_, version, _) =>
+            _ctx.Kuro.ManifestHandler = async (_, version, _, _) =>
             {
                 Interlocked.Increment(ref reachedManifestFetch);
                 await gate.Task;

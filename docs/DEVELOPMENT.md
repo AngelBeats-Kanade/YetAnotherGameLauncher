@@ -22,7 +22,9 @@ src/
   YetAnotherGameLauncher.Core/                  # 领域层（无 UI/厂商依赖）
     InstallPath.cs  安装路径解析（"~" 展开、绝对/相对 installDir；单文件位于 Core 根）
     AppPaths.cs     应用数据目录与配置文件路径（YAGL_CONFIG 覆盖；单文件位于 Core 根）
-    Models/         AppSettings（全局设置）、GameCatalog/GameDefinition/GameServer、GameManifest、UpdatePlan、DeltaPackage（v2 增量计划/分卷/文件节点）、
+    Models/         AppSettings（全局设置）、GameCatalog/GameDefinition/GameServer、GameManifest（含档位戳记 ResourceTier 与收尾清理保留前缀 PreservedPaths）、
+                    ResourcePackManifest（单档位资源包清单：测量/清理用）、ResourceTiers（档位白名单与"生效档"归一，单一来源）、
+                    UpdatePlan、DeltaPackage（v2 增量计划/分卷/文件节点）、
                     UpdateProgress、LocalGameState、ChannelVersionInfo、DownloadRequest（单文件下载请求）、
                     LaunchOptions（启动命令模板）、ThemeMode
     Abstractions/   IGameChannelApi、IDownloader、IPatchApplier（目录差分）、IFilePatchApplier（单文件差分，终末地 v2 载荷）、IProcessRunner、异常类型（UpdateException/LaunchException + LaunchFailureKind、DeltaPackageNotApplicableException/DeltaPackageUnusableException/DeltaPackageSupplyException、PatchToolUnavailableException）、
@@ -31,7 +33,9 @@ src/
     Services/       GameCatalogService（含首次运行 CreateDefaultFileAsync）、HttpFileDownloader（+HttpFileDownloaderOptions）、
                     ManifestVerifier、UpdatePlanner、GameInstallService、IncrementalUpdateService、PackageInstallerService、
                     GameUpdateService（增量优先/不适用回退整包；预下载链同样优先 v2 增量载荷、暂存计划与标记清单，
-                    不适用时重走常规更新）、DeltaPackageApplier（v2 增量载荷应用：分卷下载/仅下载暂存→
+                    不适用时重走常规更新；档位随操作贯穿清单/应用/状态写盘，未完成操作标记的写/清也在此收口）、
+                    ResourcePackService（档位资源包测量/清理其他档位：预览不改文件；只删各档位清单点名、且解析后确实位于该档目录下的文件与同名下载半成品 `.temp`）、
+                    DownloadSessionService（未完成下载标记 .yagl/download-session.json：操作开始写、成功清，记操作种类与游戏/服务器归属供续传分派与归属核对；进度以磁盘为准）、DeltaPackageApplier（v2 增量载荷应用：分卷下载/仅下载暂存→
                     静态条目→逐文件差分/整文件/只读校验（尺寸+内容 md5）→官方废弃清单→载荷清理；就地替换依据
                     "基文件与目标零重叠"；下载前空闲空间预检、供给失败保留载荷）、
                     GameLauncherService（启动预检/类目化错误/启动日志）、LocalStateService、SystemProcessRunner（输出泵落盘启动日志）、
@@ -111,7 +115,8 @@ src/
                     GameSettingsViewModel、LaunchSettingsViewModel、DependencySectionViewModel + DependencyItemViewModel（游戏设置页
                     「依赖」区：内置依赖状态展示与手动安装，目标按启动方式现场解析，独立消息槽与进度行）、
                     LaunchErrorViewModel（启动失败覆盖层：类目化原因/技术详情/日志入口/umu 一键安装）、
-                    GachaViewModel（鸣潮唤取记录页）、SaveMessageSlot（表单保存结果消息槽）、ToastItem（轻提示条目模型）、ViewModelBase
+                    GachaViewModel（鸣潮唤取记录页）、SaveMessageSlot（表单保存结果消息槽）、ToastItem（轻提示条目模型）、
+                    ResourceTierText（档位显示名与状态文案的单一来源：设置页下拉/状态行/清理确认共用）、ViewModelBase
     Assets/         game-icons/（两游戏的官方图标 jpg，samples/games.json 以 avares:// 引用）、tray-icon-48.png（系统托盘图标）
     Resources/      strings_zh-CN.json / strings_en-US.json（本地化文案，键集两份必须成对，见 §5.3）
     Views/MainWindow

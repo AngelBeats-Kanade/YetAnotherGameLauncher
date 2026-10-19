@@ -55,7 +55,7 @@ public partial class GameItemViewModel(
     /// <summary>启动设置编辑卡（保存走 GameCatalogService 整文件原子写）。</summary>
     public LaunchSettingsViewModel LaunchSettings => _launchSettings ??= new(
         Game, _installDir, catalogService, Loc, this, _filePicker, Platform,
-        umuProvisioner: _umuProvisioner);
+        umuProvisioner: _umuProvisioner, channel: channel);
 
     /// <summary>
     /// 退订懒创建子 VM 对应用级单例服务的事件订阅。RebuildGames 整批废弃旧 GameItemViewModel
@@ -63,6 +63,12 @@ public partial class GameItemViewModel(
     /// （LaunchSettingsViewModel 订阅泄漏，2026-09-20 复审结构性消除；SetDetailActive 同族先例）。
     /// </summary>
     internal void DetachEventSubscriptions() => _launchSettings?.DetachEventSubscriptions();
+
+    /// <summary>
+    /// 档位说明行随宿主状态刷新（2026-10-19 review）：切换服务器、服务器能力/安装态结算完成后
+    /// 说明行必须跟着走——设置页 VM 懒建，未建不建（进设置页时自会算一次）。
+    /// </summary>
+    private void RefreshTierHintIfCreated() => _launchSettings?.RefreshResourceTierHint();
 
     /// <summary>底层游戏配置（只读引用；名称/图标/服务器等以此为准）。</summary>
     public GameDefinition Game { get; } = game;
@@ -250,12 +256,17 @@ public partial class GameItemViewModel(
     /// <summary>_assetVersion 是否已从磁盘缓存元数据装载（每会话一次读盘）。</summary>
     private bool _assetVersionLoaded;
 
-    /// <summary>主操作按钮文案：未安装→安装；检测到已有文件→文件式"校验修复"/包式"登记版本"；有更新→更新；已最新→校验修复。</summary>
-    public string InstallButtonText => !IsInstalled
-        ? CanLaunch
-            ? UsesPackageManifest ? Loc["game_register"] : Loc["game_verify"]
-            : Loc["game_install"]
-        : HasUpdate ? Loc["game_update"] : Loc["game_verify"];
+    /// <summary>主操作按钮文案：有未完成的下载→继续下载；未安装→安装；检测到已有文件→文件式
+    /// "校验修复"/包式"登记版本"；档位资源包未下载→下载资源包（优先于更新）；有更新→更新；
+    /// 已最新→校验修复。</summary>
+    public string InstallButtonText => ResumeAvailable
+        ? Loc["game_continueDownload"]
+        : !IsInstalled
+            ? CanLaunch
+                ? UsesPackageManifest ? Loc["game_register"] : Loc["game_verify"]
+                : Loc["game_install"]
+            : NeedsResourcePack ? Loc["game_downloadResourcePack"]
+            : HasUpdate ? Loc["game_update"] : Loc["game_verify"];
 
     /// <summary>主操作按钮是否为主 CTA 形态（accent）：仅"什么都没有"的全新安装；检测到游戏/已安装时退为次级。</summary>
     public bool InstallIsPrimary => !IsInstalled && !CanLaunch;
@@ -270,10 +281,106 @@ public partial class GameItemViewModel(
     public bool HasGachaEntry => IsKuro && CanLaunch;
 
     /// <summary>
-    /// 侧栏/状态点与状态行的预下载提示：已安装、无更新且渠道开放预下载窗口
-    /// （PredownloadAvailable 已排除"已暂存待应用"的情形，避免与徽章重复提示）。
+    /// 侧栏/状态点与状态行的预下载提示：已安装、无更新、档位资源包已就绪且渠道开放预下载窗口
+    /// （PredownloadAvailable 已排除"已暂存待应用"的情形，避免与徽章重复提示；档位缺包时
+    /// 先提示补包——两个入口同时亮会互相抢注意力）。
     /// </summary>
-    public bool ShowPredownloadCue => IsInstalled && !HasUpdate && PredownloadAvailable;
+    public bool ShowPredownloadCue => IsInstalled && !HasUpdate && !NeedsResourcePack && PredownloadAvailable;
+
+    /// <summary>
+    /// 当前选中服务器是否支持按档位下载资源包（渠道能力）：false = 档位只作启动参数，
+    /// 下载恒为官方默认 bundle（common + HD），UI 不显示档位缺包提示与清理入口。
+    /// </summary>
+    [ObservableProperty]
+    private bool _supportsResourcePackDownload;
+
+    /// <summary>
+    /// 档位资源包未下载（2026-10-19 用户需求）：已安装、服务器支持档位下载、且本地内容档位
+    /// 与已选档位不一致（本地状态文件缺档位记录 = 旧状态 → 视为未下载）。驱动主按钮
+    /// 「下载资源包」（优先于"立即更新"：点它做的是更新+补包一体）与状态行提示。
+    /// </summary>
+    [ObservableProperty]
+    private bool _needsResourcePack;
+
+    /// <summary>
+    /// 状态点需要"可行动"配色（与"有更新"同族：主按钮此刻就是用户该点的东西）：
+    /// 档位缺包或上次下载未完成——绿色圆点在这两种状态下会谎报"一切正常"（2026-10-19 截图实锤）。
+    /// </summary>
+    public bool NeedsActionCue => NeedsResourcePack || HasInterruptedDownload;
+
+    /// <summary>档位缺包提示与主按钮文案同源刷新。</summary>
+    partial void OnNeedsResourcePackChanged(bool value)
+    {
+        OnPropertyChanged(nameof(InstallButtonText));
+        OnPropertyChanged(nameof(ShowPredownloadCue));
+        OnPropertyChanged(nameof(NeedsActionCue));
+    }
+
+    /// <summary>
+    /// 本地存在"上次未完成"的下载标记（Core <see cref="DownloadSessionService"/>：操作开始写、
+    /// 成功收尾才清）。暂停 / 取消 / 失败 / 进程被杀都留存——主按钮据此呈现「继续下载」，
+    /// 点它重跑同一流程即从已下载处接上（完成文件跳过、.temp 走 Range、暂存复用）。
+    /// </summary>
+    [ObservableProperty]
+    private bool _hasInterruptedDownload;
+
+    /// <summary>主按钮是否呈现「继续下载」：有未完成的下载且当前空闲（进行中不切换文案，
+    /// 避免"正在续传时按钮还写着继续"的自相矛盾）。</summary>
+    public bool ResumeAvailable => !IsBusy && HasInterruptedDownload;
+
+    partial void OnHasInterruptedDownloadChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ResumeAvailable));
+        OnPropertyChanged(nameof(NeedsActionCue));
+        OnPropertyChanged(nameof(InstallButtonText));
+    }
+
+    partial void OnIsBusyChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ResumeAvailable));
+        OnPropertyChanged(nameof(InstallButtonText)); // 文案里的「继续下载」随忙碌态翻转（2026-10-19 review）
+        OnPropertyChanged(nameof(CanPauseDownload));
+    }
+
+    /// <summary>当前可暂停操作的取消源（联动宿主取消令牌；null = 无进行中操作）。</summary>
+    private CancellationTokenSource? _operationCts;
+
+    /// <summary>
+    /// 「暂停」按钮是否可见（2026-10-19 review）：只有更新/校验/应用预下载/预下载这几条链挂了
+    /// 取消源——启动、零校验登记、包式"校验修复"拉清单等忙碌态没有可暂停的操作，按钮必须隐藏，
+    /// 否则是个点了没反应的死控件。
+    /// </summary>
+    public bool CanPauseDownload => IsBusy && _operationCts is not null;
+
+    /// <summary>挂/摘本次操作的取消源（暂停按钮的可见性与取消源同一处翻转）。</summary>
+    private void SetOperationCts(CancellationTokenSource? cts)
+    {
+        _operationCts = cts;
+        OnPropertyChanged(nameof(CanPauseDownload));
+    }
+
+    /// <summary>本次取消由「暂停」按钮发起（区别于宿主取消/退出）：决定"已暂停"文案的归属。</summary>
+    private bool _pausedByUser;
+
+    /// <summary>
+    /// 暂停当前下载（2026-10-19 用户需求）：取消本次操作并<b>保留全部已下载与暂存产物</b>——
+    /// 不写版本、不报错、不清理；再点主按钮即从已下载处继续（完成文件跳过、.temp 走 HTTP Range、
+    /// 预载/整包暂存按 size/MD5 复用）。打补丁/收尾阶段同样可暂停：继续时会重跑当前步骤
+    /// （组级应用本身可重入，取消不会落下半个版本号）。按钮只在挂了取消源的忙碌态可见
+    /// （<see cref="CanPauseDownload"/>），没有可暂停操作的忙碌态不出现死控件。
+    /// </summary>
+    [RelayCommand]
+    private void PauseDownload()
+    {
+        if (!IsBusy || _operationCts is not { } operation)
+        {
+            return;
+        }
+
+        _pausedByUser = true;
+        operation.Cancel();
+    }
+
 
     /// <summary>
     /// 渠道清单是否为包式（仅整包校验值，无解压后逐文件清单）。当前只有库洛是文件式；
@@ -311,6 +418,9 @@ public partial class GameItemViewModel(
         var state = new LocalStateService(_installDir).Load(Game.Id, SelectedServer.Id);
         var staged = IncrementalUpdateService.TryLoadStagedManifest(_installDir);
         HasStagedPredownload = staged is not null;
+        // 下载标记（2026-10-19）：纯本地读，离线分支同样有效——"上次没下完"的提示不该依赖联网。
+        // 归属核对（2026-10-19 review）：同一安装目录被多服务器复用，只认写入本游戏/本服务器的标记
+        HasInterruptedDownload = new DownloadSessionService(_installDir).LoadFor(Game.Id, SelectedServer.Id) is not null;
 
         ChannelVersionInfo info;
         try
@@ -338,10 +448,15 @@ public partial class GameItemViewModel(
             IsInstalled = state is not null;
             HasUpdate = false;
             PredownloadAvailable = false;
+            // 离线：档位缺包判定需在线核对（清单/状态口径都在服务端），保留既有保守语义——
+            // 不提示缺包（联网后的刷新自会算出）
+            SupportsResourcePackDownload = channel.SupportsResourcePackDownload(SelectedServer);
+            NeedsResourcePack = false;
             CanLaunch = ExecutableExists();
             OnPropertyChanged(nameof(InstallButtonText));
             OnPropertyChanged(nameof(InstallIsPrimary));
             OnPropertyChanged(nameof(InstallIsSecondary));
+            RefreshTierHintIfCreated(); // 离线分支同样收敛说明行（切服后断网时不能停在上一台服务器的提示）
             OnPropertyChanged(nameof(ShowPredownloadCue));
 
             // 离线启动也要有缓存资产兜底：本会话尚未加载过资产时补一次纯磁盘加载（零网络）
@@ -369,6 +484,13 @@ public partial class GameItemViewModel(
         IsInstalled = state is not null;
         CanLaunch = ExecutableExists();
         HasUpdate = VersionComparison.IsNewer(info.LatestVersion, state?.Version);
+        // 档位资源包是否落盘（2026-10-19）：本地内容档位（状态文件）与已选档位不一致即缺包；
+        // 旧状态文件没有档位记录（null）= 未同步过 → 视为缺包（点"下载资源包"只补缺失文件，
+        // 不会重下已有内容）。不支持的服务器不提示（内容恒为官方默认 bundle）。
+        SupportsResourcePackDownload = channel.SupportsResourcePackDownload(SelectedServer);
+        var effectiveTier = ResourceTiers.Effective(Game.Launch.ResourceQualityTier);
+        NeedsResourcePack = IsInstalled && SupportsResourcePackDownload
+            && !string.Equals(state?.ResourceTier, effectiveTier, StringComparison.Ordinal);
         // F66 UI 面：已安装且本地版本已达到预下载目标时不再提示/显示预下载按钮（服务器窗口
         // 未关时再点就是整包重下数十 GB；Core 侧 GameUpdateService.PredownloadAsync 另有短路兜底）。
         // 两个既有契约不动：未安装（state null）照旧可见（IsNewer 对 null local 恒 false，须显式放行）；
@@ -381,9 +503,16 @@ public partial class GameItemViewModel(
         SetVersionChip(state?.Version, info.LatestVersion, HasUpdate);
 
         // 状态优先级：未登记但文件在 → 可直接启动（官启等来源的既有安装）；
-        // 已登记 → 有更新 / 可预下载 / 已是最新
+        // 已登记 → 未完成的下载（暂停/中断；主按钮此刻就是"继续下载"）/ 档位缺包 / 有更新 /
+        // 可预下载 / 已是最新——状态行与主按钮必须同一件事
+        // 档位缺包的长状态含档位名（详情页用）；侧栏窄槽放不下 → 先算一次并按下例取 Short 变体
+        var packMissingStatus = Loc.Format("status_resourcePackMissing", TierDisplayName(effectiveTier));
         var newStatus = !IsInstalled
             ? CanLaunch ? Loc["status_detected"] : Loc["status_notInstalled"]
+            : HasInterruptedDownload
+                ? Loc["status_downloadInterrupted"]
+            : NeedsResourcePack
+                ? packMissingStatus
             : HasUpdate
                 ? Loc["status_hasUpdate"]
                 : PredownloadAvailable ? Loc["status_predownload"]
@@ -391,12 +520,14 @@ public partial class GameItemViewModel(
                 : Loc["status_upToDate"];
         RaiseStatusToast(newStatus, info.LatestVersion);
         // 侧栏短变体（评审 P2-11）：status_detected/notInstalled 的 EN(zh) 全文案在侧栏槽位
-        // 过长/可更短，用 Short 键；"未校验"同样给短变体（全文含操作指引，侧栏放不下）；
+        // 过长/可更短，用 Short 键；"未校验"/"上次下载未完成"同样给短变体（全文含操作指引，侧栏放不下）；
         // 其余状态无 Short 变体，保持全文。
         // 显式赋值而非"覆盖滞留"机制——同值赋值不触发通知会滞留覆盖（修复轮 review）
         var sidebarStatus = newStatus == Loc["status_detected"] ? Loc["status_detectedShort"]
             : newStatus == Loc["status_notInstalled"] ? Loc["status_notInstalledShort"]
             : newStatus == Loc["status_registeredUnverified"] ? Loc["status_registeredUnverifiedShort"]
+            : newStatus == Loc["status_downloadInterrupted"] ? Loc["status_downloadInterruptedShort"]
+            : newStatus == packMissingStatus ? Loc["status_resourcePackMissingShort"]
             : newStatus;
         StatusText = newStatus;
         SidebarStatusText = sidebarStatus;
@@ -404,6 +535,7 @@ public partial class GameItemViewModel(
         OnPropertyChanged(nameof(InstallButtonText));
         OnPropertyChanged(nameof(InstallIsPrimary));
         OnPropertyChanged(nameof(InstallIsSecondary));
+        RefreshTierHintIfCreated(); // 服务器/能力/安装态本轮结算完毕：已建的档位说明行同轮收敛（F8）
         OnPropertyChanged(nameof(ShowPredownloadCue));
     }
 
@@ -1004,6 +1136,31 @@ public partial class GameItemViewModel(
             return;
         }
 
+        // 续传分派（2026-10-19 review 修复）：有未完成标记时，主按钮（此刻写着「继续下载」）
+        // 必须回到被暂停的那个动作——预下载暂停后改走更新链会绕过"先暂存、确认后应用"的两段契约，
+        // 还可能把预下载进度作废；内容已下完/应用中被停时暂存清单仍在场（提交后才清），
+        // 回到应用链幂等续跑（组级应用按 dstFiles 校验跳过已应用组），不重下整包差量。
+        var session = new DownloadSessionService(_installDir).LoadFor(Game.Id, SelectedServer.Id);
+        if (session is not null)
+        {
+            if (session.Kind == DownloadSessionKind.Predownload)
+            {
+                await PredownloadAsync(cancellationToken);
+                return;
+            }
+
+            var staged = IncrementalUpdateService.TryLoadStagedManifest(_installDir);
+            if (staged is not null
+                && (session.Kind == DownloadSessionKind.Apply
+                    || (session.Kind is DownloadSessionKind.Update or DownloadSessionKind.Install
+                        && session.Version == staged.Version)))
+            {
+                HasStagedPredownload = true; // 标记在场即以磁盘为准（属性可能落后于刚写的暂存清单）
+                await ApplyPredownloadAsync(cancellationToken);
+                return;
+            }
+        }
+
         // 检测到游戏的包式渠道：没有逐文件清单可供校验，登记版本即可（重下整包没有意义）
         if (!IsInstalled && CanLaunch && UsesPackageManifest)
         {
@@ -1021,7 +1178,7 @@ public partial class GameItemViewModel(
             var totalBytes = 0L;
             try
             {
-                var manifest = await channel.GetManifestAsync(SelectedServer, version, cancellationToken);
+                var manifest = await channel.GetManifestAsync(SelectedServer, version, Game.Launch.ResourceQualityTier, cancellationToken);
                 totalBytes = manifest.Files.Sum(f => f.Size);
             }
             catch (Exception)
@@ -1041,10 +1198,14 @@ public partial class GameItemViewModel(
         }
 
         await RunUpdateAsync(
-            progress => updateService.UpdateAsync(_installDir, Game, SelectedServer, channel, progress, cancellationToken),
-            isVerify: IsInstalled && !HasUpdate,
+            (progress, operationToken) => updateService.UpdateAsync(
+                _installDir, Game, SelectedServer, channel, progress, operationToken),
+            isVerify: IsInstalled && !HasUpdate && !NeedsResourcePack,
             cancellationToken);
     }
+
+    /// <summary>档位显示名（本地化文案；未知档位回 hd 文案——白名单外值在配置校验层已拒）。</summary>
+    private string TierDisplayName(string tier) => ResourceTierText.DisplayName(Loc, tier);
 
     /// <summary>
     /// 登记版本（检测到游戏文件、未登记的包式渠道）：把本地版本登记为渠道最新版，
@@ -1115,7 +1276,8 @@ public partial class GameItemViewModel(
 
         ShowRepairConfirm = false;
         await RunUpdateAsync(
-            progress => updateService.UpdateAsync(_installDir, Game, SelectedServer, channel, progress, cancellationToken),
+            (progress, operationToken) => updateService.UpdateAsync(
+                _installDir, Game, SelectedServer, channel, progress, operationToken),
             isVerify: true,
             cancellationToken);
     }
@@ -1136,6 +1298,10 @@ public partial class GameItemViewModel(
         IsBusy = true;
         ProgressPercent = 0; // 进度复位（F32，与 RunUpdateAsync 对齐）
         _speedSmoother.Reset();
+        // 暂停开关（2026-10-19）：本次操作专用取消源，联动宿主取消令牌（退出/工具取消照常生效）
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        SetOperationCts(operation);
+        _pausedByUser = false;
         // 结果消息归属发起时的服务器：完成前切服时不得覆盖新服状态行
         // （RefreshAsync 有代际门，紧随其后的 StatusText 写入没有，2026-09-20 复审修复）
         var originServer = SelectedServer;
@@ -1144,7 +1310,7 @@ public partial class GameItemViewModel(
         try
         {
             var summary = await updateService.PredownloadAsync(
-                _installDir, Game, SelectedServer, channel, progress, cancellationToken);
+                _installDir, Game, SelectedServer, channel, progress, operation.Token);
             // Core 短路（F66）返回空操作摘要：提示"已是目标版本"，不显示"预下载完成…可随时
             // 应用"误导用户去找不存在的待应用预下载。判据与 Core 短路同口径（版本归一化比较，
             // R8）——版本串形态漂移（"3.6" vs "3.6.0"）时字面不等仍属"本地已覆盖目标"；
@@ -1153,6 +1319,12 @@ public partial class GameItemViewModel(
                       && !VersionComparison.IsNewer(summary.ToVersion, summary.FromVersion)
                 ? Loc.Format("predownload_alreadyCurrent", summary.ToVersion)
                 : Loc.Format("predownload_done", summary.FromVersion, summary.ToVersion);
+        }
+        catch (OperationCanceledException) when (_pausedByUser)
+        {
+            // 暂停（2026-10-19 用户需求）：保留全部已下载与暂存产物、不报错——状态行提示可继续，
+            // 主按钮呈现「继续下载」（RefreshAsync 从 Core 下载标记算出）
+            message = Loc["progress_paused"];
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -1163,6 +1335,7 @@ public partial class GameItemViewModel(
         finally
         {
             EndProgressScope();
+            SetOperationCts(null);
             IsBusy = false;
 
             // 已取消时跳过收尾刷新：token 已取消且版本缓存未命中会让 RefreshAsync 从 finally 抛 OCE，
@@ -1188,7 +1361,8 @@ public partial class GameItemViewModel(
         }
 
         await RunUpdateAsync(
-            progress => updateService.ApplyPredownloadAsync(_installDir, Game, SelectedServer, channel, progress, cancellationToken),
+            (progress, operationToken) => updateService.ApplyPredownloadAsync(
+                _installDir, Game, SelectedServer, channel, progress, operationToken),
             isVerify: false,
             cancellationToken);
     }
@@ -1199,7 +1373,9 @@ public partial class GameItemViewModel(
     /// RefreshAsync 算出的状态行（如"可预下载新版本"），完成反馈由进度卡消失承担。
     /// </summary>
     private async Task RunUpdateAsync(
-        Func<IProgress<UpdateProgress>, Task<UpdateOutcome>> action, bool isVerify, CancellationToken cancellationToken)
+        Func<IProgress<UpdateProgress>, CancellationToken, Task<UpdateOutcome>> action,
+        bool isVerify,
+        CancellationToken cancellationToken)
     {
         if (IsBusy)
         {
@@ -1213,17 +1389,27 @@ public partial class GameItemViewModel(
         ProgressPercent = 0;
         _speedSmoother.Reset();
         ProgressText = Loc["progress_preparing"];
+        // 暂停开关（2026-10-19）：本次操作专用取消源，联动宿主取消令牌（退出/工具取消照常生效）
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        SetOperationCts(operation);
+        _pausedByUser = false;
         var progress = BeginProgressScope();
         var message = "";
         try
         {
-            var outcome = await action(progress);
+            var outcome = await action(progress, operation.Token);
             if (isVerify)
             {
                 message = outcome.RepairedFiles > 0
                     ? Loc.Format("verify_repaired", outcome.RepairedFiles)
                     : UsesPackageManifest ? Loc["verify_reinstalled"] : Loc["verify_ok"];
             }
+        }
+        catch (OperationCanceledException) when (_pausedByUser)
+        {
+            // 暂停（2026-10-19 用户需求）：保留产物、不报错；继续时会重跑当前步骤
+            //（打补丁阶段同样可重入：组级应用不落半个版本号，取消后重跑会重新校验该组）
+            message = Loc["progress_paused"];
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -1232,6 +1418,7 @@ public partial class GameItemViewModel(
         finally
         {
             EndProgressScope();
+            SetOperationCts(null);
             IsBusy = false;
 
             // 已取消时跳过收尾刷新：token 已取消且版本缓存未命中会让 RefreshAsync 从 finally 抛 OCE，

@@ -11,7 +11,10 @@ public sealed record DeltaApplyResult(int Patched, int Copied, int Verified, int
 /// <summary>
 /// 包式渠道 v2 增量更新的应用器（终末地实测形态，2026-10-17）：
 /// 下载 9 卷载荷（≈8.72 GiB，对比整包 58 GiB）→ 逐文件按官方清单合成（差分经 hpatchz /
-/// 整文件直接落位 / verify-only 核对在盘（尺寸 + 内容 md5））→ 删除官方废弃清单 → 清理载荷目录。
+/// 整文件直接落位 / verify-only 核对在盘（尺寸 + 内容 md5））→ 删除官方废弃清单。
+/// 幂等续跑（2026-10-19 三审）：已到位节点（尺寸 + md5 与官方清单一致）直接跳过——应用期掉线/暂停
+/// 后重进本方法零下载收敛（差分节点以基 md5 为判据，内容已应用再走一遍会被判"不适用"而错误回退
+/// 整包重下）。载荷分卷由调用方在提交点（状态落盘之后）清理，本方法不自删（失败/取消保留供复用）。
 /// 关键事实（真机实证）：差分节点与目标**零重叠**（224/224），因此可就地逐文件替换，
 /// 不需要数十 GiB 的暂存区；应用中途失败保持可重试（旧文件只在被替换时丢弃，且没有别的
 /// 节点依赖它）。
@@ -40,7 +43,7 @@ public sealed class DeltaPackageApplier(IDownloader downloader, IFilePatchApplie
         CancellationToken cancellationToken = default)
     {
         var payloadDir = PayloadDir(installDir);
-        EnsureApplicable(installDir, plan);
+        var alreadyAtTarget = EnsureApplicable(installDir, plan);
         EnsureEnoughFreeSpace(installDir, payloadDir, plan);
 
         var volumes = await DownloadVolumesAsync(payloadDir, plan, progress, cancellationToken).ConfigureAwait(false);
@@ -58,6 +61,17 @@ public sealed class DeltaPackageApplier(IDownloader downloader, IFilePatchApplie
             var relative = NormalizeManifestPath(file.Name, plan.VfsBasePath);
             var target = Path.Combine([installDir, .. relative.Split('/')]);
             progress?.Report(new UpdateProgress(UpdatePhase.Patching, 0, 0, index, total, file.Name));
+
+            // 幂等续跑（2026-10-19 三审）：预检已判定的"已到位"节点在此放行（每个节点只算一次
+            // md5，大文件重跑不重复整读）；verify-only 节点走下方既有核对路径，那里本来就是
+            // 尺寸 + md5 的幂等语义
+            if (alreadyAtTarget.Contains(relative))
+            {
+                logger?.LogDebug("Delta entry already at target: {Entry}", relative);
+                verified++;
+                produced.Add(relative);
+                continue;
+            }
 
             if (file.Patches.Count > 0)
             {
@@ -80,16 +94,14 @@ public sealed class DeltaPackageApplier(IDownloader downloader, IFilePatchApplie
         }
 
         var deleted = CleanupObsoleteFiles(installDir, payload, plan, produced, progress);
-        // 载荷清理必须在分卷句柄释放之后：Windows 删除要求句柄带 FILE_SHARE_DELETE，而
-        // SplitVolumeStream 以 FileShare.Read 打开分卷——句柄未关时整树删除必然失败
-        //（Linux 的 unlink 语义掩盖该差异，2026-10-19 CI Windows 腿两例红即此）；
-        // using 兜底会在方法退出时重复释放，Stream.Dispose 幂等。
+        // **载荷清理移出本方法**（2026-10-19 三审）：应用成功到状态落盘之间（同步的废弃清单清理 +
+        // 调用方写盘）是真实可达的暂停/掉线窗口，载荷（9 卷 ≈8.72 GiB）必须在场，续跑才能按
+        // "已到位跳过"零下载收敛。清理由调用方在提交点负责：直链 = UpdateAsync 状态落盘后；
+        // 预下载链 = ApplyPredownloadAsync 提交后 ClearStagedDelta。失败/取消照旧保留载荷供复用。
+        // 句柄必须先释放再交还：提交点的整树删除发生在分卷句柄关闭之后（Windows 删除要求
+        // FILE_SHARE_DELETE，而 SplitVolumeStream 以 FileShare.Read 打开分卷；Linux 的 unlink
+        // 语义掩盖该差异，2026-10-19 CI Windows 腿两例红即此）；using 兜底重复释放，Dispose 幂等。
         payload.Dispose();
-        if (Directory.Exists(payloadDir) && !FileUtilities.TryDeleteDirectory(payloadDir, logger))
-        {
-            // 删不掉（占用/权限）不能只留 Debug 痕迹：8.7 GiB 载荷静默留盘与本批的目的相反
-            logger?.LogWarning("Delta payload staging could not be removed: {Path}", payloadDir);
-        }
 
         logger?.LogInformation(
             "Delta payload applied: {Patched} patched, {Copied} copied, {Verified} verified, {Deleted} obsolete removed.",
@@ -102,15 +114,28 @@ public sealed class DeltaPackageApplier(IDownloader downloader, IFilePatchApplie
     /// 前置校验（便宜、不落盘）：每个差分节点的基文件在盘、每个 verify-only 节点在盘。
     /// 基文件 md5 与"仅校验"节点的内容 md5 都在逐文件应用时核对（不符同样折算"不适用"）；
     /// 由于没有节点以其它节点的产物为基文件，"先应用一部分再失败"仍是可重试的安全状态。
+    /// 例外（2026-10-19 三审）：节点已到位（尺寸 + md5 与清单一致）时不再要求基文件在盘——
+    /// "应用已完成、上一轮的官方废弃清理已删掉旧基文件"的续跑形态必须能放行，否则会被判
+    /// "不适用"而整包重下。
     /// </summary>
-    private static void EnsureApplicable(string installDir, DeltaPackagePlan plan)
+    /// <returns>已到位节点（归一后的相对路径）：应用循环按此跳过，避免同一节点重复整读算 md5。</returns>
+    private static HashSet<string> EnsureApplicable(string installDir, DeltaPackagePlan plan)
     {
+        var alreadyAtTarget = new HashSet<string>(StringComparer.Ordinal);
         foreach (var file in plan.Files)
         {
             // 清单路径先全部归一（穿越即硬错误，不是"不适用"）
-            _ = NormalizeManifestPath(file.Name, plan.VfsBasePath);
+            var relative = NormalizeManifestPath(file.Name, plan.VfsBasePath);
+            if ((file.Patches.Count > 0 || !string.IsNullOrEmpty(file.FullFilePayloadPath))
+                && AlreadyAtTarget(Path.Combine(installDir, ToLocalPath(relative)), file))
+            {
+                alreadyAtTarget.Add(relative);
+                continue;
+            }
+
             if (file.Patches.Count > 0)
             {
+
                 // 官方允许多候选（一条目标多个基文件变体）：至少一条候选的基文件在盘才可能应用；
                 // 候选路径全部先归一并校验（穿越是硬错误），命中与否留到应用时按 md5 决定
                 var candidatePaths = new List<string>(file.Patches.Count);
@@ -141,6 +166,8 @@ public sealed class DeltaPackageApplier(IDownloader downloader, IFilePatchApplie
                 }
             }
         }
+
+        return alreadyAtTarget;
     }
 
     /// <summary>
@@ -283,6 +310,27 @@ public sealed class DeltaPackageApplier(IDownloader downloader, IFilePatchApplie
                    && (volume.Size <= 0 || new FileInfo(path).Length == volume.Size)
                    && (string.IsNullOrEmpty(volume.Md5)
                        || Hashing.Md5Hex(path).Equals(volume.Md5, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>节点是否已是目标内容（尺寸 + 内容 md5 与官方清单一致）：续跑时据此跳过已应用条目。
+    /// 差分节点以基 md5 为判据，内容已应用的节点重走差分会被判"不适用"从而错误回退整包，必须在此放行。</summary>
+    private static bool AlreadyAtTarget(string target, DeltaPackageFile file)
+    {
+        try
+        {
+            if (!File.Exists(target))
+            {
+                return false;
+            }
+
+            return (file.Size <= 0 || new FileInfo(target).Length == file.Size)
+                   && !string.IsNullOrEmpty(file.Md5)
+                   && Hashing.Md5Hex(target).Equals(file.Md5, StringComparison.OrdinalIgnoreCase);
         }
         catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {

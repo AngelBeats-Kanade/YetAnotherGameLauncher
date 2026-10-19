@@ -73,7 +73,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `useWayland` | bool | `false` | 注入 `PROTON_USE_WAYLAND=1` 启用 Proton 原生 Wayland 驱动（绕过 XWayland）。仅 Linux Proton 启动链；DW/GE/UMU-Proton 均识别（DW 另接受 PROTON_ENABLE_WAYLAND 别名）。设置页「功能开关 → 使用 Wayland」 |
 | `upgradeDlss` | bool | `false` | 注入 `PROTON_DLSS_UPGRADE=1`（连带 `PROTON_ENABLE_NVAPI=1`）：启动时由 protonfixes 把游戏内 DLSS 换成 Proton 内置新版。仅 NVIDIA 显卡生效。设置页「功能开关 → 升级 DLSS 模型」 |
 | `enableProtonLog` | bool | `false` | 注入 `PROTON_LOG=1` + `PROTON_LOG_DIR={应用日志目录}`，记录 Proton 运行日志。设置页「功能开关 → 打印 Proton 日志」 |
-| `resourceQualityTier` | string | | 鸣潮资源包档位：`hd` / `sd` / `uhd` 之一（白名单外/大写拒收），启动时以 `-krqlv=<tier>` 命令行参数传给游戏（官方启动器同款参数，两条启动链均生效）；留空 = 跟随游戏内设置、不追加参数。设置页下拉仅鸣潮渠道显示；启动链不按渠道过滤——手改 JSON 给非鸣潮游戏填了该值仍会传参，非鸣潮请保持留空。注意：档位当前只作用于启动参数——官方增量/全量清单实测仅含 HD 档资源（2026-10-02 端点实测，SD/UHD 不经 CDN 清单下发）。设置页「资源包档位」下拉（鸣潮专属显示，2026-10-02 增） |
+| `resourceQualityTier` | string | | 鸣潮资源包档位：`hd` / `sd` / `uhd` 之一（白名单外/大写拒收）。**两个作用**：①启动时以 `-krqlv=<tier>` 命令行参数传给游戏（官方启动器同款参数，两条启动链均生效）；②决定下载/补包走哪一档资源（2026-10-19 起：同步清单按该档裁剪未选中档位目录 + 只补目标档位包）。留空 = 跟随游戏内设置（生效档 = `hd`，即官方默认 bundle = common + HD），且不追加参数。设置页下拉仅鸣潮渠道显示；启动链不按渠道过滤——手改 JSON 给非鸣潮游戏填了该值仍会传参，非鸣潮请保持留空。按档位下载需服务器带 `resourcePackIndexUrl`（见下表）；没有该地址的服务器档位只作启动参数（设置页给出提示）。档位资源"追加式共存"：切换档位不删旧档内容，清理只经设置页「清理其他档位」显式动作——详见 §1「档位资源包」节 |
 | `decoyParent` | bool | `false` | 诱饵父进程桥（终末地 1.6.3+ 启动校验的修复，2026-10-18）：仅 Linux 原生 umu 链生效。开启后在启动前把游戏目录里鹰角签名的可执行文件（`PlatformProcess.exe` → `UnityCrashHandler64.exe` → `Endfield.exe` 首个存在者）复制为 `<安装目录>/.yagl/bridge/Games.exe`，以挂起状态作为游戏进程的父进程（直启时游戏会弹「请通过官方启动器打开游戏」并以退出码 5 结束）；候选缺失或准备失败静默回退直启。内置样例的终末地条目已开启；存量配置由 `schemaVersion 6` 一次性迁移补上；机制、三层判据与真机实测见 [ARCHITECTURE.md §3.1](ARCHITECTURE.md) |
 
 可用占位符：
@@ -112,6 +112,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | channel | 键 | 必填 | 说明 |
 |---|---|---|---|
 | `kuro` | `indexUrl` | ✔ | 库洛 launcher `index.json` 完整地址（每服一个） |
+| `kuro` | `resourcePackIndexUrl` | | 官方**档位索引**完整地址（`resourcePacks` 节点，2026-10-16 端点实测；与 `indexUrl` 同源、hash 体系不同、不含版本号）。提供后该服务器支持「按 `launch.resourceQualityTier` 下载/补包/清理档位资源」；缺省 = 档位只作启动参数（设置页给出提示、清理入口隐藏）。内置样例只为官服（CN）提供——国际服/B 服的档位索引路径实测 404（2026-10-19 端点实测） |
 | `hypergryph` | `apiBase` | ✔ | 启动器 API 基址：国际服 `https://launcher.gryphline.com/api`，国服/B服 `https://launcher.hypergryph.com/api` |
 | `hypergryph` | `appcode` | | 游戏 appcode；代码缺省 = 国际服值 `YDUTE5gscDZ229CW`（国服/B服值 `6LL0KJuqHBVz33WK` 须显式提供） |
 | `hypergryph` | `channel` | | 渠道号；代码缺省 `6`（国际服），国服 `1`、B服 `2` 须显式提供 |
@@ -119,6 +120,28 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 
 > 终末地三个官方服务器（国际服 / 国服 / B服）均已内置于
 > [`samples/games.json`](../samples/games.json)：国际服条目依赖上述缺省值，国服/B服条目显式给出全部键，直接使用即可；上述键仅供未来新增渠道时覆盖。
+
+### 档位资源包（鸣潮，2026-10-19）
+
+游戏本体按"common + 一个档位包"组成（官方 bundle：SD = common + SD 21.97 GB / HD = common + HD 45.71 GB /
+UHD = common + UHD 66.04 GB，2026-10-16 端点实测）。`launch.resourceQualityTier` 为 `sd`/`uhd` 时：
+
+- **全量同步/校验修复**按该档构建清单：裁掉其它档位目录（`Client/Content/{SD,HD,UHD}/`）、补上目标档位包；
+  与档位无关的 common 内容不受影响。
+- **增量更新/预下载**只取基础差量（档位包跨版本不变，官方实测 hd/sd/uhd 的差量清单为空）；
+  档位包自身的补齐由更新/应用后的全量修复轮承担。
+- **追加式共存**：切换档位不删除旧档内容（未选中档位目录列入"保留清单"，同步收尾清理与增量废弃清单
+  都不碰它们）；释放空间只经设置页「清理其他档位」（先预览释放量与目标档位、再确认删除；只删各档位清单
+  点名且解析后位于该档位目录下的文件与同名下载半成品 `.temp`）。确认文案在"选中档位未完整落盘"时
+  加警示（含下到一半的情形），选中档位清单取不到时如实说明而未作断言。
+- **档位状态**记在 `.yagl/state.json` 的 `resourceTier` 字段（安装/更新/校验成功后由启动器写入；
+  旧状态文件没有该字段 = 视为"未同步"）。已安装且本地档位与所选档位不一致时，主按钮变为
+  「下载资源包」（优先于"立即更新"：点它做的是更新 + 补包一体），状态行给出提示。
+- **档位索引拉取失败/目标档位缺失时拒收**（不返回"缺目标档位包"的清单——那会让收尾清理把目标档位
+  目录当游离文件删掉）；档位索引不可用的服务器（国际服/B 服）档位只作启动参数。
+- 「清理其他档位」在切换档位后即可执行（不要求先下载新档）：若选中档位尚未落盘，确认文案会附加
+  "补齐前游戏可能无法正常运行"的警示。
+- 存量配置由 `schemaVersion 7` 一次性迁移补上样例里的 `resourcePackIndexUrl`（见 §6）。
 
 ### 详情页背景与名称本地化（代码内置，不写入配置）
 
@@ -232,10 +255,11 @@ Steam Runtime 容器与 Proton，发行版三选一），由启动器自动生�
 
 | 路径（相对安装目录） | 内容 |
 |---|---|
-| `.yagl/state.json` | 本地版本状态：`gameId`、`serverId`、`version`、`verified`（切换游戏/服务器错配时视为未安装）。`verified=false` = 仅由包式渠道"检测到现有文件 → 登记为渠道最新版"的零校验流程写入（未核对任何内容；UI 明示未校验并指向校验修复，旧文件缺该字段时缺省 true） |
-| `.yagl/predownload/` | 预下载暂存：`manifest.json`（暂存清单，`stagedAsDeltaPackage=true` 表示增量预下载）+ `patches/`、`files/` 或 `packages/`；增量预下载另有 `delta.json`（v2 应用计划，与 `.yagl/delta` 的载荷配套） |
+| `.yagl/state.json` | 本地版本状态：`gameId`、`serverId`、`version`、`verified`、`resourceTier`（切换游戏/服务器错配时视为未安装）。`verified=false` = 仅由包式渠道"检测到现有文件 → 登记为渠道最新版"的零校验流程写入（未核对任何内容；UI 明示未校验并指向校验修复，旧文件缺该字段时缺省 true）。`resourceTier` = 本地内容对应的档位（`hd`/`sd`/`uhd`，2026-10-19 起由安装/更新/校验修复成功时写入；不支持按档位下载的服务器恒记 `hd`，旧文件缺该字段 = 视为未同步，UI 提示补包） |
+| `.yagl/download-session.json` | 未完成的下载标记（2026-10-19）：操作开始时写（含操作种类与游戏/服务器归属）、<b>成功收尾时清</b>，取消/失败/进程中断都留存——重开应用据此把主按钮显示为「继续下载」，并按种类派回被暂停的动作（预下载 → 预下载链；内容已下完/应用中被停 → 应用链续跑）从已下载处续传。只承载"有没有未完成的操作"，进度以磁盘为准（完成文件跳过、`.temp` 走 HTTP Range、暂存按 size/MD5 复用，均见 §6 同族的暂存目录）；标记带归属，同一安装目录被多服务器复用时只认写入本服务器的那条。**不可继续的预下载标记就地清除**：预下载窗口已关闭或本地版本已覆盖目标时，那条 `predownload` 标记无从继续（留着就是假承诺），Core 在报可行动错误/幂等短路的同时清掉它（其它种类的标记不动）；同一安装目录里未完成的更新标记不受影响 |
+| `.yagl/predownload/` | 预下载暂存：`manifest.json`（暂存清单，`stagedAsDeltaPackage=true` 表示增量预下载）+ `patches/`、`files/` 或 `packages/`；增量预下载另有 `delta.json`（v2 应用计划，与 `.yagl/delta` 的载荷配套）。**清理时机 = 各链应用的提交点（状态落盘之后）**：载荷与暂存清单在提交前一律保留（2026-10-19 二审 N2），续跑因此走"应用链续跑"零下载重解压/重应用，而不是重下整包差量 |
 | `.yagl/packages` | 包式**整包安装（直接安装/更新、整包回退）的暂存目录**：文件名 + size/MD5 完整时可复用（中断重跑零下载），解压成功后清理；增量更新成功后也会清理它回收空间（实测可达数十 GiB）。预下载内容在 `.yagl/predownload/`，不受影响 |
-| `.yagl/delta` | v2 增量载荷分卷暂存（9 卷 ≈8.72 GiB）：直接更新时应用成功即清理、失败保留供复用；预下载链同样落这里（应用由暂存清单的 `stagedAsDeltaPackage` 标记识别） |
+| `.yagl/delta` | v2 增量载荷分卷暂存（9 卷 ≈8.72 GiB）：**清理时机 = 提交点（状态落盘之后）**，失败/取消保留供复用——应用器不自删载荷（2026-10-19 三审）；预下载链同样落这里（应用由暂存清单的 `stagedAsDeltaPackage` 标记识别）。应用按节点目标 md5 的"已到位跳过"幂等：应用期暂停/掉线后续跑零下载收敛（差分节点以基 md5 为判据，内容已应用再走一遍会被判"不适用"而错误回退整包） |
 | `*.yagl-bak` | 差分替换的备份文件（成功即删，仅失败恢复时短暂存在） |
 | `*.yagl-delta` / `*.yagl-new` | 增量载荷逐文件合成的临时产物（核对通过即替换目标，随后删除） |
 

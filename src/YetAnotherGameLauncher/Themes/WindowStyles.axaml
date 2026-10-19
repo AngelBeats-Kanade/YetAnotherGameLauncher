@@ -49,6 +49,11 @@
     <Style Selector="Ellipse.dot.predownload">
         <Setter Property="Fill" Value="{DynamicResource AppPredownloadBadge}"/>
     </Style>
+    <!-- 档位缺包 / 上次下载未完成（2026-10-19）：需要用户点主按钮的可行动状态，与"有更新"同族配色；
+         绿色圆点在这两种状态下会谎报"一切正常"（截图 judge 实锤） -->
+    <Style Selector="Ellipse.dot.needs-action">
+        <Setter Property="Fill" Value="{DynamicResource AppAccentBrush}"/>
+    </Style>
 
     <!-- 玻璃卡片（浮在窗口背景上） -->
     <Style Selector="Border.card">

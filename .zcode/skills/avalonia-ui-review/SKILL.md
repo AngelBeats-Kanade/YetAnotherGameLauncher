@@ -33,11 +33,14 @@ dotnet tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLa
 - 截图窗口固定 1120×720（`UiScreenshotTests` 内写死，与主窗口默认 1464×720 无关，保证构图稳定）。
 - **清单（2026-10-19 实测；改动 UI 或新增导出后同步本清单）**：八个导出组共 27 张——
   01-15 + 02b + 05b + 16 + 17/18 + 10b + 11b + 19 + 20/21 + 22/23。归属：`Export_UiScreenshots_ForReview` 12 张；
-  `Export_LaunchErrorOverlay_ForReview` 6 张（10/10b/11/11b/12/14，10b=CanRetry=true 覆盖层；
+  `Export_LaunchErrorOverlay_ForReview` 10 张（10/10b/11/11b/12/14/24/25/26/27，10b=CanRetry=true 覆盖层；
   该导出同时覆盖启动失败覆盖层与 Linux 启动设置卡（2026-10-03 起 11/11b 含「自定义启动选项」改名与 ⓘ 图标）：umu 启动 + Proton 发行版下拉 + 检查更新按钮 +
   功能开关区 + 自定义启动选项框（ⓘ 图标引导）——11 用 1120×1200 专用窗口整卡入画且在 toast 注入前截
   （原 1080 在「资源包档位」区加入卡片长高后不够，保存钮被视口硬裁，2026-10-03 二次 judge 实锤后加高），
-  11b=同卡亮色）；
+  11b=同卡亮色；24~27 为档位资源包/续传新面，2026-10-19 增：24 详情页档位缺包主按钮
+  「下载资源包」、25 设置页档位区块（状态行 + 清理入口；该区块在启动卡下部，截图前须
+  `ResourceTierBlock` BringIntoView，否则整块在视口外会静默截成"没有新 UI"）、
+  26 清理确认覆盖层、27 续传态主按钮「继续下载」）；
   `Export_ProtonUpdateConfirm_ForReview` 1 张（Proton 更新确认覆盖层，内含纱罩压暗的像素级回归断言）；
   `Export_BootSplash_ForReview` 1 张（16-boot-splash 启动遮蔽层）；
   `Export_GameDependencies_ForReview` 2 张（20/21 游戏设置页依赖卡：暗=未安装灰点安装钮、
@@ -47,7 +50,7 @@ dotnet tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLa
   `Export_BusyDock_ForReview` 2 张（22/23 详情页操作坞忙碌态暗/亮：真实更新流挂在清单拉取处取帧——启动钮禁用 + 进度行；操作坞两主题逐像素一致由该测试断言，2026-10-19 增）。
   历史：2026-09-20 实测归属更正、2026-09-21 增启动页、2026-09-23 增唤取页、2026-09-25 增真实海报页、
   2026-09-29 增设置页亮色 05b（05 滚动定位改到关闭行为卡 CloseActionCard，随 0.1.3 新增）、
-  2026-10-19 增操作坞忙碌态 22/23。
+  2026-10-19 增操作坞忙碌态 22/23、档位资源包与续传 24~27。
   输出到 `artifacts/ui-review/`（已 gitignore），改动 UI 后重跑并人工/judge 审查。
 
 ## 2. 看图检查清单（逐项过，亮暗各一遍）

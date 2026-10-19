@@ -276,6 +276,8 @@ public class UiScreenshotTests
 
         var captured = new List<(string Name, byte[]? Png)>();
         var launchErrorShown = false;
+        // 档位四截面的主题采样（在 Dispatch 外声明，断言才在作用域内；与 launchErrorShown 同型）
+        var tierThemeProbes = new List<(string Name, int RgbSum)>();
 
         await HeadlessSession.Instance.Dispatch(() =>
         {
@@ -370,6 +372,108 @@ public class UiScreenshotTests
             Capture("11b-launch-settings-linux-light.png", tallWindow);
             tallWindow.Close();
 
+            // 11b 后主题停在亮色：档位小节必须显式切回暗色——否则 24~27 名为 -dark 实为亮色渲染，
+            // 暗色下的新 UI（档位行/清理入口/确认覆盖层/续传主按钮）根本没入画，评审看图会误以为
+            // 暗色已覆盖（2026-10-19 judge 实锤：主题状态静默残留，名字与画面不符）
+            ctx.Vm.SelectedTheme = ctx.Vm.ThemeModes.First(t => t.Mode == ThemeMode.Dark);
+
+            // 档位资源包（2026-10-19）：支持档位下载的服务器 + 已选 UHD 未落盘 + 其它档位有本地文件
+            // → 档位状态行 / 清理入口 / 清理确认覆盖层，以及主按钮「下载资源包」四处新 UI 的视觉验收
+            ctx.Kuro.SupportsResourcePacks = true;
+            ctx.Kuro.ResourcePacks["hd"] = new ResourcePackManifest(
+                "hd", "Client/Content/HD", "3.6.0",
+                [new ManifestFile("Client/Content/HD/pakchunk1-HD.pak", 5, "00000000000000000000000000000000")]);
+            ctx.Kuro.ResourcePacks["sd"] = new ResourcePackManifest(
+                "sd", "Client/Content/SD", "3.6.0",
+                [new ManifestFile("Client/Content/SD/pakchunk1-SD.pak", 3, "00000000000000000000000000000000")]);
+            ctx.Kuro.ResourcePacks["uhd"] = new ResourcePackManifest(
+                "uhd", "Client/Content/UHD", "3.6.0",
+                [new ManifestFile("Client/Content/UHD/pakchunk1-UHD.pak", 3, "00000000000000000000000000000000")]);
+            var hdPak = Path.Combine(wuwa.InstallDirPath, "Client", "Content", "HD", "pakchunk1-HD.pak");
+            Directory.CreateDirectory(Path.GetDirectoryName(hdPak)!);
+            File.WriteAllText(hdPak, "12345");
+            // 已安装态（清理入口要求已安装；详情页主按钮也要走"已安装 + 缺包"分支）
+            Directory.CreateDirectory(Path.Combine(wuwa.InstallDirPath, ".yagl"));
+            File.WriteAllText(
+                Path.Combine(wuwa.InstallDirPath, ".yagl", "state.json"),
+                $"{{\"GameId\":\"{wuwa.Game.Id}\",\"ServerId\":\"{wuwa.SelectedServer.Id}\",\"Version\":\"3.6.0\",\"Verified\":true,\"ResourceTier\":\"hd\"}}");
+            RunToCompletion(() => wuwa.RefreshAsync());
+            // 档位切换走真实用户路径（草稿 + 保存）：下拉选中态与档位状态行才自洽
+            //（直接改模型会让已创建的下拉草稿仍显示旧档，截图会自相矛盾）
+            wuwa.LaunchSettings.SelectedResourceQuality =
+                wuwa.LaunchSettings.ResourceQualities.First(q => q.Tier == "uhd");
+            RunToCompletion(() => wuwa.LaunchSettings.SaveCommand.ExecuteAsync(null));
+
+            // 档位四截面的主题守卫（2026-10-19 judge 实锤）：侧栏空白底色是主题相关的强信号
+            // （暗 ≈ #181922、亮 ≈ #ECEEF3），抓帧时一并采样，Dispatch 外断言——名字与画面
+            // 不符这类"静默失效"必须有会红的守卫，否则下一轮同样悄悄退化成亮色帧
+            void CaptureTier(string name, MainWindow source)
+            {
+                Thread.Sleep(150);
+                Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+                var frame = source.CaptureRenderedFrame();
+                if (frame is null)
+                {
+                    captured.Add((name, null));
+                    return;
+                }
+
+                using (var ms = new MemoryStream())
+                {
+                    frame.Save(ms, new PngBitmapEncoderOptions());
+                    captured.Add((name, ms.ToArray()));
+                }
+
+                using (var fb = frame.Lock())
+                {
+                    var addr = fb.Address + (320 * fb.RowBytes) + (120 * 4);
+                    tierThemeProbes.Add((name,
+                        System.Runtime.InteropServices.Marshal.ReadByte(addr)
+                        + System.Runtime.InteropServices.Marshal.ReadByte(addr + 1)
+                        + System.Runtime.InteropServices.Marshal.ReadByte(addr + 2)));
+                }
+
+                frame.Dispose();
+            }
+
+            var tierWindow = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 1200 };
+            tierWindow.NavIndicatorAnimationEnabled = false;
+            tierWindow.Show();
+            ctx.Vm.ShowGamesCommand.Execute(null); // 详情页：主按钮「下载资源包」（档位缺包优先于更新）
+            tierWindow.UpdateLayout();
+            CaptureTier("24-resource-tier-download-pack-dark.png", tierWindow);
+
+            ctx.Vm.ShowGameSettingsCommand.Execute(null); // 设置页：档位状态行 + 清理入口
+            tierWindow.UpdateLayout();
+            // 档位区块在启动卡下部：滚到它再截（否则整块在视口外，截图静默变成"没有新 UI"）
+            tierWindow.GetVisualDescendants().OfType<StackPanel>()
+                .FirstOrDefault(p => p.Name == "ResourceTierBlock")?.BringIntoView();
+            tierWindow.UpdateLayout();
+            CaptureTier("25-resource-tier-settings-dark.png", tierWindow);
+
+            RunToCompletion(() => wuwa.LaunchSettings.PrepareCleanupCommand.ExecuteAsync(null));
+            tierWindow.UpdateLayout();
+            CaptureTier("26-resource-tier-cleanup-confirm-dark.png", tierWindow);
+            Assert.True(wuwa.LaunchSettings.ShowCleanupConfirm, "清理确认覆盖层未点亮（截图会静默变成'无覆盖层'画面）");
+            wuwa.LaunchSettings.CancelCleanupCommand.Execute(null);
+            tierWindow.Close();
+
+            // 暂停/续传（2026-10-19）：未完成下载标记 → 主按钮「继续下载」+ 状态行提示
+            new DownloadSessionService(wuwa.InstallDirPath).Begin("update", "3.6.0");
+            RunToCompletion(() => wuwa.RefreshAsync());
+            var resumeWindow = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
+            resumeWindow.NavIndicatorAnimationEnabled = false;
+            resumeWindow.Show();
+            ctx.Vm.ShowGamesCommand.Execute(null);
+            resumeWindow.UpdateLayout();
+            CaptureTier("27-resume-download-dark.png", resumeWindow);
+            resumeWindow.Close();
+            new DownloadSessionService(wuwa.InstallDirPath).Clear();
+            RunToCompletion(() => wuwa.RefreshAsync());
+            wuwa.Game.Launch.ResourceQualityTier = null;
+            ctx.Kuro.SupportsResourcePacks = false;
+
+
             // 轻提示：两条不同种类的 toast 叠在右上（状态变化时由 VM 自动弹出，此处手动注入）
             var toastWindow = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
             toastWindow.NavIndicatorAnimationEnabled = false;
@@ -386,6 +490,11 @@ public class UiScreenshotTests
         }, CancellationToken.None);
 
         Assert.True(launchErrorShown, "启动预检失败未点亮覆盖层状态（截图会静默变成'无覆盖层'画面）");
+        // 档位四截面必须是暗色帧（侧栏底色 RGB 和：暗 ≈ 83、亮 ≈ 717）——主题切换静默失效即红
+        Assert.Equal(4, tierThemeProbes.Count);
+        Assert.All(tierThemeProbes, probe => Assert.True(
+            probe.RgbSum < 150,
+            $"{probe.Name} 不是暗色帧（侧栏像素 RGB 和 {probe.RgbSum}）——主题切换静默失效，暗色新 UI 未入画"));
         Assert.NotEmpty(captured);
         Assert.All(captured, c => Assert.True(c.Png is not null && c.Png.Length > 0, $"截图 {c.Name} 抓帧失败"));
         foreach (var (name, png) in captured)
@@ -867,7 +976,7 @@ public class UiScreenshotTests
             // 真实更新流挂在拉清单处：IsBusy 已置位、进度行可见——禁用态出现的窗口
             var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var fetchReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            ctx.Kuro.ManifestHandler = async (_, version, _) =>
+            ctx.Kuro.ManifestHandler = async (_, version, _, _) =>
             {
                 fetchReached.TrySetResult();
                 await gate.Task;

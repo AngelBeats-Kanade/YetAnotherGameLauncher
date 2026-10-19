@@ -28,11 +28,13 @@ public class KuroServiceCollectionExtensionsTests
         public Task<ChannelVersionInfo> GetVersionInfoAsync(GameServer server, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task<GameManifest> GetManifestAsync(GameServer server, string version, CancellationToken cancellationToken = default) =>
+        public Task<GameManifest> GetManifestAsync(
+            GameServer server, string version, string? resourceTier = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
         public Task<GameManifest?> GetIncrementalManifestAsync(
-            GameServer server, string fromVersion, string toVersion, CancellationToken cancellationToken = default) =>
+            GameServer server, string fromVersion, string toVersion, string? resourceTier = null,
+            CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
     }
 

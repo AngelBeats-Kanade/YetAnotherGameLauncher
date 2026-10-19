@@ -148,7 +148,8 @@
                                              IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsSidebarExpanded}"
                                              Classes.installed="{Binding CanLaunch}"
                                              Classes.has-update="{Binding HasUpdate}"
-                                             Classes.predownload="{Binding ShowPredownloadCue}"/>
+                                             Classes.predownload="{Binding ShowPredownloadCue}"
+                                             Classes.needs-action="{Binding NeedsActionCue}"/>
                                 </Grid>
                             </DataTemplate>
                         </ListBox.ItemTemplate>

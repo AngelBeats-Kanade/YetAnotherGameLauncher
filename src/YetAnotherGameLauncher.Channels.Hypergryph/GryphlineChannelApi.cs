@@ -81,15 +81,18 @@ public sealed partial class GryphlineChannelApi(HttpClient httpClient, ILogger? 
         };
     }
 
-    public async Task<GameManifest> GetManifestAsync(GameServer server, string version, CancellationToken cancellationToken = default)
+    public async Task<GameManifest> GetManifestAsync(
+        GameServer server, string version, string? resourceTier = null, CancellationToken cancellationToken = default)
     {
-        // 包式渠道只能取最新整包清单：version 参数仅用于接口契约对齐，响应版本即目标版本
+        // 包式渠道只能取最新整包清单：version 参数仅用于接口契约对齐，响应版本即目标版本；
+        // 档位（鸣潮专属）不适用，忽略
         var response = await PostGetLatestGameAsync(server, cancellationToken).ConfigureAwait(false);
         return ToPackageManifest(response.Version, response.Pkg!);
     }
 
     public Task<GameManifest?> GetIncrementalManifestAsync(
-        GameServer server, string fromVersion, string toVersion, CancellationToken cancellationToken = default)
+        GameServer server, string fromVersion, string toVersion, string? resourceTier = null,
+        CancellationToken cancellationToken = default)
         => Task.FromResult<GameManifest?>(null); // 包式渠道：更新走整包，无按版本差分清单
 
     public async Task<GameManifest?> GetPredownloadManifestAsync(GameServer server, CancellationToken cancellationToken = default)

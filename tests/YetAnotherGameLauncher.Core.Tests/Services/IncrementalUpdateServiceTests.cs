@@ -211,6 +211,44 @@ public class IncrementalUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyAsync_DeleteFilesUnderPreservedPrefix_SparesThem()
+    {
+        // 2026-10-19 review 实锤（阻塞项）：档位模式下"未选中档位目录"列入 PreservedPaths，
+        // 官方废弃清单却可能点名其中内容——原样执行会把 HD 目录里清单点名的文件删掉，
+        // 与"切档不删旧档、删除只经显式清理"直接冲突且用户无确认机会。渠道侧已按档位裁剪，
+        // 这里钉死消费端的纵深守卫（漏裁只该少删、不该误删）。
+        var oldContent = "old-content"u8.ToArray();
+        var newContent = "new-content"u8.ToArray();
+        Directory.CreateDirectory(_tempDir.FilePath("data"));
+        Directory.CreateDirectory(_tempDir.FilePath("Client", "Content", "HD"));
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "file.dat"), oldContent);
+        await File.WriteAllBytesAsync(
+            _tempDir.FilePath("Client", "Content", "HD", "pakchunk0-HD.pak"), "hd-payload"u8.ToArray());
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "gone.pak"), "gone"u8.ToArray());
+        var group = PrepareGroup("g1.krpdiff", [("data/file.dat", oldContent)], [("data/file.dat", newContent)]);
+        var manifest = new GameManifest
+        {
+            Version = "2.0.0",
+            Groups = [group],
+            DeleteFiles =
+            [
+                "Client/Content/HD/pakchunk0-HD.pak", // 保留前缀之下：必须存活
+                "Client/Content/HD/../HD/other.pak",  // 同族形态（`..` 段）：同样命中前缀
+                "data/gone.pak",                      // 普通废弃条目：照删
+            ],
+            PreservedPaths = ["Client/Content/HD", "Client/Content/SD"],
+        };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+
+        await CreateService().ApplyAsync(_tempDir.Path, manifest);
+
+        Assert.True(
+            File.Exists(_tempDir.FilePath("Client", "Content", "HD", "pakchunk0-HD.pak")),
+            "保留前缀下的文件不得被废弃清单隐式删除");
+        Assert.False(File.Exists(_tempDir.FilePath("data", "gone.pak"))); // 守卫不得放行普通条目
+    }
+
+    [Fact]
     public async Task ApplyAsync_DeleteFilesIntersectingGroupSrc_AppliesGroupThenDeletes()
     {
         // T1（2026-10-02 真机 P1 实锤）：deleteFiles ∩ group.srcFiles 非空（3.6.1→3.7.0 group_37
@@ -360,8 +398,11 @@ public class IncrementalUpdateServiceTests : IDisposable
         // 补丁器收到的旧目录中有 src 相对路径文件
         var call = Assert.Single(_applier.Calls);
         Assert.Equal(["data/file.dat"], call.OldFiles);
-        // 应用成功后暂存目录被清理
-        Assert.False(Directory.Exists(IncrementalUpdateService.PredownloadDir(_tempDir.Path)));
+        // 应用成功后载荷（补丁/暂存文件）被清理；暂存清单保留到操作提交（2026-10-19 review：
+        // 修复轮/写盘期间掉线时续跑靠它进入"应用链续跑"，而不是重下整包差量）
+        Assert.False(Directory.Exists(Path.Combine(IncrementalUpdateService.PredownloadDir(_tempDir.Path), "patches")));
+        Assert.False(Directory.Exists(Path.Combine(IncrementalUpdateService.PredownloadDir(_tempDir.Path), "files")));
+        Assert.NotNull(IncrementalUpdateService.TryLoadStagedManifest(_tempDir.Path));
     }
 
     [Fact]

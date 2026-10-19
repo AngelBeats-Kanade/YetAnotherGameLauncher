@@ -175,24 +175,56 @@
                                                TextWrapping="Wrap" MaxWidth="420"/>
                                 </StackPanel>
                             </StackPanel>
-                            <!-- 资源包档位（鸣潮专属，2026-10-02）：以 -krqlv=<tier> 启动参数传给游戏；
+                            <!-- 资源包档位（鸣潮专属，2026-10-02 起作启动参数；2026-10-19 起同时决定下载来源）：
+                                 以 -krqlv=<tier> 启动参数传给游戏，并按档位从官方档位渠道下载/清理资源包；
                                  与平台无关（不套 IsLinux 门控），渠道可见性走 Game.IsKuro（HasGachaEntry 先例）；
-                                 草稿语义随保存钮落盘。设计依据：UI_STRUCTURE §4——选项区组距 8、ComboBox
-                                 MinWidth=220 与启动方式下拉同宽、hint 必须 Left + MaxWidth=420 Wrap -->
-                            <StackPanel Spacing="4" IsVisible="{Binding Game.IsKuro}">
-                                <TextBlock Text="{Binding Loc[launch_resourceQuality]}" Classes="card-caption"/>
-                                <ComboBox ItemsSource="{Binding LaunchSettings.ResourceQualities}"
-                                          SelectedItem="{Binding LaunchSettings.SelectedResourceQuality}"
-                                          MinWidth="220">
-                                    <ComboBox.ItemTemplate>
-                                        <DataTemplate x:DataType="vm:ResourceQualityOption">
-                                            <TextBlock Text="{Binding DisplayName}"/>
-                                        </DataTemplate>
-                                    </ComboBox.ItemTemplate>
-                                </ComboBox>
-                                <TextBlock Text="{Binding Loc[launch_resourceQualityHint]}" Classes="card-caption"
+                                 草稿语义随保存钮落盘。设计依据：UI_STRUCTURE §4——组距 8（选择组内行距 4）、
+                                 ComboBox MinWidth=220 与启动方式下拉同宽、hint 必须 Left + MaxWidth=420 Wrap
+                                 （Stretch+MaxWidth 是约束居中而非左对齐，实锤条款）；档位状态行与清理入口
+                                 收在同一区块内（同一件事的三个方面：选择 / 补包指引 / 释放空间），不另起卡片 -->
+                            <StackPanel Name="ResourceTierBlock" Spacing="8"
+                                        IsVisible="{Binding Game.IsKuro}">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="{Binding Loc[launch_resourceQuality]}" Classes="card-caption"/>
+                                    <ComboBox ItemsSource="{Binding LaunchSettings.ResourceQualities}"
+                                              SelectedItem="{Binding LaunchSettings.SelectedResourceQuality}"
+                                              MinWidth="220">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:ResourceQualityOption">
+                                                <TextBlock Text="{Binding DisplayName}"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBlock Text="{Binding Loc[launch_resourceQualityHint]}" Classes="card-caption"
+                                               HorizontalAlignment="Left"
+                                               TextWrapping="Wrap" MaxWidth="420"/>
+                                </StackPanel>
+                                <!-- 档位状态/能力说明行（保存档位与本地落盘档位不一致 → 补包指引；
+                                     服务器无档位索引 → 只作启动参数的能力提示）；空文案不占位 -->
+                                <TextBlock Text="{Binding LaunchSettings.ResourceTierHint}" Classes="card-caption"
+                                           IsVisible="{Binding LaunchSettings.HasResourceTierHint}"
                                            HorizontalAlignment="Left"
                                            TextWrapping="Wrap" MaxWidth="420"/>
+                                <!-- 清理其他档位（危险动作：先预览释放量、确认后才删；只删官方清单点名的
+                                     档位目录内文件）。形态：依赖卡"安装/重装"同款 btn-sm 次级动作；
+                                     不支持档位下载的服务器整入口隐藏（能力不具备，按钮无意义） -->
+                                <StackPanel Spacing="4" IsVisible="{Binding Game.SupportsResourcePackDownload}">
+                                    <Button Classes="btn-sm"
+                                            Content="{Binding Loc[launch_resourcePackCleanup]}"
+                                            Command="{Binding LaunchSettings.PrepareCleanupCommand}"
+                                            IsEnabled="{Binding LaunchSettings.CanCleanupOtherTiers}"
+                                            HorizontalAlignment="Left"/>
+                                    <TextBlock Text="{Binding Loc[launch_resourcePackCleanupHint]}" Classes="card-caption"
+                                               HorizontalAlignment="Left"
+                                               TextWrapping="Wrap" MaxWidth="420"/>
+                                    <!-- 清理结果/失败反馈：专属 PackFeedback 槽（不与位置卡 Save/启动卡
+                                         UmuFeedback 混用——设置页消息槽归属纪律，2026-09-23 实锤） -->
+                                    <TextBlock Classes="save-msg"
+                                               Text="{Binding LaunchSettings.PackFeedback.Message}"
+                                               IsVisible="{Binding LaunchSettings.PackFeedback.HasMessage}"
+                                               Classes.failed="{Binding LaunchSettings.PackFeedback.Failed}"
+                                               TextWrapping="Wrap"/>
+                                </StackPanel>
                             </StackPanel>
                             <StackPanel Spacing="4">
                                 <StackPanel Orientation="Horizontal" Spacing="4">
@@ -306,6 +338,39 @@
                             Classes="pressable back-btn"/>
                 </StackPanel>
             </ScrollViewer>
+
+            <!-- 档位资源包清理确认覆盖层（与 Proton 更新确认同款纱罩+居中卡；破坏性操作：
+                 先预览释放量与目标档位，确认后才删；确认钮为 danger-card 红字幽灵钮——
+                 与 danger 操作不使用 accent 实心主钮同纪律） -->
+            <Grid IsVisible="{Binding LaunchSettings.ShowCleanupConfirm}">
+                <Border Background="{DynamicResource AppOverlayScrimBrush}"/>
+                <Border Classes="launch-error-card"
+                        MinWidth="340"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                        MaxWidth="420" Margin="24">
+                    <StackPanel Spacing="12">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Path Data="M12,2 C17.52,2 22,6.48 22,12 C22,17.52 17.52,22 12,22 C6.48,22 2,17.52 2,12 C2,6.48 6.48,2 12,2 Z M11,7 L13,7 L13,13 L11,13 Z M11,15 L13,15 L13,17 L11,17 Z"
+                                  Fill="{DynamicResource AppTextSecondary}" Stretch="Uniform"
+                                  Width="21" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding Loc[launch_resourcePackCleanupTitle]}"
+                                       FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding LaunchSettings.CleanupConfirmMessage}" FontSize="13"
+                                   TextWrapping="Wrap" LineHeight="20"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8"
+                                    HorizontalAlignment="Right">
+                            <Button Classes="launch-error-secondary"
+                                    Command="{Binding LaunchSettings.CancelCleanupCommand}"
+                                    Content="{Binding Loc[launch_proton_update_cancel]}"/>
+                            <Button Classes="danger-card"
+                                    Command="{Binding LaunchSettings.ConfirmCleanupCommand}"
+                                    IsEnabled="{Binding !LaunchSettings.IsCleaningPacks}"
+                                    Content="{Binding Loc[launch_resourcePackCleanupYes]}"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </Grid>
 
             <!-- Proton 更新确认覆盖层（LaunchErrorOverlay 同款纱罩+居中卡；确认后更新并清理旧版本） -->
             <Grid IsVisible="{Binding LaunchSettings.ShowProtonUpdateConfirm}">

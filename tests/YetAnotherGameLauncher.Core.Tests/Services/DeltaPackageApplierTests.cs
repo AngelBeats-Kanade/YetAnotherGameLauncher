@@ -94,7 +94,9 @@ public class DeltaPackageApplierTests : IDisposable
             _tempDir.FilePath("Endfield_Data", "StreamingAssets", "VFS", "x.dat")));
         Assert.True(File.Exists(verifyOnly));
         Assert.False(File.Exists(_tempDir.FilePath("old", "stale1.chk")));
-        Assert.False(Directory.Exists(DeltaPackageApplier.PayloadDir(_tempDir.Path))); // 载荷清理
+        // 载荷保留到调用方提交点（2026-10-19 三审）：应用器不自删，应用成功到状态落盘之间
+        // 掉线/暂停时续跑才可能零下载收敛
+        Assert.True(File.Exists(Path.Combine(DeltaPackageApplier.PayloadDir(_tempDir.Path), VolumeName)));
         Assert.Contains(progress.Frames, f => f.Phase == UpdatePhase.Patching);
         Assert.Contains(progress.Frames, f => f.Phase == UpdatePhase.CleaningUp);
         Assert.Contains(progress.Frames, f => f.Phase == UpdatePhase.Done);
@@ -106,6 +108,86 @@ public class DeltaPackageApplierTests : IDisposable
         var call = Assert.Single(_applier.Calls);
         Assert.Equal(baseFile, call.BaseFile);
         Assert.EndsWith("bb22.chk.yagl-new", call.OutputFile); // 先产出临时文件，核对后替换
+    }
+
+    [Fact]
+    public async Task ApplyAsync_SecondRunAfterCompletedApply_SkipsAlreadyAppliedWithoutDownload()
+    {
+        // 2026-10-19 三审（真实可达窗口）：应用已完成、状态未落盘（进程掉线/暂停落在同步的废弃
+        // 清理与调用方写盘之间）后重开。等价形态 = 同一计划连跑两次：载荷与分卷都在场，第二次
+        // 必须全部按"已到位"跳过、零下载——若按基 md5 重走差分会被判"不适用"而错误回退整包。
+        // 四审补强：第一跑后删掉基文件（上一轮的官方废弃清理真会这么做）——“已到位 → 不再要求
+        // 基文件在盘”的排序必须是可失败断言，否则把早退挪到基文件检查之后仍会全绿
+        var fullContent = "full-file-content"u8.ToArray();
+        var produced = "PATCHED-CONTENT"u8.ToArray();
+        var payload = BuildPayload("vfs_files/files/Endfield_Data/x.dat", fullContent, "");
+        _downloader.Responses[VolumeUrl] = payload;
+        var baseFile = CreateFile("Endfield_Data/StreamingAssets/VFS/base/origin.chk", "base-content");
+        var verifyOnly = CreateFile("Endfield_Data/StreamingAssets/VFS/keep/keep.chk", "unchanged");
+        _applier.Output = produced;
+        var plan = BuildPlan(payload,
+        [
+            PatchFile("AA11/bb22.chk", produced, "base/origin.chk", Hashing.Md5Hex(baseFile)),
+            new DeltaPackageFile("x.dat", Hashing.Md5Hex(fullContent), fullContent.Length, 2,
+                "vfs_files/files/Endfield_Data/x.dat", []),
+            new DeltaPackageFile("keep/keep.chk", Hashing.Md5Hex(verifyOnly), 0, 1, null, []),
+        ]);
+
+        var first = await new DeltaPackageApplier(_downloader, _applier).ApplyAsync(_tempDir.Path, plan);
+        Assert.Equal(1, first.Patched);
+        var requestsAfterFirst = _downloader.Requests.Count;
+        var callsAfterFirst = _applier.Calls.Count;
+
+        // 上一轮的官方废弃清理把旧基文件删掉：续跑仍必须成功（已到位节点不再要求基文件在盘）。
+        // 若 EnsureApplicable 的"已到位"早退被挪到基文件检查之后，这里会抛"base file is missing"
+        File.Delete(baseFile);
+        Assert.False(File.Exists(baseFile));
+
+        var second = await new DeltaPackageApplier(_downloader, _applier).ApplyAsync(_tempDir.Path, plan);
+
+        Assert.Equal(requestsAfterFirst, _downloader.Requests.Count);  // 载荷复用：零网络
+        Assert.Equal(callsAfterFirst, _applier.Calls.Count);           // 差分节点零补丁调用（已到位）
+        Assert.Equal(0, second.Patched);
+        Assert.Equal(0, second.Copied);
+        Assert.Equal(3, second.Verified);                              // 三个节点都按"已到位"通过
+        Assert.True(File.Exists(Path.Combine(DeltaPackageApplier.PayloadDir(_tempDir.Path), VolumeName)));
+    }
+
+    [Fact]
+    public async Task ApplyAsync_ResumeAfterMidApplyCancel_PatchesOnlyRemainingFilesWithoutDownload()
+    {
+        // 2026-10-19 三审：应用中途取消（补丁工具调用之间是真实可暂停点）后重跑——已落位节点
+        // 必须按"已到位"跳过，只补未完成节点，且载荷在场零下载
+        var produced = "PATCHED-CONTENT"u8.ToArray();
+        var payload = BuildPayload("vfs_files/files/unused.bin", "static"u8.ToArray(), "");
+        _downloader.Responses[VolumeUrl] = payload;
+        var baseA = CreateFile("Endfield_Data/StreamingAssets/VFS/base/a.chk", "base-a");
+        var baseB = CreateFile("Endfield_Data/StreamingAssets/VFS/base/b.chk", "base-b");
+        var verifyOnly = CreateFile("Endfield_Data/StreamingAssets/VFS/keep/keep.chk", "unchanged");
+        _applier.Output = produced;
+        var plan = BuildPlan(payload,
+        [
+            PatchFile("AA11/aa11.chk", produced, "base/a.chk", Hashing.Md5Hex(baseA)),
+            PatchFile("BB22/bb22.chk", produced, "base/b.chk", Hashing.Md5Hex(baseB)),
+            new DeltaPackageFile("keep/keep.chk", Hashing.Md5Hex(verifyOnly), 0, 1, null, []),
+        ]);
+        _applier.Failure = new OperationCanceledException();
+        _applier.FailOnCallIndex = 1; // 第一个节点应用成功，第二个节点前被暂停
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => new DeltaPackageApplier(_downloader, _applier).ApplyAsync(_tempDir.Path, plan));
+        var requestsAfterCancel = _downloader.Requests.Count;
+        Assert.Equal(2, _applier.Calls.Count); // 失败的那次也已记账（假补丁器先 Calls.Add 再抛）
+
+        _applier.Failure = null;
+        var callsAfterCancel = _applier.Calls.Count;
+
+        var resumed = await new DeltaPackageApplier(_downloader, _applier).ApplyAsync(_tempDir.Path, plan);
+
+        Assert.Equal(requestsAfterCancel, _downloader.Requests.Count); // 载荷复用：零网络
+        Assert.Equal(callsAfterCancel + 1, _applier.Calls.Count);      // 续跑只补第二个节点（+1 次调用）
+        Assert.Equal(1, resumed.Patched);
+        Assert.Equal(2, resumed.Verified);                             // 已到位的差分节点 + verify-only
     }
 
     [Fact]
@@ -504,7 +586,7 @@ public class DeltaPackageApplierTests : IDisposable
     [Fact]
     public async Task ApplyAsync_EnoughFreeSpace_ProceedsNormally()
     {
-        // 误杀面：空闲充足时预检必须放行（缝给大值，正常走完应用与载荷清理）
+        // 误杀面：空闲充足时预检必须放行（缝给大值，正常走完应用；载荷保留到调用方提交点）
         var payload = BuildPayload("vfs_files/files/x.dat", "abc"u8.ToArray(), string.Empty);
         _downloader.Responses[VolumeUrl] = payload;
         var plan = BuildPlan(payload, []);
@@ -515,7 +597,8 @@ public class DeltaPackageApplierTests : IDisposable
             var result = await new DeltaPackageApplier(_downloader, _applier).ApplyAsync(_tempDir.Path, plan);
 
             Assert.Equal(0, result.Verified);
-            Assert.False(Directory.Exists(DeltaPackageApplier.PayloadDir(_tempDir.Path)));
+            // 载荷不在应用器内清（2026-10-19 三审）：保留到调用方提交点，续跑才能零下载
+            Assert.True(File.Exists(Path.Combine(DeltaPackageApplier.PayloadDir(_tempDir.Path), VolumeName)));
         }
         finally
         {
@@ -615,10 +698,14 @@ public sealed class FakeFilePatchApplier : IFilePatchApplier
     /// <summary>非 null 时按补丁工具失败抛出（用于验证"工具失败 → 载荷不可用"折算）。</summary>
     public Exception? Failure { get; set; }
 
+    /// <summary>Failure 的触发下标（0 起；-1 = 每次调用都抛——用于模拟应用中途取消/掉线）。</summary>
+    public int FailOnCallIndex { get; set; } = -1;
+
     public Task ApplyFileAsync(string patchFilePath, string oldFilePath, string newFilePath, CancellationToken cancellationToken = default)
     {
+        var callIndex = Calls.Count;
         Calls.Add((patchFilePath, oldFilePath, newFilePath));
-        if (Failure is not null)
+        if (Failure is not null && (FailOnCallIndex < 0 || FailOnCallIndex == callIndex))
         {
             throw Failure;
         }

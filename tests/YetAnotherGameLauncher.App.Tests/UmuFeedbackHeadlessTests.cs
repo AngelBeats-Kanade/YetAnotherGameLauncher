@@ -59,9 +59,9 @@ public class UmuFeedbackHeadlessTests : IDisposable
                 .OfType<TextBlock>().Where(t => t.Classes.Contains("save-msg")).ToList();
             var inLaunchCard = slots.Where(t => launchCard.GetVisualDescendants().Contains(t)).ToList();
             var outsideLaunchCard = slots.Except(inLaunchCard).ToList();
-            umuShownInLaunchCard = inLaunchCard.Count == 1
-                && inLaunchCard[0].IsVisible
-                && inLaunchCard[0].Text == "组件反馈标记";
+            // 归属按文本判定（2026-10-19 起启动卡内不止一个槽：档位清理反馈 PackFeedback 也在
+            // 启动卡里，"卡内恰好一个槽"的计数假设不再是归属代理；文本归属断言更强且不随槽数漂移）
+            umuShownInLaunchCard = inLaunchCard.Count(t => t.IsVisible && t.Text == "组件反馈标记") == 1;
             umuHiddenInLocationCard = outsideLaunchCard
                 .Where(t => t.IsVisible)
                 .All(t => t.Text != "组件反馈标记");
@@ -72,7 +72,7 @@ public class UmuFeedbackHeadlessTests : IDisposable
             window.UpdateLayout();
             saveShownInLocationCard = outsideLaunchCard
                 .Count(t => t.IsVisible && t.Text == "保存反馈标记") == 1;
-            saveHiddenInLaunchCard = inLaunchCard.Count == 1 && !inLaunchCard[0].IsVisible;
+            saveHiddenInLaunchCard = inLaunchCard.All(t => !t.IsVisible || t.Text != "保存反馈标记");
 
             window.Close();
         }, CancellationToken.None);
@@ -113,15 +113,16 @@ public class UmuFeedbackHeadlessTests : IDisposable
                 .OfType<TextBlock>().Where(t => t.Classes.Contains("save-msg")).ToList();
             var inLaunchCard = slots.Where(t => launchCard.GetVisualDescendants().Contains(t)).ToList();
             var outsideLaunchCard = slots.Except(inLaunchCard).ToList();
-            launchCardSlotWraps = inLaunchCard.Count == 1
-                && inLaunchCard[0].TextWrapping == TextWrapping.Wrap;
+            // 启动卡内的每个槽都必须 Wrap（UmuFeedback + 2026-10-19 起的档位清理 PackFeedback）
+            launchCardSlotWraps = inLaunchCard.Count >= 1
+                && inLaunchCard.All(t => t.TextWrapping == TextWrapping.Wrap);
             outsideSlotsAllWrap = outsideLaunchCard.Count >= 1
                 && outsideLaunchCard.All(t => t.TextWrapping == TextWrapping.Wrap);
 
             window.Close();
         }, CancellationToken.None);
 
-        Assert.True(launchCardSlotWraps, "启动卡 save-msg 未设 Wrap：长反馈（ex.Message）会横向溢出裁切");
+        Assert.True(launchCardSlotWraps, "启动卡存在未设 Wrap 的 save-msg 槽：长反馈（ex.Message）会横向溢出裁切");
         Assert.True(outsideSlotsAllWrap, "存在未设 Wrap 的 save-msg 槽：长反馈会横向溢出裁切");
     }
 }

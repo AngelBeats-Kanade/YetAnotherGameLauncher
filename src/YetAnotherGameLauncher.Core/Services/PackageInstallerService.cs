@@ -89,8 +89,12 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
     }
 
     /// <summary>
-    /// 应用预下载：直接解压暂存压缩包（Predownload 的产物），完成后清理暂存目录。
-    /// 正常情况下零下载；仅当某个包缺失或校验不通过（如暂存被中断/篡改）时才回退重新下载该包。
+    /// 应用预下载：直接解压暂存压缩包（Predownload 的产物）。正常情况下零下载；仅当某个包缺失或
+    /// 校验不通过（如暂存被中断/篡改）时才回退重新下载该包。
+    /// <b>不清暂存</b>（2026-10-19 二审 N2）：解压是同步长任务、取消令牌只在之后的写盘 await 生效，
+    /// 用户可能"暂停落在解压完到状态落盘之间"——此时清单与归档仍在场，续跑重进本方法零下载重解压，
+    /// 而不是整包重下数十 GB。载荷与暂存清单的清理由调用方在提交点（状态落盘后）负责
+    /// （<c>GameUpdateService.ApplyPredownloadAsync</c> → <c>IncrementalUpdateService.ClearStaging</c>）。
     /// </summary>
     public async Task ApplyPredownloadAsync(
         string installDir,
@@ -104,7 +108,6 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
         // 的用户报障形态，而此刻几十 GiB 已经下载完。按同一分卷规则复算救回这段存量状态
         // （review 非阻塞 3，2026-10-17）
         var manifest = EnsureSplitVolumeManifest(packageManifest);
-        var staging = IncrementalUpdateService.PredownloadDir(installDir);
         var stagedDir = PackagesDir(installDir);
         var total = manifest.Files.Count;
 
@@ -130,11 +133,11 @@ public sealed class PackageInstallerService(IDownloader downloader, ILogger? log
         var produced = ExtractStagedArchives(staged, manifest.ArchivesAreSplitVolumes, installDir);
         DeleteObsoleteFiles(installDir, obsoleteFiles, produced, progress, logger);
 
-        if (Directory.Exists(staging))
-        {
-            FileUtilities.TryDeleteDirectory(staging, logger);
-        }
-
+        // 暂存清单与归档（packages/）**不在本方法清**（2026-10-19 二审 N2）：解压是同步长任务、令牌
+        // 只在之后的写盘 await 生效，用户可能"暂停落在解压完到状态落盘之间"——那时标记留存、
+        // 清单与归档若已删，续跑只能整包重下数十 GB。载荷与清单一律留到调用方提交点
+        // （GameUpdateService.ApplyPredownloadAsync 在状态落盘后 ClearStaging），
+        // 期间掉线重进应用链零下载重解压（归档完好即 IsArchiveIntact 复用）。
         logger?.LogInformation("Predownload applied: {Version} ({Count} archives)", manifest.Version, total);
         progress?.Report(new UpdateProgress(UpdatePhase.Done, 0, 0, total, total, null));
     }

@@ -217,7 +217,7 @@ public class GameItemActionsTests : IDisposable
         Assert.True(endfield.IsInstalled);
 
         var gate = new TaskCompletionSource<GameManifest>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _ctx.Gryphline.ManifestHandler = (_, _, _) => gate.Task;
+        _ctx.Gryphline.ManifestHandler = (_, _, _, _) => gate.Task;
         var baseline = _ctx.Gryphline.ManifestRequests.Count; // 安装阶段已留一次清单请求
 
         var first = endfield.InstallOrUpdateCommand.ExecuteAsync(null);

@@ -173,8 +173,8 @@ const MUTATIONS = [
     // 用户报障的 404 URL 即此形态），且下载两遍、apply 时搬进游戏目录
     id: 'M21-kuro-krpdiff-excluded-from-files',
     file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
-    find: 'var directResources = patchIndexFile.Resource.Where(r => !IsDiffResource(r.Dest)).ToList();',
-    replace: 'var directResources = patchIndexFile.Resource.ToList();',
+    find: 'var directResources = patchIndexFile.Resource\n                .Where(r => !IsDiffResource(r.Dest) && !otherTiers.Any(t => IsInTierDirectory(r.Dest, t)))\n                .ToList();',
+    replace: 'var directResources = patchIndexFile.Resource\n                .Where(r => !otherTiers.Any(t => IsInTierDirectory(r.Dest, t)))\n                .ToList();',
     project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
     method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroChannelApiTests.GetIncrementalManifest_KrpdiffEntries_ExcludedFromFilesAndBackfilledIntoGroups',
@@ -468,8 +468,8 @@ const MUTATIONS = [
   {
     id: 'M49-delta-free-space-precheck',
     file: 'src/YetAnotherGameLauncher.Core/Services/DeltaPackageApplier.cs',
-    find: '        EnsureApplicable(installDir, plan);\n        EnsureEnoughFreeSpace(installDir, payloadDir, plan);',
-    replace: '        EnsureApplicable(installDir, plan);\n        if (DateTime.MinValue == DateTime.MaxValue) { EnsureEnoughFreeSpace(installDir, payloadDir, plan); }',
+    find: '        var alreadyAtTarget = EnsureApplicable(installDir, plan);\n        EnsureEnoughFreeSpace(installDir, payloadDir, plan);',
+    replace: '        var alreadyAtTarget = EnsureApplicable(installDir, plan);\n        if (DateTime.MinValue == DateTime.MaxValue) { EnsureEnoughFreeSpace(installDir, payloadDir, plan); }',
     project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
     method: 'YetAnotherGameLauncher.Core.Tests.Services.DeltaPackageApplierTests.ApplyAsync_NotEnoughFreeSpace_ActionableErrorBeforeDownload',
@@ -540,6 +540,139 @@ const MUTATIONS = [
     project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
     method: 'YetAnotherGameLauncher.Core.Tests.Utilities.DiskSpaceTests.Probe_PicksLongestMountPrefix',
+  },
+  {
+    // 2026-10-19 档位资源包：目标档位清单必须裁掉其它档位目录。不裁则选 UHD 也把 HD 条目算进目标
+    // 清单——"只下所选档"语义失效（HD 45.7 GB 白下一遍），且档位目录内容随同步被改写。
+    id: 'M57-kuro-tier-crop-other-dirs',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
+    find: 'indexFile.Resource.Where(e => !otherTiers.Any(t => IsInTierDirectory(e.Dest, t))),',
+    replace: 'indexFile.Resource.Where(e => true),',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroResourcePackTests.GetManifest_TieredTier_CropsOtherTiersAndAppendsSelectedPack',
+  },
+  {
+    // 2026-10-19 档位资源包（P0 形态）：同步收尾清理必须尊重清单的保留前缀。忽略它，未选中档位目录
+    // 会被当游离文件删除——切档后旧档几十 GB 无确认即丢（删除只应经显式「清理其他档位」）。
+    id: 'M58-preserved-paths-honored',
+    file: 'src/YetAnotherGameLauncher.Core/Services/GameInstallService.cs',
+    find: 'var preservedPrefixes = ManifestVerifier.NormalizePreservedPrefixes(manifest.PreservedPaths);',
+    replace: 'var preservedPrefixes = ManifestVerifier.NormalizePreservedPrefixes([]);',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.ResourceTierUpdateTests.FullSync_PreservedTierDirectory_NotDeletedAsStale',
+  },
+  {
+    // 2026-10-19 档位资源包：主按钮优先级——档位缺包必须压过"有更新"（点一次 = 更新 + 补包一体；
+    // 反过来用户先更新、再被"下载资源包"二次打断）。
+    id: 'M59-install-button-pack-priority',
+    file: 'src/YetAnotherGameLauncher/ViewModels/GameItemViewModel.cs',
+    find: ': NeedsResourcePack ? Loc["game_downloadResourcePack"]',
+    replace: ': false ? Loc["game_downloadResourcePack"]',
+    project: 'tests/YetAnotherGameLauncher.App.Tests/YetAnotherGameLauncher.App.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll',
+    method: 'YetAnotherGameLauncher.AppTests.ResourceTierVmTests.Refresh_DiskTierDiffersFromSelection_ShowsDownloadPackButtonAndStatus',
+  },
+  {
+    // 2026-10-19 review（阻塞项）：增量废弃清单必须按档位裁剪——原样透传会让 SD/UHD 更新删掉
+    // HD 目录里清单点名的文件，与"切档不删旧档、删除只经显式清理"冲突（几十 GB 用户数据）。
+    id: 'M60-kuro-tier-deletefiles-crop',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
+    find: '                    .. (patchIndexFile.DeleteFiles ?? [])\n                        .Where(d => !otherTiers.Any(t => IsInTierDirectory(d, t))),',
+    replace: '                    .. (patchIndexFile.DeleteFiles ?? []),',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroResourcePackTests.GetIncrementalManifest_SdTier_CropsOtherTierFilesAndGroups',
+  },
+  {
+    // 2026-10-19 review（阻塞项）消费端纵深：废弃清单点名保留档位目录内的内容必须豁免——
+    // 渠道漏裁时这里兜底，删掉即"档位内容被隐式删除"且用户无确认机会。
+    id: 'M61-preserved-prefix-delete-guard',
+    file: 'src/YetAnotherGameLauncher.Core/Services/IncrementalUpdateService.cs',
+    find: 'if (ManifestVerifier.IsUnderPreservedPrefix(relative, preservedPrefixes))',
+    replace: 'if (false && ManifestVerifier.IsUnderPreservedPrefix(relative, preservedPrefixes))',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.IncrementalUpdateServiceTests.ApplyAsync_DeleteFilesUnderPreservedPrefix_SparesThem',
+  },
+  {
+    // 2026-10-19 review（阻塞项）：续传必须按标记种类派回被暂停的动作——预下载暂停后改走更新链
+    // 会绕过"先暂存、确认后应用"的两段契约（还可能直接应用/跳版本）。
+    id: 'M62-resume-kind-dispatch',
+    file: 'src/YetAnotherGameLauncher/ViewModels/GameItemViewModel.cs',
+    find: 'if (session.Kind == DownloadSessionKind.Predownload)',
+    replace: 'if (false && session.Kind == DownloadSessionKind.Predownload)',
+    project: 'tests/YetAnotherGameLauncher.App.Tests/YetAnotherGameLauncher.App.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll',
+    method: 'YetAnotherGameLauncher.AppTests.ResourceTierVmTests.Resume_PausedPredownload_RunsPredownloadChainInsteadOfUpdate',
+  },
+  {
+    // 2026-10-19 二审 N2：包式（归档）应用链的载荷与暂存清单必须留到调用方提交点——
+    // 在应用方法内就删（旧行为）会让"解压完到状态落盘之间"掉线的续跑整包重下数十 GB
+    //（解压是同步长任务，令牌只在之后的写盘 await 生效，该窗口完全可达）。
+    id: 'M63-package-apply-keeps-payload',
+    file: 'src/YetAnotherGameLauncher.Core/Services/PackageInstallerService.cs',
+    find: 'logger?.LogInformation("Predownload applied: {Version} ({Count} archives)", manifest.Version, total);',
+    replace: 'IncrementalUpdateService.ClearStaging(installDir, logger);\n        logger?.LogInformation("Predownload applied: {Version} ({Count} archives)", manifest.Version, total);',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.PackageInstallerServiceTests.ApplyPredownloadAsync_KeepsStagingAndPayloadForResume',
+  },
+  {
+    // 2026-10-19 二审 N1：预下载不可继续（窗口关闭）时必须清掉那条标记，否则主按钮永远停在
+    // 「继续下载」且每次点击都在同一处失败、UI 无任何出路（种类/归属双重核对，其它标记不动）。
+    id: 'M64-stale-predownload-marker-cleared',
+    file: 'src/YetAnotherGameLauncher.Core/Services/GameUpdateService.cs',
+    find: 'ClearStalePredownloadMarker(installDir, game.Id, server.Id);\n            throw new UpdateException("No predownload is currently open.");',
+    replace: 'throw new UpdateException("No predownload is currently open.");',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.GameUpdateServiceTests.PredownloadAsync_WindowClosed_ClearsStalePredownloadMarker',
+  },
+  {
+    // 2026-10-19 三审：应用器不得自删 v2 载荷（.yagl/delta）——清理属于调用方提交点。
+    // 把删除加回应用方法内（旧行为）即击杀"载荷保留"断言。
+    id: 'M65-delta-apply-keeps-payload',
+    file: 'src/YetAnotherGameLauncher.Core/Services/DeltaPackageApplier.cs',
+    find: 'payload.Dispose();\n\n        logger?.LogInformation(',
+    replace: 'payload.Dispose();\n        FileUtilities.TryDeleteDirectory(PayloadDir(installDir), logger);\n        logger?.LogInformation(',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.DeltaPackageApplierTests.ApplyAsync_EnoughFreeSpace_ProceedsNormally',
+  },
+  {
+    // 2026-10-19 三审：续跑必须按"已到位"跳过（差分节点以基 md5 为判据，重走会被判不适用）。
+    // 摘掉登记即击杀"应用完成后再跑零下载零补丁"的用例。
+    id: 'M66-delta-resume-skips-already-applied',
+    file: 'src/YetAnotherGameLauncher.Core/Services/DeltaPackageApplier.cs',
+    find: 'alreadyAtTarget.Add(relative);',
+    replace: '// 变异：不再登记已到位节点。',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.DeltaPackageApplierTests.ApplyAsync_SecondRunAfterCompletedApply_SkipsAlreadyAppliedWithoutDownload',
+  },
+  {
+    // 2026-10-19 四审：直链（UpdateAsync）提交点必须清 v2 载荷——应用器已不自删，摘掉这条
+    // 清理没有任何其它用例会红（8.72 GiB 静默留盘的回归），守卫落在直链 happy path 用例。
+    id: 'M67-direct-chain-clears-delta-at-commit',
+    file: 'src/YetAnotherGameLauncher.Core/Services/GameUpdateService.cs',
+    find: '            ClearDeltaPayload(installDir);\n        }',
+    replace: '            // 变异：提交点不再清 delta 载荷。\n        }',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.GameUpdateServiceTests.UpdateAsync_DeltaPlanAvailable_AppliesDeltaInsteadOfFullPackage',
+  },
+  {
+    // 2026-10-19 四审：已到位节点必须在基文件检查之前放行（应用完成后官方废弃清理会删旧基
+    // 文件）。摘掉早退的 continue 即击杀"基文件已删的续跑"用例。
+    id: 'M68-already-at-target-precedes-base-check',
+    file: 'src/YetAnotherGameLauncher.Core/Services/DeltaPackageApplier.cs',
+    find: '                alreadyAtTarget.Add(relative);\n                continue;',
+    replace: '                alreadyAtTarget.Add(relative);',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.DeltaPackageApplierTests.ApplyAsync_SecondRunAfterCompletedApply_SkipsAlreadyAppliedWithoutDownload',
   },
 ];
 

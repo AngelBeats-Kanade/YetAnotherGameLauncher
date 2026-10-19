@@ -46,6 +46,14 @@ public sealed class IncrementalUpdateService(
             cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// 操作提交后清掉暂存（.yagl/predownload 整棵：此时内容已落盘/已消费）。提交前必须保留：
+    /// 修复轮/状态写盘掉线后重跑靠暂存清单进入"应用链续跑"（组级应用幂等），不重下整包差量
+    /// （2026-10-19 review 修复）。
+    /// </summary>
+    public static void ClearStaging(string installDir, ILogger? logger = null) =>
+        FileUtilities.TryDeleteDirectory(PredownloadDir(installDir), logger);
+
     private static string PatchWorkDir(string installDir) =>
         Path.Combine(installDir, LocalStateService.StateDirName, PatchWorkDirName);
 
@@ -298,8 +306,13 @@ public sealed class IncrementalUpdateService(
         // 删除重试，游戏内容此时已是目标版本）
         DeleteListedFiles(installDir, incrementalManifest, logger);
 
-        // 暂存目录完成使命后清理（Windows 上残留被占用时尽力清理即可，残留留给下次重置）
-        FileUtilities.TryDeleteDirectory(staging, logger);
+        // 载荷（补丁/暂存文件）已消费完，先释放（Windows 上残留被占用时尽力清理即可）；
+        // 暂存清单 manifest.json 必须保留到操作提交（GameUpdateService 写状态）之后再清
+        // （2026-10-19 review 修复）：此后还隔着修复轮与状态写盘两个可取消点，期间掉线/暂停时
+        // 清单还在场，续跑走"应用链续跑"（组级应用按 dstFiles 校验幂等跳过）而不是重下整包差量。
+        FileUtilities.TryDeleteDirectory(Path.Combine(staging, "patches"), logger);
+        FileUtilities.TryDeleteDirectory(Path.Combine(staging, "files"), logger);
+        await WriteStagedManifestAsync(staging, incrementalManifest, cancellationToken).ConfigureAwait(false);
         // 差分工作草稿同样清理：SrcFiles 的完整副本（olddir-*/newdir-*）可占数 GB~数十 GB，
         // .yagl 在安装同步的保留名单里不会被游走清理，留着即滞留到下次增量（2026-09-20 复审修复）
         FileUtilities.TryDeleteDirectory(workDir, logger);
@@ -331,8 +344,21 @@ public sealed class IncrementalUpdateService(
             }
         }
 
+        // 渠道点名的保留前缀（档位模式下 = 未选中档位目录，2026-10-19 review 实锤）：废弃清单点名保留
+        // 目录内的内容同样不得隐式删除——"档位内容永不隐式删除、删除只经显式清理"是全仓不变量，
+        // 渠道侧已按档位裁剪，这里是不依赖渠道实现的纵深守卫（漏裁只该少删、不该误删用户数据）
+        var preservedPrefixes = ManifestVerifier.NormalizePreservedPrefixes(manifest.PreservedPaths);
+
         foreach (var relative in manifest.DeleteFiles)
         {
+            if (ManifestVerifier.IsUnderPreservedPrefix(relative, preservedPrefixes))
+            {
+                logger?.LogWarning(
+                    "deleteFiles lists {Path} under a preserved prefix; sparing it (tier content is deleted only by the explicit cleanup).",
+                    relative);
+                continue;
+            }
+
             // 逃逸路径由 ResolveSafe 直接抛 UpdateException（2026-10-02 三轮统一，F42 同族）
             var target = ManifestVerifier.ResolveSafe(installDir, relative);
 

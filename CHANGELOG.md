@@ -10,7 +10,7 @@
 Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻留 + 关闭按钮行为设置
 （退出应用 / 关闭窗口驻留托盘，下载与依赖安装后台继续）；资源包档位、实时下载进度
 与速度；hpatchz 自动供给与鸣潮 krpdiff 增量更新链终局修复；终末地更新链路（分卷解压修复、官方废弃清单清理、改走官方 v2 增量补丁）。
-1437 个测试全绿（2026-10-19 实测）。
+1527 个测试全绿（2026-10-19 实测）。
 
 ### 新增
 
@@ -51,9 +51,17 @@ Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻�
 
 - 应用增量更新时若 PATH 上没有 hpatchz，启动器自动下载社区验证构建（鸣潮 krpdiff 与开源 HDiffPatch 全线构建不兼容——真机实证官方 v4.8.0/v5.1.3 与 master 均无法读取，退出码 109；供给 ww-manager 社区打包的 hpatchz.exe，MD5 校验，实测产出与官方清单一致）。Linux 上经 wine 运行（系统 wine 或已装 Proton 自带，独立 WINEPREFIX 不污染环境）；自备二进制（PATH 或显式路径）始终优先且原生直跑。
 
-**资源包档位（鸣潮）**
+**资源包档位与按档下载（鸣潮，2026-10-19 扩充）**
 
 - 游戏设置页新增「资源包档位」下拉（HD / SD / UHD / 跟随游戏内设置，仅鸣潮显示）：启动时以官方 `-krqlv=<hd|sd|uhd>` 参数传给游戏，umu 与直启两条启动链均生效；`games.json` 的 `launch.resourceQualityTier` 可直接配置（白名单校验）。
+- 档位（2026-10-19 起）同时决定下载来源：全量同步/校验修复按所选档构建清单（裁掉其它档位目录 + 补目标档位包），增量更新只取与档位无关的基础差量、档位包由更新后的全量修复轮补齐；档位包下载需服务器带官方档位索引（`servers[].options.resourcePackIndexUrl`，内置样例为鸣潮官服给出；国际服/B 服实测无档位索引，档位只作启动参数且设置页给出提示）。存量配置由 `schemaVersion 7` 迁移补键。
+- 档位"追加式共存"：切换档位不删旧档内容——同步收尾清理与增量废弃清单都不碰保留档位目录（渠道按档位裁剪废弃清单，消费端另有纵深豁免）；设置页「清理其他档位」预览释放量与目标档位、确认后只删各档位清单点名且解析后位于该档位目录下的文件与下载半成品 `.temp`（选中档位未完整落盘时给出补齐前可能无法运行的警示）。
+- 已安装且本地档位与所选档位不一致时主按钮变「下载资源包」（更新 + 补包一体），状态点用"可行动"配色而非绿色。
+
+**下载暂停与续传（2026-10-19）**
+
+- 下载/更新/预下载忙碌区新增「暂停」按钮：取消本次操作并保留全部已下载与暂存产物（不写版本、不报错、不清理），任何阶段可停。
+- 跨会话续传：操作开始时写 `.yagl/download-session.json`（含操作种类与游戏/服务器归属）、成功收尾才清；重开应用时主按钮显示「继续下载」，并按种类派回被暂停的动作（预下载 → 预下载链；内容已下完/应用中被停 → 应用链续跑，暂存清单保留到操作提交才清），从断点接着下（进度以磁盘为准：完成文件跳过、`.temp` 走 HTTP Range、暂存按 size/MD5 复用）。
 
 **实时下载进度与速度**
 
@@ -187,7 +195,7 @@ and dependency installs kept running); resource quality tier selection;
 real-time byte-granular download progress with a speed readout;
 automatic hpatchz provisioning and the definitive fix for the Wuthering
 Waves krpdiff incremental-update chain, plus the split-volume extraction
-fix for Endfield package updates plus stale-file cleanup and the delta update path; the Endfield launch check is now handled on Linux by a decoy parent bridge (no official launcher needed). 1437 tests green (measured 2026-10-19).
+fix for Endfield package updates plus stale-file cleanup and the delta update path; the Endfield launch check is now handled on Linux by a decoy parent bridge (no official launcher needed). 1527 tests green (measured 2026-10-19).
 
 **Added — UI overhaul**
 
@@ -230,9 +238,17 @@ fix for Endfield package updates plus stale-file cleanup and the delta update pa
 
 - When applying incremental updates, if hpatchz is not on PATH the launcher automatically downloads a community-verified build (Wuthering Waves krpdiff is incompatible with every open-source HDiffPatch build - measured on official v4.8.0/v5.1.3 and master, all exit 109; the provisioned asset is the hpatchz.exe packaged by the ww-manager community, MD5-verified, output verified against the official manifest). On Linux it runs through wine (system wine or one bundled with an installed Proton, isolated WINEPREFIX); a self-provided binary always takes precedence and runs natively.
 
-**Added — resource quality tier (Wuthering Waves)**
+**Added — resource quality tier and per-tier downloads (Wuthering Waves, extended 2026-10-19)**
 
 - New "Resource quality tier" dropdown in game settings (HD / SD / UHD / follow in-game settings, shown for Wuthering Waves only): passed to the game as the official `-krqlv=<hd|sd|uhd>` launch argument on both the umu and direct launch chains; configurable directly in games.json via `launch.resourceQualityTier` (whitelist-validated).
+- Since 2026-10-19 the tier also selects the download source: full sync / verify-repair build the manifest for the chosen tier (other tier directories removed, target tier pack added), while incremental updates take the tier-independent base delta and the full repair round after the update fills the tier pack; tier-pack downloads require the server's official tier index (`servers[].options.resourcePackIndexUrl`, given for the Wuthering Waves CN server in the built-in sample; the Global/Bilibili servers have none, so the tier is a launch argument only there, as the settings page notes). Existing configs get the key from the `schemaVersion 7` migration.
+- Tier coexistence: switching tiers never deletes old tier files - neither the sync cleanup nor the incremental delete list touches preserved tier directories (the channel crops the delete list per tier, and the consumer keeps an independent safeguard); the settings page "Clean other tiers" previews the reclaimable size and target tiers, then deletes only files named by each tier's manifest that resolve inside that tier directory, plus leftover `.temp` partial downloads (with a warning when the selected tier is not fully on disk).
+- With the game installed and the on-disk tier differing from the selected one, the main button becomes "Download resource pack" (update + pack in one) and the status dot uses the action colour instead of green.
+
+**Added — download pause and resume (2026-10-19)**
+
+- A "Pause" button in the busy area of the dock cancels the running operation and keeps everything downloaded and staged (no version written, no error, no cleanup); it works in any phase.
+- Cross-session resume: `.yagl/download-session.json` is written when an operation starts (with its kind and game/server attribution) and cleared only on success, so reopening the app shows "Resume download" and dispatches back to the paused action (a paused pre-download stays a pre-download; a finished download resumes the apply step, whose staged manifest is kept until the operation commits) and continues from the break (progress lives on disk: finished files are skipped, `.temp` files resume via HTTP Range, staged files are reused by size/MD5).
 
 **Added — real-time download progress & speed**
 

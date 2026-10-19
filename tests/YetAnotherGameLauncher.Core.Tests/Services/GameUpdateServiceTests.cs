@@ -269,6 +269,58 @@ public class GameUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task PredownloadAsync_LocalAlreadyAtTarget_ClearsStalePredownloadMarker()
+    {
+        // 2026-10-19 二审 N1：F66 短路（本地版本已覆盖目标）同样意味着"这条预下载已无从继续"——
+        // 标记不清的话主按钮永远停在「继续下载」且每次点击都只得到幂等空操作
+        await WriteLocalState("2.0.0");
+        _channel.VersionInfo = new ChannelVersionInfo
+        {
+            LatestVersion = "2.0.0",
+            PredownloadAvailable = true,
+            PredownloadVersion = "2.0.0",
+        };
+        var session = new DownloadSessionService(_tempDir.Path);
+        session.Begin(DownloadSessionKind.Predownload, "2.0.0", _game.Id, _server.Id);
+
+        await CreateService().PredownloadAsync(_tempDir.Path, _game, _server, _channel);
+
+        Assert.Null(session.LoadFor(_game.Id, _server.Id));
+    }
+
+    [Fact]
+    public async Task PredownloadAsync_WindowClosed_ClearsStalePredownloadMarker()
+    {
+        // 2026-10-19 二审 N1：窗口关闭时抛错保留（用户确有点预下载，这是可行动错误），
+        // 但"已无从继续"的预下载标记必须清掉——不清就是主按钮锁死在失败动作上、UI 无出路
+        await WriteLocalState("1.0.0");
+        _channel.VersionInfo = new ChannelVersionInfo { LatestVersion = "1.0.0" };
+        var session = new DownloadSessionService(_tempDir.Path);
+        session.Begin(DownloadSessionKind.Predownload, "2.0.0", _game.Id, _server.Id);
+
+        await Assert.ThrowsAsync<UpdateException>(
+            () => CreateService().PredownloadAsync(_tempDir.Path, _game, _server, _channel));
+
+        Assert.Null(session.LoadFor(_game.Id, _server.Id));
+    }
+
+    [Fact]
+    public async Task PredownloadAsync_WindowClosed_KeepsMarkersOfOtherKinds()
+    {
+        // 同族边界（2026-10-19 二审 N1）：只清"未完成的预下载"——同一安装目录里未完成的更新
+        // 标记不得被预下载失败连带清掉（否则用户会丢掉真正的续传提示）
+        await WriteLocalState("1.0.0");
+        _channel.VersionInfo = new ChannelVersionInfo { LatestVersion = "1.0.0" };
+        var session = new DownloadSessionService(_tempDir.Path);
+        session.Begin(DownloadSessionKind.Update, "2.0.0", _game.Id, _server.Id);
+
+        await Assert.ThrowsAsync<UpdateException>(
+            () => CreateService().PredownloadAsync(_tempDir.Path, _game, _server, _channel));
+
+        Assert.NotNull(session.LoadFor(_game.Id, _server.Id));
+    }
+
+    [Fact]
     public async Task PredownloadAsync_Available_StagesIncrementalContent()
     {
         var v1 = "v1"u8.ToArray();
@@ -437,7 +489,7 @@ public class GameUpdateServiceTests : IDisposable
         // GetManifestAsync 对任何请求版本都返回当前版本（3.5.0）清单。
         _channel.VersionInfo = new ChannelVersionInfo { LatestVersion = "3.5.0" };
         _channel.Manifests["3.5.0"] = new GameManifest { Version = "3.5.0", Files = [FileEntry("a.dat", v3)] };
-        _channel.ManifestHandler = (_, _, _) => Task.FromResult(_channel.Manifests["3.5.0"]);
+        _channel.ManifestHandler = (_, _, _, _) => Task.FromResult(_channel.Manifests["3.5.0"]);
         RegisterFile("a.dat", v3);
 
         var ex = await Assert.ThrowsAsync<UpdateException>(
@@ -504,6 +556,9 @@ public class GameUpdateServiceTests : IDisposable
         Assert.Equal([("1.5.3", "1.6.4")], _channel.DeltaPackageRequests);
         // 上一轮整包尝试留下的数十 GiB 暂存随增量成功一并清掉（不清理就会永久占盘）
         Assert.False(Directory.Exists(Path.Combine(_tempDir.Path, ".yagl", "packages")));
+        // 提交点清 v2 载荷（2026-10-19 四审）：应用器不自删载荷，直链必须在状态落盘后清——
+        // 摘掉 UpdateAsync 的 deltaPayloadUsed 分支不会有任何其它用例变红（8.72 GiB 静默留盘无守卫）
+        Assert.False(Directory.Exists(DeltaPackageApplier.PayloadDir(_tempDir.Path)));
     }
 
     [Fact]
@@ -751,6 +806,9 @@ public class GameUpdateServiceTests : IDisposable
         Assert.False(File.Exists(stale));
         Assert.False(Directory.Exists(_tempDir.FilePath("old")));
         Assert.Equal([("1.0.0", "2.0.0")], _channel.ObsoleteFilesRequests);
+        // 提交点清暂存（2026-10-19 二审 N2）：应用方法本身保留载荷，调用方在状态落盘后清——
+        // 该断言守卫"清"这一半，`PackageInstallerServiceTests` 守卫"提交前保留"那一半
+        Assert.False(Directory.Exists(IncrementalUpdateService.PredownloadDir(_tempDir.Path)));
     }
 
     [Fact]

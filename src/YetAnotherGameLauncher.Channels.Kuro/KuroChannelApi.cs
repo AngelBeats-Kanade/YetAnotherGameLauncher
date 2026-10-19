@@ -15,6 +15,13 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
 {
     public const string IndexUrlOptionKey = "indexUrl";
 
+    /// <summary>官方档位索引地址（resourcePacks；与 indexUrl 同源同 hash 约定，不含版本号）。
+    /// 缺省 = 该服务器不支持按档位下载（档位只作启动参数）。</summary>
+
+    public const string ResourcePackIndexUrlOptionKey = "resourcePackIndexUrl";
+
+    public bool SupportsResourcePackDownload(GameServer server) =>
+        server.Options.TryGetValue(ResourcePackIndexUrlOptionKey, out var url) && !string.IsNullOrWhiteSpace(url);
 
     public async Task<ChannelVersionInfo> GetVersionInfoAsync(GameServer server, CancellationToken cancellationToken = default)
     {
@@ -34,7 +41,8 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         };
     }
 
-    public async Task<GameManifest> GetManifestAsync(GameServer server, string version, CancellationToken cancellationToken = default)
+    public async Task<GameManifest> GetManifestAsync(
+        GameServer server, string version, string? resourceTier = null, CancellationToken cancellationToken = default)
     {
         var index = await FetchIndexAsync(server, cancellationToken).ConfigureAwait(false);
         var block = RequireDefault(index);
@@ -47,16 +55,62 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
             cancellationToken).ConfigureAwait(false);
         var indexFile = ParseJson<KuroIndexFile>(indexFileJson, "indexFile.json");
 
+        // 档位（2026-10-19）：未设置的生效档 = hd。官方档位索引的 hd 包与标准清单的 HD 条目
+        // 逐字节一致（2026-10-19 端点逐条对照实测），故 hd/未设置一律走标准清单、不额外联网；
+        // sd/uhd 才取官方档位索引：裁掉其它档位目录 + 追加目标档位包。
+        // 服务器无档位索引（国际服/B 服实测 404 或用户未配）时档位归一为 hd：内容恒为官方默认
+        // bundle（common + HD），档位只作启动参数（UI 侧按 SupportsResourcePackDownload 提示）。
+        var tier = SyncTier(server, resourceTier);
+        if (tier == ResourceTiers.Hd)
+        {
+            return new GameManifest
+            {
+                Version = version,
+                Files = ToManifestFiles(indexFile.Resource, cdn, config.BaseUrl ?? block.ResourcesBasePath),
+                Groups = ToGroups(indexFile.GroupInfos, cdn, patchBaseUrl: null, config.BaseUrl, block.ResourcesBasePath),
+                ResourceTier = ResourceTiers.Hd,
+                PreservedPaths = PreservedTierDirs(ResourceTiers.Hd),
+            };
+        }
+
+        var packIndex = await FetchResourcePackIndexAsync(server, cancellationToken).ConfigureAwait(false);
+        var pack = RequireResourcePack(packIndex, tier);
+        // 档位索引的节点在顶层下发（包配置块无 cdnList，2026-10-16 实测）；顶层无可用节点回退标准块
+        var packCdn = KuroCdnSelector.SelectCdn(packIndex.CdnList) ?? cdn;
+        var packIndexFile = await FetchPackIndexFileAsync(pack, packCdn, tier, cancellationToken).ConfigureAwait(false);
+        var packFiles = ToManifestFiles(packIndexFile.Resource, packCdn, pack.BaseUrl);
+
+        // 包清单空 = 拉到了残缺/异常响应的信号：绝不能返回"缺目标档位包"的清单——同步收尾会把
+        // 目标档位目录当游离文件删掉（几十 GB）。宁可拒收让用户重试（与 dstFiles 缺 url 的
+        // "拒绝静默降级"同哲学：官方在档位包上永远给 100 个条目）
+        if (packFiles.Count == 0)
+        {
+            throw new UpdateException(
+                $"Kuro resource pack \"{tier}\" lists no files; refusing to sync without it " +
+                "(a pack-less manifest would delete the tier's local files as stale). Please retry.");
+        }
+
+        var otherTiers = ResourceTiers.OtherTiers(tier);
         return new GameManifest
         {
             Version = version,
-            Files = ToManifestFiles(indexFile.Resource, cdn, config.BaseUrl ?? block.ResourcesBasePath),
-            Groups = ToGroups(indexFile.GroupInfos, cdn, patchBaseUrl: null, config.BaseUrl, block.ResourcesBasePath),
+            Files =
+            [
+                .. ToManifestFiles(
+                    indexFile.Resource.Where(e => !otherTiers.Any(t => IsInTierDirectory(e.Dest, t))),
+                    cdn, config.BaseUrl ?? block.ResourcesBasePath),
+                .. packFiles,
+            ],
+            Groups = ToGroups(
+                indexFile.GroupInfos?.Where(g => !otherTiers.Any(t => IsInTierDirectory(g.Dest, t))),
+                cdn, patchBaseUrl: null, config.BaseUrl, block.ResourcesBasePath),
+            ResourceTier = tier,
+            PreservedPaths = PreservedTierDirs(tier),
         };
     }
 
     public async Task<GameManifest?> GetIncrementalManifestAsync(
-        GameServer server, string fromVersion, string toVersion, CancellationToken cancellationToken = default)
+        GameServer server, string fromVersion, string toVersion, string? resourceTier = null, CancellationToken cancellationToken = default)
     {
         var index = await FetchIndexAsync(server, cancellationToken).ConfigureAwait(false);
 
@@ -98,7 +152,15 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
             // krpdiff 只经 Groups 表达（URL = patchEntry.baseUrl 差分目录；留在 Files 会被套
             // fromFolder 前缀 zip/ → 真机 38/38 全 404，且下载两遍、apply 时被搬进游戏目录）——
             // 参考实现 ww-manager incremental.py 同语义（_is_diff_resource 过滤 complete_files）。
-            var directResources = patchIndexFile.Resource.Where(r => !IsDiffResource(r.Dest)).ToList();
+            //
+            // 档位（2026-10-19）：sd/uhd 时裁掉其它档位目录的条目与差分组——档位包自身跨版本不变
+            // （官方实测 hd/sd/uhd 的 3.7.0 → 3.7.1 增量清单为空：resource 与 deleteFiles 均空），
+            // 其落盘由更新/应用后的全量修复轮按档位清单补齐（GameUpdateService.RepairAgainstManifestAsync）。
+            var tier = SyncTier(server, resourceTier);
+            var otherTiers = ResourceTiers.OtherTiers(tier);
+            var directResources = patchIndexFile.Resource
+                .Where(r => !IsDiffResource(r.Dest) && !otherTiers.Any(t => IsInTierDirectory(r.Dest, t)))
+                .ToList();
 
             return new GameManifest
             {
@@ -107,9 +169,18 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
                     directResources, cdn,
                     folder: FirstFromFolder(directResources) ?? patchEntry.BaseUrl ?? config.BaseUrl ?? block.ResourcesBasePath),
                 Groups = ToGroups(
-                    patchIndexFile.GroupInfos, cdn, patchEntry.BaseUrl, config.BaseUrl, block.ResourcesBasePath,
+                    patchIndexFile.GroupInfos?.Where(g => !otherTiers.Any(t => IsInTierDirectory(g.Dest, t))),
+                    cdn, patchEntry.BaseUrl, config.BaseUrl, block.ResourcesBasePath,
                     patchIndexFile.Resource),
-                DeleteFiles = [.. patchIndexFile.DeleteFiles ?? []],
+                // 废弃清单同样裁掉其它档位目录（2026-10-19 review 实锤：原样透传会让 SD/UHD 更新
+                // 删掉 HD 目录里清单点名的文件，与"切档不删旧档、删除只经显式清理"冲突）
+                DeleteFiles =
+                [
+                    .. (patchIndexFile.DeleteFiles ?? [])
+                        .Where(d => !otherTiers.Any(t => IsInTierDirectory(d, t))),
+                ],
+                ResourceTier = tier,
+                PreservedPaths = PreservedTierDirs(tier),
             };
         }
 
@@ -126,6 +197,90 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         logger?.LogDebug("Fetching Kuro index.json: {Url}", indexUrl);
         var json = await FetchTextAsync(indexUrl, expectedMd5: null, cancellationToken).ConfigureAwait(false);
         return ParseJson<KuroLauncherIndex>(json, "index.json");
+    }
+
+    /// <summary>取官方档位索引（resourcePacks）。服务器未配档位索引即拒收——调用方须先用
+    /// <see cref="SupportsResourcePackDownload"/> 分流（UI 面同缝）。</summary>
+    private async Task<KuroLauncherIndex> FetchResourcePackIndexAsync(GameServer server, CancellationToken cancellationToken)
+    {
+        if (!server.Options.TryGetValue(ResourcePackIndexUrlOptionKey, out var url) || string.IsNullOrWhiteSpace(url))
+        {
+            throw new UpdateException($"Server \"{server.Name}\" is missing the {ResourcePackIndexUrlOptionKey} option.");
+        }
+
+        logger?.LogDebug("Fetching Kuro resource pack index: {Url}", url);
+        var json = await FetchTextWithContextAsync(url, expectedMd5: null, "the resource pack index", cancellationToken)
+            .ConfigureAwait(false);
+        return ParseJson<KuroLauncherIndex>(json, "resource pack index.json");
+    }
+
+    /// <summary>取档位包清单文件（{pack indexFile}，md5 校验在下载器内完成）。
+    /// 失败（网络/校验/JSON）折算带档位名的 UpdateException：档位索引是 2026-10-19 新引入的
+    /// 网络依赖，裸 DownloadException 只说 URL，用户判断不出是哪个功能出了问题；取消照常传播。</summary>
+    private async Task<KuroIndexFile> FetchPackIndexFileAsync(
+        KuroResourcePack pack, string cdn, string tier, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(pack.IndexFile))
+        {
+            throw new UpdateException($"Kuro resource pack \"{tier}\" has no indexFile.");
+        }
+
+        var json = await FetchTextWithContextAsync(
+            KuroUrlBuilder.BuildFileUrl(cdn, null, pack.IndexFile!), pack.IndexFileMd5,
+            $"the \"{tier}\" resource pack index", cancellationToken).ConfigureAwait(false);
+        return ParseJson<KuroIndexFile>(json, $"resource pack \"{tier}\" indexFile.json");
+    }
+
+    public async Task<ResourcePackManifest?> GetResourcePackManifestAsync(
+        GameServer server, string tier, CancellationToken cancellationToken = default)
+    {
+        // 白名单外的档位/不支持档位的服务器：零网络返回 null（清理入口据此禁用）
+        if (!ResourceTiers.IsValid(tier) || !SupportsResourcePackDownload(server))
+        {
+            return null;
+        }
+
+        var packIndex = await FetchResourcePackIndexAsync(server, cancellationToken).ConfigureAwait(false);
+        if (packIndex.ResourcePacks?.GetValueOrDefault(tier) is not { } pack)
+        {
+            return null;
+        }
+
+        var packCdn = KuroCdnSelector.SelectCdn(packIndex.CdnList) ?? RequireCdn(RequireDefault(await FetchIndexAsync(server, cancellationToken).ConfigureAwait(false)));
+        var packIndexFile = await FetchPackIndexFileAsync(pack, packCdn, tier, cancellationToken).ConfigureAwait(false);
+        return new ResourcePackManifest(tier, PackDirectoryFor(tier), pack.Version ?? "", ToManifestFiles(packIndexFile.Resource, packCdn, pack.BaseUrl));
+    }
+
+    /// <summary>本次同步实际落盘的档位：支持档位索引的服务器取配置档（未设置 = hd）；
+    /// 不支持的服务器恒记 hd —— 内容就是官方默认 bundle（common + HD），档位只作启动参数。</summary>
+    private string SyncTier(GameServer server, string? resourceTier) =>
+        SupportsResourcePackDownload(server) ? ResourceTiers.Effective(resourceTier) : ResourceTiers.Hd;
+
+    /// <summary>档位资源目录（相对安装目录，官方实测 2026-10-16：Client/Content/{SD,HD,UHD}）。</summary>
+    internal static string PackDirectoryFor(string tier) => $"Client/Content/{tier.ToUpperInvariant()}";
+
+    /// <summary>dest 是否落在指定档位的资源目录之下（档位目录内的一切都算该档位的内容）。
+    /// dest 为 null（STJ null-over-initializer 形态）按"不在"处理——单条畸形不得炸清单获取（F42 同族）。</summary>
+    private static bool IsInTierDirectory(string? dest, string tier) =>
+        dest is not null && dest.StartsWith(PackDirectoryFor(tier) + "/", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>不在本次清单内、但必须保留的档位目录（未选中档位）：同步收尾清理不得隐式删除，
+    /// 删除只经用户的显式「清理其他档位」动作（GameUpdateService 侧 ResourcePackService）。</summary>
+    private static IReadOnlyList<string> PreservedTierDirs(string effectiveTier) =>
+        [.. ResourceTiers.OtherTiers(effectiveTier).Select(PackDirectoryFor)];
+
+    /// <summary>读取文本：失败折算带上下文（什么资源）的 UpdateException，取消照常传播。</summary>
+    private async Task<string> FetchTextWithContextAsync(
+        string url, string? expectedMd5, string what, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await FetchTextAsync(url, expectedMd5, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new UpdateException($"Failed to fetch {what} ({url}): {ex.Message}", ex);
+        }
     }
 
     private async Task<string> FetchTextAsync(string url, string? expectedMd5, CancellationToken cancellationToken)
@@ -259,6 +414,13 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
     private static string RequireIndexFile(KuroResourceConfig config) =>
         config.IndexFile
         ?? throw new UpdateException("Kuro index.json config has no indexFile.");
+
+    /// <summary>取目标档位包配置：官方档位索引缺该档位即拒收——绝不能返回"缺目标档位包"的
+    /// 清单（同步收尾会把目标档位目录当游离文件删掉，几十 GB，2026-10-19）。</summary>
+    private static KuroResourcePack RequireResourcePack(KuroLauncherIndex index, string tier) =>
+        index.ResourcePacks?.GetValueOrDefault(tier)
+        ?? throw new UpdateException(
+            $"Kuro resource pack index has no \"{tier}\" pack; cannot sync the selected resource tier.");
 
     private static T ParseJson<T>(string json, string source) where T : class
     {

@@ -48,6 +48,18 @@
                                Foreground="{DynamicResource AppOnArtworkBrush}"/>
                 </Grid>
                 <ProgressBar Maximum="100" Value="{Binding ProgressPercent}" Height="6" Classes="on-artwork"/>
+                <!-- 暂停（2026-10-19 用户需求）：只停本次操作、保留已下载与暂存产物（.temp + 暂存目录），
+                     CanPauseDownload 门控可见性（2026-10-19 review：启动/登记/拉清单等无取消源的
+                     忙碌态不出现点了没反应的死控件），
+                     不写版本、不报错；再点主按钮即从已下载处继续（进度条旁的主控件，不用另起进度卡——
+                     UI_STRUCTURE §3「不再弹独立进度卡，页面不跳动」）。形态：坞内次级钮 glass-onart
+                     （插画上语境；与修复确认条同款），Padding 16,6 比设置页 btn-sm 略收，避免撑高忙碌区 -->
+                <Button Classes="glass-onart pressable"
+                        Padding="16,6"
+                        IsVisible="{Binding CanPauseDownload}"
+                        Content="{Binding Loc[progress_pauseDownload]}"
+                        Command="{Binding PauseDownloadCommand}"
+                        HorizontalAlignment="Left"/>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                 <!-- 鸣潮专属：唤取记录入口（游戏文件在本地即可用），玻璃胶囊图标钮 -->

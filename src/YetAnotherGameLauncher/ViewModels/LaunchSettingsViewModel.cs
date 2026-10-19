@@ -27,6 +27,9 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     private readonly GameItemViewModel _owner;
     private readonly GameCatalogService _catalogService;
     private readonly ILocalizationService _loc;
+
+    /// <summary>本游戏的渠道（档位清理走渠道取各档位清单；null = 测试未装配，清理入口禁用）。</summary>
+    private readonly IGameChannelApi? _channel;
     private readonly IFilePickerService? _filePicker;
     private readonly IPlatformInfo _platform;
     private readonly IReadOnlyList<string> _protonVersions;
@@ -113,12 +116,14 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         IReadOnlyList<string>? protonVersions = null,
         string? winePath = null,
         string? dataHome = null,
-        IUmuComponentProvisioner? umuProvisioner = null)
+        IUmuComponentProvisioner? umuProvisioner = null,
+        IGameChannelApi? channel = null)
     {
         _game = game;
         _owner = owner;
         _catalogService = catalogService;
         _loc = loc;
+        _channel = channel;
         _filePicker = filePicker;
         _platform = platformInfo ?? PlatformInfoFactory.Create();
         _installDirDraft = installDir;
@@ -661,6 +666,264 @@ public partial class LaunchSettingsViewModel : ViewModelBase
     [RelayCommand]
     private void CancelProtonUpdate() => ShowProtonUpdateConfirm = false;
 
+    // ---------- 档位资源包（2026-10-19：档位同时决定下载来源）----------
+
+    /// <summary>档位清理的结果/进度提示槽（清理按钮下方；与 UmuFeedback 同款形态，各占一处）。</summary>
+    [ObservableProperty]
+    private SaveMessageSlot _packFeedback = new();
+
+    /// <summary>档位说明行（随服务器能力与落盘档位变化；空 = 不占位）。</summary>
+    [ObservableProperty]
+    private string _resourceTierHint = "";
+
+    /// <summary>说明行可见性。</summary>
+    public bool HasResourceTierHint => ResourceTierHint.Length > 0;
+
+    partial void OnResourceTierHintChanged(string value) => OnPropertyChanged(nameof(HasResourceTierHint));
+
+    /// <summary>清理确认覆盖层可见性（档位清理是危险动作：先预览释放量，确认后才删）。</summary>
+    [ObservableProperty]
+    private bool _showCleanupConfirm;
+
+    /// <summary>确认覆盖层正文（清理目标档位与释放量；选中档位未落盘时附警示）。</summary>
+    [ObservableProperty]
+    private string _cleanupConfirmMessage = "";
+
+    /// <summary>清理进行中（防重入）。</summary>
+    [ObservableProperty]
+    private bool _isCleaningPacks;
+
+    partial void OnIsCleaningPacksChanged(bool value) => OnPropertyChanged(nameof(CanCleanupOtherTiers));
+
+    /// <summary>
+    /// 清理入口可用性：草稿无未保存变更（清理按"已保存档位"保留，草稿态下保留谁会有歧义）
+    /// 且未在清理中。服务器能力/安装态由命令入口再校验（提示语义见 PackFeedback）。
+    /// </summary>
+    public bool CanCleanupOtherTiers => !IsDirty && !IsCleaningPacks;
+
+    /// <summary>脏标记变化同步清理入口可用性（未保存的档位变更让"保留哪一档"有歧义）。</summary>
+    partial void OnIsDirtyChanged(bool value) => OnPropertyChanged(nameof(CanCleanupOtherTiers));
+
+    /// <summary>
+    /// 重算档位说明行：不支持的服务器 → 能力提示（档位只作启动参数）；已保存档位与本地
+    /// 落盘档位不一致 → 补包指引（保存档位不自动下载，用户回主界面点「下载资源包」补齐）。
+    /// 其余（档位已就绪/未安装）留空不占位。
+    /// </summary>
+    internal void RefreshResourceTierHint()
+    {
+        if (!_owner.IsKuro)
+        {
+            ResourceTierHint = ""; // 非鸣潮游戏档位区整体隐藏（Game.IsKuro 绑定），提示不占位
+            return;
+        }
+
+        if (!_owner.SupportsResourcePackDownload)
+        {
+            ResourceTierHint = _loc["launch_resourcePackUnsupported"];
+            return;
+        }
+
+        var savedTier = ResourceTiers.Effective(_game.Launch.ResourceQualityTier);
+        var diskTier = new LocalStateService(_owner.InstallDirPath)
+            .Load(_game.Id, _owner.SelectedServer.Id)?.ResourceTier;
+        ResourceTierHint = _owner.IsInstalled && !string.Equals(diskTier, savedTier, StringComparison.Ordinal)
+            ? _loc.Format("launch_resourcePackTierHint", ResourceTierText.DisplayName(_loc, savedTier))
+            : "";
+    }
+
+    /// <summary>
+    /// 准备清理其它档位：拉各档位清单测算本地释放量，弹确认覆盖层（不改任何文件）。
+    /// 其它档位都没有本地文件时不弹确认，直接给出无操作提示。
+    /// </summary>
+    [RelayCommand]
+    private async Task PrepareCleanupAsync(CancellationToken cancellationToken)
+    {
+        if (IsCleaningPacks)
+        {
+            return;
+        }
+
+        PackFeedback.Clear();
+        if (_channel is null || !_owner.IsKuro)
+        {
+            return;
+        }
+
+        if (_owner.IsBusy)
+        {
+            PackFeedback.SetFailure(_loc["resourcepack_cleanup_busy"]);
+            return;
+        }
+
+        if (!_owner.IsInstalled)
+        {
+            PackFeedback.SetFailure(_loc["resourcepack_cleanup_notInstalled"]);
+            return;
+        }
+
+        if (!_owner.SupportsResourcePackDownload)
+        {
+            PackFeedback.SetFailure(_loc["launch_resourcePackUnsupported"]);
+            return;
+        }
+
+        try
+        {
+            IsCleaningPacks = true;
+            var preview = await new ResourcePackService(_channel)
+                .PreviewCleanupAsync(_owner.InstallDirPath, _owner.SelectedServer, SavedTier, cancellationToken);
+            if (preview.ReclaimableBytes == 0)
+            {
+                // 有档位清单取不到时不谎报"什么都没有"（2026-10-19 review）：先给无操作提示，
+                // 再如实说明哪些档位没能核到
+                var nothing = _loc["resourcepack_cleanup_nothing"];
+                if (preview.UnavailableTiers.Count > 0)
+                {
+                    nothing += "\n" + _loc.Format(
+                        "resourcepack_cleanup_unavailable",
+                        string.Join(_loc["common_comma"],
+                            preview.UnavailableTiers.Select(t => ResourceTierText.DisplayName(_loc, t))));
+                }
+
+                PackFeedback.SetSuccess(nothing);
+                return;
+            }
+
+            // 列表口径与"约 X"同一栏（含半成品字节，2026-10-19 二审 N3）：某一档只剩 .temp 时
+            // 它既计入释放量就必须出现在"将删除以下档位"里，否则文案自相矛盾
+            var tiers = string.Join(_loc["common_comma"],
+                preview.Targets.Where(t => t.ReclaimableBytes > 0).Select(t => ResourceTierText.DisplayName(_loc, t.Tier)));
+            var message = _loc.Format("launch_resourcePackCleanupConfirm", FormatBytes(preview.ReclaimableBytes), tiers);
+            // 警示口径 = "选中档位没有完整落盘"（2026-10-19 review）：半途下载同样会在清理后缺档，
+            // 只看"有没有文件"会漏报；选中档位清单取不到时落盘状态未知，不断言"未下载"
+            if (preview.KeptTierKnown && !preview.KeptTierComplete)
+            {
+                message += "\n" + _loc.Format(
+                    preview.KeptTierPresent
+                        ? "launch_resourcePackCleanupKeptPartial"
+                        : "launch_resourcePackCleanupKeptMissing",
+                    ResourceTierText.DisplayName(_loc, preview.KeptTier));
+            }
+
+            if (preview.UnavailableTiers.Count > 0)
+            {
+                message += "\n" + _loc.Format(
+                    "resourcepack_cleanup_unavailable",
+                    string.Join(_loc["common_comma"],
+                        preview.UnavailableTiers.Select(t => ResourceTierText.DisplayName(_loc, t))));
+            }
+
+            CleanupConfirmMessage = message;
+            ShowCleanupConfirm = true;
+        }
+        catch (OperationCanceledException)
+        {
+            // 取消不报错（与其余操作一致）
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            PackFeedback.SetFailure(_loc.Format("resourcepack_cleanup_failed", ex.Message));
+        }
+        finally
+        {
+            IsCleaningPacks = false;
+        }
+    }
+
+    /// <summary>确认清理：删除其它档位在本地的资源文件，结果写入提示槽（主界面状态由下次刷新收敛）。</summary>
+    [RelayCommand]
+    private async Task ConfirmCleanupAsync(CancellationToken cancellationToken)
+    {
+        if (_channel is null || IsCleaningPacks)
+        {
+            return;
+        }
+
+        ShowCleanupConfirm = false;
+        PackFeedback.Clear();
+        // 清理与下载/校验/启动互斥：借用宿主的忙碌门挡住其它入口（本页与主界面同源状态）
+        if (_owner.IsBusy)
+        {
+            PackFeedback.SetFailure(_loc["resourcepack_cleanup_busy"]);
+            return;
+        }
+
+        IsCleaningPacks = true;
+        _owner.IsBusy = true;
+        _owner.ProgressText = _loc["progress_cleaningPacks"];
+        _owner.ProgressPercent = 0;
+        try
+        {
+            var result = await new ResourcePackService(_channel)
+                .CleanupOtherTiersAsync(_owner.InstallDirPath, _owner.SelectedServer, SavedTier, cancellationToken);
+            var tiers = string.Join(_loc["common_comma"],
+                ResourceTiers.OtherTiers(SavedTier).Select(t => ResourceTierText.DisplayName(_loc, t)));
+            if (result.RemovedFiles == 0 && result.FailedFiles == 0)
+            {
+                // 无可清理 ≠ 一切正常：清单取不到的档位必须如实说明（2026-10-19 review）
+                var nothing = _loc["resourcepack_cleanup_nothing"];
+                if (result.UnavailableTiers.Count > 0)
+                {
+                    nothing += "\n" + _loc.Format(
+                        "resourcepack_cleanup_unavailable",
+                        string.Join(_loc["common_comma"],
+                            result.UnavailableTiers.Select(t => ResourceTierText.DisplayName(_loc, t))));
+                }
+
+                PackFeedback.SetSuccess(nothing);
+            }
+            else
+            {
+                var message = _loc.Format("resourcepack_cleanup_done", tiers, FormatBytes(result.FreedBytes));
+                if (result.FailedFiles > 0)
+                {
+                    message += "\n" + _loc.Format("resourcepack_cleanup_partialFailed", result.FailedFiles);
+                }
+
+                if (result.UnavailableTiers.Count > 0)
+                {
+                    message += "\n" + _loc.Format(
+                        "resourcepack_cleanup_unavailable",
+                        string.Join(_loc["common_comma"],
+                            result.UnavailableTiers.Select(t => ResourceTierText.DisplayName(_loc, t))));
+                }
+
+                PackFeedback.SetSuccess(message);
+            }
+
+            RefreshResourceTierHint();
+        }
+        catch (OperationCanceledException)
+        {
+            // 取消不报错：已删部分保留（下次重跑幂等）
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            PackFeedback.SetFailure(_loc.Format("resourcepack_cleanup_failed", ex.Message));
+        }
+        finally
+        {
+            IsCleaningPacks = false;
+            _owner.IsBusy = false;
+        }
+    }
+
+    /// <summary>关闭清理确认覆盖层，不改任何文件。</summary>
+    [RelayCommand]
+    private void CancelCleanup() => ShowCleanupConfirm = false;
+
+    /// <summary>已保存（生效）的资源包档位：清理按它保留；未设置 = hd。</summary>
+    private string SavedTier => ResourceTiers.Effective(_game.Launch.ResourceQualityTier);
+
+    /// <summary>字节数格式化（数字与单位间不换行空格，与主 VM 同口径）。</summary>
+    private static string FormatBytes(long bytes) => bytes switch
+    {
+        >= 1L << 30 => $"{bytes / (double)(1L << 30):F2}\u00A0GB",
+        >= 1L << 20 => $"{bytes / (double)(1L << 20):F1}\u00A0MB",
+        >= 1L << 10 => $"{bytes / (double)(1L << 10):F1}\u00A0KB",
+        _ => $"{bytes}\u00A0B",
+    };
+
     /// <summary>本地 Proton 绝对路径 → 版本目录名；null/空路径返回 null。</summary>
     private static string? LocalProtonName(string? protonPath) =>
         string.IsNullOrWhiteSpace(protonPath)
@@ -1003,10 +1266,11 @@ public partial class LaunchSettingsViewModel : ViewModelBase
         // 启动选项开关对照替换前的旧值：必须在 _game.Launch 替换前快照（review P2 实锤——
         // 曾在替换后拿草稿比新 Launch 自身，恒 false，仅开关变更的轻提示永不弹）；
         // 资源包档位变更并入同一提示组（同属启动选项卡的草稿字段）
+        var tierChanged = (SelectedResourceQuality?.Tier ?? "") != (_game.Launch.ResourceQualityTier ?? "").Trim();
         var optionsChanged = UseWaylandDraft != _game.Launch.UseWayland
             || UpgradeDlssDraft != _game.Launch.UpgradeDlss
             || EnableProtonLogDraft != _game.Launch.EnableProtonLog
-            || (SelectedResourceQuality?.Tier ?? "") != (_game.Launch.ResourceQualityTier ?? "").Trim();
+            || tierChanged;
 
         // games.json 的 launch.umuId 不经设置卡编辑，重建 Launch 时必须保留（否则 UMU_ID 退化为 umu-{gameId}）；
         // launch.decoyParent（诱饵父进程桥旗标）同理属托管外字段
@@ -1055,11 +1319,14 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             {
                 _owner.UpdateInstallDir(installDir); // 路径就地重解析 + 状态刷新
             }
-            else if (executableChanged)
+            else if (executableChanged || tierChanged)
             {
-                await _owner.RefreshAsync(cancellationToken); // 可启动性/状态行随之刷新
+                // 可启动性/状态行随之刷新；档位变更同走一次（主按钮"下载资源包"与状态行
+                // 立刻反映新档位，不必等下次导航）
+                await _owner.RefreshAsync(cancellationToken);
             }
 
+            RefreshResourceTierHint(); // 保存后重算档位说明行（补包指引/能力提示）
             Save.SetSuccess(_loc["launch_saved"]);
             RecomputeDirty(); // 落盘后草稿与已保存值一致，保存钮熄灭
             RaiseChangedToast(

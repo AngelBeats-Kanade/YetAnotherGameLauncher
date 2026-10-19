@@ -16,8 +16,23 @@ public partial class GameSettingsViewModel(GameItemViewModel game, MainWindowVie
     /// <summary>暴露给 XAML 的文案服务（页面标题等绑定 {Binding Loc[key]}）。</summary>
     public ILocalizationService Loc => owner.Loc;
 
-    /// <summary>位置/启动参数编辑卡（与详情页共享同一实例）。</summary>
-    public LaunchSettingsViewModel LaunchSettings => Game.LaunchSettings;
+    /// <summary>位置/启动参数编辑卡（与详情页共享同一实例）；进入本页时重算档位说明行
+    /// （落盘档位/服务器能力可能自上次进入后变化）。</summary>
+    public LaunchSettingsViewModel LaunchSettings
+    {
+        get
+        {
+            if (_launchSettings is null)
+            {
+                _launchSettings = Game.LaunchSettings;
+                _launchSettings.RefreshResourceTierHint();
+            }
+
+            return _launchSettings;
+        }
+    }
+
+    private LaunchSettingsViewModel? _launchSettings;
 
     /// <summary>
     /// Wine prefix 依赖区（Linux 且有安装器装配时可见；无安装器 = 测试空跑，整区隐藏）。

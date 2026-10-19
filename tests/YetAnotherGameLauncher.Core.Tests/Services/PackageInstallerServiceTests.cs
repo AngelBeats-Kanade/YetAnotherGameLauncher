@@ -128,7 +128,30 @@ public class PackageInstallerServiceTests : IDisposable
         await service.ApplyPredownloadAsync(_tempDir.Path, Manifest());
 
         Assert.Equal("MZ-stub", await File.ReadAllTextAsync(_tempDir.FilePath("game.exe")));
-        Assert.False(Directory.Exists(IncrementalUpdateService.PredownloadDir(_tempDir.Path)));
+        // 暂存与归档保留到调用方提交点（2026-10-19 二审 N2）：清暂存不是本方法的职责——
+        // 掉线续跑靠它们零下载重解压
+        Assert.NotNull(IncrementalUpdateService.TryLoadStagedManifest(_tempDir.Path));
+    }
+
+    [Fact]
+    public async Task ApplyPredownloadAsync_KeepsStagingAndPayloadForResume()
+    {
+        // 2026-10-19 二审 N2：应用完成到状态落盘之间掉线/暂停时，暂存清单与归档必须仍在场——
+        // 续跑重进应用链可零下载重解压（归档完好即复用），而不是整包重下数十 GB。
+        // 清暂存是调用方提交点的职责（GameUpdateService 在状态落盘后 ClearStaging）。
+        _downloader.Responses[ZipUrl] = ZipBytes;
+        var service = new PackageInstallerService(_downloader);
+
+        await service.PredownloadAsync(_tempDir.Path, Manifest());
+        await service.ApplyPredownloadAsync(_tempDir.Path, Manifest());
+        var requestsAfterApply = _downloader.Requests.Count;
+
+        Assert.NotNull(IncrementalUpdateService.TryLoadStagedManifest(_tempDir.Path));
+        Assert.True(File.Exists(Path.Combine(
+            IncrementalUpdateService.PredownloadDir(_tempDir.Path), "packages", "game-0.zip")));
+
+        await service.ApplyPredownloadAsync(_tempDir.Path, Manifest()); // 续跑：零下载
+        Assert.Equal(requestsAfterApply, _downloader.Requests.Count);
     }
 
     [Fact]
@@ -384,7 +407,8 @@ public class PackageInstallerSplitVolumeTests : IDisposable
         Assert.Null(ex);
         Assert.Equal(requestsAfterPredownload, _downloader.Requests.Count); // 应用阶段零下载
         Assert.Equal("MZ-stub-split-volume-payload", await File.ReadAllTextAsync(_tempDir.FilePath("game.exe")));
-        Assert.False(Directory.Exists(IncrementalUpdateService.PredownloadDir(_tempDir.Path)));
+        // 分卷归档与暂存清单同样保留到调用方提交点（2026-10-19 二审 N2）
+        Assert.NotNull(IncrementalUpdateService.TryLoadStagedManifest(_tempDir.Path));
     }
 
     [Fact]

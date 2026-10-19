@@ -50,14 +50,46 @@ public sealed class GameUpdateService(
 
         var plan = UpdatePlanner.Plan(localVersion, info.LatestVersion, info.PatchSourceVersions);
 
-        var repaired = plan.Strategy == UpdateStrategy.Incremental
-            ? await UpdateIncrementalAsync(installDir, server, channel, plan, progress, cancellationToken).ConfigureAwait(false)
-            : await UpdateFullAsync(installDir, server, channel, plan, progress, cancellationToken).ConfigureAwait(false);
+        // 下载会话标记（2026-10-19 暂停/续传）：成功收尾才清；取消/失败/进程中断都留存，
+        // 重开应用据此提示「继续下载」并按其种类派回被暂停的动作（预下载 → 预下载链，
+        // 已下完/应用中被停 → 应用链续跑；见 GameItemViewModel.InstallOrUpdateAsync 的分派）。
+        // 进度以磁盘为准：完成文件跳过、.temp 走 Range、暂存按 size/MD5 复用
+        var session = new DownloadSessionService(installDir);
+        session.Begin(
+            localVersion is null ? DownloadSessionKind.Install : DownloadSessionKind.Update,
+            plan.ToVersion, game.Id, server.Id);
+
+        var (repaired, manifestTier, deltaPayloadUsed) = plan.Strategy == UpdateStrategy.Incremental
+            ? await UpdateIncrementalAsync(installDir, game, server, channel, plan, progress, cancellationToken).ConfigureAwait(false)
+            : await UpdateFullAsync(installDir, game, server, channel, plan, progress, cancellationToken).ConfigureAwait(false);
 
         await state.SaveAsync(
-            new LocalGameState { GameId = game.Id, ServerId = server.Id, Version = plan.ToVersion },
+            new LocalGameState
+            {
+                GameId = game.Id,
+                ServerId = server.Id,
+                Version = plan.ToVersion,
+                // 档位记录取自清单（渠道是"这次到底落了哪个档"的单一事实源，2026-10-19）：
+                // 支持档位下载的服务器 = 配置档（未设置 = hd）；不支持的 = hd（内容为默认 bundle）
+                ResourceTier = manifestTier,
+            },
             cancellationToken).ConfigureAwait(false);
 
+        // 增量链的暂存清单留在提交之后才清（2026-10-19 review）：修复轮/状态写盘期间掉线时，
+        // 续跑走"应用链续跑"而不是重下整包差量。整包链不写暂存清单，无需清（也不清用户既有预下载）
+        if (plan.Strategy == UpdateStrategy.Incremental)
+        {
+            IncrementalUpdateService.ClearStaging(installDir, logger);
+        }
+        else if (deltaPayloadUsed)
+        {
+            // v2 增量载荷（.yagl/delta，9 卷 ≈8.72 GiB）同样留到提交之后才清（2026-10-19 三审）：
+            // 应用器不再自删载荷，应用成功、状态落盘前掉线/暂停时续跑按"已到位跳过"零下载收敛；
+            // 不适用/供给失败路径各自的清理保持原样（那里载荷确实没用了/要保留复用）
+            ClearDeltaPayload(installDir);
+        }
+
+        session.Clear(); // 成功收尾才清标记（失败/取消/中断都留存，供下次提示继续）
         logger?.LogInformation("{Game} update finished: {From} -> {To} ({Strategy}, repaired {Repaired} files)",
             game.DisplayName, plan.FromVersion, plan.ToVersion, plan.Strategy, repaired);
         return new UpdateOutcome(plan.Strategy, plan.FromVersion, plan.ToVersion, repaired);
@@ -78,6 +110,10 @@ public sealed class GameUpdateService(
 
         if (!info.PredownloadAvailable || string.IsNullOrEmpty(info.PredownloadVersion))
         {
+            // 窗口已关闭：上一轮暂停的预下载已无从继续——清掉那条标记后再抛（2026-10-19 二审 N1）：
+            // 不清的话主按钮会永远停在「继续下载」且每次点击都在这里失败，UI 没有任何出路
+            //（标记语义 = "还能接着下"，不可继续的标记是假承诺；其它种类的标记不动）
+            ClearStalePredownloadMarker(installDir, game.Id, server.Id);
             throw new UpdateException("No predownload is currently open.");
         }
 
@@ -91,20 +127,33 @@ public sealed class GameUpdateService(
             logger?.LogInformation(
                 "Predownload short-circuited: local version {Local} already covers target {Target}.",
                 localVersion, info.PredownloadVersion);
+            // 本地已覆盖目标：这条预下载同样"无从继续"——清标记让主按钮回到常规语义（同上）
+            ClearStalePredownloadMarker(installDir, game.Id, server.Id);
             return new PredownloadSummary(localVersion, info.PredownloadVersion, 0);
         }
 
         var plan = UpdatePlanner.Plan(localVersion, info.PredownloadVersion, info.PredownloadPatchSourceVersions);
+
+        // 下载会话标记（2026-10-19 暂停/续传）：预下载动辄数十 GB，中断后重跑按暂存复用续传；
+        // 成功收尾才清标记
+        var session = new DownloadSessionService(installDir);
+        session.Begin(DownloadSessionKind.Predownload, plan.ToVersion, game.Id, server.Id);
+
         if (plan.Strategy == UpdateStrategy.Incremental)
         {
+            // 档位（2026-10-19）：预下载只取"基础差量"（sd/uhd 时裁掉其它档位目录条目）——
+            // 档位包自身跨版本不变（官方实测 3.7.0 → 3.7.1 的 hd/sd/uhd 增量清单为空），
+            // 其落盘在应用/更新时由全量修复轮补齐（RepairPredownloadAsync / UpdateIncrementalAsync）
             var manifest = await channel.GetIncrementalManifestAsync(
-                               server, plan.FromVersion, plan.ToVersion, cancellationToken).ConfigureAwait(false)
+                               server, plan.FromVersion, plan.ToVersion, RequestedTier(game, server, channel), cancellationToken)
+                           .ConfigureAwait(false)
                            ?? throw new UpdateException("Predownload incremental manifest is unavailable.");
 
             var incremental = new IncrementalUpdateService(downloader, patchApplier, logger);
             await incremental.PredownloadAsync(installDir, manifest, progress, cancellationToken).ConfigureAwait(false);
 
             var totalBytes = manifest.Groups.Sum(g => g.PatchSize) + manifest.Files.Sum(f => f.Size);
+            session.Clear(); // 成功收尾才清标记
             return new PredownloadSummary(plan.FromVersion, plan.ToVersion, totalBytes);
         }
 
@@ -132,6 +181,7 @@ public sealed class GameUpdateService(
                         "Delta predownload staged: {Bytes} bytes for {From} -> {To}.", bytes, plan.FromVersion, plan.ToVersion);
                     progress?.Report(new UpdateProgress(
                         UpdatePhase.Done, 0, 0, deltaPlan.Volumes.Count, deltaPlan.Volumes.Count, null));
+                    session.Clear(); // 成功收尾才清标记
                     return new PredownloadSummary(plan.FromVersion, plan.ToVersion, bytes);
                 }
                 catch (Exception ex) when (ex is DeltaPackageNotApplicableException or DownloadException)
@@ -152,7 +202,22 @@ public sealed class GameUpdateService(
 
         var packages = new PackageInstallerService(downloader, logger);
         await packages.PredownloadAsync(installDir, packageManifest, progress, cancellationToken).ConfigureAwait(false);
+        session.Clear(); // 成功收尾才清标记
         return new PredownloadSummary(plan.FromVersion, plan.ToVersion, packageManifest.Files.Sum(f => f.Size));
+    }
+
+    /// <summary>
+    /// 预下载已不可继续（窗口关闭/本地版本已覆盖目标）时清掉"未完成的预下载"标记：
+    /// 只认归属于本游戏、本服务器且种类为 <see cref="DownloadSessionKind.Predownload"/> 的标记——
+    /// 同一安装目录里其它种类的未完成操作不受影响。
+    /// </summary>
+    private static void ClearStalePredownloadMarker(string installDir, string gameId, string serverId)
+    {
+        var session = new DownloadSessionService(installDir);
+        if (session.LoadFor(gameId, serverId) is { Kind: DownloadSessionKind.Predownload })
+        {
+            session.Clear();
+        }
     }
 
     /// <summary>应用已预下载的内容并收尾（事后校验修复 + 更新本地版本）。</summary>
@@ -167,6 +232,11 @@ public sealed class GameUpdateService(
         var staged = IncrementalUpdateService.TryLoadStagedManifest(installDir)
                      ?? throw new UpdateException("No preloaded update found; run predownload first.");
 
+        // 下载会话标记（2026-10-19 暂停/续传）：应用期也会下载（组级回退直链、修复轮补差），
+        // 中断后重跑按暂存与已落盘内容续传；成功收尾才清
+        var session = new DownloadSessionService(installDir);
+        session.Begin(DownloadSessionKind.Apply, staged.Version, game.Id, server.Id);
+
         if (staged.StagedAsDeltaPackage)
         {
             // v2 增量预下载（2026-10-18 接线）：应用预置载荷；不适用则清掉后走常规更新流程
@@ -175,6 +245,11 @@ public sealed class GameUpdateService(
                 await new LocalStateService(installDir).SaveAsync(
                     new LocalGameState { GameId = game.Id, ServerId = server.Id, Version = staged.Version },
                     cancellationToken).ConfigureAwait(false);
+                // 载荷与暂存清单留到提交之后才清（2026-10-19 review；载荷侧由三审补齐——
+                // 应用器不再自删载荷且按"已到位跳过"幂等）：应用成功、状态写盘前掉线时，
+                // 续跑仍是"应用链续跑"，不会把 8.72 GiB 载荷重下一遍
+                ClearStagedDelta(installDir);
+                session.Clear(); // 成功收尾才清标记
                 return new UpdateOutcome(UpdateStrategy.FullSync, "", staged.Version, 0);
             }
 
@@ -187,6 +262,7 @@ public sealed class GameUpdateService(
 
         var strategy = staged.EntriesAreArchives ? UpdateStrategy.FullSync : UpdateStrategy.Incremental;
         int repaired;
+        string? appliedTier;
         if (staged.EntriesAreArchives)
         {
             // 应用前的本地版本即清理清单的起点（落盘版本在下方才更新）
@@ -197,26 +273,44 @@ public sealed class GameUpdateService(
                 await TryGetObsoleteFilesAsync(channel, server, applyFrom, staged.Version, cancellationToken)
                     .ConfigureAwait(false)).ConfigureAwait(false);
             repaired = 0;
+            appliedTier = staged.ResourceTier;
         }
         else
         {
             var incremental = new IncrementalUpdateService(downloader, patchApplier, logger);
             await incremental.ApplyAsync(
                 installDir, staged, progress, cancellationToken,
-                dstUrlResolver: CreateDstUrlResolver(server, channel, staged.Version)).ConfigureAwait(false);
-            repaired = await RepairPredownloadAsync(
-                installDir, server, channel, staged, progress, cancellationToken).ConfigureAwait(false);
+                // 组级回退的直链解析用"暂存内容的档位"（暂存清单自带戳记）：应用期用户切了档时，
+                // 新档的下落由下方修复轮承担，解析必须仍按暂存内容的档位取清单，否则查无路径
+                dstUrlResolver: CreateDstUrlResolver(
+                    server, channel, staged.Version, staged.ResourceTier ?? RequestedTier(game, server, channel)))
+                .ConfigureAwait(false);
+            (repaired, appliedTier) = await RepairPredownloadAsync(
+                installDir, game, server, channel, staged, progress, cancellationToken).ConfigureAwait(false);
         }
 
         await new LocalStateService(installDir).SaveAsync(
-            new LocalGameState { GameId = game.Id, ServerId = server.Id, Version = staged.Version },
+            new LocalGameState
+            {
+                GameId = game.Id,
+                ServerId = server.Id,
+                Version = staged.Version,
+                // 档位记录 = 本轮"核实过落盘"的档位（修复轮跑过取生效档，窗口期跳过则取暂存戳记）——
+                // 不得记成"用户想要但没下"的档：UI 的档位提示只允许保守漏报，不允许漏报成"已就绪"
+                ResourceTier = appliedTier,
+            },
             cancellationToken).ConfigureAwait(false);
 
+        // 提交后清暂存（2026-10-19 review）：应用/修复/写盘期间掉线时暂存清单仍在场，
+        // 重开续跑进入"应用链续跑"（组级应用幂等跳过），不重下整包差量
+        IncrementalUpdateService.ClearStaging(installDir, logger);
+        session.Clear(); // 成功收尾才清标记
         return new UpdateOutcome(strategy, "", staged.Version, repaired);
     }
 
     /// <summary>
-    /// 应用预下载的 v2 增量计划（2026-10-18）：成功 true（清单/计划暂存清理，载荷由应用器清理）；
+    /// 应用预下载的 v2 增量计划（2026-10-18）：成功 true（载荷与计划暂存清理移到调用方提交点，
+    /// 见 <see cref="ApplyPredownloadAsync"/>——2026-10-19 review：提交前保留才能续跑不重下）；
     /// 计划缺失/载荷不可用/装配无单文件补丁器 → false（调用方回退整包）；补丁工具不可用 →
     /// 抛带"载荷已保留"指引的可重试错误（与直接更新链同语义，绝不静默丢载荷）。
     /// </summary>
@@ -239,7 +333,8 @@ public sealed class GameUpdateService(
         {
             var applier = new DeltaPackageApplier(downloader, filePatchApplier, logger);
             await applier.ApplyAsync(installDir, plan, progress, cancellationToken).ConfigureAwait(false);
-            ClearStagedDelta(installDir);
+            // 暂存清理移到调用方的提交点（状态写盘之后，2026-10-19 review）：应用成功到提交之间
+            // 掉线时保留载荷与计划，续跑按"已到位跳过"复用而不是重下（载荷侧由三审补齐）
             logger?.LogInformation(
                 "Staged delta package applied for {From} -> {To}.", plan.FromVersion, staged.Version);
             return true;
@@ -301,6 +396,17 @@ public sealed class GameUpdateService(
         }
     }
 
+    /// <summary>提交点清理 v2 增量载荷（.yagl/delta）：删不掉记 Warning——8.7 GiB 静默留盘与
+    /// "永不重下"的暂存语义背道而驰；但也不该让已成功的更新失败（失败保留供复用）。</summary>
+    private void ClearDeltaPayload(string installDir)
+    {
+        var payloadDir = DeltaPackageApplier.PayloadDir(installDir);
+        if (Directory.Exists(payloadDir) && !FileUtilities.TryDeleteDirectory(payloadDir, logger))
+        {
+            logger?.LogWarning("Delta payload staging could not be removed: {Path}", payloadDir);
+        }
+    }
+
     /// <summary>清掉增量预下载的全部暂存（载荷分卷 + 计划 + 标记清单）。</summary>
     private void ClearStagedDelta(string installDir)
     {
@@ -337,18 +443,18 @@ public sealed class GameUpdateService(
     /// 拿错版本内容打旧版 dst 的 md5，报误导性校验失败。取清单前先核对服务器当前版本，不一致
     /// 抛带版本号的 UpdateException（经组回退链折算，根因可见）。</remarks>
     private static Func<string, CancellationToken, Task<string?>> CreateDstUrlResolver(
-        GameServer server, IGameChannelApi channel, string version)
+        GameServer server, IGameChannelApi channel, string version, string? resourceTier)
     {
         Task<IReadOnlyDictionary<string, string>>? mapTask = null;
         return async (path, cancellationToken) =>
         {
-            mapTask ??= LoadDstUrlMapAsync(server, channel, version, cancellationToken);
+            mapTask ??= LoadDstUrlMapAsync(server, channel, version, resourceTier, cancellationToken);
             var map = await mapTask.ConfigureAwait(false);
             return map.GetValueOrDefault(path);
         };
 
         static async Task<IReadOnlyDictionary<string, string>> LoadDstUrlMapAsync(
-            GameServer server, IGameChannelApi channel, string version, CancellationToken cancellationToken)
+            GameServer server, IGameChannelApi channel, string version, string? resourceTier, CancellationToken cancellationToken)
         {
             var info = await channel.GetVersionInfoAsync(server, cancellationToken).ConfigureAwait(false);
             if (!string.Equals(info.LatestVersion, version, StringComparison.Ordinal))
@@ -358,7 +464,7 @@ public sealed class GameUpdateService(
                     $"for version {version}. Re-check for updates (or re-run the predownload) and retry.");
             }
 
-            var manifest = await channel.GetManifestAsync(server, version, cancellationToken).ConfigureAwait(false);
+            var manifest = await channel.GetManifestAsync(server, version, resourceTier, cancellationToken).ConfigureAwait(false);
             var map = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var file in manifest.Files)
             {
@@ -372,15 +478,17 @@ public sealed class GameUpdateService(
         }
     }
 
-    private async Task<int> UpdateFullAsync(
+    private async Task<(int Repaired, string? ManifestTier, bool DeltaPayloadUsed)> UpdateFullAsync(
         string installDir,
+        GameDefinition game,
         GameServer server,
         IGameChannelApi channel,
         UpdatePlan plan,
         IProgress<UpdateProgress>? progress,
         CancellationToken cancellationToken)
     {
-        var manifest = await channel.GetManifestAsync(server, plan.ToVersion, cancellationToken).ConfigureAwait(false);
+        var manifest = await channel.GetManifestAsync(
+            server, plan.ToVersion, RequestedTier(game, server, channel), cancellationToken).ConfigureAwait(false);
 
         if (manifest.EntriesAreArchives)
         {
@@ -388,7 +496,7 @@ public sealed class GameUpdateService(
             if (await TryApplyDeltaPackageAsync(installDir, server, channel, plan, progress, cancellationToken)
                     .ConfigureAwait(false))
             {
-                return 0;
+                return (0, manifest.ResourceTier, true);
             }
 
             var packages = new PackageInstallerService(downloader, logger);
@@ -396,23 +504,28 @@ public sealed class GameUpdateService(
                 installDir, manifest, progress, cancellationToken,
                 await TryGetObsoleteFilesAsync(channel, server, plan.FromVersion, plan.ToVersion, cancellationToken)
                     .ConfigureAwait(false)).ConfigureAwait(false);
-            return 0;
+            return (0, manifest.ResourceTier, false);
         }
 
         var installer = new GameInstallService(downloader, options, logger);
-        return await installer.SyncAsync(installDir, manifest, progress, cancellationToken).ConfigureAwait(false);
+        var repaired = await installer.SyncAsync(installDir, manifest, progress, cancellationToken).ConfigureAwait(false);
+        return (repaired, manifest.ResourceTier, false);
     }
 
-    private async Task<int> UpdateIncrementalAsync(
+    private async Task<(int Repaired, string? ManifestTier, bool DeltaPayloadUsed)> UpdateIncrementalAsync(
         string installDir,
+        GameDefinition game,
         GameServer server,
         IGameChannelApi channel,
         UpdatePlan plan,
         IProgress<UpdateProgress>? progress,
         CancellationToken cancellationToken)
     {
+        // 档位：差量清单只含"基础差量"（其它档位目录条目已裁），档位包自身由下方全量修复轮按
+        // 同一档位补齐（RunUpdateAsync 的完整语义 = 差量 + 修复，与预下载应用链一致）
+        var tier = RequestedTier(game, server, channel);
         var manifest = await channel.GetIncrementalManifestAsync(
-                           server, plan.FromVersion, plan.ToVersion, cancellationToken).ConfigureAwait(false)
+                           server, plan.FromVersion, plan.ToVersion, tier, cancellationToken).ConfigureAwait(false)
                        ?? throw new UpdateException("Incremental manifest unavailable; use the full update instead.");
 
         // 差分清单必须是文件清单：archive 形态（EntriesAreArchives）交给 IncrementalUpdateService
@@ -426,10 +539,12 @@ public sealed class GameUpdateService(
         await incremental.PredownloadAsync(installDir, manifest, progress, cancellationToken).ConfigureAwait(false);
         await incremental.ApplyAsync(
             installDir, manifest, progress, cancellationToken,
-            dstUrlResolver: CreateDstUrlResolver(server, channel, plan.ToVersion)).ConfigureAwait(false);
+            dstUrlResolver: CreateDstUrlResolver(server, channel, plan.ToVersion, tier)).ConfigureAwait(false);
 
-        return await RepairAgainstManifestAsync(
-            installDir, server, channel, plan.ToVersion, progress, cancellationToken).ConfigureAwait(false);
+        var repaired = await RepairAgainstManifestAsync(
+            installDir, server, channel, plan.ToVersion, tier, progress, cancellationToken).ConfigureAwait(false);
+        // 落盘档位以修复轮实际核实的清单为准（渠道归一后的戳记）；差量清单戳记仅作兜底
+        return (repaired.Repaired, repaired.ManifestTier ?? manifest.ResourceTier, false);
     }
 
     /// <summary>
@@ -437,9 +552,12 @@ public sealed class GameUpdateService(
     /// 暂存却是 <c>staged.Version</c>。窗口期内提前应用（服务器 latest 尚未切到 staged.Version）时，
     /// 按 latest 清单修复会把刚打到新版的文件改回旧内容，且落盘版本号新、内容旧，之后无自愈路径——
     /// 此时跳过修复只记日志；版本一致的常规场景照常修复（缺口由下次 UpdateAsync 收敛）。
+    /// 返回"修复文件数 + 实际核实过落盘的档位"：跳过修复时档位取暂存戳记（本次真正落盘的内容），
+    /// 不得记成"用户想要但没下"的档。
     /// </summary>
-    private async Task<int> RepairPredownloadAsync(
+    private async Task<(int Repaired, string? VerifiedTier)> RepairPredownloadAsync(
         string installDir,
+        GameDefinition game,
         GameServer server,
         IGameChannelApi channel,
         GameManifest staged,
@@ -452,35 +570,48 @@ public sealed class GameUpdateService(
             logger?.LogInformation(
                 "Skip post-apply repair: server latest {Latest} does not match staged {Staged}.",
                 info.LatestVersion, staged.Version);
-            return 0;
+            return (0, staged.ResourceTier);
         }
 
-        return await RepairAgainstManifestAsync(
-            installDir, server, channel, staged.Version, progress, cancellationToken).ConfigureAwait(false);
+        var tier = RequestedTier(game, server, channel);
+        var repaired = await RepairAgainstManifestAsync(
+            installDir, server, channel, staged.Version, tier, progress, cancellationToken).ConfigureAwait(false);
+        return (repaired.Repaired, repaired.ManifestTier ?? staged.ResourceTier);
     }
 
-    /// <summary>按目标版本全量清单做事后校验，修复缺失/损坏文件（通常为 0 个）。</summary>
-    private async Task<int> RepairAgainstManifestAsync(
+    /// <summary>按目标版本全量清单做事后校验，修复缺失/损坏文件（通常为 0 个）。
+    /// 返回"修复文件数 + 清单戳记的档位"（渠道是落盘档位的单一事实源）。</summary>
+    private async Task<(int Repaired, string? ManifestTier)> RepairAgainstManifestAsync(
         string installDir,
         GameServer server,
         IGameChannelApi channel,
         string version,
+        string? resourceTier,
         IProgress<UpdateProgress>? progress,
         CancellationToken cancellationToken)
     {
-        var manifest = await channel.GetManifestAsync(server, version, cancellationToken).ConfigureAwait(false);
+        var manifest = await channel.GetManifestAsync(server, version, resourceTier, cancellationToken).ConfigureAwait(false);
         var before = ManifestVerifier.VerifyFast(
             installDir, manifest,
             (checkedCount, total) => progress?.Report(
                 new UpdateProgress(UpdatePhase.Checking, 0, 0, checkedCount, total, null)));
         if (before.IsComplete)
         {
-            return 0;
+            return (0, manifest.ResourceTier);
         }
 
         var installer = new GameInstallService(downloader, options, logger);
-        return await installer.SyncAsync(installDir, manifest, progress, cancellationToken).ConfigureAwait(false);
+        var repaired = await installer.SyncAsync(installDir, manifest, progress, cancellationToken).ConfigureAwait(false);
+        return (repaired, manifest.ResourceTier);
     }
+
+    /// <summary>向渠道请求的资源包档位：渠道支持按档位下载时取配置档（未设置 = hd），
+    /// 否则传 null——渠道侧自会归一为默认 bundle（"档位 → 内容"的归一规则单一事实源在渠道，
+    /// Core 只负责把用户配置传下去；见 KuroChannelApi.SyncTier）。</summary>
+    private static string? RequestedTier(GameDefinition game, GameServer server, IGameChannelApi channel) =>
+        channel.SupportsResourcePackDownload(server)
+            ? ResourceTiers.Effective(game.Launch.ResourceQualityTier)
+            : null;
 
     /// <summary>
     /// 优先走 v2 增量载荷：渠道给不出计划（含未注入单文件补丁器的装配）、计划不适用于当前安装
@@ -554,12 +685,7 @@ public sealed class GameUpdateService(
                 logger?.LogInformation(ex, "Delta package not applicable; falling back to the full package.");
             }
 
-            var payloadDir = DeltaPackageApplier.PayloadDir(installDir);
-            if (Directory.Exists(payloadDir) && !FileUtilities.TryDeleteDirectory(payloadDir, logger))
-            {
-                logger?.LogWarning("Delta payload staging could not be removed: {Path}", payloadDir);
-            }
-
+            ClearDeltaPayload(installDir);
             return false;
         }
     }

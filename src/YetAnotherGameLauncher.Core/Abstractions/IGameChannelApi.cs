@@ -11,14 +11,21 @@ public interface IGameChannelApi
     /// <summary>查询服务器版本信息（含差分入口与预下载状态）。</summary>
     Task<ChannelVersionInfo> GetVersionInfoAsync(GameServer server, CancellationToken cancellationToken = default);
 
-    /// <summary>获取指定版本的全量清单。</summary>
-    Task<GameManifest> GetManifestAsync(GameServer server, string version, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// 获取指定版本的全量清单；<paramref name="resourceTier"/> 非空时按档位裁剪/追加
+    /// （鸣潮：去掉未选中档位目录、补上选中档位包；渠道不支持档位时为纯展示参数，忽略即可）。
+    /// </summary>
+    Task<GameManifest> GetManifestAsync(
+        GameServer server, string version, string? resourceTier = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 获取 "fromVersion → toVersion" 的增量清单；该差分组合不可用时返回 null。
+    /// <paramref name="resourceTier"/> 语义同 <see cref="GetManifestAsync"/>（增量侧只做
+    /// "去掉未选中档位目录"的裁剪：档位包自身的落盘由更新后的全量修复轮补齐）。
     /// </summary>
     Task<GameManifest?> GetIncrementalManifestAsync(
-        GameServer server, string fromVersion, string toVersion, CancellationToken cancellationToken = default);
+        GameServer server, string fromVersion, string toVersion, string? resourceTier = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 获取预下载（下一版本）清单；预下载不可用或渠道不适用时返回 null。
@@ -46,4 +53,20 @@ public interface IGameChannelApi
     Task<DeltaPackagePlan?> GetDeltaPackageAsync(
         GameServer server, string fromVersion, string toVersion, CancellationToken cancellationToken = default)
         => Task.FromResult<DeltaPackagePlan?>(null);
+
+    /// <summary>
+    /// 该服务器是否支持按档位下载资源包（鸣潮官方档位索引 resourcePacks）。false = 档位只作
+    /// 启动参数、下载恒为官方默认 bundle（common + HD）；设置页据此给出提示、清理动作不可用。
+    /// 默认 false。
+    /// </summary>
+    bool SupportsResourcePackDownload(GameServer server) => false;
+
+    /// <summary>
+    /// 获取指定档位资源包的清单（该档位需要落盘的文件；官方实测每档 100 个）。用于测体积与
+    /// 显式「清理其他档位」；渠道不支持按档位下载、或该档位不在官方档位索引里时返回 null。
+    /// 默认 null。
+    /// </summary>
+    Task<ResourcePackManifest?> GetResourcePackManifestAsync(
+        GameServer server, string tier, CancellationToken cancellationToken = default)
+        => Task.FromResult<ResourcePackManifest?>(null);
 }

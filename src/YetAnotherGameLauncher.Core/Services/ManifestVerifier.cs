@@ -177,4 +177,41 @@ public static class ManifestVerifier
 
         return candidate;
     }
+
+    /// <summary>
+    /// 把清单保留前缀（<see cref="GameManifest.PreservedPaths"/>）归一为"整段前缀"集合：
+    /// 相对路径、'/' 分隔、首尾去斜杠 + 尾斜杠，大小写不敏感。同步收尾清理与增量废弃清单共用同一口径
+    /// （2026-10-19 review：\"清单点名的保留内容永不隐式删除\"是全仓不变量，两处删除点必须同一实现）。
+    /// </summary>
+    public static HashSet<string> NormalizePreservedPrefixes(IEnumerable<string> preservedPaths)
+    {
+        var prefixes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in preservedPaths)
+        {
+            prefixes.Add(path.Replace('\\', '/').TrimStart('/').TrimEnd('/') + "/");
+        }
+
+        return prefixes;
+    }
+
+    /// <summary>清单相对路径是否落在任一保留前缀之下（整段前缀匹配：`a/b` 不匹配 `a/bc`）；
+    /// 与档位目录条目本身（等于前缀）也算命中。</summary>
+    public static bool IsUnderPreservedPrefix(string manifestPath, HashSet<string> preservedPrefixes)
+    {
+        if (preservedPrefixes.Count == 0)
+        {
+            return false;
+        }
+
+        var relative = manifestPath.Replace('\\', '/').TrimStart('/') + "/";
+        foreach (var prefix in preservedPrefixes)
+        {
+            if (relative.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

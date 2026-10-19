@@ -768,6 +768,7 @@ public partial class MainWindowViewModel : ViewModelBase
             await MigrateLinuxBareLaunchTemplatesAsync(catalog, cancellationToken);
             await MigrateLinuxLegacyUmuTemplatesAsync(catalog, cancellationToken);
             await MigrateDecoyParentFlagAsync(catalog, cancellationToken);
+            await MigrateResourcePackIndexUrlAsync(catalog, cancellationToken);
         }
 
         _downloader.Limiter.BytesPerSecond = catalog.Settings.DownloadSpeedLimitBytes;
@@ -1224,6 +1225,59 @@ public partial class MainWindowViewModel : ViewModelBase
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // 迁移写回失败不致命（与 schemaVersion 3/4/5 迁移同款）：版本号未落盘，下次启动幂等重试
+        }
+    }
+
+    /// <summary>
+    /// schemaVersion 7 一次性迁移：鸣潮档位资源包的官方档位索引地址（2026-10-19）——内置样例为
+    /// 官服条目开了 server.options.resourcePackIndexUrl，存量配置在本次启动补上同一地址
+    /// （仅"样例有值且游戏/服务器 id 相同"的条目；用户已自带该键——含手动清空——一概不动）。
+    /// 没有该地址的服务器（国际服/B 服实测无档位索引）档位只作启动参数，功能降级但不报错。
+    /// 版本号 ≥ 7 后永不执行。
+    /// </summary>
+    private async Task MigrateResourcePackIndexUrlAsync(GameCatalog catalog, CancellationToken cancellationToken)
+    {
+        if (catalog.Settings.SchemaVersion >= 7)
+        {
+            return;
+        }
+
+        catalog.Settings.SchemaVersion = 7;
+        var templateJson = _defaultConfigTemplateFactory?.Invoke();
+        if (templateJson is not null)
+        {
+            var sample = GameCatalogService.Parse(templateJson);
+            foreach (var game in catalog.Games)
+            {
+                if (sample.Games.FirstOrDefault(g => g.Id == game.Id) is not { } sampleGame)
+                {
+                    continue;
+                }
+
+                foreach (var server in game.Servers)
+                {
+                    if (server.Options.ContainsKey(KuroChannelApi.ResourcePackIndexUrlOptionKey))
+                    {
+                        continue;
+                    }
+
+                    if (sampleGame.Servers.FirstOrDefault(s => s.Id == server.Id) is { } sampleServer
+                        && sampleServer.Options.TryGetValue(KuroChannelApi.ResourcePackIndexUrlOptionKey, out var url)
+                        && !string.IsNullOrWhiteSpace(url))
+                    {
+                        server.Options[KuroChannelApi.ResourcePackIndexUrlOptionKey] = url;
+                    }
+                }
+            }
+        }
+
+        try
+        {
+            await _catalogService.SaveAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 迁移写回失败不致命（与 schemaVersion 3/4/5/6 迁移同款）：版本号未落盘，下次启动幂等重试
         }
     }
 

@@ -28,9 +28,18 @@ public sealed class FakeChannel : IGameChannelApi
 
     /// <summary>
     /// 清单拉取处理器（设置后优先于 Manifests）：可注入挂起 Task 把拉清单窗口钉在真实
-    /// await 点上，构造"拉清单窗口内重复点击"的互斥门场景（F78）。
+    /// await 点上，构造"拉清单窗口内重复点击"的互斥门场景（F78）。第三参为档位（2026-10-19）。
     /// </summary>
-    public Func<GameServer, string, CancellationToken, Task<GameManifest>>? ManifestHandler { get; set; }
+    public Func<GameServer, string, string?, CancellationToken, Task<GameManifest>>? ManifestHandler { get; set; }
+
+    /// <summary>服务器是否支持按档位下载资源包（false = 档位只作启动参数）。</summary>
+    public bool SupportsResourcePacks { get; set; }
+
+    /// <summary>档位包清单（按档位）；缺省 = 该档位不可得（返回 null）。</summary>
+    public Dictionary<string, ResourcePackManifest> ResourcePacks { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>档位包清单拉取记录（按档位）。</summary>
+    public List<string> ResourcePackRequests { get; } = [];
 
     /// <summary>增量清单拉取注入的异常（非 null 时 GetIncrementalManifestAsync 抛出）。</summary>
     public Exception? IncrementalManifestError { get; set; }
@@ -55,8 +64,17 @@ public sealed class FakeChannel : IGameChannelApi
 
     public List<string> ManifestRequests { get; } = [];
 
+    /// <summary>清单请求记录的档位参数（与 ManifestRequests 同序；null = 未指定档位）。</summary>
+    public List<string?> ManifestTiers { get; } = [];
+
     /// <summary>增量清单请求记录（from→to）；负向断言"未发起增量拉取"用（2026-09-20 补）。</summary>
     public List<(string From, string To)> IncrementalManifestRequests { get; } = [];
+
+    /// <summary>增量清单请求的档位参数（与 IncrementalManifestRequests 同序）。</summary>
+    public List<string?> IncrementalManifestTiers { get; } = [];
+
+    /// <summary>档位包清单拉取的注入异常（非 null 时抛出；模拟取不到——清理必须尽力而为）。</summary>
+    public Exception? ResourcePackError { get; set; }
 
     /// <summary>预下载清单请求记录。</summary>
     public List<string> PredownloadManifestRequests { get; } = [];
@@ -77,12 +95,14 @@ public sealed class FakeChannel : IGameChannelApi
             : Task.FromResult(VersionInfo);
     }
 
-    public Task<GameManifest> GetManifestAsync(GameServer server, string version, CancellationToken cancellationToken = default)
+    public Task<GameManifest> GetManifestAsync(
+        GameServer server, string version, string? resourceTier = null, CancellationToken cancellationToken = default)
     {
         ManifestRequests.Add(version);
+        ManifestTiers.Add(resourceTier);
         if (ManifestHandler is { } handler)
         {
-            return handler(server, version, cancellationToken);
+            return handler(server, version, resourceTier, cancellationToken);
         }
 
         return ManifestError is { } manifestError
@@ -91,9 +111,11 @@ public sealed class FakeChannel : IGameChannelApi
     }
 
     public Task<GameManifest?> GetIncrementalManifestAsync(
-        GameServer server, string fromVersion, string toVersion, CancellationToken cancellationToken = default)
+        GameServer server, string fromVersion, string toVersion, string? resourceTier = null,
+        CancellationToken cancellationToken = default)
     {
         IncrementalManifestRequests.Add((fromVersion, toVersion));
+        IncrementalManifestTiers.Add(resourceTier);
         if (IncrementalManifestError is { } incrementalError)
         {
             return Task.FromException<GameManifest?>(incrementalError);
@@ -102,6 +124,20 @@ public sealed class FakeChannel : IGameChannelApi
         return Task.FromResult<GameManifest?>(IncrementalManifests.TryGetValue((fromVersion, toVersion), out var manifest)
             ? manifest
             : null);
+    }
+
+    public bool SupportsResourcePackDownload(GameServer server) => SupportsResourcePacks;
+
+    public Task<ResourcePackManifest?> GetResourcePackManifestAsync(
+        GameServer server, string tier, CancellationToken cancellationToken = default)
+    {
+        ResourcePackRequests.Add(tier);
+        if (ResourcePackError is { } packError)
+        {
+            return Task.FromException<ResourcePackManifest?>(packError);
+        }
+
+        return Task.FromResult(ResourcePacks.TryGetValue(tier, out var pack) ? pack : null);
     }
 
     public Task<GameManifest?> GetPredownloadManifestAsync(GameServer server, CancellationToken cancellationToken = default)
