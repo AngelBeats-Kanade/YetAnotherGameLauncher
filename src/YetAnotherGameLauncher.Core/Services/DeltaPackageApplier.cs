@@ -80,6 +80,11 @@ public sealed class DeltaPackageApplier(IDownloader downloader, IFilePatchApplie
         }
 
         var deleted = CleanupObsoleteFiles(installDir, payload, plan, produced, progress);
+        // 载荷清理必须在分卷句柄释放之后：Windows 删除要求句柄带 FILE_SHARE_DELETE，而
+        // SplitVolumeStream 以 FileShare.Read 打开分卷——句柄未关时整树删除必然失败
+        //（Linux 的 unlink 语义掩盖该差异，2026-10-19 CI Windows 腿两例红即此）；
+        // using 兜底会在方法退出时重复释放，Stream.Dispose 幂等。
+        payload.Dispose();
         if (Directory.Exists(payloadDir) && !FileUtilities.TryDeleteDirectory(payloadDir, logger))
         {
             // 删不掉（占用/权限）不能只留 Debug 痕迹：8.7 GiB 载荷静默留盘与本批的目的相反
