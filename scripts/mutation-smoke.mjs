@@ -529,6 +529,18 @@ const MUTATIONS = [
     dll: 'tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Hypergryph.Tests.dll',
     method: 'YetAnotherGameLauncher.Channels.Hypergryph.Tests.GryphlineChannelApiTests.GetDeltaPackage_PredownloadWindow_LiveVersionTargetStaysNull',
   },
+  {
+    // 2026-10-19 Windows 腿红修复批（复审 nit）：平台模拟缝不得回落当前平台分隔符（Windows 主机上
+    // 模拟 POSIX 会把 '/' 路径比死）。变异取"恒 '/' 硬改 '\\'"——Ubuntu 腿即可击杀（实测 4 例）；
+    // 历史缺陷形态（回落 Path.DirectorySeparatorChar）在 Linux 上等于 '/'，杀不掉，故不取该形态。
+    id: 'M56-mount-boundary-separator',
+    file: 'src/YetAnotherGameLauncher.Core/Utilities/DiskSpace.cs',
+    find: '            var separator = \'/\';',
+    replace: '            var separator = \'\\\\\';',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Utilities.DiskSpaceTests.Probe_PicksLongestMountPrefix',
+  },
 ];
 
 function run(cmd, args) {
