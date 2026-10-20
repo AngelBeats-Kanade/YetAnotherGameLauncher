@@ -99,48 +99,76 @@ public static class FileUtilities
     /// 失败路径不留 .tmp 残留（F68）：写出与落盘任一环失败都清理临时文件后再上抛。</summary>
     public static async Task WriteAtomicAsync(string path, string content, CancellationToken cancellationToken = default)
     {
+        var tempPath = PrepareTempPath(path);
+        try
+        {
+            await File.WriteAllTextAsync(tempPath, content, cancellationToken).ConfigureAwait(false);
+            MoveOverwriteWithRetry(tempPath, path, cancellationToken);
+        }
+        finally
+        {
+            // 任一环失败（写出抛出/Move 重试耗尽/取消）都不留 .tmp 残留
+            FileUtilities.DeleteQuiet(tempPath);
+        }
+    }
+
+    /// <summary>同步原子写入：仅供无法 await 的关闭路径；普通异步调用方一律用
+    /// <see cref="WriteAtomicAsync"/>。</summary>
+    public static void WriteAtomic(string path, string content)
+    {
+        var tempPath = PrepareTempPath(path);
+        try
+        {
+            File.WriteAllText(tempPath, content);
+            MoveOverwriteWithRetry(tempPath, path, CancellationToken.None);
+        }
+        finally
+        {
+            DeleteQuiet(tempPath);
+        }
+    }
+
+    /// <summary>建父目录并返回同目录临时文件路径。</summary>
+    private static string PrepareTempPath(string path)
+    {
         var directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(directory))
         {
             Directory.CreateDirectory(directory);
         }
 
-        var tempPath = path + ".tmp";
+        return path + ".tmp";
+    }
+
+    /// <summary>Move 覆盖 + Windows 只读/占用重试一次；失败包装为可操作的 IOException。
+    /// 同步与异步原子写共用，保证两条落盘路径语义一致。</summary>
+    private static void MoveOverwriteWithRetry(string tempPath, string path, CancellationToken cancellationToken)
+    {
+        // Windows 语义坑：目标被占用（编辑器/杀软）或带只读属性时 Move 覆盖会抛
+        // IOException/UnauthorizedAccessException，而 Linux 的 rename() 总能成功。
+        // 只读是常见原因，就地解除后重试一次；仍失败则把真实原因包进可操作的错误里。
+        // 目标不存在的首写形态同样要走重试链（旧过滤器要求 File.Exists(path)，
+        // 把首写失败漏成裸异常，F68）
         try
         {
-            await File.WriteAllTextAsync(tempPath, content, cancellationToken).ConfigureAwait(false);
+            File.Move(tempPath, path, overwrite: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                   && !cancellationToken.IsCancellationRequested)
+        {
+            if (File.Exists(path))
+            {
+                File.SetAttributes(path, File.GetAttributes(path) & ~FileAttributes.ReadOnly);
+            }
 
-            // Windows 语义坑：目标被占用（编辑器/杀软）或带只读属性时 Move 覆盖会抛
-            // IOException/UnauthorizedAccessException，而 Linux 的 rename() 总能成功。
-            // 只读是常见原因，就地解除后重试一次；仍失败则把真实原因包进可操作的错误里。
-            // 目标不存在的首写形态同样要走重试链（旧过滤器要求 File.Exists(path)，
-            // 把首写失败漏成裸异常，F68）
             try
             {
                 File.Move(tempPath, path, overwrite: true);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                                       && !cancellationToken.IsCancellationRequested)
+            catch (Exception retry) when (retry is IOException or UnauthorizedAccessException)
             {
-                if (File.Exists(path))
-                {
-                    File.SetAttributes(path, File.GetAttributes(path) & ~FileAttributes.ReadOnly);
-                }
-
-                try
-                {
-                    File.Move(tempPath, path, overwrite: true);
-                }
-                catch (Exception retry) when (retry is IOException or UnauthorizedAccessException)
-                {
-                    throw new IOException($"无法写入 {path}，文件可能正被其它程序占用：{retry.Message}", retry);
-                }
+                throw new IOException($"无法写入 {path}，文件可能正被其它程序占用：{retry.Message}", retry);
             }
-        }
-        finally
-        {
-            // 任一环失败（写出抛出/Move 重试耗尽/取消）都不留 .tmp 残留
-            FileUtilities.DeleteQuiet(tempPath);
         }
     }
 

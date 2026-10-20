@@ -215,6 +215,44 @@ public class GameCatalogServiceTests : IDisposable
     }
 
     [Fact]
+    public void Save_WritesConfigFile()
+    {
+        var service = new GameCatalogService(_configPath)
+        {
+            Catalog = GameCatalogService.Parse(ValidJson),
+        };
+
+        service.Save();
+
+        Assert.True(File.Exists(_configPath));
+    }
+
+    [Fact]
+    public void Save_WithoutCatalog_ThrowsInvalidOperationException()
+    {
+        var service = new GameCatalogService(_configPath);
+
+        Assert.Throws<InvalidOperationException>(() => service.Save());
+    }
+
+    [Fact]
+    public async Task Save_InvalidCatalog_ThrowsBeforeWriting()
+    {
+        // 同步保存与 SaveAsync 共用 PrepareSaveContent：读严写严的校验不得在关窗路径漏掉
+        using var temp = new TempDir();
+        var path = temp.FilePath("games.json");
+        await File.WriteAllTextAsync(path,
+            """{"settings":{"installRoot":"~/x","schemaVersion":5},"games":[]}""");
+        var service = new GameCatalogService(path);
+        await service.LoadAsync();
+        service.Catalog!.Settings.InstallRoot = "";
+
+        Assert.Throws<GameCatalogValidationException>(() => service.Save());
+
+        Assert.Contains("~/x", await File.ReadAllTextAsync(path));
+    }
+
+    [Fact]
     public void GetConfigFilePath_EndsWithYaglGamesJson()
     {
         var path = AppPaths.GetConfigFilePath();

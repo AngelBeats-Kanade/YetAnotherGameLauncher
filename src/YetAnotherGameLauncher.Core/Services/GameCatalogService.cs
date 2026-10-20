@@ -43,20 +43,33 @@ public sealed class GameCatalogService
     /// <summary>原子保存：先写临时文件再替换，避免写入中途崩溃损坏配置。</summary>
     public async Task SaveAsync(CancellationToken cancellationToken = default)
     {
+        await FileUtilities.WriteAtomicAsync(
+            _configFilePath, PrepareSaveContent(), cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>同步保存：仅供无法 await 的关闭路径（窗口状态落盘）；普通调用方一律用
+    /// <see cref="SaveAsync"/>。</summary>
+    public void Save()
+    {
+        FileUtilities.WriteAtomic(_configFilePath, PrepareSaveContent());
+    }
+
+    /// <summary>写前校验并序列化（读严写严）：Catalog 是公开可变对象，任何保存路径漏守卫
+    /// 即可能写出下次启动拒载的配置——在唯一落盘口拦住（2026-09-20 三审修复）。</summary>
+    private string PrepareSaveContent()
+    {
         if (Catalog is null)
         {
             throw new InvalidOperationException("No config has been loaded; nothing to save.");
         }
 
-        // 写前校验（读严写严）：Catalog 是公开可变对象，任何保存路径漏守卫即可能写出
-        // 下次启动拒载的配置——在唯一落盘口拦住（2026-09-20 三审修复）
         var errors = Validate(Catalog);
         if (errors.Count > 0)
         {
             throw new GameCatalogValidationException(errors);
         }
 
-        await FileUtilities.WriteAtomicAsync(_configFilePath, Serialize(Catalog), cancellationToken).ConfigureAwait(false);
+        return Serialize(Catalog);
     }
 
     /// <summary>

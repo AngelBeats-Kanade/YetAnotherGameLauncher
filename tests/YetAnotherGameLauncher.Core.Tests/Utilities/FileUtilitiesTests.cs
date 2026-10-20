@@ -103,6 +103,35 @@ public class FileUtilitiesTests : IDisposable
     }
 
     [Fact]
+    public void WriteAtomic_ReadOnlyTarget_Overwritten()
+    {
+        // 同步版与 WriteAtomicAsync 共用 Move 重试链：只读目标同样要先解除属性再覆盖。
+        // Linux 的 rename 忽略目标只读位，本用例在 Linux 上直接成功；解除只读 + 重试分支
+        // 由 Windows CI 腿覆盖（与 WriteAtomicAsync_ReadOnlyTarget_Overwritten 同形）。
+        var path = _tempDir.FilePath("cfg.json");
+        File.WriteAllText(path, "old");
+        File.SetAttributes(path, File.GetAttributes(path) | FileAttributes.ReadOnly);
+
+        FileUtilities.WriteAtomic(path, "new");
+
+        Assert.Equal("new", File.ReadAllText(path));
+        Assert.False(File.GetAttributes(path).HasFlag(FileAttributes.ReadOnly));
+    }
+
+    [Fact]
+    public void WriteAtomic_MoveFailure_NoTempResidue()
+    {
+        // F68 同步版回归：Move 失败后 .tmp 必须清理，否则关闭路径会永久残留临时文件
+        var path = _tempDir.FilePath("state.json");
+        Directory.CreateDirectory(path);
+
+        // 必须是 Move 重试链包装后的 IOException，而不是桩/裸异常——确保真的走到了落盘路径
+        Assert.Throws<IOException>(() => FileUtilities.WriteAtomic(path, "content"));
+
+        Assert.False(File.Exists(path + ".tmp"));
+    }
+
+    [Fact]
     public void IsExecutableFile_Windows_ExistingFileIsExecutable()
     {
         // Windows CI 腿（2026-09-19）：Windows 语义 = 文件存在即可执行（是否真可运行由

@@ -848,7 +848,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// 窗口关闭时把当前尺寸/最大化状态写回配置（Closing 是同步事件，JSON 很小，
-    /// 同步等待落盘保证进程退出前写完）。目录未加载（配置损坏）时静默跳过。
+    /// 同步原子写保证进程退出前写完）。目录未加载（配置损坏）时静默跳过。
     /// </summary>
     public void PersistWindowState(double width, double height, bool maximized)
     {
@@ -862,11 +862,9 @@ public partial class MainWindowViewModel : ViewModelBase
         catalog.Settings.WindowMaximized = maximized;
         try
         {
-            // 同步阻塞的安全性前提（缺一即死锁/卡 UI，改动前必读）：
-            // 1. Core 层 .editorconfig 强制 CA2007——SaveAsync 全链 ConfigureAwait(false)，
-            //    无 UI 线程续体，GetResult() 不会死锁；
-            // 2. 本方法仅窗口 Closing 路径调用（无法 async），阻塞时长为一次小文件原子写。
-            _catalogService.SaveAsync().GetAwaiter().GetResult();
+            // 纯同步原子写：无 async 续体，不存在"续体回 UI 线程"的死锁；
+            // 阻塞时长 = 一次小文件原子写（JSON 很小），关闭路径必须保证落盘后再退出。
+            _catalogService.Save();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {

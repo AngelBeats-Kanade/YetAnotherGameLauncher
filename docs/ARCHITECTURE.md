@@ -679,6 +679,10 @@ flowchart LR
   `DependencySectionViewModelTests.TrayHide_*`）；**真退出路径**（默认 `Exit` 模式，或托盘
   "退出"经 `MainWindow.RequestRealClose` 置真关闭放行标志）= 既有清理链
   `PersistWindowState` + `StopBackdropVideo` + `CancelOngoingDependencyInstall`。
+  `PersistWindowState` 走 `GameCatalogService.Save()` 的纯同步原子写
+  （`FileUtilities.WriteAtomic`）：`Closing` 无法 await，关闭路径不依赖“同步等待 async +
+  全链 ConfigureAwait(false)”的脆弱前提（当前 `SaveAsync` 链虽已全配置、同步等待只会阻塞
+  UI，但任一环漏配即死锁），统一用不经过 async 状态机的同步落盘（2026-10-20）。
   程序性 Shutdown（含会话注销触发的关闭）经 `ShutdownRequested` 回调先
   `AllowRealClose()` 置放行标志再停视频——驻留拦截只拦用户主动关窗；Wayland 侧合成器
   注销可能不经优雅 Closing 直接断连接，注销行为以真机验收为准。
