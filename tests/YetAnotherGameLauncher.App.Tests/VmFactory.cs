@@ -89,7 +89,7 @@ public static class VmFactory
         public required KuroGachaService GachaService { get; init; }
 
         /// <summary>测试注入的视频播放器工厂（镜像生产：每游戏一路播放器）。null = 游戏无播放器（海报兜底）。</summary>
-        public required Func<YetAnotherGameLauncher.Services.IVideoBackdropPlayer>? PlayerFactory { get; init; }
+        public required Func<IVideoBackdropPlayer>? PlayerFactory { get; init; }
 
         /// <summary>默认工厂创建的假播放器（与 Games 同序；测试未注入自定义工厂时用 Players[i] 观察第 i 个游戏）。</summary>
         public required IReadOnlyList<FakeVideoPlayer> Players { get; init; }
@@ -225,8 +225,8 @@ public static class VmFactory
         string? linuxWinePath = "",
         string? linuxDataHome = null,
         YetAnotherGameLauncher.Core.Services.Umu.NativeUmuLauncher? nativeUmu = null,
-        YetAnotherGameLauncher.Core.Abstractions.IUmuComponentProvisioner? umuProvisioner = null,
-        YetAnotherGameLauncher.Core.Dependencies.IDependencyInstaller? dependencyInstaller = null,
+        IUmuComponentProvisioner? umuProvisioner = null,
+        Core.Dependencies.IDependencyInstaller? dependencyInstaller = null,
         Func<string?>? systemWineResolver = null,
         Microsoft.Extensions.Logging.ILogger? dependencyLogger = null,
         NetworkProxyManager? proxyManager = null,

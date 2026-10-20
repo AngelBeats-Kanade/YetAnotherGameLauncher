@@ -55,8 +55,7 @@ public sealed class HttpFileDownloader(
                 lastError = ex;
                 logger?.LogWarning(ex, "Download verification failed (attempt {Attempt}/{Max}) ({Url})", attempt, _options.MaxAttempts, request.Url);
             }
-            catch (Exception ex) when ((ex is HttpRequestException or IOException
-                                        && ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is (HttpRequestException or IOException) and not OperationCanceledException
                                        || (ex is OperationCanceledException
                                            && !cancellationToken.IsCancellationRequested))
             {
@@ -109,7 +108,7 @@ public sealed class HttpFileDownloader(
         // 不再发不可满足的 Range 请求——规范服务器回 416，会被下方按网络错误重试，重试耗尽成死路。
         // 直接返回交由上层 Verify 校验：MD5 相符则落盘，不符则走 DownloadVerificationException 丢弃重下。
         // expected > 0：期望 0 字节时"temp 不存在"与"完整"同为 0 无法区分，走正常路径即可。
-        if (request.ExpectedSize is long expected && expected > 0 && existingTempBytes == expected)
+        if (request.ExpectedSize is { } expected and > 0 && existingTempBytes == expected)
         {
             return;
         }
@@ -246,13 +245,13 @@ public sealed class HttpFileDownloader(
     private static void Verify(DownloadRequest request, string tempPath)
     {
         var actualLength = new FileInfo(tempPath).Length;
-        if (request.ExpectedSize is long expectedSize && expectedSize > 0 && actualLength != expectedSize)
+        if (request.ExpectedSize is { } expectedSize and > 0 && actualLength != expectedSize)
         {
             throw new DownloadVerificationException(
                 $"Size mismatch for {request.DestinationPath}: expected {expectedSize} bytes, got {actualLength}.");
         }
 
-        if (request.ExpectedMd5 is string expectedMd5 && expectedMd5.Length > 0)
+        if (request.ExpectedMd5 is { Length: > 0 } expectedMd5)
         {
             var actualMd5 = Hashing.Md5Hex(tempPath);
             if (!string.Equals(actualMd5, expectedMd5, StringComparison.OrdinalIgnoreCase))

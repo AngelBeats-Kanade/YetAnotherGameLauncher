@@ -54,7 +54,7 @@ public class SettingsAutostartTests
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
-            if (probe() is T value)
+            if (probe() is { } value)
             {
                 return value;
             }

@@ -20,12 +20,11 @@ public class GameItemOfflineTests : IDisposable
     public void Dispose() => _ctx.TempDir.Dispose();
 
     /// <summary>在鸣潮游戏安装目录里放主程序文件（模拟官方启动器装好的既有安装）。</summary>
-    private static string WriteGameExecutable(string installDir)
+    private static void WriteGameExecutable(string installDir)
     {
         var exePath = Path.Combine(installDir, "Client", "Binaries", "Win64", "Client-Win64-Shipping.exe");
         Directory.CreateDirectory(Path.GetDirectoryName(exePath)!);
         File.WriteAllBytes(exePath, "MZ"u8.ToArray());
-        return exePath;
     }
 
     [Fact]

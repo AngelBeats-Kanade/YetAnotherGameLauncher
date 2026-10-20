@@ -42,7 +42,7 @@ public static class AppPaths
         return string.IsNullOrWhiteSpace(xdgDataHome) || !Path.IsPathRooted(xdgDataHome)
             ? Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share")
-            : xdgDataHome!; // IsPathRooted 已保证非空
+            : xdgDataHome; // IsPathRooted 已保证非空
     }
 
     /// <summary>

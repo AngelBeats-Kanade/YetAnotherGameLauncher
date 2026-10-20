@@ -20,7 +20,7 @@ using YetAnotherGameLauncher.Views;
 namespace YetAnotherGameLauncher;
 
 [ExcludeFromCodeCoverage]
-public partial class App : Application
+public class App : Application
 {
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -32,7 +32,7 @@ public partial class App : Application
             // 有意不持有/Dispose ServiceProvider：退出期平台拆除会弄坏 GPU 解码栈等原生资源，
             // IDisposable 单例的释放由下方 ShutdownRequested 的 videoPlayer.Stop() 显式承担；
             // 若未来出现有真实释放逻辑的 IDisposable 单例，需先补 provider 的关闭路径再依赖其 Dispose
-            var services = BuildServices(Path.Combine(Core.AppPaths.DataDirectory, "logs"));
+            var services = BuildServices(Path.Combine(AppPaths.DataDirectory, "logs"));
             var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("YetAnotherGameLauncher");
             InstallGlobalExceptionLogging(logger);
             var viewModel = services.GetRequiredService<MainWindowViewModel>();
@@ -44,7 +44,7 @@ public partial class App : Application
             // 不致命：记日志继续——此时 closeAction=HideToTray 失去召回入口，但应用本体可用
             try
             {
-                new Services.TrayIconController(mainWindow, viewModel);
+                _ = new TrayIconController(mainWindow, viewModel);
             }
             catch (Exception ex)
             {
@@ -132,7 +132,7 @@ public partial class App : Application
             {
                 // 应用级日志文件（与游戏启动日志同目录）：更新/后台任务的排障尾巴
                 //（2026-10-17 立案④——此前事故复盘只能靠文件 mtime）
-                builder.AddProvider(new Services.FileLoggerProvider(logDirectory));
+                builder.AddProvider(new FileLoggerProvider(logDirectory));
             }
         });
 
@@ -178,7 +178,7 @@ public partial class App : Application
         services.AddHypergryphChannel();
 
         // 领域服务
-        services.AddSingleton(sp => new GameCatalogService(AppPaths.GetConfigFilePath()));
+        services.AddSingleton(_ => new GameCatalogService(AppPaths.GetConfigFilePath()));
         services.AddSingleton(sp => new GameUpdateService(
             sp.GetRequiredService<IDownloader>(),
             sp.GetRequiredService<IPatchApplier>(),
@@ -186,7 +186,8 @@ public partial class App : Application
             filePatchApplier: sp.GetRequiredService<IFilePatchApplier>()));
         services.AddSingleton(sp => new GameLauncherService(
             sp.GetRequiredService<IProcessRunner>(),
-            logger: sp.GetRequiredService<ILoggerFactory>().CreateLogger<GameLauncherService>()));
+            logger: sp.GetRequiredService<ILoggerFactory>().CreateLogger<GameLauncherService>(),
+            platformInfo: sp.GetRequiredService<IPlatformInfo>()));
         services.AddSingleton<ThemeService>();
         services.AddSingleton<ILocalizationService, LocalizationService>();
         services.AddSingleton<BackgroundImageService>();
@@ -262,7 +263,7 @@ public partial class App : Application
                 umuProvisioner: sp.GetRequiredService<IUmuComponentProvisioner>(),
                 dependencyInstaller: sp.GetRequiredService<IDependencyInstaller>(),
                 dependencyLogger: sp.GetRequiredService<ILoggerFactory>()
-                    .CreateLogger<ViewModels.DependencySectionViewModel>(),
+                    .CreateLogger<DependencySectionViewModel>(),
                 platformInfo: sp.GetRequiredService<IPlatformInfo>());
         });
 

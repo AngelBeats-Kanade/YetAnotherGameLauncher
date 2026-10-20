@@ -358,7 +358,7 @@ public class GameItemActionsTests : IDisposable
     {
         // 终末地 v2 增量（单文件差分）与鸣潮目录差分共用同一个 hpatchz 应用器实例：
         // 装配漏挂 IFilePatchApplier 会让增量静默退化成"永远回退整包"，故由组合根断言钉住
-        using var sp = YetAnotherGameLauncher.App.BuildServices();
+        using var sp = App.BuildServices();
 
         var directory = sp.GetRequiredService<IPatchApplier>();
         var filePatcher = sp.GetRequiredService<IFilePatchApplier>();
@@ -371,7 +371,7 @@ public class GameItemActionsTests : IDisposable
     {
         // 组合根装配缺口回归（2026-09-20）：App.axaml.cs 工厂曾漏传 proxyManager，
         // 可选参数默认 null 编译期不可见——直接解析生产组合根断言同一实例被注入
-        using var sp = YetAnotherGameLauncher.App.BuildServices();
+        using var sp = App.BuildServices();
         var vm = sp.GetRequiredService<MainWindowViewModel>();
 
         Assert.Same(sp.GetRequiredService<NetworkProxyManager>(), vm.ProxyManager);
@@ -386,7 +386,7 @@ public class GameItemActionsTests : IDisposable
         // 回归（2026-09-20 复审）：裸 ILogger 不在容器里，类型激活会让可注入 logger
         // 落到默认 null——更新完成/下载重试/启动失败等关键日志全部静默丢弃。
         // 组合根必须显式工厂传类型化 logger（与 proxyManager 漏传同一形态的装配缺口）
-        using var sp = YetAnotherGameLauncher.App.BuildServices();
+        using var sp = App.BuildServices();
         var service = sp.GetRequiredService(serviceType);
 
         var loggerField = serviceType.GetFields(
@@ -400,16 +400,35 @@ public class GameItemActionsTests : IDisposable
     }
 
     [Fact]
+    public void CompositionRoot_WiresPlatformInfoIntoGameLauncherService()
+    {
+        // 组合根装配守卫（2026-10-20）：platformInfo 是可选参数，容器漏传时默认
+        // PlatformInfoFactory.Create() 会让装配缺口静默通过——Windows 直启的诱饵桥路由
+        // 依赖 _platformInfo.IsLinux，测试注入的假平台也必须能进入服务。
+        using var sp = App.BuildServices();
+        var service = sp.GetRequiredService<GameLauncherService>();
+
+        var platformField = typeof(GameLauncherService).GetFields(
+            System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.NonPublic
+            | System.Reflection.BindingFlags.Public)
+            .FirstOrDefault(f => typeof(IPlatformInfo).IsAssignableFrom(f.FieldType));
+
+        Assert.NotNull(platformField);
+        Assert.Same(sp.GetRequiredService<IPlatformInfo>(), platformField.GetValue(service));
+    }
+
+    [Fact]
     public void CompositionRoot_WiresChannelLoggers()
     {
         // 渠道 keyed 注册同样不得拿到 null logger
-        using var sp = YetAnotherGameLauncher.App.BuildServices();
+        using var sp = App.BuildServices();
         var keyed = (IKeyedServiceProvider)sp;
 
-        var kuro = keyed.GetRequiredKeyedService<YetAnotherGameLauncher.Core.Abstractions.IGameChannelApi>(
-            YetAnotherGameLauncher.Channels.Kuro.KuroServiceCollectionExtensions.ChannelKey);
-        var gryphline = keyed.GetRequiredKeyedService<YetAnotherGameLauncher.Core.Abstractions.IGameChannelApi>(
-            YetAnotherGameLauncher.Channels.Hypergryph.HypergryphServiceCollectionExtensions.ChannelKey);
+        var kuro = keyed.GetRequiredKeyedService<IGameChannelApi>(
+            Channels.Kuro.KuroServiceCollectionExtensions.ChannelKey);
+        var gryphline = keyed.GetRequiredKeyedService<IGameChannelApi>(
+            Channels.Hypergryph.HypergryphServiceCollectionExtensions.ChannelKey);
 
         foreach (var api in new[] { kuro, gryphline })
         {
@@ -430,15 +449,15 @@ public class GameItemActionsTests : IDisposable
         // IHttpClientFactory 默认 2 分钟轮换会让过期链清理 Dispose 共享 handler，
         // 全应用网络随之死亡。断言 primary 为共享实例、寿命为无限
         // （代理热改由 NetworkProxyManager.Apply 承担，本就不依赖轮换）。
-        using var sp = YetAnotherGameLauncher.App.BuildServices();
-        var key = YetAnotherGameLauncher.Channels.Hypergryph.HypergryphServiceCollectionExtensions.ChannelKey;
+        using var sp = App.BuildServices();
+        var key = Channels.Hypergryph.HypergryphServiceCollectionExtensions.ChannelKey;
         var shared = sp.GetRequiredService<NetworkProxyManager>().Handler;
 
         // 真实建链后经反射取 HttpClient 底层 handler(无公开 API;handler 字段在基类
         // HttpMessageInvoker 上,按 handler 类型的私有字段找、不硬编码字段名),剥掉包装层,
         // 最底层必须是共享 SocketsHttpHandler 本体
         var client = sp.GetRequiredService<IHttpClientFactory>().CreateClient(key);
-        var handlerField = typeof(System.Net.Http.HttpMessageInvoker)
+        var handlerField = typeof(HttpMessageInvoker)
             .GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
             .FirstOrDefault(f => typeof(HttpMessageHandler).IsAssignableFrom(f.FieldType));
         Assert.NotNull(handlerField);
@@ -453,7 +472,7 @@ public class GameItemActionsTests : IDisposable
 
         var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<
             Microsoft.Extensions.Http.HttpClientFactoryOptions>>().Get(key);
-        Assert.Equal(System.Threading.Timeout.InfiniteTimeSpan, options.HandlerLifetime);
+        Assert.Equal(Timeout.InfiniteTimeSpan, options.HandlerLifetime);
     }
 
     [Fact]

@@ -171,7 +171,7 @@ public sealed class NativeUmuLauncher(
 
         if (!string.IsNullOrWhiteSpace(resourceQualityTier))
         {
-            gameArgumentList.Add($"-krqlv={resourceQualityTier!.Trim()}");
+            gameArgumentList.Add($"-krqlv={resourceQualityTier.Trim()}");
         }
 
         // 诱饵父进程桥（decoyParent 非空，2026-10-18）：容器目标换成桥 helper，游戏可执行文件与

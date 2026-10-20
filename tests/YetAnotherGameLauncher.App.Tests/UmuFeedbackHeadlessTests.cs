@@ -61,7 +61,7 @@ public class UmuFeedbackHeadlessTests : IDisposable
             var outsideLaunchCard = slots.Except(inLaunchCard).ToList();
             // 归属按文本判定（2026-10-19 起启动卡内不止一个槽：档位清理反馈 PackFeedback 也在
             // 启动卡里，"卡内恰好一个槽"的计数假设不再是归属代理；文本归属断言更强且不随槽数漂移）
-            umuShownInLaunchCard = inLaunchCard.Count(t => t.IsVisible && t.Text == "组件反馈标记") == 1;
+            umuShownInLaunchCard = inLaunchCard.Count(t => t is { IsVisible: true, Text: "组件反馈标记" }) == 1;
             umuHiddenInLocationCard = outsideLaunchCard
                 .Where(t => t.IsVisible)
                 .All(t => t.Text != "组件反馈标记");
@@ -71,7 +71,7 @@ public class UmuFeedbackHeadlessTests : IDisposable
             launch.Save.SetSuccess("保存反馈标记");
             window.UpdateLayout();
             saveShownInLocationCard = outsideLaunchCard
-                .Count(t => t.IsVisible && t.Text == "保存反馈标记") == 1;
+                .Count(t => t is { IsVisible: true, Text: "保存反馈标记" }) == 1;
             saveHiddenInLaunchCard = inLaunchCard.All(t => !t.IsVisible || t.Text != "保存反馈标记");
 
             window.Close();

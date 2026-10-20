@@ -644,7 +644,7 @@ public class GryphlineChannelApiVersionGuardTests
             """);
         var api = new GryphlineChannelApi(new HttpClient(_handler));
 
-        await Assert.ThrowsAsync<YetAnotherGameLauncher.Core.Abstractions.UpdateException>(
+        await Assert.ThrowsAsync<UpdateException>(
             () => api.GetVersionInfoAsync(Server()));
     }
 

@@ -45,7 +45,7 @@ public class SystemProcessRunnerTests
             Assert.Skip("POSIX shell 进程树语义（孤儿继承管道写端）");
         }
 
-        using var tempDir = new TestSupport.TempDir();
+        using var tempDir = new TempDir();
         var runner = new SystemProcessRunner();
         var logPath = tempDir.FilePath("ff.log");
         await runner.RunAsync(new ProcessStartSpec(
@@ -91,7 +91,7 @@ public class SystemProcessRunnerTests
     {
         // 启动日志：即启即走的进程输出（stdout/stderr）要落盘，秒退/报错可据此排查。
         // 审计修复（2026-09-19）：原实现 Windows 直接 return（零断言静默绿）；现双腿各自真实断言。
-        using var tempDir = new TestSupport.TempDir();
+        using var tempDir = new TempDir();
         var logPath = tempDir.FilePath("logs", "launch-test.log");
         var runner = new SystemProcessRunner();
 
@@ -177,7 +177,7 @@ public class SystemProcessRunnerTests
             : ("sleep", "30");
 
         var runner = new SystemProcessRunner();
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
 
         var ex = await Assert.ThrowsAsync<UpdateException>(() => runner.RunAsync(
             new ProcessStartSpec(fileName, arguments, TimeoutMilliseconds: 500)));

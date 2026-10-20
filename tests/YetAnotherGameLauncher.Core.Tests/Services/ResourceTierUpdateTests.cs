@@ -152,7 +152,7 @@ public class ResourceTierUpdateTests : IDisposable
         Assert.Equal(["uhd"], _channel.IncrementalManifestTiers);
         var staged = IncrementalUpdateService.TryLoadStagedManifest(_tempDir.Path);
         Assert.NotNull(staged);
-        Assert.Equal("uhd", staged!.ResourceTier);
+        Assert.Equal("uhd", staged.ResourceTier);
     }
 
     [Fact]

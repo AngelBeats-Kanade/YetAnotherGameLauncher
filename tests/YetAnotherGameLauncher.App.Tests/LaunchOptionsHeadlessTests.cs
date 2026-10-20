@@ -219,9 +219,9 @@ public class LaunchOptionsHeadlessTests : IDisposable
             Assert.NotNull(icon);
             icon.BringIntoView();
             window.UpdateLayout();
-            Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
 
-            var topLeft = icon.TranslatePoint(new Avalonia.Point(0, 0), window)!.Value;
+            var topLeft = icon.TranslatePoint(new Point(0, 0), window)!.Value;
             var width = (int)icon.Bounds.Width;
             var height = (int)icon.Bounds.Height;
             using var frame = window.CaptureRenderedFrame();

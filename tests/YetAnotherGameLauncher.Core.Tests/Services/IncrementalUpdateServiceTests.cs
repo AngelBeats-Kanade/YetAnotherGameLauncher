@@ -950,9 +950,9 @@ public class IncrementalUpdateHygieneTests : IDisposable
         _downloader.Responses[Url("g1.krpdiff")] = patch;
         _applier.Outputs["g1.krpdiff"] = new Dictionary<string, byte[]> { ["data/file.dat"] = newContent };
         var group = new PatchGroup(
-            "g1.krpdiff", patch.Length, YetAnotherGameLauncher.Core.Utilities.Hashing.Md5Hex(newContent),
-            SrcFiles: [new ManifestFile("data/file.dat", oldContent.Length, YetAnotherGameLauncher.Core.Utilities.Hashing.Md5Hex(oldContent))],
-            DstFiles: [new ManifestFile("data/file.dat", newContent.Length, YetAnotherGameLauncher.Core.Utilities.Hashing.Md5Hex(newContent))],
+            "g1.krpdiff", patch.Length, Hashing.Md5Hex(newContent),
+            SrcFiles: [new ManifestFile("data/file.dat", oldContent.Length, Hashing.Md5Hex(oldContent))],
+            DstFiles: [new ManifestFile("data/file.dat", newContent.Length, Hashing.Md5Hex(newContent))],
             Url("g1.krpdiff"));
         var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
 
@@ -1003,9 +1003,9 @@ public class IncrementalUpdateHygieneTests : IDisposable
         _downloader.Responses[Url("g1.krpdiff")] = patch;
         _applier.Outputs["g1.krpdiff"] = new Dictionary<string, byte[]> { ["data/file.dat"] = newContent };
         var group = new PatchGroup(
-            "g1.krpdiff", patch.Length, YetAnotherGameLauncher.Core.Utilities.Hashing.Md5Hex(newContent),
-            SrcFiles: [new ManifestFile("data/file.dat", oldContent.Length, YetAnotherGameLauncher.Core.Utilities.Hashing.Md5Hex(oldContent))],
-            DstFiles: [new ManifestFile("data/file.dat", newContent.Length, YetAnotherGameLauncher.Core.Utilities.Hashing.Md5Hex(newContent))],
+            "g1.krpdiff", patch.Length, Hashing.Md5Hex(newContent),
+            SrcFiles: [new ManifestFile("data/file.dat", oldContent.Length, Hashing.Md5Hex(oldContent))],
+            DstFiles: [new ManifestFile("data/file.dat", newContent.Length, Hashing.Md5Hex(newContent))],
             Url("g1.krpdiff"));
         var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
 

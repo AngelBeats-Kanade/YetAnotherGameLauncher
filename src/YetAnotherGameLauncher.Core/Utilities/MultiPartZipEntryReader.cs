@@ -91,7 +91,7 @@ public static class MultiPartZipEntryReader
             return false;
         }
 
-        var centralDirectory = ReadRange(stream, cdOffset, (int)cdSize);
+        var centralDirectory = ReadRange(stream, cdOffset, cdSize);
         var entries = ZipCentralDirectory.Parse(centralDirectory);
         var entry = ZipCentralDirectory.Find(entries, entryName);
         if (entry is null || entry.LocalHeaderOffset > long.MaxValue)
@@ -220,7 +220,7 @@ public static class MultiPartZipEntryReader
             return null;
         }
 
-        var flags = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(blob.AsSpan(6));
+        var flags = BinaryPrimitives.ReadUInt16LittleEndian(blob.AsSpan(6));
         var encrypted = (flags & 0x1) != 0;
         if (encrypted)
         {
@@ -233,8 +233,8 @@ public static class MultiPartZipEntryReader
             return WinZipAesReader.TryReadEntry(blob, password, entryName, logger);
         }
 
-        var nameLength = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(blob.AsSpan(26));
-        var extraLength = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(blob.AsSpan(28));
+        var nameLength = BinaryPrimitives.ReadUInt16LittleEndian(blob.AsSpan(26));
+        var extraLength = BinaryPrimitives.ReadUInt16LittleEndian(blob.AsSpan(28));
         var dataOffset = 30 + nameLength + extraLength;
         return dataOffset <= blob.Length ? blob[dataOffset..] : null;
     }
@@ -252,7 +252,7 @@ public static class MultiPartZipEntryReader
                 return null; // 与"列举成功但为空"区分（复审 P3-5）：调用方据此判载荷不可用
             }
 
-            var parsed = ZipCentralDirectory.Parse(ReadRange(stream, cdOffset, (int)cdSize));
+            var parsed = ZipCentralDirectory.Parse(ReadRange(stream, cdOffset, cdSize));
             if (parsed.Count == 0)
             {
                 // "cdSize > 0 却零条目"必是坏 CD（真真空 zip 的 cdSize==0 已被上一闸拒成 null）：

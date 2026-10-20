@@ -221,7 +221,7 @@ public class NativeUmuLaunchRoutingTests : IDisposable
         Assert.DoesNotContain(exe, spec.Arguments, StringComparison.Ordinal);
 
         var env = spec.Environment!;
-        var decoy = Path.Combine(installDir, ".yagl", "bridge", "Games.exe");
+        var decoy = Path.Combine(_temp.Path, "yagl", "bridge", game.Game.Id, "Games.exe");
         Assert.Equal(DecoyParentBridge.ToWindowsPath(decoy), env[DecoyParentBridge.DecoyVariable]);
         Assert.Equal(DecoyParentBridge.ToWindowsPath(exe), env[DecoyParentBridge.TargetVariable]);
         Assert.Equal($"\"{DecoyParentBridge.ToWindowsPath(exe)}\"", env[DecoyParentBridge.CommandLineVariable]);

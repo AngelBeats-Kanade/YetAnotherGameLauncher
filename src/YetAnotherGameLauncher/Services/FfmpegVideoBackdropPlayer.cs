@@ -553,7 +553,7 @@ public sealed class FfmpegVideoBackdropPlayer(
             {
                 if (!loopPlanInstalled && loopPlanTask is not null)
                 {
-                    if (loopPlanTask.IsCompletedSuccessfully && loopPlanTask.Result.Count > 0)
+                    if (loopPlanTask is { IsCompletedSuccessfully: true, Result.Count: > 0 })
                     {
                         loopPlan = loopPlanTask.Result;
                         passIndex = 0;

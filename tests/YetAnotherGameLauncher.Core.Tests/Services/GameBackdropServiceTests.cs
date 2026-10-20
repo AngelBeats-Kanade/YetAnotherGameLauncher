@@ -390,6 +390,6 @@ public class GameBackdropCacheIsolationTests : IDisposable
 
         Assert.NotNull(first);
         Assert.NotNull(second);
-        Assert.NotEqual(first!.Source, second!.Source);
+        Assert.NotEqual(first.Source, second.Source);
     }
 }

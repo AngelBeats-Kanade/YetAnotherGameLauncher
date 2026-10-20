@@ -61,7 +61,7 @@ public class GameLauncherServiceTests : IDisposable
     {
         // 鸣潮资源包档位（2026-10-02 用户需求）：档位设置以 -krqlv=<tier> 启动参数传给游戏
         //（官方启动器同款参数）；null/空 = 跟随游戏内设置，不追加任何参数
-        var exePath = await CreateExecutable();
+        await CreateExecutable();
         var game = Game("\"{exe}\"");
         game.Launch.ResourceQualityTier = "hd";
 
@@ -135,7 +135,7 @@ public class GameLauncherServiceTests : IDisposable
     [Fact]
     public async Task BuildPlan_ResourceQualityTierNull_NoArgumentAppended()
     {
-        var exePath = await CreateExecutable();
+        await CreateExecutable();
 
         var plan = Service().BuildPlan(Game("\"{exe}\""), _tempDir.Path, "bin/game.exe");
 
@@ -196,7 +196,7 @@ public class GameLauncherServiceTests : IDisposable
     public async Task BuildPlan_WineTemplate_SplitsCommandAndArgs()
     {
         await CreateExecutable();
-        var winePath = await CreatePathStub("wine");
+        await CreatePathStub("wine");
 
         // 预检要能在注入的 PATH 里找到 wine
         var plan = Service(pathValue: _tempDir.FilePath("pathbin"))

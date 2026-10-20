@@ -742,7 +742,7 @@ public class PackageInstallerCollisionTests : IDisposable
             ],
         };
 
-        await Assert.ThrowsAsync<YetAnotherGameLauncher.Core.Abstractions.UpdateException>(
+        await Assert.ThrowsAsync<UpdateException>(
             () => new PackageInstallerService(_downloader).PredownloadAsync(_tempDir.Path, manifest));
     }
 
@@ -836,8 +836,8 @@ public class PackageInstallerCollisionTests : IDisposable
         // 返 1——夹具可建硬链接但防线不触发，不 Skip 即假红
         if (!(OperatingSystem.IsLinux() || OperatingSystem.IsWindows())
             || (OperatingSystem.IsLinux()
-                && System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
-                    != System.Runtime.InteropServices.Architecture.X64))
+                && RuntimeInformation.ProcessArchitecture
+                    != Architecture.X64))
         {
             Assert.Skip("硬链接夹具 + x64 stat(2) 探测：仅 Linux x64 / Windows 腿确定性");
         }

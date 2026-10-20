@@ -146,7 +146,7 @@ public class DetailPageHeadlessTests : IDisposable
             var statusChip = chips.Single(c => c.Child?.GetVisualDescendants().OfType<TextBlock>()
                 .Any(t => t.Text == _ctx.Vm.Games[0].StatusText) == true);
             var chipOrigin = statusChip.TranslatePoint(new Point(0, 0), page)!.Value;
-            Assert.True(chipOrigin.X < 60 && chipOrigin.Y < 120,
+            Assert.True(chipOrigin is { X: < 60, Y: < 120 },
                 $"chips 行应落在详情页左上角，实际 {chipOrigin}");
             var texts = page.GetVisualDescendants().OfType<TextBlock>().ToList();
             Assert.Contains(texts, t => t.Text == _ctx.Vm.Games[0].VersionChipLead);
@@ -213,7 +213,7 @@ public class DetailPageHeadlessTests : IDisposable
 
             int LuminanceAt(int x, int y)
             {
-                Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
                 using var probe = window.CaptureRenderedFrame();
                 Assert.NotNull(probe);
                 using var fb = probe.Lock();
@@ -279,7 +279,7 @@ public class DetailPageHeadlessTests : IDisposable
 
             Assert.False(fallback.IsVisible, "有背景视频时不得显示无插画回退层（会盖住视频）");
             var video = window.GetVisualDescendants()
-                .OfType<YetAnotherGameLauncher.Controls.FrameSurface>().First();
+                .OfType<Controls.FrameSurface>().First();
             Assert.True(video.IsVisible);
             window.Close();
         }, CancellationToken.None);

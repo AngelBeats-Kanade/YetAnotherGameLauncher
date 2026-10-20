@@ -47,7 +47,7 @@ public class KuroResourcePackTests
     private static string Md5(string s) => Hashing.Md5Hex(System.Text.Encoding.UTF8.GetBytes(s));
 
     /// <summary>标准 index.json + 标准全量清单（common + 100 条式样的 HD 条目）。</summary>
-    private (string IndexJson, string IndexFileJson) RegisterStandardFixture(
+    private void RegisterStandardFixture(
         string indexUrl = "https://prod-cn.example.com/launcher/game/G152/10003_token/index.json")
     {
         var indexFileJson = """
@@ -78,11 +78,10 @@ public class KuroResourcePackTests
 
         _downloader.Serve(indexUrl, indexJson);
         _downloader.Serve(Cdn + "resource/10003/3.7.1/token/indexFile.json", indexFileJson);
-        return (indexJson, indexFileJson);
     }
 
-    /// <summary>档位索引 + 指定档位的包清单，注册到假下载器；返回包清单 JSON。</summary>
-    private string RegisterTierFixture(string tier, string packIndexFileJson)
+    /// <summary>档位索引 + 指定档位的包清单，注册到假下载器。</summary>
+    private void RegisterTierFixture(string tier, string packIndexFileJson)
     {
         var tierIndexJson = $$"""
             {
@@ -102,7 +101,6 @@ public class KuroResourcePackTests
         _downloader.Serve(TierIndexUrl, tierIndexJson);
         _downloader.Serve(
             TierCdn + $"launcher/game/G152/10003/3.7.1/token/{tier}/indexFile.json", packIndexFileJson);
-        return tierIndexJson;
     }
 
     private static string PackIndexFileJson(string tierDir, params (string Name, long Size)[] files) =>
@@ -337,7 +335,7 @@ public class KuroResourcePackTests
         var manifest = await CreateApi().GetIncrementalManifestAsync(Server(), "3.7.0", "3.7.1", "sd");
 
         Assert.NotNull(manifest);
-        Assert.Equal(["Client/Content/Paks/brand-new.pak"], [.. manifest!.Files.Select(f => f.Path)]);
+        Assert.Equal(["Client/Content/Paks/brand-new.pak"], [.. manifest.Files.Select(f => f.Path)]);
         Assert.Equal(["Client/Content/Paks/changed.pak"], [.. manifest.Groups.Select(g => g.PatchFile)]);
         // 阻塞项（2026-10-19 review）：官方废弃清单同样可能点名其它档位目录——原样透传会让 SD/UHD
         // 更新删掉 HD 目录里清单点名的文件，与"切档不删旧档、删除只经显式清理"冲突
@@ -383,7 +381,7 @@ public class KuroResourcePackTests
         var manifest = await CreateApi().GetIncrementalManifestAsync(Server(), "3.7.0", "3.7.1", "hd");
 
         Assert.NotNull(manifest);
-        Assert.Equal("hd", manifest!.ResourceTier);
+        Assert.Equal("hd", manifest.ResourceTier);
         Assert.Single(manifest.Files);
     }
 
@@ -397,7 +395,7 @@ public class KuroResourcePackTests
         var pack = await CreateApi().GetResourcePackManifestAsync(Server(), "uhd");
 
         Assert.NotNull(pack);
-        Assert.Equal("uhd", pack!.Tier);
+        Assert.Equal("uhd", pack.Tier);
         Assert.Equal("Client/Content/UHD", pack.PackDirectory);
         Assert.Equal("3.7.1", pack.Version);
         Assert.Equal(

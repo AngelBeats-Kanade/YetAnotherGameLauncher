@@ -24,8 +24,8 @@ public static class Hashing
         string filePath, CancellationToken cancellationToken = default, IProgress<long>? progress = null)
     {
         using var stream = File.OpenRead(filePath);
-        using var md5 = System.Security.Cryptography.IncrementalHash.CreateHash(
-            System.Security.Cryptography.HashAlgorithmName.MD5);
+        using var md5 = IncrementalHash.CreateHash(
+            HashAlgorithmName.MD5);
         var buffer = new byte[64 * 1024];
         long totalRead = 0;
         int read;

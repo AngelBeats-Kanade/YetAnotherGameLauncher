@@ -132,7 +132,7 @@ public class DetailPageIdentityTests : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(exePath)!);
         File.WriteAllBytes(exePath, "MZ"u8.ToArray());
         await wuwa.RefreshAsync();
-        Assert.True(wuwa.CanLaunch && !wuwa.IsInstalled); // 前置：确为 detected 态
+        Assert.True(wuwa is { CanLaunch: true, IsInstalled: false }); // 前置：确为 detected 态
 
         var cardVisible = true;
         var launchVisible = false;

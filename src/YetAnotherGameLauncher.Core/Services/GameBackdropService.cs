@@ -218,10 +218,10 @@ public sealed class GameBackdropService(
 
             return (
                 new BackdropMeta(source.Url, backdropFile, source.Kind, source.PosterUrl, posterFile, region, gameVersion),
-                cacheDir => new ResolvedBackdrop(
-                    Path.Combine(cacheDir, backdropFile),
+                dir => new ResolvedBackdrop(
+                    Path.Combine(dir, backdropFile),
                     source.Kind,
-                    posterFile is null ? source.PosterUrl : Path.Combine(cacheDir, posterFile)));
+                    posterFile is null ? source.PosterUrl : Path.Combine(dir, posterFile)));
         }
         catch (Exception ex) when ((ex is HttpRequestException or IOException or InvalidOperationException
             or FormatException or NotSupportedException or TaskCanceledException) && !cancellationToken.IsCancellationRequested)

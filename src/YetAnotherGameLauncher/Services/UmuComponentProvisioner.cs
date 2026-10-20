@@ -165,15 +165,10 @@ public sealed class UmuComponentProvisioner(
         try
         {
             var runtime = ToolManifest.Load(path).RequiredRuntime;
-            if (runtime.Name == "host" || string.IsNullOrEmpty(runtime.Variant))
-            {
-                // 已装 Proton 声明 host（免容器直跑）是已知事实，返回它而不是 null——
-                // null 保留给"Proton 缺失/清单不可读"的未知情形（调用方回退 steamrt4 近似）；
-                // 声明 host 却按 steamrt4 准备会让设置页与启动路径互相矛盾（2026-09-20 复审修复）。
-                // 空 variant 在 IsRuntimeReady/EnsureRuntimeAsync 里即"无需准备"
-                return (runtime.Variant, runtime.Name);
-            }
-
+            // 已装 Proton 声明 host（免容器直跑）是已知事实，返回它而不是 null——
+            // null 保留给"Proton 缺失/清单不可读"的未知情形（调用方回退 steamrt4 近似）；
+            // 声明 host 却按 steamrt4 准备会让设置页与启动路径互相矛盾（2026-09-20 复审修复）。
+            // 空 variant 在 IsRuntimeReady/EnsureRuntimeAsync 里即"无需准备"
             return (runtime.Variant, runtime.Name);
         }
         catch (Exception ex) when (ex is UpdateException or IOException or UnauthorizedAccessException)
@@ -527,10 +522,6 @@ public sealed class UmuComponentProvisioner(
                     LaunchFailureKind.ProtonDownloadFailed,
                     _loc.Format("umu_err_tagNoArchAsset", tagName));
             }
-        }
-        catch (LaunchException)
-        {
-            throw;
         }
         catch (JsonException ex)
         {

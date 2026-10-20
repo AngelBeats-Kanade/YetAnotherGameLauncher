@@ -398,7 +398,7 @@ public partial class MainWindowViewModel : ViewModelBase
     /// 启动失败覆盖层在场时挂起新 toast（评审 P3-13：瞬态消息不得压过模态错误）。</summary>
     public void ShowToast(string title, string message, ToastKind kind)
     {
-        if (CurrentPage is GameItemViewModel game && game.HasLaunchError)
+        if (CurrentPage is GameItemViewModel { HasLaunchError: true })
         {
             return;
         }
@@ -1191,8 +1191,9 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>
     /// schemaVersion 6 一次性迁移：诱饵父进程桥（终末地 1.6.3+ 启动校验的修复，2026-10-18）——
     /// 内置样例给终末地条目开了 launch.decoyParent，存量配置在本次启动补上同一旗标
-    /// （仅"样例开启且 id 相同"的游戏；运行时只对 native-umu 链生效，其余平台/模板下为无害标记）。
-    /// 版本号 ≥ 6 后永不执行。
+    /// （仅"样例开启且 id 相同"的游戏。运行时 Linux 原生 umu 链与 Windows 直启链生效：
+    /// Windows 上桥要求 commandTemplate 直接指向 {exe}，其余模板会显式启动失败；
+    /// Linux 其余启动模板下不参与路由，仅为无害标记）。版本号 ≥ 6 后永不执行。
     /// </summary>
     private async Task MigrateDecoyParentFlagAsync(GameCatalog catalog, CancellationToken cancellationToken)
     {
@@ -1513,7 +1514,7 @@ public partial class SettingsViewModel : ViewModelBase
         // 切入"自定义"时回显已保存的地址（草稿为空才填，不打断正在输入的内容）
         if (value && ProxyAddressDraft.Length == 0)
         {
-            _proxyAddressDraft = _owner.ProxyAddress ?? "";
+            _proxyAddressDraft = _owner.ProxyAddress;
             OnPropertyChanged(nameof(ProxyAddressDraft));
         }
     }

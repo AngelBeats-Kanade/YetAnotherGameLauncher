@@ -222,7 +222,7 @@ public static class RemoteZipEntryReader
                              || record.Entries == 0xFFFF;
             if (!needsZip64)
             {
-                return ((long)record.CentralDirectoryOffset, (int)record.CentralDirectorySize);
+                return (record.CentralDirectoryOffset, (int)record.CentralDirectorySize);
             }
 
             var locatorIndex = LastIndexOf(_tail, 0x07064b50, record.StartIndex); // PK\x06\x07

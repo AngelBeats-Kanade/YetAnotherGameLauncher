@@ -394,7 +394,7 @@ public static class WinZipAesReader
                 if (_available == 0)
                 {
                     _counter.AsSpan().Clear();
-                    System.Buffers.Binary.BinaryPrimitives.WriteUInt64LittleEndian(_counter, _blocks + 1);
+                    BinaryPrimitives.WriteUInt64LittleEndian(_counter, _blocks + 1);
                     _aes.EncryptEcb(_counter, _keystream, PaddingMode.None);
                     _blocks++;
                     _available = 16;
@@ -422,7 +422,6 @@ public static class WinZipAesReader
     private sealed class AesCtrDecryptingStream : Stream
     {
         private readonly Stream _source;
-        private readonly long _offset;
         private readonly long _length;
         private readonly AesCtrDecryptor _decryptor;
         private readonly IncrementalHash _hmac;
@@ -442,13 +441,12 @@ public static class WinZipAesReader
             CancellationToken cancellationToken)
         {
             _source = source;
-            _offset = offset;
             _length = length;
             _decryptor = new AesCtrDecryptor(encryptionKey);
             _hmac = IncrementalHash.CreateHMAC(HashAlgorithmName.SHA1, authKey);
             _expectedAuthCode = expectedAuthCode;
             _cancellationToken = cancellationToken;
-            _source.Seek(_offset, SeekOrigin.Begin);
+            _source.Seek(offset, SeekOrigin.Begin);
         }
 
         public override bool CanRead => true;

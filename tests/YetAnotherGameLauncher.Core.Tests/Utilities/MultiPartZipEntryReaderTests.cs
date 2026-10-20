@@ -134,12 +134,6 @@ public class MultiPartZipEntryReaderTests : IDisposable
         }
     }
 
-    private static int FindCentralDirectory(byte[] bytes)
-    {
-        var eocd = bytes.AsSpan().LastIndexOf("PK\x05\x06"u8);
-        return (int)System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(eocd + 16));
-    }
-
     [Fact]
     public void TryReadEntry_LyingCentralDirectorySizes_ReturnsWholeBlob()
     {

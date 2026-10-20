@@ -149,7 +149,7 @@ public class LocalizationServiceTests
     {
         using var stream = typeof(LocalizationService).Assembly.GetManifestResourceStream(name);
         Assert.NotNull(stream);
-        return JsonSerializer.Deserialize<Dictionary<string, string>>(stream!)
+        return JsonSerializer.Deserialize<Dictionary<string, string>>(stream)
                ?? throw new InvalidOperationException($"资源 {name} 不是有效的键值 JSON。");
     }
 }

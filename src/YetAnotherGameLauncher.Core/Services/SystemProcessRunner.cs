@@ -39,15 +39,15 @@ public sealed class SystemProcessRunner(
             }
 
             logWriter = new StreamWriter(logPath, append: false) { AutoFlush = true };
-            logWriter.WriteLine($"# YAGL launch log — {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-            logWriter.WriteLine($"# command: {spec.FileName} {spec.Arguments}");
-            logWriter.WriteLine($"# working directory: {spec.WorkingDirectory}");
+            await logWriter.WriteLineAsync($"# YAGL launch log — {DateTime.Now:yyyy-MM-dd HH:mm:ss}").ConfigureAwait(false);
+            await logWriter.WriteLineAsync($"# command: {spec.FileName} {spec.Arguments}").ConfigureAwait(false);
+            await logWriter.WriteLineAsync($"# working directory: {spec.WorkingDirectory}").ConfigureAwait(false);
             if (spec.Environment is { Count: > 0 } env)
             {
-                logWriter.WriteLine("# environment:");
+                await logWriter.WriteLineAsync("# environment:").ConfigureAwait(false);
                 foreach (var (key, value) in env)
                 {
-                    logWriter.WriteLine($"#   {key}={value}");
+                    await logWriter.WriteLineAsync($"#   {key}={value}").ConfigureAwait(false);
                 }
             }
         }

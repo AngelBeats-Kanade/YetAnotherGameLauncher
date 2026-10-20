@@ -494,7 +494,7 @@ public class LinuxFirstRunLaunchTests
     {
         using var stream = typeof(App).Assembly.GetManifestResourceStream("games.sample.json");
         Assert.NotNull(stream);
-        using var reader = new StreamReader(stream!);
+        using var reader = new StreamReader(stream);
         var catalog = GameCatalogService.Parse(reader.ReadToEnd());
 
         var cn = catalog.Games.Single(g => g.Id == "wuthering-waves").Servers.Single(s => s.Id == "cn");

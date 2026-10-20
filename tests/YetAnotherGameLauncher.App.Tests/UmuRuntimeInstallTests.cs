@@ -51,7 +51,7 @@ public sealed class UmuRuntimeInstallTests : IDisposable
         // 安装落位：目录 + 安装标记 + 入口脚本
         var installRoot = InstallRoot();
         Assert.True(Directory.Exists(installRoot));
-        Assert.True(File.Exists(Path.Combine(installRoot, YetAnotherGameLauncher.Core.Services.Umu.UmuPaths.InstallMarkerName)));
+        Assert.True(File.Exists(Path.Combine(installRoot, Core.Services.Umu.UmuPaths.InstallMarkerName)));
         Assert.True(File.Exists(Path.Combine(installRoot, "_v2-entry-point")));
         Assert.True(Directory.Exists(Path.Combine(installRoot, "files"))); // tar 顶层目录内容已迁移
 
@@ -65,7 +65,7 @@ public sealed class UmuRuntimeInstallTests : IDisposable
     public async Task EnsureRuntimeAsync_AlreadyReady_NoNetwork()
     {
         var provisioner = NewProvisioner();
-        InstallFakeRuntime(RuntimeName);
+        InstallFakeRuntime();
 
         await provisioner.EnsureRuntimeAsync(Variant, RuntimeName);
 
@@ -76,7 +76,7 @@ public sealed class UmuRuntimeInstallTests : IDisposable
     public void IsRuntimeReady_InstalledWithMarkerAndEntry_True()
     {
         var provisioner = NewProvisioner();
-        InstallFakeRuntime(RuntimeName);
+        InstallFakeRuntime();
 
         Assert.True(provisioner.IsRuntimeReady(Variant));
         Assert.False(provisioner.IsRuntimeReady("steamrt3")); // 其它变体未装
@@ -249,14 +249,14 @@ public sealed class UmuRuntimeInstallTests : IDisposable
         dataHome: _temp.Path, cacheHome: _temp.Path);
 
     private string InstallRoot() =>
-        YetAnotherGameLauncher.Core.Services.Umu.UmuPaths.RuntimeDirectory(Variant, _temp.Path);
+        Core.Services.Umu.UmuPaths.RuntimeDirectory(Variant, _temp.Path);
 
     /// <summary>预置一个"已就绪"的 Runtime 目录（marker + 入口脚本）。</summary>
-    private void InstallFakeRuntime(string runtimeName)
+    private void InstallFakeRuntime()
     {
         var dir = InstallRoot();
         Directory.CreateDirectory(dir);
-        File.WriteAllText(Path.Combine(dir, YetAnotherGameLauncher.Core.Services.Umu.UmuPaths.InstallMarkerName), "ok");
+        File.WriteAllText(Path.Combine(dir, Core.Services.Umu.UmuPaths.InstallMarkerName), "ok");
         File.WriteAllText(Path.Combine(dir, "_v2-entry-point"), "#!/bin/sh\n");
     }
 

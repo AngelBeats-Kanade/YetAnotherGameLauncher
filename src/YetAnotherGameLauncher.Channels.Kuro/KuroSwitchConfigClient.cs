@@ -56,10 +56,7 @@ public sealed class KuroSwitchConfigClient(HttpClient httpClient, ILogger<KuroSw
         }
 
         var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        return segments.Length == 5
-            && segments[0] == "launcher"
-            && segments[1] == "game"
-            && segments[4] == "index.json"
+        return segments is ["launcher", "game", _, _, "index.json"]
             ? (uri.Scheme, uri.Authority, segments[2], segments[3])
             : null;
     }

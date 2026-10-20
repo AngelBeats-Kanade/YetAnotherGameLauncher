@@ -1,8 +1,8 @@
-namespace YetAnotherGameLauncher.Core.Services;
-
 using System.Text.RegularExpressions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Utilities;
+
+namespace YetAnotherGameLauncher.Core.Services;
 
 /// <summary>Linux 下的启动方式（与 UI 的选择器一一对应）。</summary>
 public enum LaunchMode

@@ -27,7 +27,7 @@ public class FfmpegLibraryResolverDownloadTests : IDisposable
         // 可选参数 downloadClient 的 null 默认劫持为容器实例——15 分钟专用超时成死代码，
         // 慢链路首运下载 30s 即 TaskCanceled → 永久静态海报降级。可选参数断裂编译期不可见，
         // 必须经真实容器解析断言装配（先例：GameItemActionsTests 的组合根装配断言）
-        using var sp = YetAnotherGameLauncher.App.BuildServices();
+        using var sp = App.BuildServices();
         var resolver = sp.GetRequiredService<FfmpegLibraryResolver>();
 
         var clientField = typeof(FfmpegLibraryResolver).GetField(
@@ -124,7 +124,7 @@ public class FfmpegLibraryResolverDownloadTests : IDisposable
 
         var libDir = FfmpegLibraryResolver.LocateLibraryDir(root);
         Assert.NotNull(libDir);
-        Assert.True(File.Exists(Path.Combine(libDir!, FfmpegLibraryResolver.CompletionMarkerFileName)),
+        Assert.True(File.Exists(Path.Combine(libDir, FfmpegLibraryResolver.CompletionMarkerFileName)),
             "完成安装的库目录必须携带完成标记");
         Assert.DoesNotContain(".staging-", libDir); // 暂存目录已原子移出，不留半成品
     }

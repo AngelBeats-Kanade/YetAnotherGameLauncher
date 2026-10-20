@@ -505,7 +505,7 @@ public sealed partial class FfmpegLibraryResolver(
         /// <see cref="FfmpegLibraryResolver.PrimeResolutionCacheForTests"/>）。仅测试调用。</summary>
         internal void PrimeForTests()
         {
-            foreach (var name in FfmpegLibraryResolver.LibraryDependencyOrder)
+            foreach (var name in LibraryDependencyOrder)
             {
                 _ = GetOrLoadLibrary(name);
             }

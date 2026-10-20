@@ -24,7 +24,7 @@ public static class DacExemptionProbe
             return false;
         }
 
-        var probePath = System.IO.Path.Combine(writableDir, $"dac-probe-{Guid.NewGuid():N}.txt");
+        var probePath = Path.Combine(writableDir, $"dac-probe-{Guid.NewGuid():N}.txt");
         File.WriteAllText(probePath, "x");
         File.SetUnixFileMode(probePath, UnixFileMode.None);
         try

@@ -52,7 +52,7 @@ public class VideoBackdropPlayerStopJoinTests : IDisposable
             var stopEntered = new ManualResetEventSlim(false);
             var stopReturned = new ManualResetEventSlim(false);
             Exception? stopFailure = null;
-            var stopTask = Task.Run(() =>
+            _ = Task.Run(() =>
             {
                 stopEntered.Set();
                 try

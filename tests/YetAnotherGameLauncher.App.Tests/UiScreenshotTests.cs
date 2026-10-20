@@ -85,7 +85,7 @@ public class UiScreenshotTests
             void Capture(string name)
             {
                 Thread.Sleep(150); // headless 动画时钟靠手动 tick 推进：先等真实时钟，再显式推进
-                Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
                 var frame = window.CaptureRenderedFrame();
                 if (frame is null)
                 {
@@ -295,7 +295,7 @@ public class UiScreenshotTests
             void Capture(string name, MainWindow? source = null)
             {
                 Thread.Sleep(150);
-                Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
                 var frame = (source ?? window).CaptureRenderedFrame();
                 if (frame is null)
                 {
@@ -410,7 +410,7 @@ public class UiScreenshotTests
             void CaptureTier(string name, MainWindow source)
             {
                 Thread.Sleep(150);
-                Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
                 var frame = source.CaptureRenderedFrame();
                 if (frame is null)
                 {
@@ -538,7 +538,7 @@ public class UiScreenshotTests
             ctx.Vm.SelectedGame = ctx.Vm.Games[0];
             ctx.Vm.ShowGameSettingsCommand.Execute(null);
             window.UpdateLayout();
-            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            Dispatcher.UIThread.RunJobs();
 
             var settings = (ctx.Vm.CurrentPage as GameSettingsViewModel)?.LaunchSettings;
             Assert.NotNull(settings);
@@ -548,7 +548,7 @@ public class UiScreenshotTests
             // （2026-09 实锤：视觉分析工具曾连续误报"纱罩未生效"，以像素级断言为准）
             int LuminanceAt(int x, int y)
             {
-                Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
                 using var probe = window.CaptureRenderedFrame();
                 Assert.NotNull(probe);
                 using var fb = probe.Lock();
@@ -563,10 +563,10 @@ public class UiScreenshotTests
             after = LuminanceAt(430, 130);
 
             window.UpdateLayout();
-            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            Dispatcher.UIThread.RunJobs();
 
             Thread.Sleep(150);
-            Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
             var frame = window.CaptureRenderedFrame();
             if (frame is not null)
             {
@@ -625,7 +625,7 @@ public class UiScreenshotTests
             void Capture(string name)
             {
                 Thread.Sleep(150);
-                Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
                 var frame = window.CaptureRenderedFrame();
                 if (frame is null)
                 {
@@ -690,7 +690,7 @@ public class UiScreenshotTests
             splashVisible = splash.IsVisible;
 
             Thread.Sleep(150);
-            Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
             var frame = window.CaptureRenderedFrame();
             if (frame is not null)
             {
@@ -718,7 +718,7 @@ public class UiScreenshotTests
     {
         // 经 AppPaths 单一事实源（尊重 XDG_DATA_HOME/平台差异），硬编码家目录会在改策略后永久 Skip
         var posterPath = Path.Combine(
-            YetAnotherGameLauncher.Core.AppPaths.DataDirectory, "backdrops", "arknights-endfield", "poster.png");
+            Core.AppPaths.DataDirectory, "backdrops", "arknights-endfield", "poster.png");
         if (!File.Exists(posterPath))
         {
             Assert.Skip($"本机无终末地真实海报缓存（{posterPath}），真海报视觉验收仅在有缓存的机器运行");
@@ -736,8 +736,8 @@ public class UiScreenshotTests
         await HeadlessSession.Instance.Dispatch(() =>
         {
             // resolver 必须在 InitializeAsync 前种好：版本缓存命中后的复刷不再发射资产加载
-            ctx.GryphlineBackdrop.Resolver = _ => new YetAnotherGameLauncher.Core.Abstractions.BackdropSource(
-                posterPath, YetAnotherGameLauncher.Core.Abstractions.BackdropKind.Image);
+            ctx.GryphlineBackdrop.Resolver = _ => new BackdropSource(
+                posterPath, BackdropKind.Image);
 
             RunToCompletion(() => ctx.Vm.InitializeAsync());
             ctx.Vm.SelectedGame = ctx.Vm.Games[1]; // 终末地
@@ -771,7 +771,7 @@ public class UiScreenshotTests
             window.UpdateLayout();
 
             Thread.Sleep(150);
-            Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
             var frame = window.CaptureRenderedFrame();
             if (frame is not null)
             {
@@ -831,7 +831,7 @@ public class UiScreenshotTests
             void Capture(string name)
             {
                 Thread.Sleep(150);
-                Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
                 var frame = window.CaptureRenderedFrame();
                 if (frame is null)
                 {
@@ -925,7 +925,7 @@ public class UiScreenshotTests
             RunToCompletion(() => new LocalStateService(wuwa.InstallDirPath).SaveAsync(
                 new LocalGameState { GameId = wuwa.Game.Id, ServerId = wuwa.SelectedServer.Id, Version = "3.5.0" }));
             RunToCompletion(() => wuwa.RefreshAsync());
-            Assert.True(wuwa.CanLaunch && wuwa.HasUpdate, "夹具前置失败：未造出可启动 + 有更新的状态");
+            Assert.True(wuwa is { CanLaunch: true, HasUpdate: true }, "夹具前置失败：未造出可启动 + 有更新的状态");
 
             var dock = window.GetVisualDescendants().OfType<Border>()
                 .First(b => b.Classes.Contains("action-dock"));
@@ -936,7 +936,7 @@ public class UiScreenshotTests
             void Capture(string name, out byte[] dockPixels, out int themeProbe)
             {
                 Thread.Sleep(150);
-                Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick(400);
                 var frame = window.CaptureRenderedFrame();
                 if (frame is null)
                 {
@@ -1011,7 +1011,7 @@ public class UiScreenshotTests
     }
 
     /// <summary>更新确认截图的组件准备器替身：本地 11-6、上游 11-7 → 必然弹更新确认。</summary>
-    private sealed class UpdateConfirmProvisioner : YetAnotherGameLauncher.Core.Abstractions.IUmuComponentProvisioner
+    private sealed class UpdateConfirmProvisioner : IUmuComponentProvisioner
     {
         public string? InstalledProtonPath { get; set; }
 

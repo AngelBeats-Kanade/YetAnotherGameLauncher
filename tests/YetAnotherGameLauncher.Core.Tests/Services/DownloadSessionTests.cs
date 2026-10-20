@@ -51,7 +51,7 @@ public class DownloadSessionTests : IDisposable
 
         var session = service.Load();
         Assert.NotNull(session);
-        Assert.Equal("update", session!.Kind);
+        Assert.Equal("update", session.Kind);
         Assert.Equal("3.7.1", session.Version);
         Assert.True(session.StartedAt > DateTimeOffset.UtcNow.AddMinutes(-1));
     }
@@ -90,7 +90,7 @@ public class DownloadSessionTests : IDisposable
         var session = service.LoadFor("wuthering-waves", "cn");
 
         Assert.NotNull(session);
-        Assert.Equal(DownloadSessionKind.Predownload, session!.Kind);
+        Assert.Equal(DownloadSessionKind.Predownload, session.Kind);
         Assert.Equal("3.7.2", session.Version);
     }
 

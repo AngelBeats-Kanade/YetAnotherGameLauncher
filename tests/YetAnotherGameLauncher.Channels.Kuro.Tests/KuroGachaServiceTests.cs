@@ -118,7 +118,7 @@ public class KuroGachaServiceTests : IDisposable
         var info = CreateService().TryExtractGachaUrl(installDir);
 
         Assert.NotNull(info);
-        Assert.Equal("76xx", info!.ServerId);
+        Assert.Equal("76xx", info.ServerId);
         Assert.Equal("100000002", info.PlayerId);
         Assert.Equal("zh-Hans", info.LanguageCode);
         Assert.Equal("3dc48935abc", info.RecordId);
@@ -137,7 +137,7 @@ public class KuroGachaServiceTests : IDisposable
         var info = CreateService().TryExtractGachaUrl(installDir);
 
         Assert.NotNull(info);
-        Assert.Equal("100000002", info!.PlayerId);
+        Assert.Equal("100000002", info.PlayerId);
     }
 
     [Fact]
@@ -168,7 +168,7 @@ public class KuroGachaServiceTests : IDisposable
         var info = CreateService().TryExtractGachaUrl(installDir);
 
         Assert.NotNull(info);
-        Assert.Equal("100000002", info!.PlayerId);
+        Assert.Equal("100000002", info.PlayerId);
     }
 
     [Fact]
@@ -219,7 +219,7 @@ public class KuroGachaServiceTests : IDisposable
         var info = KuroGachaService.ParseGachaUrl(url);
 
         Assert.NotNull(info);
-        Assert.Equal("rec42", info!.RecordId);
+        Assert.Equal("rec42", info.RecordId);
         Assert.False(info.IsChina); // 非 aki-game.com 域名
     }
 
@@ -264,7 +264,7 @@ public class KuroGachaServiceTests : IDisposable
         var info = CreateService().TryExtractGachaUrl(installDir, winePrefixDirectory: prefix);
 
         Assert.NotNull(info);
-        Assert.Equal("100000002", info!.PlayerId);
+        Assert.Equal("100000002", info.PlayerId);
     }
 
     [Fact]

@@ -504,7 +504,7 @@ public class SidebarNavHeadlessTests : IDisposable
             // headless 的平台窗口只在 Show 前接受尺寸（UiScreenshotTests 同款手法），
             // 且不会随 Maximized 状态自动铺满（真合成器行为），构造时即按工作区定尺寸。
             var window = new MainWindow { DataContext = _ctx.Vm };
-            var headlessScreen = window.Screens!.ScreenFromWindow(window)!;
+            var headlessScreen = window.Screens.ScreenFromWindow(window)!;
             window.Width = headlessScreen.WorkingArea.Width / headlessScreen.Scaling;
             window.Height = headlessScreen.WorkingArea.Height / headlessScreen.Scaling;
             window.Show();

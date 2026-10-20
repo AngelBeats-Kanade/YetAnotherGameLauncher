@@ -108,7 +108,7 @@ public static class FileUtilities
         finally
         {
             // 任一环失败（写出抛出/Move 重试耗尽/取消）都不留 .tmp 残留
-            FileUtilities.DeleteQuiet(tempPath);
+            DeleteQuiet(tempPath);
         }
     }
 

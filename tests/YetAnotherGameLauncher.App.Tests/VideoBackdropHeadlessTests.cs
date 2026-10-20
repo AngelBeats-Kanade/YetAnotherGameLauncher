@@ -653,7 +653,7 @@ public class VideoBackdropHeadlessTests : IDisposable
         Assert.NotNull(game.VideoPlayer);
 
         var surface = window.GetVisualDescendants()
-            .OfType<YetAnotherGameLauncher.Controls.FrameSurface>()
+            .OfType<Controls.FrameSurface>()
             .FirstOrDefault(s => ReferenceEquals(s.Player, game.VideoPlayer));
         if (surface is null)
         {

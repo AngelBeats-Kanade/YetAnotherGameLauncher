@@ -70,7 +70,7 @@ public class MainWindowViewModelTests : IDisposable
         // 示例配置 theme=Dark：应反映到 ViewModel 的主题选择上
         await _ctx.Vm.InitializeAsync();
 
-        Assert.Equal(Core.Models.ThemeMode.Dark, _ctx.Vm.SelectedTheme?.Mode);
+        Assert.Equal(ThemeMode.Dark, _ctx.Vm.SelectedTheme?.Mode);
     }
 
     [Fact]
@@ -479,7 +479,7 @@ public class ConfigMigrationTests : IDisposable
         var ok = await _ctx.Vm.UpdateInstallRootAsync(newRoot);
 
         Assert.True(ok);
-        var reloader = new YetAnotherGameLauncher.Core.Services.GameCatalogService(_ctx.ConfigPath);
+        var reloader = new GameCatalogService(_ctx.ConfigPath);
         await reloader.LoadAsync();
         Assert.Equal(newRoot, reloader.Catalog!.Settings.InstallRoot);
         // 游戏列表以新根目录重新解析

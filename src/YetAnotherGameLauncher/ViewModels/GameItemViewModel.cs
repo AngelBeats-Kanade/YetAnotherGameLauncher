@@ -686,7 +686,7 @@ public partial class GameItemViewModel(
             {
                 return;
             }
-            if (backdrop?.Kind == BackdropKind.Video && backdrop.Source is { } videoPath)
+            if (backdrop is { Kind: BackdropKind.Video, Source: { } videoPath })
             {
                 var poster = await backgroundImageService.LoadAsync(backdrop.PosterSource, cancellationToken);
                 if (generation != _assetLoadGeneration)
@@ -1435,7 +1435,7 @@ public partial class GameItemViewModel(
     }
 
     /// <summary>下载速度平滑器（采样/EMA/回退重置；操作复位点 Reset——RF-2：不跨操作残留）。</summary>
-    private readonly Services.DownloadSpeedSmoother _speedSmoother = new();
+    private readonly DownloadSpeedSmoother _speedSmoother = new();
 
     /// <summary>最新一次操作的进度转发器（internal 供单测注入"操作已结束后的迟到报告"验证代际门控）。</summary>
     internal IProgress<UpdateProgress>? ProgressScopeForTests { get; private set; }
@@ -1447,7 +1447,7 @@ public partial class GameItemViewModel(
     /// 见 <see cref="Services.OperationProgress"/>）；生产端在 UI 线程创建，捕获派发器上下文。</summary>
     private IProgress<UpdateProgress> BeginProgressScope()
     {
-        var scope = new Services.OperationProgress(
+        var scope = new OperationProgress(
             OnProgress,
             Interlocked.Increment(ref _progressGeneration),
             () => Volatile.Read(ref _progressGeneration),

@@ -21,15 +21,16 @@ namespace YetAnotherGameLauncher.Channels.Hypergryph;
 /// packs 为同一归档的字节分卷（…zip.001…059，2026-10-17 国服/国际服 1.6.4 实测），
 /// 置 <see cref="GameManifest.ArchivesAreSplitVolumes"/> 并排序后交安装器拼接解压。
 /// </summary>
-public sealed partial class GryphlineChannelApi(HttpClient httpClient, ILogger? logger = null) : IGameChannelApi
+public sealed class GryphlineChannelApi(HttpClient httpClient, ILogger? logger = null) : IGameChannelApi
 {
-    public const string ApiBaseOptionKey = GryphlineProtocol.ApiBaseOptionKey;
     public const string AppcodeOptionKey = "appcode";
     public const string ChannelOptionKey = "channel";
     public const string SubChannelOptionKey = "subChannel";
 
     // 国际服（osWinRel）实测参数，作为 options 未提供时的缺省值（背景接口等复用）
     public const string DefaultGameAppcode = "YDUTE5gscDZ229CW";
+
+    private const string ApiBaseOptionKey = GryphlineProtocol.ApiBaseOptionKey;
 
     /// <summary>官方补丁包内的废弃文件清单条目名（delete_files.txt）。</summary>
     private const string ObsoleteListEntryName = "delete_files.txt";
@@ -58,8 +59,7 @@ public sealed partial class GryphlineChannelApi(HttpClient httpClient, ILogger? 
         var response = await PostGetLatestGameAsync(server, cancellationToken).ConfigureAwait(false);
 
         string? predownloadVersion = null;
-        if (response.Patch is { } patch
-            && patch.ValueKind == JsonValueKind.Object
+        if (response.Patch is { ValueKind: JsonValueKind.Object } patch
             && patch.TryGetProperty("version", out var versionElement)
             // 逆向协议、结构随官方改动：GetString 对非字符串值抛裸 InvalidOperationException
             //（本渠道其余解析处均有 ValueKind 防护，此处补齐）

@@ -5,7 +5,6 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
-using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using YetAnotherGameLauncher.Services;
@@ -30,7 +29,7 @@ public partial class MainWindow : Window
         // 设置类输入框按 Enter 保存：TextBox 会把 Enter 标记为已处理，
         // 用类处理器（handledEventsToo）保证本窗口逻辑总能收到；按控件名过滤，
         // 其余输入框不受影响（DragEnter/DragOver 无此需求）。
-        InputElement.KeyDownEvent.AddClassHandler<TextBox>(
+        KeyDownEvent.AddClassHandler<TextBox>(
             static (box, e) => HandleSettingsEnterSave(box, e),
             RoutingStrategies.Bubble,
             handledEventsToo: true);
@@ -167,7 +166,7 @@ public partial class MainWindow : Window
     /// <summary>关闭时持久化窗口状态（先于窗口销毁读取 Width/Height；按"视觉最大化"记录，
     /// 实验性 Wayland 后端对平铺窗口的 Maximized 误报不应写进配置）；并停止背景视频解码——
     /// 解码循环必须先于平台拆除停下，退出期 GPU 解码栈失效会让继续解码向 stderr 刷错。</summary>
-    private void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    private void OnWindowClosing(object? sender, CancelEventArgs e)
     {
         if (DataContext is MainWindowViewModel viewModel)
         {
@@ -229,7 +228,7 @@ public partial class MainWindow : Window
     /// 内容卡左上圆角是内部角，不随最大化去除）。</summary>
     private void OnWindowPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
-        if (e.Property != Window.WindowStateProperty)
+        if (e.Property != WindowStateProperty)
         {
             return;
         }
@@ -647,7 +646,7 @@ public partial class MainWindow : Window
             return AboutNavButton;
         }
 
-        return vm.IsGameNavActive && vm.SelectedGame is { } game
+        return vm is { IsGameNavActive: true, SelectedGame: { } game }
             ? GamesList.ContainerFromItem(game)
             : null;
     }

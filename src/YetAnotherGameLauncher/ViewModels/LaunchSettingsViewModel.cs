@@ -497,7 +497,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 UmuFeedback.Clear();
                 UmuFeedback.SetSuccess(msg);
             });
-            var proton = await _umuProvisioner
+            await _umuProvisioner
                 .EnsureProtonAsync(ResolveNativeProtonRequest(), progress, cancellationToken);
             // 下载完成后重读 toolmanifest：Runtime 按刚就位的 Proton 实际声明准备
             var (runtimeVariant, runtimeName) =
@@ -796,7 +796,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             var message = _loc.Format("launch_resourcePackCleanupConfirm", FormatBytes(preview.ReclaimableBytes), tiers);
             // 警示口径 = "选中档位没有完整落盘"（2026-10-19 review）：半途下载同样会在清理后缺档，
             // 只看"有没有文件"会漏报；选中档位清单取不到时落盘状态未知，不断言"未下载"
-            if (preview.KeptTierKnown && !preview.KeptTierComplete)
+            if (preview is { KeptTierKnown: true, KeptTierComplete: false })
             {
                 message += "\n" + _loc.Format(
                     preview.KeptTierPresent
@@ -858,7 +858,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                 .CleanupOtherTiersAsync(_owner.InstallDirPath, _owner.SelectedServer, SavedTier, cancellationToken);
             var tiers = string.Join(_loc["common_comma"],
                 ResourceTiers.OtherTiers(SavedTier).Select(t => ResourceTierText.DisplayName(_loc, t)));
-            if (result.RemovedFiles == 0 && result.FailedFiles == 0)
+            if (result is { RemovedFiles: 0, FailedFiles: 0 })
             {
                 // 无可清理 ≠ 一切正常：清单取不到的档位必须如实说明（2026-10-19 review）
                 var nothing = _loc["resourcepack_cleanup_nothing"];
@@ -1052,6 +1052,7 @@ public partial class LaunchSettingsViewModel : ViewModelBase
             return;
         }
 
+        // 未在 UI 暴露的存量模式：不动草稿
         switch (value.Mode)
         {
             case LaunchMode.Direct:
@@ -1063,8 +1064,6 @@ public partial class LaunchSettingsViewModel : ViewModelBase
                     _game.Id, dataHome: _dataHome, umuId: _game.Launch.UmuId,
                     protonFlavor: SelectedProtonFlavor)));
                 break;
-            default:
-                break; // 未在 UI 暴露的存量模式：不动草稿
         }
     }
 

@@ -178,7 +178,7 @@ public class FfmpegLibraryResolverEnsureReadyTests : IDisposable
         var healedDir = FfmpegLibraryResolver.LocateLibraryDir(root);
         Assert.NotNull(healedDir);
         Assert.Equal(assetName,
-            File.ReadAllText(Path.Combine(healedDir!, FfmpegLibraryResolver.CompletionMarkerFileName)).Trim());
+            File.ReadAllText(Path.Combine(healedDir, FfmpegLibraryResolver.CompletionMarkerFileName)).Trim());
         Assert.False(result); // 夹具是假库字节：重下后绑定仍必败（本进程内无法二次烧初始化）
 
         // 永久锁死语义对"带标记的完整目录"保持：二次调用零新增请求（防不兼容环境无限重下）
@@ -255,7 +255,7 @@ public class FfmpegLibraryResolverEnsureReadyTests : IDisposable
         var healed = FfmpegLibraryResolver.LocateLibraryDir(root);
         Assert.NotNull(healed);
         Assert.Equal(assetName,
-            File.ReadAllText(Path.Combine(healed!, FfmpegLibraryResolver.CompletionMarkerFileName)).Trim());
+            File.ReadAllText(Path.Combine(healed, FfmpegLibraryResolver.CompletionMarkerFileName)).Trim());
     }
 
     [Fact]

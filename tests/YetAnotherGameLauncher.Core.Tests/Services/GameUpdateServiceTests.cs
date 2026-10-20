@@ -1119,6 +1119,6 @@ public class GameUpdateServiceArchiveIncrementGuardTests
     {
         // 回归（2026-09-20 三审）：只拒 null 时空串会穿到 HttpRequestMessage 抛裸 UriFormatException
         Assert.Throws<UpdateException>(
-            () => YetAnotherGameLauncher.Core.Abstractions.ManifestChecks.EnsureDownloadUrl(url!, "X", "y"));
+            () => ManifestChecks.EnsureDownloadUrl(url!, "X", "y"));
     }
 }

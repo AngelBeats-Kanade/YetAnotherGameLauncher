@@ -63,7 +63,7 @@ public class FfmpegLibraryResolverExtractTests : IDisposable
         // 红证据（2026-09-24 实测）：现状落盘 0 字节普通文件，ResolveLinkTarget 返回 null
         var target = File.ResolveLinkTarget(linkPath, returnFinalTarget: false);
         Assert.NotNull(target);
-        Assert.Equal("libavcodec.so.63.1.102", target!.Name);
+        Assert.Equal("libavcodec.so.63.1.102", target.Name);
         // 链接可解析到真实文件内容（短名 soname 是加载器实际要用的形态）
         Assert.Equal(payload, File.ReadAllBytes(linkPath));
     }
@@ -91,7 +91,7 @@ public class FfmpegLibraryResolverExtractTests : IDisposable
 
         var target = File.ResolveLinkTarget(Path.Combine(libDir, "libavcodec.so.63"), returnFinalTarget: false);
         Assert.NotNull(target);
-        Assert.Equal("libavcodec.so.63.1.102", target!.Name);
+        Assert.Equal("libavcodec.so.63.1.102", target.Name);
     }
 
     [Theory]

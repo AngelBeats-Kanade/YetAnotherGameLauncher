@@ -1,6 +1,6 @@
 namespace YetAnotherGameLauncher.Core.Services;
 
-using YetAnotherGameLauncher.Core.Abstractions;
+using Abstractions;
 
 /// <summary>
 /// IPlatformInfo 选择工厂：按当前 OS 落到对应实现，全仓只此一处分支

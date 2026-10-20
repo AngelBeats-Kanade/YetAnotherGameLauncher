@@ -28,7 +28,7 @@ public sealed record KuroSwitchConfig(
         }
 
         return new KuroSwitchConfig(
-            backgroundFile!,
+            backgroundFile,
             GetStringOrNull(root, "firstFrameImage"),
             GetStringOrNull(root, "slogan"),
             GetIntOrNull(root, "functionSwitch"),

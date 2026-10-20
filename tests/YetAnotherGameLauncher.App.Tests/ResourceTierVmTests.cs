@@ -45,7 +45,7 @@ public class ResourceTierVmTests : IDisposable
     }
 
     /// <summary>初始化主 VM 并写本地状态（已安装、已校验），配好渠道能力与清单；返回鸣潮条目。</summary>
-    private async Task<YetAnotherGameLauncher.ViewModels.GameItemViewModel> SetupAsync(
+    private async Task<GameItemViewModel> SetupAsync(
         string version = "3.6.0", string? diskTier = "hd", bool supportsPacks = true)
     {
         _ctx.Kuro.SupportsResourcePacks = supportsPacks;
