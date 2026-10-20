@@ -8,10 +8,44 @@
     <!-- 内置依赖清单（Wine prefix 依赖安装，DependencyCatalog.LoadEmbedded 读取）；
          资源逻辑名 = AssemblyName.Dependencies.catalog.json -->
     <EmbeddedResource Include="Dependencies\catalog.json" />
-    <!-- 诱饵父进程桥 helper：Wine 链上无法使用 .NET 运行时，必须以原生 PE 嵌入并落盘运行；
-         源码/构建/自检见 tools/wine-parent-bridge/README.md -->
-    <EmbeddedResource Include="Resources\yagl-parent-bridge.exe" LogicalName="yagl-parent-bridge.exe" />
   </ItemGroup>
+
+  <PropertyGroup>
+    <!-- 诱饵父进程桥 helper：Wine 链上没有 .NET 运行时，必须自包含发布为 Windows 单文件 PE；
+         不把产物提交进仓库，每次构建发布后作为嵌入式资源打进 Core。
+         源码/契约/自检见 tools/wine-parent-bridge/。 -->
+    <WineParentBridgeProject>$(MSBuildThisFileDirectory)..\..\tools\wine-parent-bridge\WineParentBridge.csproj</WineParentBridgeProject>
+    <WineParentBridgePublishDir>$(MSBuildThisFileDirectory)$(BaseIntermediateOutputPath)$(Configuration)\$(TargetFramework)\wine-parent-bridge\</WineParentBridgePublishDir>
+    <WineParentBridgeOutput>$(WineParentBridgePublishDir)yagl-parent-bridge.exe</WineParentBridgeOutput>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <WineParentBridgeSource Include="$(WineParentBridgeProject);$(MSBuildThisFileDirectory)..\..\tools\wine-parent-bridge\*.cs" />
+    <!-- 增量构建时 publish 目标可能被跳过；此时资源必须在求值期就注册 -->
+    <EmbeddedResource Include="$(WineParentBridgeOutput)" LogicalName="yagl-parent-bridge.exe" Condition="Exists('$(WineParentBridgeOutput)')" />
+  </ItemGroup>
+
+  <Target Name="PublishWineParentBridge"
+          BeforeTargets="AssignTargetPaths"
+          Inputs="@(WineParentBridgeSource)"
+          Outputs="$(WineParentBridgeOutput)">
+    <!-- 独立工程不在解决方案里：目标一旦需要执行就先还原。
+         2026-10-20 复审：外层构建可能带 -p:RuntimeIdentifier=linux-x64（或其它 RID），
+         该全局属性会压过 helper 工程自己的 <RuntimeIdentifier>win-x64</RuntimeIdentifier>，
+         导致发布出 ELF `yagl-parent-bridge`（无 .exe）→ 嵌入资源缺失。这里显式钉死
+         win-x64 + SelfContained，且每次执行本目标都重新 Restore，避免旧的异 RID assets
+         让后续发布报 NETSDK1047。 -->
+    <MSBuild Projects="$(WineParentBridgeProject)"
+             Targets="Restore"
+             Properties="Configuration=$(Configuration);RuntimeIdentifier=win-x64;SelfContained=true" />
+    <MSBuild Projects="$(WineParentBridgeProject)"
+             Targets="Publish"
+             Properties="Configuration=$(Configuration);RuntimeIdentifier=win-x64;SelfContained=true;PublishDir=$(WineParentBridgePublishDir)" />
+    <ItemGroup>
+      <EmbeddedResource Remove="$(WineParentBridgeOutput)" />
+      <EmbeddedResource Include="$(WineParentBridgeOutput)" LogicalName="yagl-parent-bridge.exe" />
+    </ItemGroup>
+  </Target>
 
   <ItemGroup>
     <!-- 覆盖率与内部逻辑单测 -->

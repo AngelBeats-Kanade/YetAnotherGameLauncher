@@ -1,4 +1,5 @@
 using Xunit;
+using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Services.Umu;
 using YetAnotherGameLauncher.TestSupport;
 
@@ -12,6 +13,31 @@ public sealed class NativeUmuDecoyParentTests : IDisposable
 {
     private readonly TempDir _temp = new();
     private readonly FakeProcessRunner _runner = new();
+
+    /// <summary>假 helper：本次启动的桥目录里有状态占位文件时写指定状态。</summary>
+    private void WriteBridgeStatus(string content)
+    {
+        var bridgeRoot = Path.Combine(_temp.Path, "yagl", "bridge");
+        if (!Directory.Exists(bridgeRoot))
+        {
+            return;
+        }
+
+        foreach (var status in Directory.EnumerateFiles(
+                     bridgeRoot, "status-*.txt", SearchOption.AllDirectories))
+        {
+            File.WriteAllText(status, content);
+        }
+    }
+
+    public NativeUmuDecoyParentTests()
+    {
+        _runner.Handler = _ =>
+        {
+            WriteBridgeStatus(DecoyParentBridge.ReadyStatus);
+            return new ProcessResult(0, "", "");
+        };
+    }
 
     public void Dispose() => _temp.Dispose();
 
@@ -31,7 +57,7 @@ public sealed class NativeUmuDecoyParentTests : IDisposable
 
         var spec = Assert.Single(_runner.Specs);
         var exe = Path.GetFullPath(Path.Combine(install, "Endfield.exe"));
-        var decoy = Path.Combine(install, ".yagl", "bridge", "Games.exe");
+        var decoy = Path.Combine(_temp.Path, "yagl", "bridge", "arknights-endfield", "Games.exe");
 
         // 容器链的最终目标是桥 helper（挂起诱饵与游戏都由它在 wine 侧编排）；游戏 exe 不再进 argv
         Assert.Contains("yagl-parent-bridge.exe", spec.Arguments, StringComparison.Ordinal);
@@ -44,6 +70,9 @@ public sealed class NativeUmuDecoyParentTests : IDisposable
         Assert.Equal(
             DecoyParentBridge.ToWindowsPath(Path.GetFullPath(install)),
             env[DecoyParentBridge.WorkingDirectoryVariable]);
+        // 状态通道同样是 Windows 路径（helper 在 wine 侧写、launcher 在主机侧读）
+        Assert.StartsWith(
+            @"Z:\", env[DecoyParentBridge.StatusVariable], StringComparison.Ordinal);
         // 诱饵已按候选内容落盘（校验只认文件名+签名+指纹，副本内容即候选本体）
         Assert.Equal("signed-decoy", File.ReadAllText(decoy));
     }
@@ -71,6 +100,82 @@ public sealed class NativeUmuDecoyParentTests : IDisposable
             $"\"{DecoyParentBridge.ToWindowsPath(exe)}\" -dx11 \"cfg path\"",
             spec.Environment![DecoyParentBridge.CommandLineVariable]);
         Assert.DoesNotContain("-dx11", spec.Arguments, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_DecoyParent_HelperError_ThrowsActionableError()
+    {
+        // Linux 原生链同型（2026-10-20 复审）：helper 在创建游戏前失败时写 ERROR 状态，
+        // 必须抛可操作错误，不能因 WaitForExit=false 显示「已启动」。
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("原生 umu 链仅 Linux");
+        }
+
+        var (protonDir, install) = SetupFixture(withPlatformProcess: true);
+        var launcher = new NativeUmuLauncher(_runner, provisioner: null, dataHome: _temp.Path);
+        _runner.Handler = _ =>
+        {
+            WriteBridgeStatus($"{DecoyParentBridge.ErrorStatusPrefix}4:game create failed");
+            return new ProcessResult(0, "", "helper failed");
+        };
+
+        var ex = await Assert.ThrowsAsync<LaunchException>(
+            () => launcher.LaunchAsync(
+                "arknights-endfield", install, "Endfield.exe", protonDir, decoyParent: true));
+
+        Assert.Equal(LaunchFailureKind.StartFailed, ex.Kind);
+        Assert.Contains("退出码 4", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("game create failed", ex.Message, StringComparison.Ordinal);
+        Assert.NotNull(ex.LogPath);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_DecoyParent_StatusTimeout_ThrowsActionableError()
+    {
+        // 状态通道未就绪（helper 卡住/崩溃未写状态）→ 超时报错，不静默报「已启动」
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("原生 umu 链仅 Linux");
+        }
+
+        var (protonDir, install) = SetupFixture(withPlatformProcess: true);
+        var launcher = new NativeUmuLauncher(_runner, provisioner: null, dataHome: _temp.Path)
+        {
+            BridgeStatusTimeout = TimeSpan.FromMilliseconds(100),
+        };
+        _runner.Handler = _ => new ProcessResult(0, "", "");
+
+        var ex = await Assert.ThrowsAsync<LaunchException>(
+            () => launcher.LaunchAsync(
+                "arknights-endfield", install, "Endfield.exe", protonDir, decoyParent: true));
+
+        Assert.Equal(LaunchFailureKind.StartFailed, ex.Kind);
+        Assert.Contains("未就绪", ex.Message, StringComparison.Ordinal);
+        Assert.NotNull(ex.LogPath);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_DecoyParent_BuildPlanFailure_CleansStatusFile()
+    {
+        // BuildPlan 在 helper 启动前失败（游戏 exe 缺失）时，刚创建的 status-*.txt 占位文件
+        // 必须清理，不能在桥目录里积累
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("原生 umu 链仅 Linux");
+        }
+
+        var (protonDir, install) = SetupFixture(withPlatformProcess: true);
+        File.Delete(Path.Combine(install, "Endfield.exe"));
+        var launcher = new NativeUmuLauncher(_runner, provisioner: null, dataHome: _temp.Path);
+
+        await Assert.ThrowsAsync<LaunchException>(
+            () => launcher.LaunchAsync(
+                "arknights-endfield", install, "Endfield.exe", protonDir, decoyParent: true));
+
+        var bridgeRoot = Path.Combine(_temp.Path, "yagl", "bridge", "arknights-endfield");
+        Assert.Empty(Directory.EnumerateFiles(bridgeRoot, "status-*.txt"));
+        Assert.Empty(_runner.Specs);
     }
 
     [Fact]

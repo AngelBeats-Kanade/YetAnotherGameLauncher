@@ -27,6 +27,9 @@ public sealed class NativeUmuLauncher(
     /// <summary>诱饵父进程桥准备器（终末地 1.6.3+ 启动校验；无状态，可安全共享）。</summary>
     private readonly DecoyParentBridge _decoyBridge = new(logger);
 
+    /// <summary>等待桥 READY/ERROR 的上限（测试注入；生产 30 秒）。</summary>
+    internal TimeSpan BridgeStatusTimeout { get; init; } = BridgeLaunchStatus.DefaultTimeout;
+
     /// <summary>
     /// 解析 Proton 路径（绝对目录或版本代号），必要时经 provisioner 下载，
     /// 再解析 toolmanifest 所需 Runtime 并确保就绪。
@@ -73,6 +76,10 @@ public sealed class NativeUmuLauncher(
         return (protonPath, manifest, runtime);
     }
 
+    /// <summary>桥工作根：<c>{dataHome}/yagl/bridge/&lt;gameId&gt;</c>（dataHome 缺省取 AppPaths.DataHomeDirectory，Linux 尊重 XDG_DATA_HOME）。</summary>
+    private string ResolveBridgeRoot(string gameId) =>
+        Path.Combine(dataHome ?? AppPaths.DataHomeDirectory, "yagl", "bridge", gameId);
+
     /// <summary>构建启动计划（不启动进程）：prefix + 环境 + 容器命令。umuId 覆盖 UMU_ID（空 = umu-{gameId}）。
     /// decoyParent 非空时切换诱饵父进程桥：容器目标换成桥 helper，游戏命令行经 YAGL_BRIDGE_* 环境变量传递。</summary>
     public UmuNativeLaunchPlan BuildPlan(
@@ -88,7 +95,8 @@ public sealed class NativeUmuLauncher(
         string? umuId = null,
         string? resourceQualityTier = null,
         IReadOnlyList<string>? gameArguments = null,
-        DecoyParentPreparation? decoyParent = null)
+        DecoyParentPreparation? decoyParent = null,
+        string? bridgeStatusPath = null)
     {
         EnsureLinux();
 
@@ -174,12 +182,18 @@ public sealed class NativeUmuLauncher(
         if (decoyParent is not null)
         {
             var targetWindows = DecoyParentBridge.ToWindowsPath(exe);
-            environment[DecoyParentBridge.DecoyVariable] = decoyParent.DecoyWindowsPath;
+            environment[DecoyParentBridge.DecoyVariable] = decoyParent.DecoyWinePath;
             environment[DecoyParentBridge.TargetVariable] = targetWindows;
             environment[DecoyParentBridge.CommandLineVariable] =
                 ComposeWindowsCommandLine(targetWindows, gameArgumentList);
             environment[DecoyParentBridge.WorkingDirectoryVariable] =
                 DecoyParentBridge.ToWindowsPath(installFullPath);
+            if (!string.IsNullOrWhiteSpace(bridgeStatusPath))
+            {
+                environment[DecoyParentBridge.StatusVariable] =
+                    DecoyParentBridge.ToWindowsPath(bridgeStatusPath);
+            }
+
             launchTarget = decoyParent.HelperPath;
             launchArguments = null;
         }
@@ -231,15 +245,40 @@ public sealed class NativeUmuLauncher(
         // 诱饵父进程桥（2026-10-18）：开启时先把诱饵与 helper 落盘。准备失败静默回退直启
         // （不阻断玩家；原因由 DecoyParentBridge 记日志）——游戏侧会照旧弹「请通过官方启动器」。
         DecoyParentPreparation? decoy = null;
+        string? statusPath = null;
         if (decoyParent)
         {
-            decoy = _decoyBridge.TryPrepare(installDir);
+            decoy = _decoyBridge.TryPrepare(installDir, ResolveBridgeRoot(gameId));
+            if (decoy is not null)
+            {
+                try
+                {
+                    statusPath = BridgeLaunchStatus.CreateStatusPath(decoy.BridgeDirectory);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    throw new LaunchException(
+                        LaunchFailureKind.StartFailed,
+                        $"无法创建诱饵父进程桥启动状态文件：{ex.Message}",
+                        ex);
+                }
+            }
         }
 
-        var plan = BuildPlan(
-            gameId, installDir, executablePath, protonPath, manifest, runtime,
-            extraEnvironment, store, umuId: umuId, resourceQualityTier: resourceQualityTier,
-            gameArguments: gameArguments, decoyParent: decoy);
+        UmuNativeLaunchPlan plan;
+        try
+        {
+            plan = BuildPlan(
+                gameId, installDir, executablePath, protonPath, manifest, runtime,
+                extraEnvironment, store, umuId: umuId, resourceQualityTier: resourceQualityTier,
+                gameArguments: gameArguments, decoyParent: decoy, bridgeStatusPath: statusPath);
+        }
+        catch
+        {
+            // BuildPlan 失败（exe 缺失/配置错误）时 helper 尚未启动，清掉刚创建的占位文件
+            BridgeLaunchStatus.TryDelete(statusPath);
+            throw;
+        }
 
         var logDirectory = Path.Combine(AppPaths.DataDirectory, "logs");
         Directory.CreateDirectory(logDirectory);
@@ -256,10 +295,40 @@ public sealed class NativeUmuLauncher(
         try
         {
             var result = await processRunner.RunAsync(spec, cancellationToken).ConfigureAwait(false);
+            if (decoy is not null && statusPath is not null)
+            {
+                var status = await BridgeLaunchStatus
+                    .WaitAsync(statusPath, BridgeStatusTimeout, cancellationToken)
+                    .ConfigureAwait(false);
+                if (status.State == BridgeLaunchState.Failed)
+                {
+                    throw new LaunchException(
+                        LaunchFailureKind.StartFailed,
+                        $"{DecoyParentBridge.DescribeFailure(status.ExitCode)} {status.Message} " +
+                        $"详见启动日志：{logPath}",
+                        logPath: logPath);
+                }
+
+                if (status.State == BridgeLaunchState.TimedOut)
+                {
+                    throw new LaunchException(
+                        LaunchFailureKind.StartFailed,
+                        $"诱饵父进程桥在 {BridgeStatusTimeout.TotalSeconds:0} 秒内未就绪" +
+                        $"（游戏可能仍在启动，也可能已失败）。请查看启动日志：{logPath}",
+                        logPath: logPath);
+                }
+            }
+
             return new LaunchResult(result.ExitCode, logPath);
+        }
+        catch (OperationCanceledException)
+        {
+            BridgeLaunchStatus.TryDelete(statusPath);
+            throw;
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException)
         {
+            BridgeLaunchStatus.TryDelete(statusPath);
             throw new LaunchException(
                 LaunchFailureKind.StartFailed,
                 $"无法启动原生 umu 进程「{plan.FileName}」：{ex.Message}",

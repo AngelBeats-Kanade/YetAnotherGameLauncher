@@ -2,6 +2,7 @@ using System.ComponentModel;
 using Microsoft.Extensions.Logging;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
+using YetAnotherGameLauncher.Core.Services.Umu;
 using YetAnotherGameLauncher.Core.Utilities;
 
 namespace YetAnotherGameLauncher.Core.Services;
@@ -12,19 +13,33 @@ public sealed record LaunchResult(int ExitCode, string? LogPath);
 /// <summary>
 /// 游戏启动服务：解析 LaunchOptions 中的命令模板（{exe} / {installDir} 占位符）、
 /// 工作目录与环境变量，做启动预检（主程序存在、运行时可执行、prefix 可创建）后启动进程。
-/// 游戏在 Linux 上如何运行（原生 / wine / Proton / umu）完全由配置决定，本服务不做平台假设。
+/// 游戏在 Linux 上如何运行（原生 / wine / Proton / umu）完全由配置决定；
+/// 主要的平台分支是 Windows 直启且开启 decoyParent 时改走诱饵父进程桥
+/// （<see cref="LaunchWithDecoyParentAsync"/>）；其余路径不做平台假设
+/// （<see cref="ValidateCommand"/> 另有一处 Windows 裸命令 PATH 特例）。
 /// </summary>
 public sealed class GameLauncherService(
     IProcessRunner processRunner,
     ILogger? logger = null,
     string? logDirectory = null,
-    string? pathValue = null)
+    string? pathValue = null,
+    IPlatformInfo? platformInfo = null,
+    string? dataDirectory = null)
 {
     private readonly string _logDirectory = logDirectory
         ?? Path.Combine(AppPaths.DataDirectory, "logs");
 
     /// <summary>PATH 环境变量值（null = 真实环境；测试注入空串禁用 PATH 扫描）。</summary>
     private readonly string? _pathValue = pathValue;
+
+    /// <summary>平台信息（决定 Windows 直启是否走诱饵父进程桥；测试注入假实现）。</summary>
+    private readonly IPlatformInfo _platformInfo = platformInfo ?? PlatformInfoFactory.Create();
+
+    /// <summary>应用数据目录（桥工作目录 <c>bridge/&lt;gameId&gt;</c> 的根；测试注入临时目录）。</summary>
+    private readonly string _dataDirectory = dataDirectory ?? AppPaths.DataDirectory;
+
+    /// <summary>等待桥 READY/ERROR 的上限（测试注入；生产 30 秒）。</summary>
+    internal TimeSpan BridgeStatusTimeout { get; init; } = BridgeLaunchStatus.DefaultTimeout;
 
     /// <summary>解析启动命令。commandTemplate 中以第一个未转义空格为界拆分为文件名与参数（支持引号）。</summary>
     public LaunchPlan BuildPlan(GameDefinition game, string installDir, string effectiveExecutable)
@@ -100,6 +115,12 @@ public sealed class GameLauncherService(
     public async Task<LaunchResult> LaunchAsync(
         GameDefinition game, string installDir, string effectiveExecutable, CancellationToken cancellationToken = default)
     {
+        if (game.Launch.DecoyParent && !_platformInfo.IsLinux)
+        {
+            return await LaunchWithDecoyParentAsync(
+                game, installDir, effectiveExecutable, cancellationToken).ConfigureAwait(false);
+        }
+
         var plan = BuildPlan(game, installDir, effectiveExecutable);
         var logPath = ComposeLogPath(game.Id);
         ProcessStartSpec spec = new(
@@ -126,6 +147,113 @@ public sealed class GameLauncherService(
                 logPath);
         }
     }
+
+    /// <summary>
+    /// Windows 直启的诱饵父进程桥（2026-10-20）：终末地 1.6.3+ 校验游戏进程的直接父进程
+    /// 签名，必须由原生 helper 以挂起诱饵为父进程拉起游戏。与 Linux 原生 umu 链不同，
+    /// Windows 上准备失败不能静默直启（必被游戏拒绝），改抛可操作的启动错误。
+    /// </summary>
+    private async Task<LaunchResult> LaunchWithDecoyParentAsync(
+        GameDefinition game, string installDir, string effectiveExecutable, CancellationToken cancellationToken)
+    {
+        var plan = BuildPlan(game, installDir, effectiveExecutable);
+
+        // 桥只能直接拉起游戏 exe；模板包了 wine/包装器时无法推导目标（误配要显式失败）
+        var exePath = Path.GetFullPath(Path.Combine(installDir, effectiveExecutable.Replace('\\', '/')));
+        if (!IsSamePath(plan.FileName, exePath))
+        {
+            throw new LaunchException(
+                LaunchFailureKind.Unknown,
+                $"诱饵父进程桥要求 commandTemplate 直接指向游戏 exe（当前命令：「{plan.FileName}」）。" +
+                "请到「游戏设置 → 启动参数」把启动命令改为 {exe}。");
+        }
+
+        var bridgeRoot = Path.Combine(_dataDirectory, "bridge", game.Id);
+        var preparation = new DecoyParentBridge(logger).TryPrepare(installDir, bridgeRoot);
+        if (preparation is null)
+        {
+            throw new LaunchException(
+                LaunchFailureKind.Unknown,
+                $"诱饵父进程桥准备失败：{installDir} 下没有可用的签名候选文件" +
+                $"（{string.Join(" / ", DecoyParentBridge.CandidateFileNames)}），或桥目录不可写。" +
+                "请确认游戏文件完整（校验游戏完整性）后重试。");
+        }
+
+        var workingDirectory = Path.GetFullPath(plan.WorkingDirectory);
+        string statusPath;
+        try
+        {
+            statusPath = BridgeLaunchStatus.CreateStatusPath(bridgeRoot);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new LaunchException(
+                LaunchFailureKind.StartFailed,
+                $"无法创建诱饵父进程桥启动状态文件：{ex.Message}",
+                ex);
+        }
+
+        var environment = new Dictionary<string, string>(plan.Environment, StringComparer.Ordinal)
+        {
+            [DecoyParentBridge.DecoyVariable] = preparation.DecoyPath,
+            [DecoyParentBridge.TargetVariable] = plan.FileName,
+            [DecoyParentBridge.CommandLineVariable] = ComposeWindowsCommandLine(plan.FileName, plan.Arguments),
+            [DecoyParentBridge.WorkingDirectoryVariable] = workingDirectory,
+            [DecoyParentBridge.StatusVariable] = statusPath,
+        };
+
+        var logPath = ComposeLogPath(game.Id);
+        ProcessStartSpec spec = new(
+            preparation.HelperPath, "", workingDirectory, environment,
+            WaitForExit: false, OutputLogPath: logPath);
+        try
+        {
+            await processRunner.RunAsync(spec, cancellationToken).ConfigureAwait(false);
+            var status = await BridgeLaunchStatus
+                .WaitAsync(statusPath, BridgeStatusTimeout, cancellationToken)
+                .ConfigureAwait(false);
+            if (status.State == BridgeLaunchState.Ready)
+            {
+                return new LaunchResult(0, logPath);
+            }
+
+            // ERROR = 游戏进程尚未创建（真桥故障）；超时 = 状态通道没就绪。
+            // READY 之后 helper 透传的退出码是游戏自身的（例如校验拒绝 5），不在此处处理。
+            var message = status.State == BridgeLaunchState.Failed
+                ? $"{DecoyParentBridge.DescribeFailure(status.ExitCode)} {status.Message} " +
+                  $"详见启动日志：{logPath}"
+                : $"诱饵父进程桥在 {BridgeStatusTimeout.TotalSeconds:0} 秒内未就绪" +
+                  $"（游戏可能仍在启动，也可能已失败）。请查看启动日志：{logPath}";
+            throw new LaunchException(LaunchFailureKind.StartFailed, message, logPath: logPath);
+        }
+        catch (OperationCanceledException)
+        {
+            BridgeLaunchStatus.TryDelete(statusPath);
+            throw;
+        }
+        catch (Exception ex) when (ex is Win32Exception or IOException or UnauthorizedAccessException)
+        {
+            BridgeLaunchStatus.TryDelete(statusPath);
+            logger?.LogWarning(ex, "Decoy bridge start failed: {File}", preparation.HelperPath);
+            var detail = ex is Win32Exception win32
+                ? $"{win32.Message}（错误码 {win32.NativeErrorCode}）"
+                : ex.Message;
+            throw new LaunchException(
+                LaunchFailureKind.StartFailed,
+                $"无法启动诱饵父进程桥「{preparation.HelperPath}」：{detail}。",
+                ex,
+                logPath);
+        }
+    }
+
+    /// <summary>拼 helper 的游戏命令行：exe 始终加引号，模板参数原样追加（SplitCommand 已剥壳）。</summary>
+    private static string ComposeWindowsCommandLine(string exePath, string arguments) =>
+        string.IsNullOrWhiteSpace(arguments) ? $"\"{exePath}\"" : $"\"{exePath}\" {arguments}";
+
+    /// <summary>路径等价比较（Windows 直启桥专用；大小写不敏感）。</summary>
+    private static bool IsSamePath(string left, string right) =>
+        string.Equals(
+            Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// 启动预检：模板首段（运行时/解释器）必须存在且（Linux 上）可执行。

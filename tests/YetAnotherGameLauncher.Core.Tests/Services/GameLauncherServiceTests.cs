@@ -4,6 +4,7 @@ using Xunit;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
+using YetAnotherGameLauncher.Core.Services.Umu;
 using YetAnotherGameLauncher.TestSupport;
 
 namespace YetAnotherGameLauncher.Core.Tests.Services;
@@ -20,6 +21,18 @@ public class GameLauncherServiceTests : IDisposable
 
     private GameLauncherService Service(string? pathValue = null, string? logDir = null, CapturingLogger? logger = null) =>
         new(_runner, logger, logDirectory: logDir ?? _tempDir.FilePath("logs"), pathValue: pathValue);
+
+    /// <summary>假 Windows 平台 + 临时应用数据目录：驱动 decoyParent 的 Windows 直启分支。</summary>
+    private GameLauncherService WindowsService(string dataDirectory, TimeSpan? statusTimeout = null) =>
+        new(
+            _runner,
+            logDirectory: _tempDir.FilePath("logs"),
+            pathValue: "",
+            platformInfo: new FakePlatformInfo(isLinux: false),
+            dataDirectory: dataDirectory)
+        {
+            BridgeStatusTimeout = statusTimeout ?? BridgeLaunchStatus.DefaultTimeout,
+        };
 
     private GameDefinition Game(string commandTemplate = "{exe}") => new()
     {
@@ -389,6 +402,159 @@ public class GameLauncherServiceTests : IDisposable
 
         Assert.Equal(LaunchFailureKind.StartFailed, ex.Kind);
         Assert.NotNull(ex.LogPath);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_DecoyParent_OnWindows_StartsHelperWithNativePaths()
+    {
+        // Windows 直启（2026-10-20）：decoyParent 开启时启动目标换成原生 helper，
+        // 诱饵/helper 落在应用数据目录，游戏安装目录零写入
+        await CreateExecutable();
+        await File.WriteAllTextAsync(_tempDir.FilePath("PlatformProcess.exe"), "signed-decoy");
+        var dataDir = _tempDir.FilePath("data");
+        var game = Game("\"{exe}\"");
+        game.Launch.DecoyParent = true;
+        _runner.Handler = spec =>
+        {
+            // helper 在游戏进程创建成功后写 READY；launcher 据此确认桥成功，
+            // 不把 helper 随后透传的游戏退出码当桥失败。
+            File.WriteAllText(
+                spec.Environment![DecoyParentBridge.StatusVariable], DecoyParentBridge.ReadyStatus);
+            return new ProcessResult(0, "", "");
+        };
+
+        var result = await WindowsService(dataDir).LaunchAsync(
+            game, _tempDir.Path, "bin/game.exe");
+
+        var spec = Assert.Single(_runner.Specs);
+        var exe = Path.GetFullPath(_tempDir.FilePath("bin", "game.exe"));
+        var bridge = Path.Combine(dataDir, "bridge", game.Id);
+        Assert.Equal(Path.Combine(bridge, "yagl-parent-bridge.exe"), spec.FileName);
+        Assert.True(File.Exists(Path.Combine(bridge, "Games.exe")));
+        Assert.False(Directory.Exists(Path.Combine(_tempDir.Path, ".yagl")));
+
+        var env = spec.Environment!;
+        Assert.Equal(Path.Combine(bridge, "Games.exe"), env[DecoyParentBridge.DecoyVariable]);
+        Assert.Equal(exe, env[DecoyParentBridge.TargetVariable]);
+        Assert.Equal($"\"{exe}\"", env[DecoyParentBridge.CommandLineVariable]);
+        Assert.Equal(_tempDir.Path, env[DecoyParentBridge.WorkingDirectoryVariable]);
+        Assert.Equal(_tempDir.Path, spec.WorkingDirectory);
+        Assert.False(spec.WaitForExit);
+        Assert.Equal(result.LogPath, spec.OutputLogPath);
+        // 状态文件在读取 READY 后清理；路径位于桥目录
+        var statusPath = env[DecoyParentBridge.StatusVariable];
+        Assert.StartsWith(bridge + Path.DirectorySeparatorChar, statusPath, StringComparison.Ordinal);
+        Assert.False(File.Exists(statusPath), "READY 状态文件应在读取后清理");
+        Assert.Equal(0, result.ExitCode);
+    }
+
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    public async Task LaunchAsync_DecoyParent_OnWindows_HelperError_ThrowsActionableError(
+        int exitCode)
+    {
+        // 2026-10-20 复审：helper 在创建游戏前失败时通过状态文件报告（ERROR:<code>:<message>），
+        // launcher 必须报可操作错误，而不是把 WaitForExit=false 的恒 0 当成功。
+        await CreateExecutable();
+        await File.WriteAllTextAsync(_tempDir.FilePath("PlatformProcess.exe"), "signed-decoy");
+        var game = Game("\"{exe}\"");
+        game.Launch.DecoyParent = true;
+        _runner.Handler = spec =>
+        {
+            File.WriteAllText(
+                spec.Environment![DecoyParentBridge.StatusVariable],
+                $"{DecoyParentBridge.ErrorStatusPrefix}{exitCode}:helper failed");
+            return new ProcessResult(0, "", "helper failed");
+        };
+
+        var ex = await Assert.ThrowsAsync<LaunchException>(
+            () => WindowsService(_tempDir.FilePath("data")).LaunchAsync(
+                game, _tempDir.Path, "bin/game.exe"));
+
+        Assert.Equal(LaunchFailureKind.StartFailed, ex.Kind);
+        Assert.Contains($"退出码 {exitCode}", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("helper failed", ex.Message, StringComparison.Ordinal);
+        Assert.Equal(Assert.Single(_runner.Specs).OutputLogPath, ex.LogPath);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_DecoyParent_OnWindows_StatusTimeout_ThrowsActionableError()
+    {
+        // 状态通道没就绪（helper 卡住/崩溃未写状态）→ 超时报错，不静默报「已启动」
+        await CreateExecutable();
+        await File.WriteAllTextAsync(_tempDir.FilePath("PlatformProcess.exe"), "signed-decoy");
+        var game = Game("\"{exe}\"");
+        game.Launch.DecoyParent = true;
+        _runner.Handler = _ => new ProcessResult(0, "", "");
+
+        var ex = await Assert.ThrowsAsync<LaunchException>(
+            () => WindowsService(_tempDir.FilePath("data"), TimeSpan.FromMilliseconds(100)).LaunchAsync(
+                game, _tempDir.Path, "bin/game.exe"));
+
+        Assert.Equal(LaunchFailureKind.StartFailed, ex.Kind);
+        Assert.Contains("未就绪", ex.Message, StringComparison.Ordinal);
+        Assert.NotNull(ex.LogPath);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_DecoyParent_OnWindows_ProcessStartFailure_CleansStatusFile()
+    {
+        // 进程启动异常也要清理本次状态占位文件（否则反复失败会积累 status-*.txt）
+        await CreateExecutable();
+        await File.WriteAllTextAsync(_tempDir.FilePath("PlatformProcess.exe"), "signed-decoy");
+        var game = Game("\"{exe}\"");
+        game.Launch.DecoyParent = true;
+        _runner.Handler = _ => throw new Win32Exception(5, "start failed");
+
+        await Assert.ThrowsAsync<LaunchException>(
+            () => WindowsService(_tempDir.FilePath("data")).LaunchAsync(
+                game, _tempDir.Path, "bin/game.exe"));
+
+        var statusPath = Assert.Single(_runner.Specs).Environment![DecoyParentBridge.StatusVariable];
+        Assert.False(File.Exists(statusPath));
+    }
+
+    [Fact]
+    public async Task LaunchAsync_DecoyParent_OnWindows_NonDirectTemplate_ThrowsClearError()
+    {
+        // 桥必须直接拉起游戏 exe；commandTemplate 包了 wine/包装器时无法推导目标，明确报错
+        await CreateExecutable();
+        await File.WriteAllTextAsync(_tempDir.FilePath("PlatformProcess.exe"), "signed-decoy");
+        var wrapper = _tempDir.FilePath("wrapper.exe");
+        await File.WriteAllTextAsync(wrapper, "#!/bin/sh");
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(
+                wrapper, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        var game = Game($"\"{wrapper}\" \"{{exe}}\"");
+        game.Launch.DecoyParent = true;
+
+        var ex = await Assert.ThrowsAsync<LaunchException>(
+            () => WindowsService(_tempDir.FilePath("data")).LaunchAsync(
+                game, _tempDir.Path, "bin/game.exe"));
+
+        Assert.Contains("直接指向游戏 exe", ex.Message, StringComparison.Ordinal);
+        Assert.Empty(_runner.Specs);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_DecoyParent_OnWindows_PrepareFailure_ThrowsClearError()
+    {
+        // 无签名候选时不能静默直启（Windows 上游戏必被拒）；给可操作错误而非通用退出码 5
+        await CreateExecutable();
+        var game = Game("\"{exe}\"");
+        game.Launch.DecoyParent = true;
+
+        var ex = await Assert.ThrowsAsync<LaunchException>(
+            () => WindowsService(_tempDir.FilePath("data")).LaunchAsync(
+                game, _tempDir.Path, "bin/game.exe"));
+
+        Assert.Contains("诱饵父进程桥", ex.Message, StringComparison.Ordinal);
+        Assert.Empty(_runner.Specs);
     }
 
     [Fact]

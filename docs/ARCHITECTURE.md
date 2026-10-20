@@ -174,7 +174,8 @@ Windows 上若游戏可执行文件的清单要求管理员权限（requireAdmin
 
 命令模板支持引号包裹（含空格路径），例如 `wine "{exe}"`；
 Linux 上如何运行（umu / 直接运行）完全由配置决定，代码零平台假设。
-设置页启动方式二选一：**umu 启动**（默认，`native-umu {exe}`）与**直接运行**（`{exe}`，Windows 唯一方式）；
+设置页启动方式二选一：**umu 启动**（默认，`native-umu {exe}`）与**直接运行**（`{exe}`，Windows 唯一方式；
+终末地在 `decoyParent` 开启时该路径改由原生 helper 桥接，见下文「诱饵父进程桥」）；
 旧版 wine/Proton 模板仍可执行（裸命令名走通用 PATH 语义），仅不再出现在选择器中；
 存量 `umu-run {exe}` 模板由 `schemaVersion 5` 一次性迁移升级为推荐链（`MigrateLinuxLegacyUmuTemplatesAsync`）——
 外部 umu-launcher 代码已整体移除，手写自定义模板不受影响。
@@ -205,21 +206,39 @@ UMU_ID 由 `launch.umuId` 覆盖（对齐 umu 数据库规范 ID：鸣潮 `umu-3
    `{runtime}/_v2-entry-point --verb=… -- {proton}/proton <verb> {exe} [游戏参数…]` 启动
    （`IProcessRunner`，即启即走）
 
-**诱饵父进程桥（终末地 1.6.3+ 启动校验，2026-10-18）**：游戏启动时会校验**直接父进程**
-（实现于游戏目录 `OneChannelLC.dll`，四步）：① Toolhelp 快照取直接父进程；② 镜像文件名与
-`parentNames` 忽略大小写全等比对（不中 → `10100`）；③ 对镜像文件调 `WinVerifyTrust`
-（`WINTRUST_ACTION_GENERIC_VERIFY_V2`，签名不可信/取不到 → `10101`）；④ 枚举签名者证书比对
-SHA-1/SHA-256 指纹白名单（不中 → `10102`）。原生 umu 链直启时父进程是容器侧 `umu.exe`，
-会被拒绝（弹「请通过官方启动器打开游戏」、退出码 5）。`launch.decoyParent=true` 时启动链先经
-`DecoyParentBridge` 准备：把游戏目录里鹰角签名的可执行文件（`PlatformProcess.exe` →
-`UnityCrashHandler64.exe` → `Endfield.exe` 首个存在者；与官方启动器 `Games.exe` 同一张签名证书）
-复制为 `.yagl/bridge/Games.exe`，并把嵌入式 helper（`Resources/yagl-parent-bridge.exe`，Wine 侧
-原生 PE，源码/构建/自检见 `tools/wine-parent-bridge/`）落盘；`NativeUmuLauncher` 把容器目标换成
-helper、游戏可执行文件与命令行经 `YAGL_BRIDGE_DECOY/TARGET/CMD/CWD` 环境变量传递。helper 以
-`CREATE_SUSPENDED` 创建诱饵且永不恢复、经 `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` 指定为游戏
-父进程、等游戏退出后 `TerminateProcess` 回收诱饵并透传退出码——**零下载、不依赖官方启动器、
-不改游戏文件与 ACE 环境**。候选缺失/准备失败静默回退直启；三层判据与三种失败码均经真机
-对照实验与通过态实录验证（见 `artifacts/bugs.md`）。
+**诱饵父进程桥（终末地 1.6.3+ 启动校验，2026-10-18；Windows 直启接入与迁移见 2026-10-20）**：
+游戏启动时会校验**直接父进程**（实现于游戏目录 `OneChannelLC.dll`，四步）：① Toolhelp 快照取直接
+父进程；② 镜像文件名与 `parentNames` 忽略大小写全等比对（不中 → `10100`）；③ 对镜像文件调
+`WinVerifyTrust`（`WINTRUST_ACTION_GENERIC_VERIFY_V2`，签名不可信/取不到 → `10101`）；④ 枚举签名者
+证书比对 SHA-1/SHA-256 指纹白名单（不中 → `10102`）。直启时父进程是容器侧 `umu.exe`（Linux）或
+启动器自身（Windows），会被拒绝（弹「请通过官方启动器打开游戏」、退出码 5）。`launch.decoyParent=true`
+时启动链先经 `DecoyParentBridge.TryPrepare` 准备：把游戏目录里鹰角签名的可执行文件
+（`PlatformProcess.exe` → `UnityCrashHandler64.exe` → `Endfield.exe` 首个存在者；与官方启动器
+`Games.exe` 同一张签名证书）复制为诱饵 `Games.exe`，并把 helper 落盘。**桥工作目录自 2026-10-20 起
+在启动器数据目录**（`{数据目录}/yagl`，Linux `~/.local/share/yagl`、Windows `%LOCALAPPDATA%\yagl`）
+下的 `bridge/<游戏id>/`——游戏安装目录只作为诱饵来源被读取，旧版
+`<安装目录>/.yagl/bridge` 由准备逻辑 best-effort 清理（不触碰 `.yagl` 下的状态文件）。helper
+`yagl-parent-bridge.exe` 是 **C# 自包含 Windows 单文件**（`tools/wine-parent-bridge/`；`WinExe`
+即 GUI 子系统——console 子系统会在无终端的 Wine 下弹 conhost 黑窗，2026-10-20 真机复现），
+由 Core 构建目标发布并嵌入资源，**不再把产物提交进仓库**（嵌套 Restore/Publish 显式钉死
+`win-x64 + SelfContained`，避免继承外层的 `RuntimeIdentifier`）。诱饵复制在内容与候选一致时
+跳过覆盖（Windows 上已挂起的诱饵会锁住镜像文件，第二次启动/孤儿诱饵仍可继续）。两条链共用 helper：Linux
+`NativeUmuLauncher` 把容器目标换成 helper、游戏 exe/命令行经 `YAGL_BRIDGE_DECOY/TARGET/CMD/CWD`
+（Windows 路径，诱饵用 `Z:` 映射）传递；Windows 直启
+`GameLauncherService.LaunchWithDecoyParentAsync` 要求 `commandTemplate` 直接指向游戏 exe（否则
+显式报错，不做静默降级），以原生路径注入同一组变量并启动 helper（即启即走）。两条链都额外传
+`YAGL_BRIDGE_STATUS`：helper 在**游戏进程创建后**写 `READY`，创建前失败写
+`ERROR:<退出码>:<消息>`；launcher 轮询该状态文件（上限 30 s）而不是看 helper 的退出码——
+状态文件写失败/helper 未写 READY 时按超时报错（不静默成功）；helper 会把游戏自身退出码
+（如启动校验拒绝的 5）原样透传，只看退出码会把"游戏已启动但拒绝了自己"
+误报成桥故障。helper 以 `CREATE_SUSPENDED` 创建诱饵且永不恢复、经 `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS`
+指定为游戏父进程、等游戏退出后 `TerminateProcess` 回收诱饵并透传退出码——**零下载、不依赖官方
+启动器、不改游戏文件与 ACE 环境**。处理按平台/阶段不同：**准备**桥失败时 Linux 静默回退直启
+（不阻断玩家），Windows 抛可操作的 `LaunchException`（无签名候选时直启必被游戏拒绝）；
+准备成功后 **READY 之前**的 helper 失败在两个平台都抛可操作错误（带日志路径），READY 之后
+游戏自身的退出码不再当作桥失败。三层判据与三种失败码均经
+真机对照实验与通过态实录验证（见 `artifacts/bugs.md` F89；Wine 的 `UpdateProcThreadAttribute`
+指针语义坑见 `docs/PITFALLS.md` §3）。
 
 **功能开关 → 环境变量**的映射单一事实源是 `CompatTools.FeatureEnvironment`：
 `useWayland` → `PROTON_USE_WAYLAND=1`（DW 同时接受 PROTON_ENABLE_WAYLAND 别名，同一 compat 选项）；

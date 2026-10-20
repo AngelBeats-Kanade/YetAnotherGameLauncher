@@ -33,6 +33,13 @@ jobs:
           dotnet-version: 10.0.x
       - name: Verify whitespace formatting
         run: dotnet format whitespace --verify-no-changes
+      # tools/ 的 helper 与自检器不在解决方案里，单独做格式门禁（2026-10-20）
+      - name: Verify whitespace formatting (tools)
+        run: |
+          dotnet restore tools/wine-parent-bridge/WineParentBridge.csproj
+          dotnet format whitespace tools/wine-parent-bridge/WineParentBridge.csproj --verify-no-changes
+          dotnet restore tools/wine-parent-bridge/verify/WineParentBridgeVerifier.csproj
+          dotnet format whitespace tools/wine-parent-bridge/verify/WineParentBridgeVerifier.csproj --verify-no-changes
 
   build-and-test:
     name: build & test (${{ matrix.os }})
@@ -59,6 +66,11 @@ jobs:
       # 零警告是仓库硬约束（TreatWarningsAsErrors=true）
       - name: Build (zero warnings)
         run: dotnet build --no-restore -warnaserror
+      # tools/ 的 helper 与自检器不在解决方案里：独立构建同样零警告（2026-10-20）
+      - name: Build tools (zero warnings)
+        run: |
+          dotnet build tools/wine-parent-bridge/WineParentBridge.csproj -warnaserror
+          dotnet build tools/wine-parent-bridge/verify/WineParentBridgeVerifier.csproj -warnaserror
       # 官方模板用 dotnet test --no-build；本仓库验证过的方式是直接运行 xunit.v3/MTP
       # 测试执行体（dotnet test 在部分环境发现 0 个测试），失败即非零退出码。
       # 失败时把 [FAIL] 用例名写进 ::error:: 注解——actions 日志需要管理员权限才能拉取，
@@ -115,6 +127,42 @@ jobs:
             dotnet-coverage collect -f cobertura -o "/tmp/cov/$i.xml" dotnet "$suite" > /dev/null
           done
           node scripts/coverage-gate.mjs 0.83 /tmp/cov/1.xml /tmp/cov/2.xml /tmp/cov/3.xml /tmp/cov/4.xml
+
+      # 2026-10-20 复审：干净发布冒烟——外层 RuntimeIdentifier（linux-x64）曾被嵌套 helper 构建
+      # 继承，产出 ELF `yagl-parent-bridge`（无 .exe）→ 嵌入资源缺失。这里两种入口都验：
+      # ① 直接 msbuild 目标 + 外来 RID；② 全量 publish；均要求 helper 是 Windows PE 且已嵌入。
+      - name: Publish smoke (linux-x64, clean helper)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf tools/wine-parent-bridge/obj tools/wine-parent-bridge/bin src/YetAnotherGameLauncher.Core/obj/Release
+          # 预置异 RID assets：目标内的 Restore 必须重做成 win-x64（否则 NETSDK1047 / ELF）
+          dotnet restore tools/wine-parent-bridge/WineParentBridge.csproj -r linux-x64
+          dotnet msbuild src/YetAnotherGameLauncher.Core/YetAnotherGameLauncher.Core.csproj \
+            -t:PublishWineParentBridge -p:Configuration=Release -p:RuntimeIdentifier=linux-x64
+          python3 - <<'PY'
+          from pathlib import Path
+          helper = Path("src/YetAnotherGameLauncher.Core/obj/Release/net10.0/wine-parent-bridge/yagl-parent-bridge.exe")
+          assert helper.is_file(), "helper .exe missing (nested build inherited the outer RID?)"
+          assert helper.read_bytes()[:2] == b"MZ", "helper is not a Windows PE"
+          assert not (helper.parent / "yagl-parent-bridge").exists(), "ELF helper leaked next to the PE"
+          PY
+          rm -rf tools/wine-parent-bridge/obj tools/wine-parent-bridge/bin src/YetAnotherGameLauncher.Core/obj/Release
+          rm -rf /tmp/yagl-publish-smoke
+          dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contained -o /tmp/yagl-publish-smoke
+          python3 - <<'PY'
+          from pathlib import Path
+          core = Path("/tmp/yagl-publish-smoke/YetAnotherGameLauncher.Core.dll")
+          assert core.is_file(), "published Core.dll missing"
+          assert not any(
+              p.name.startswith("yagl-parent-bridge")
+              for p in Path("/tmp/yagl-publish-smoke").iterdir()), "helper leaked as a loose file"
+          PY
+          # 资源存在性不能靠 grep 资源名（Core.dll 本身含该字面量）；用 PE ManifestResource 检查
+          YAGL_PUBLISHED_CORE=/tmp/yagl-publish-smoke/YetAnotherGameLauncher.Core.dll \
+            dotnet tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll \
+            -method "YetAnotherGameLauncher.Core.Tests.Services.Umu.PublishedHelperResourceTests.PublishedCore_EmbedsHelperAsPeResource"
 
   # v* tag 专属：Release 配置双平台自包含发布物并打包。
   # needs 测试门禁——绿 tag 才出包；ubuntu 原生构建的 linux 包比本机（滚动发行版）glibc 门槛更低

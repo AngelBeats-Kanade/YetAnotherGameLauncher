@@ -65,6 +65,38 @@ public class GameCatalogServiceTests : IDisposable
     }
 
     [Theory]
+    [InlineData(".")]
+    [InlineData("..")]
+    [InlineData("game.")]
+    public async Task LoadAsync_GameIdDotSegment_ThrowsValidationException(string id)
+    {
+        // 2026-10-20 复审（安全）：game.Id 直接拼进桥目录路径；"." / ".." 会让桥文件
+        // 落到应用数据根或 yagl 根，破坏路径包含不变量。结尾点会被 Windows 规范化
+        //（game. 与 game 同目录），也必须拒绝。
+        var json = ValidJson.Replace("\"test-game\"", $"\"{id}\"", StringComparison.Ordinal);
+        await File.WriteAllTextAsync(_configPath, json, TestContext.Current.CancellationToken);
+        var service = new GameCatalogService(_configPath);
+
+        var ex = await Assert.ThrowsAsync<GameCatalogValidationException>(
+            () => service.LoadAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains(ex.Errors, error => error.Contains("games[0].id", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task LoadAsync_GameIdWithInnerDot_Accepted()
+    {
+        // 只拒绝路径保留段与结尾点；普通含点 ID（如 test.game）仍合法
+        var json = ValidJson.Replace("\"test-game\"", "\"test.game\"", StringComparison.Ordinal);
+        await File.WriteAllTextAsync(_configPath, json, TestContext.Current.CancellationToken);
+        var service = new GameCatalogService(_configPath);
+
+        await service.LoadAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal("test.game", Assert.Single(service.Catalog!.Games).Id);
+    }
+
+    [Theory]
     [InlineData("hd", true)]
     [InlineData("sd", true)]
     [InlineData("uhd", true)]

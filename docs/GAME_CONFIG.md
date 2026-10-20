@@ -49,7 +49,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `id` | string | ✔ | 唯一标识，仅允许字母/数字/`-`/`_`/`.`；写入本地状态文件用于校验 |
+| `id` | string | ✔ | 唯一标识，仅允许字母/数字/`-`/`_`/`.`；`.` 与 `..` 是路径保留段，结尾不能是 `.`（Windows 会规范化尾点，`game.` 与 `game` 同目录）；写入本地状态文件用于校验 |
 | `displayName` | string | ✔ | 默认显示名（列表图标取首字） |
 | `nameLocalized` | object | | 显示名本地化映射，如 `{"zh-CN": "鸣潮", "en-US": "Wuthering Waves"}`；按界面语言取值，缺失回退 `displayName` |
 | `channel` | string | ✔ | 渠道实现键：`"kuro"`（鸣潮及库洛系）、`"hypergryph"`（终末地/GRYPHLINE） |
@@ -74,7 +74,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `upgradeDlss` | bool | `false` | 注入 `PROTON_DLSS_UPGRADE=1`（连带 `PROTON_ENABLE_NVAPI=1`）：启动时由 protonfixes 把游戏内 DLSS 换成 Proton 内置新版。仅 NVIDIA 显卡生效。设置页「功能开关 → 升级 DLSS 模型」 |
 | `enableProtonLog` | bool | `false` | 注入 `PROTON_LOG=1` + `PROTON_LOG_DIR={应用日志目录}`，记录 Proton 运行日志。设置页「功能开关 → 打印 Proton 日志」 |
 | `resourceQualityTier` | string | | 鸣潮资源包档位：`hd` / `sd` / `uhd` 之一（白名单外/大写拒收）。**两个作用**：①启动时以 `-krqlv=<tier>` 命令行参数传给游戏（官方启动器同款参数，两条启动链均生效）；②决定下载/补包走哪一档资源（2026-10-19 起：同步清单按该档裁剪未选中档位目录 + 只补目标档位包）。留空 = 跟随游戏内设置（生效档 = `hd`，即官方默认 bundle = common + HD），且不追加参数。设置页下拉仅鸣潮渠道显示；启动链不按渠道过滤——手改 JSON 给非鸣潮游戏填了该值仍会传参，非鸣潮请保持留空。按档位下载需服务器带 `resourcePackIndexUrl`（见下表）；没有该地址的服务器档位只作启动参数（设置页给出提示）。档位资源"追加式共存"：切换档位不删旧档内容，清理只经设置页「清理其他档位」显式动作——详见 §1「档位资源包」节 |
-| `decoyParent` | bool | `false` | 诱饵父进程桥（终末地 1.6.3+ 启动校验的修复，2026-10-18）：仅 Linux 原生 umu 链生效。开启后在启动前把游戏目录里鹰角签名的可执行文件（`PlatformProcess.exe` → `UnityCrashHandler64.exe` → `Endfield.exe` 首个存在者）复制为 `<安装目录>/.yagl/bridge/Games.exe`，以挂起状态作为游戏进程的父进程（直启时游戏会弹「请通过官方启动器打开游戏」并以退出码 5 结束）；候选缺失或准备失败静默回退直启。内置样例的终末地条目已开启；存量配置由 `schemaVersion 6` 一次性迁移补上；机制、三层判据与真机实测见 [ARCHITECTURE.md §3.1](ARCHITECTURE.md) |
+| `decoyParent` | bool | `false` | 诱饵父进程桥（终末地 1.6.3+ 启动校验的修复，2026-10-18；Windows 直启 2026-10-20 接入）：Linux 原生 umu 链与 Windows 直接运行（`{exe}`）均生效。开启后在启动前把游戏目录里鹰角签名的可执行文件（`PlatformProcess.exe` → `UnityCrashHandler64.exe` → `Endfield.exe` 首个存在者）复制为诱饵 `Games.exe`（内容与候选一致时复用现有文件——Windows 上已挂起的诱饵会锁住镜像文件，避免第二次启动被误报为目录不可写；工作目录在启动器数据目录下的 `bridge/<游戏id>/`——`{数据目录}/yagl/bridge/<游戏id>`，Linux `~/.local/share/yagl/bridge/<id>`、Windows `%LOCALAPPDATA%\yagl\bridge\<id>`；游戏安装目录只读，旧版 `<安装目录>/.yagl/bridge` best-effort 清理），并以挂起状态作为游戏进程的父进程（不开启时游戏会弹「请通过官方启动器打开游戏」并以退出码 5 结束）。失败处理按平台/阶段：Linux 候选缺失/准备失败静默回退直启；Windows 必须由 helper 拉起游戏 exe——候选缺失、桥目录不可写或 `commandTemplate` 未直接指向游戏 exe 都会抛可操作错误；准备成功后 helper 在游戏进程创建前失败（状态文件 `ERROR:<码>:<消息>`）在两个平台都抛错，`READY` 之后游戏自身退出码（如校验拒绝的 5）不再算桥失败（静默直启必被游戏拒绝）。内置样例的终末地条目已开启；存量配置由 `schemaVersion 6` 一次性迁移补上；机制、三层判据与真机实测见 [ARCHITECTURE.md §3.1](ARCHITECTURE.md) |
 
 可用占位符：
 
@@ -243,7 +243,7 @@ Steam Runtime 容器与 Proton，发行版三选一），由启动器自动生�
 配置加载失败时会**一次性列出全部错误**（英文错误串，含 `games[i]` 字段路径定位）：
 
 - `settings.installRoot` 不能为空；`proxyMode` 为 `"Manual"` 时 `proxyAddress` 必须为可解析的 http(s) URL
-- `games[].id` 非空、无非法字符、全局唯一（忽略大小写）
+- `games[].id` 非空、无非法字符、非 `.`/`..`、不以 `.` 结尾、全局唯一（忽略大小写）
 - `displayName` / `channel` / `installDir` / `executable` / `launch.commandTemplate` 非空
 - `launch.umuId` 非空时须形如 `umu-<slug>`（后缀仅字母/数字/`-`/`_`）
 - `launch.resourceQualityTier` 非空时须为 `hd` / `sd` / `uhd` 之一

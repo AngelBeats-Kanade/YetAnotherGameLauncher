@@ -44,7 +44,9 @@ src/
                     AutostartService.cs（IAutostartService + WindowsAutostartService（HKCU Run 注册表）/ LinuxAutostartService（XDG autostart）双实现）、
                     CompatTools（Linux 兼容层单一来源：umu/wine/Proton 发现、prefix 统一路径、推荐链 BuildRecommendedLaunch、Proton 发行版代号/umuId 解析、含 LaunchMode 枚举与 CompatLaunch）、
                     Umu/（原生 umu：UmuPaths、VdfMiniParser、SteamRuntimeCatalog、ToolManifest、UmuPrefix、UmuEnvironment、NativeUmuLauncher、
-                    DecoyParentBridge（诱饵父进程桥准备：候选挑选→诱饵复制→helper 落盘；helper 源码/构建/自检在 tools/wine-parent-bridge/）），
+                    DecoyParentBridge（诱饵父进程桥准备：候选挑选→诱饵复制→helper 落盘到启动器数据目录的 bridge/<游戏id>，
+                    并 best-effort 清理旧版 <安装目录>/.yagl/bridge；helper 源码/构建/自检在 tools/wine-parent-bridge/）、
+                    BridgeLaunchStatus（helper 启动状态 READY/ERROR 轮询：把桥启动失败与游戏自身退出码区分开）），
                     GameBackdropService（详情页背景远程解析 + 本地缓存编排：区域/游戏版本门控，版本一致零网络）、WindowsPlatformInfo / LinuxPlatformInfo（IPlatformInfo 双实现）+ PlatformInfoFactory（唯一的 OS 选择分支，DI 与各 ViewModel 缺省共用）
     Dependencies/   Wine prefix 依赖安装（管线细节见 docs/ARCHITECTURE.md §3.9）：DependencyManifest/DependencyCatalog（内嵌 catalog.json 清单：解析+校验+聚合错误）、
                     WineRegistryScriptBuilder（清单 → UTF-16LE .reg，供单次 wine reg import）、DependencyPaths（全局下载缓存 ~/.cache/yagl/deps + prefix 内 .yagl-deps 状态目录布局）、
@@ -65,9 +67,6 @@ src/
                     2026-10-18））、WinZipAesReader（WinZip AES-256/AE-2 解密：PBKDF2-HMAC-SHA1
                     + AES-CTR + HMAC 校验，.NET zip 库不支持 AE-x；含流式解密 `TryCopyDecrypted`）、
                     LaunchOptionsText（自定义启动选项文本/参数解析与序列化：Steam 启动选项风格 shell 词法 + %command% 切分，严格/宽松解析与环境/参数序列化）
-    Resources/      yagl-parent-bridge.exe（诱饵父进程桥 helper：Wine 侧原生 PE，挂起诱饵→以父进程属性拉起游戏→
-                    退出回收；源码、构建脚本与 wine 下自检见 tools/wine-parent-bridge/；嵌入为程序集资源，
-                    运行时由 DecoyParentBridge 落盘到游戏目录 .yagl/bridge/）
   YetAnotherGameLauncher.Channels.Kuro/         # 库洛渠道（鸣潮）
     KuroChannelApi（index.json/indexFile 解析、CDN 选择、URL 拼接）
     KuroUrlBuilder（含同文件的 KuroCdnSelector：CDN 节点优先级选择）、HpatchzApplier（HDiffPatch 目录模式 + IFilePatchApplier 单文件模式（终末地 v2 载荷）；HpatchzApplierOptions 配置路径/超时）、HpatchzProvisioner（hpatchz 自动供给：PATH 无自备时下载社区验证构建 hpatchz.exe 到应用数据目录并 MD5 实测校验；Linux 经 wine 运行（独立 WINEPREFIX），Windows 原生直跑）
@@ -130,6 +129,11 @@ tests/
   YetAnotherGameLauncher.Channels.Hypergryph.Tests/ # 包式协议渠道测试
   YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口测试
   # 测试数量单一事实源在 README.md「运行测试」节（带实测日期；README.en.md 为同步翻译），此处不再复制快照
+
+tools/                                          # 不在解决方案里的辅助工程（CI 单独构建/格式门禁）
+  wine-parent-bridge/                           # 诱饵父进程桥 helper：C# WinExe 自包含单文件（win-x64；
+                                                #   Core 构建目标发布后嵌入为 yagl-parent-bridge.exe 资源，产物不入库）
+    verify/                                     # .NET Wine 自检器（dotnet run --project；断言父进程归属与诱饵回收）
 ```
 
 构建约定（`Directory.Build.props`）：`net10.0`、`Nullable=enable`、`ImplicitUsings`、
@@ -328,7 +332,9 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64   --self-contain
   86.90%（2026-09-26 修复清账批后，5895/6784 行——F13-F44 与挂账 suspects 全量修复批，
   分母随解压防线/DAC 探针等新代码增长，比率与 09-22 持平）→
   **87.85%（2026-10-17 终末地更新链路三批（分卷解压/残留清理/v2 增量）+ 七轮复审修复后，8331/9483 行——
-  四套件插桩实跑；分母含分卷拼接流、AES 读取器、增量编排等新代码，未覆盖行集中在防御分支）**。
+  四套件插桩实跑；分母含分卷拼接流、AES 读取器、增量编排等新代码，未覆盖行集中在防御分支）** →
+  87.64%（2026-10-20 终末地启动链黑窗修复 + 桥 helper C# GUI 迁移后，9674/11038 行——四套件插桩
+  实跑；分母随状态通道/桥目录清理与 ID 路径段校验增长，未覆盖行集中在 Windows 专属分支与防御分支）。
 - **判定口径**：行覆盖只是必要条件——合格证据 = 行覆盖命中 + 变异击杀（每日冒烟批
   scripts/mutation-smoke.mjs 即该纪律的脚本化；手工变异纪律见 §3.7）。
   测试须双向可证伪：断言真实执行、失败会传播、断被测行为而非镜像自身。

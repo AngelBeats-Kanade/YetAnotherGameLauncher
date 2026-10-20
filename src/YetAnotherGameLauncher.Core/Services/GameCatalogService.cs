@@ -248,7 +248,9 @@ public sealed class GameCatalogService
         }
         else if (!IsValidId(game.Id))
         {
-            errors.Add($"{field}.id contains invalid characters; only letters, digits, '-', '_', '.' are allowed.");
+            errors.Add(
+                $"{field}.id contains invalid characters or a reserved path segment; " +
+                "only letters, digits, '-', '_', '.' are allowed; '.'/'..' and a trailing '.' are not.");
         }
         else if (!seenGameIds.Add(game.Id))
         {
@@ -300,9 +302,12 @@ public sealed class GameCatalogService
         }
     }
 
-    /// <summary>id 仅允许字母、数字与 -_.（用作安装子目录与状态文件键）。</summary>
+    /// <summary>id 仅允许字母、数字与 -_.（用作安装子目录与状态文件键）；结尾的 "." 会被 Windows
+    /// 规范化（game. 与 game 同目录），禁止——这也覆盖 "." 与 ".." 路径保留段。</summary>
     private static bool IsValidId(string id) =>
-        id.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_' or '.');
+        id.Length > 0
+        && !id.EndsWith('.')
+        && id.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_' or '.');
 
     /// <summary>umuId 须形如 umu-&lt;slug&gt;（后缀仅字母/数字/-/_），与 umu 数据库的 UMU_ID 规范一致。</summary>
     private static bool IsValidUmuId(string umuId) =>

@@ -674,6 +674,141 @@ const MUTATIONS = [
     dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
     method: 'YetAnotherGameLauncher.Core.Tests.Services.DeltaPackageApplierTests.ApplyAsync_SecondRunAfterCompletedApply_SkipsAlreadyAppliedWithoutDownload',
   },
+  {
+    // 2026-10-20 诱饵父进程桥：helper 必须是 GUI 子系统 PE——console 子系统会在无终端的 Wine 链上
+    // 开 conhost 黑窗（用户报障的原始缺陷）。改回 Exe 即击杀嵌入资源的结构断言。
+    id: 'M69-bridge-gui-subsystem',
+    file: 'tools/wine-parent-bridge/WineParentBridge.csproj',
+    find: '<OutputType>WinExe</OutputType>',
+    replace: '<OutputType>Exe</OutputType>',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.DecoyParentBridgeTests.EmbeddedHelper_IsPinnedPeBinary',
+  },
+  {
+    // 2026-10-20 诱饵父进程桥：桥目录迁移的旧目录清理是"安装目录只读"契约的一部分——
+    // 摘掉清理即击杀迁移用例（旧 `.yagl/bridge` 残留会长期占位且与新版行为矛盾）。
+    id: 'M70-bridge-legacy-cleanup',
+    file: 'src/YetAnotherGameLauncher.Core/Services/Umu/DecoyParentBridge.cs',
+    find: '            TryRemoveLegacyBridge(installDir, bridgeRoot);',
+    replace: '            // TryRemoveLegacyBridge(installDir, bridgeRoot);',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.DecoyParentBridgeTests.TryPrepare_RemovesLegacyBridgeDirectory',
+  },
+  {
+    // 2026-10-20 诱饵父进程桥：诱饵必须落在桥上（应用数据目录），不得写回游戏安装目录。
+    id: 'M71-bridge-decoy-outside-install',
+    file: 'src/YetAnotherGameLauncher.Core/Services/Umu/DecoyParentBridge.cs',
+    find: 'var decoyPath = Path.Combine(bridgeRoot, DecoyFileName);',
+    replace: 'var decoyPath = Path.Combine(installDir, DecoyFileName);',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.DecoyParentBridgeTests.TryPrepare_PicksFirstExistingCandidateInOrder',
+  },
+  {
+    // 2026-10-20 复审：Windows 上已挂起的诱饵会锁住 Games.exe，内容一致时必须跳过覆盖——
+    // 改回无条件复制即击杀"目标被锁仍能准备"用例（第二次启动 / 孤儿诱饵场景）。
+    id: 'M72-bridge-decoy-skip-identical-copy',
+    file: 'src/YetAnotherGameLauncher.Core/Services/Umu/DecoyParentBridge.cs',
+    find: 'if (!HasSameContent(decoyPath, source))',
+    replace: 'if (true)',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.DecoyParentBridgeTests.TryPrepare_KeepsMatchingDecoyWhenDestinationIsLocked',
+  },
+  {
+    // 2026-10-20 复审：READY 是"游戏进程已创建"的唯一成功信号；短路 READY 分支即击杀
+    // 状态读取用例（launcher 会等到超时）。
+    id: 'M73-bridge-status-ready',
+    file: 'src/YetAnotherGameLauncher.Core/Services/Umu/BridgeLaunchStatus.cs',
+    find: 'if (text.StartsWith(DecoyParentBridge.ReadyStatus, StringComparison.Ordinal))',
+    replace: 'if (text.StartsWith(DecoyParentBridge.ReadyStatus, StringComparison.Ordinal) && !text.StartsWith(DecoyParentBridge.ReadyStatus, StringComparison.Ordinal))',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.BridgeLaunchStatusTests.WaitAsync_Ready_ReturnsReadyAndCleansStatusFile',
+  },
+  {
+    // 2026-10-20 复审：ERROR 状态必须映射为失败；短路该分支即击杀错误状态用例。
+    id: 'M74-bridge-status-error',
+    file: 'src/YetAnotherGameLauncher.Core/Services/Umu/BridgeLaunchStatus.cs',
+    find: 'if (text.StartsWith(DecoyParentBridge.ErrorStatusPrefix, StringComparison.Ordinal))',
+    replace: 'if (text.StartsWith(DecoyParentBridge.ErrorStatusPrefix, StringComparison.Ordinal) && !text.StartsWith(DecoyParentBridge.ErrorStatusPrefix, StringComparison.Ordinal))',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.BridgeLaunchStatusTests.WaitAsync_Error_ReturnsExitCodeAndMessage',
+  },
+  {
+    // 2026-10-20 复审：Windows 直启只有 READY 才算成功；反转判断即击杀 ERROR 状态映射用例。
+    id: 'M75-bridge-windows-ready-gate',
+    file: 'src/YetAnotherGameLauncher.Core/Services/GameLauncherService.cs',
+    find: 'if (status.State == BridgeLaunchState.Ready)',
+    replace: 'if (status.State != BridgeLaunchState.Ready)',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.GameLauncherServiceTests.LaunchAsync_DecoyParent_OnWindows_HelperError_ThrowsActionableError',
+  },
+  {
+    // 2026-10-20 复审：Linux 原生链同样必须把 ERROR 状态转为可操作错误。反转判断即击杀用例。
+    id: 'M76-bridge-linux-error-gate',
+    file: 'src/YetAnotherGameLauncher.Core/Services/Umu/NativeUmuLauncher.cs',
+    find: 'if (status.State == BridgeLaunchState.Failed)',
+    replace: 'if (status.State != BridgeLaunchState.Failed)',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.NativeUmuDecoyParentTests.LaunchAsync_DecoyParent_HelperError_ThrowsActionableError',
+  },
+  {
+    // 2026-10-20 复审 nit：状态文件在取消时也必须清理；摘掉 WaitAsync 的 finally 清理即击杀取消用例
+    id: 'M77-bridge-status-cleanup-on-cancel',
+    file: 'src/YetAnotherGameLauncher.Core/Services/Umu/BridgeLaunchStatus.cs',
+    find: '        finally\n        {\n            TryDelete(statusPath);\n        }',
+    replace: '        finally\n        {\n        }',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.BridgeLaunchStatusTests.WaitAsync_Cancellation_CleansStatusFile',
+  },
+  {
+    // 2026-10-20 复审 nit：崩溃/取消遗留的 status-*.txt 按时间阈值清理；摘掉清理即击杀用例
+    id: 'M78-bridge-stale-status-cleanup',
+    file: 'src/YetAnotherGameLauncher.Core/Services/Umu/DecoyParentBridge.cs',
+    find: '            TryRemoveStaleStatusFiles(bridgeRoot);',
+    replace: '            // TryRemoveStaleStatusFiles(bridgeRoot);',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.DecoyParentBridgeTests.TryPrepare_RemovesStaleStatusFilesButKeepsFreshOnes',
+  },
+  {
+    // 2026-10-20 复审 nit：Windows 进程启动失败时清理本次状态占位文件；摘掉即击杀清理用例
+    id: 'M79-bridge-windows-start-failure-cleanup',
+    file: 'src/YetAnotherGameLauncher.Core/Services/GameLauncherService.cs',
+    find: '        catch (Exception ex) when (ex is Win32Exception or IOException or UnauthorizedAccessException)\n        {\n            BridgeLaunchStatus.TryDelete(statusPath);\n            logger?.LogWarning(ex, "Decoy bridge start failed: {File}", preparation.HelperPath);',
+    replace: '        catch (Exception ex) when (ex is Win32Exception or IOException or UnauthorizedAccessException)\n        {\n            logger?.LogWarning(ex, "Decoy bridge start failed: {File}", preparation.HelperPath);',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.GameLauncherServiceTests.LaunchAsync_DecoyParent_OnWindows_ProcessStartFailure_CleansStatusFile',
+  },
+  {
+    // 2026-10-20 复审 nit：Linux 在 BuildPlan 失败（helper 尚未启动）时清理状态占位文件；摘掉即击杀用例
+    id: 'M80-bridge-linux-buildplan-failure-cleanup',
+    file: 'src/YetAnotherGameLauncher.Core/Services/Umu/NativeUmuLauncher.cs',
+    find: '        catch\n        {\n            // BuildPlan 失败（exe 缺失/配置错误）时 helper 尚未启动，清掉刚创建的占位文件\n            BridgeLaunchStatus.TryDelete(statusPath);\n            throw;\n        }',
+    replace: '        catch\n        {\n            throw;\n        }',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.NativeUmuDecoyParentTests.LaunchAsync_DecoyParent_BuildPlanFailure_CleansStatusFile',
+  },
+  {
+    // 2026-10-20 复审（安全）：game.Id 直接拼桥目录；结尾点会被 Windows 规范化（game. 与 game
+    // 同目录），"."/".." 也以点结尾。摘掉尾点拒绝即击杀回归用例。
+    id: 'M81-catalog-id-trailing-dot',
+    file: 'src/YetAnotherGameLauncher.Core/Services/GameCatalogService.cs',
+    find: "        && !id.EndsWith('.')",
+    replace: '        && true',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.GameCatalogServiceTests.LoadAsync_GameIdDotSegment_ThrowsValidationException',
+  },
 ];
 
 function run(cmd, args) {

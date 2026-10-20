@@ -9,8 +9,8 @@
 对比度门禁、字号与间距栅格）；依赖安装（Linux，内置思源黑体）；自定义启动选项对齐
 Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻留 + 关闭按钮行为设置
 （退出应用 / 关闭窗口驻留托盘，下载与依赖安装后台继续）；资源包档位、实时下载进度
-与速度；hpatchz 自动供给与鸣潮 krpdiff 增量更新链终局修复；终末地更新链路（分卷解压修复、官方废弃清单清理、改走官方 v2 增量补丁）。
-1527 个测试全绿（2026-10-19 实测）。
+与速度；hpatchz 自动供给与鸣潮 krpdiff 增量更新链终局修复；终末地更新链路（分卷解压修复、官方废弃清单清理、改走官方 v2 增量补丁）；终末地启动链黑窗修复（桥 helper 迁移 C# GUI 子系统）与 Windows 直启接入。
+1555 个测试全绿（2026-10-20 实测）。
 
 ### 新增
 
@@ -154,7 +154,7 @@ Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻�
 
 **终末地启动校验：诱饵父进程桥（Linux，免官方启动器，2026-10-18）**
 
-- 终末地 1.6.3+ 启动时会校验**直接父进程**（镜像名 + `WinVerifyTrust` 签名 + 签名者证书指纹白名单，实现在游戏目录 `OneChannelLC.dll`）；原生 umu 链直启时父进程是容器侧 `umu.exe`，会被拒绝（弹"请通过官方启动器打开游戏"、退出码 5）。现在启动链内置**诱饵父进程桥**：把游戏目录里鹰角签名的可执行文件（`PlatformProcess.exe` → `UnityCrashHandler64.exe` → `Endfield.exe`，取首个存在者；与官方启动器 `Games.exe` 同一张签名证书）复制为 `.yagl/bridge/Games.exe`，以挂起状态充当游戏进程的父进程——wine 侧由随包嵌入的小 helper 编排（创建挂起诱饵 → 以父进程属性拉起游戏 → 游戏退出后回收诱饵），**零下载、不安装官方启动器、不改游戏文件**。
+- 终末地 1.6.3+ 启动时会校验**直接父进程**（镜像名 + `WinVerifyTrust` 签名 + 签名者证书指纹白名单，实现在游戏目录 `OneChannelLC.dll`）；原生 umu 链直启时父进程是容器侧 `umu.exe`，会被拒绝（弹"请通过官方启动器打开游戏"、退出码 5）。现在启动链内置**诱饵父进程桥**：把游戏目录里鹰角签名的可执行文件（`PlatformProcess.exe` → `UnityCrashHandler64.exe` → `Endfield.exe`，取首个存在者；与官方启动器 `Games.exe` 同一张签名证书）复制为诱饵 `Games.exe`（应用数据目录的桥目录，2026-10-20 起；此前在游戏目录 `.yagl/bridge/`），以挂起状态充当游戏进程的父进程——wine 侧由随包嵌入的 helper 编排（创建挂起诱饵 → 以父进程属性拉起游戏 → 游戏退出后回收诱饵），**零下载、不安装官方启动器、不改游戏文件**。
 - 由 `launch.decoyParent` 开关控制（内置样例的终末地条目已开启；存量配置由 schemaVersion 6 一次性迁移补上）；候选文件缺失或准备失败静默回退直启。父进程名/签名/指纹三层判据与三种失败码（10100/10101/10102）均经真机对照实验与通过态实录验证，详见 `artifacts/bugs.md`。
 
 **终末地增量链补全（2026-10-18）**
@@ -170,17 +170,22 @@ Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻�
 - 新增应用级日志文件 `logs/yagl-yyyyMMdd.log`（保留 14 天，写失败静默）：更新/预下载等事件与异常尾巴有了可查的落盘记录，事故复盘不再只能靠文件 mtime。
 - 界面剩余离线间距/内边距收敛到 4pt 栅格：卡片内部、覆盖层按钮行、toast 卡片间隙与内边距同步齐平；下载/更新进行中「启动游戏」按钮禁用（此前只有命令内早退、外观仍可点），坞内忙碌进度条改走插画上令牌（亮色主题不再丢轨道），禁用按钮的内容图标随前景一起下沉。
 
+**终末地诱饵父进程桥：黑窗修复 / helper 迁移 C# / Windows 直启接入（2026-10-20）**
+
+- 修复点「启动」时弹出的全屏黑窗：桥 helper 此前是 console 子系统 PE，经 Proton 容器启动时 wine 为它开出 `conhost.exe` 黑窗（真机 `hyprctl clients` 复现 `class='conhost.exe'`、标题含 helper 路径；容器内 helper stderr 被吞，黑窗纯属副作用）。helper 迁移为 **C# `WinExe`（GUI 子系统）自包含单文件**（`tools/wine-parent-bridge/`，源码随仓库、产物不再提交，由 Core 构建目标发布并嵌入），真机链路（`_v2-entry-point → proton waitforexitandrun → helper`）实测无任何 conhost 窗口（合成夹具与真实游戏各一次实测），父进程归属与诱饵回收不变。
+- 桥工作目录从 `<安装目录>/.yagl/bridge/` 迁到**启动器数据目录**（Linux `~/.local/share/yagl/bridge/<游戏id>`、Windows `%LOCALAPPDATA%\yagl\bridge\<游戏id>`，即数据目录下的 `bridge/<游戏id>/`）：游戏安装目录恢复只读（仅作为签名候选来源），旧目录 best-effort 清理且不触碰 `.yagl` 状态文件。
+- **Windows 直启接入同一 helper**：`launch.decoyParent` 不再仅限 Linux 原生 umu 链——Windows 直接运行 `{exe}` 时同样以挂起诱饵为父进程拉起游戏；`commandTemplate` 未直接指向游戏 exe、候选缺失或桥目录不可写时抛可操作错误（Windows 上静默直启必被游戏拒绝）。配套新增 Windows 原生编排测试（Linux 上 Skip）与 .NET Wine 自检器（取代旧 shell 脚本与 C 夹具）。
+- helper 的 Wine 兼容坑一并固化：`UpdateProcThreadAttribute` 的 `lpValue` 句柄变量必须保活到 `CreateProcessW` 返回（Wine 存指针而非拷贝值，提前释放 → `ERROR_INVALID_HANDLE (6)`）；NativeAOT 跨 OS 交叉编译不可用，helper 采用自包含单文件发布。详见 `docs/PITFALLS.md`。
+- 复审修复（2026-10-20）：Core 的 helper 构建目标显式钉死 `RuntimeIdentifier=win-x64;SelfContained=true` 并在目标内重新 Restore——此前外层 `-p:RuntimeIdentifier=linux-x64` 会压过 helper 工程自己的 RID，发布出无 `.exe` 的 ELF，嵌入资源缺失使干净发布失败；CI 新增 Linux 干净发布冒烟（断言 helper 为 Windows PE 且已嵌入 Core.dll）。
+- 诱饵内容与候选一致时跳过覆盖：Windows 上已挂起的诱饵进程会锁住 `Games.exe`，第二次启动或 helper 被强杀留下孤儿诱饵不再因覆盖失败被报成"桥目录不可写"。
+- Windows 直启与 Linux 原生 umu 链统一改走 **helper 启动状态文件**：helper 在游戏进程创建后写 `READY`，创建前失败写 `ERROR:<退出码>:<消息>`；launcher 等待 READY/ERROR（30 s 上限）而不是看 helper 退出码——既能在两个平台把桥启动失败显示为可操作错误，也不会把游戏自身退出码（如启动校验拒绝的 5）误报成桥故障。
+- .NET Wine 自检器只在 Core 构建产物不旧于 helper 源码时复用，否则现场发布，避免改完 helper 后自检静默 PASS 旧二进制。
+
 **其他**
 
 - 关于页第三方许可清单修正：HDiffPatch 与 FFmpeg.AutoGen 标注 MIT（对照上游 LICENSE / NuGet 许可文件核验），补上 Avalonia.Fonts.Inter（MIT 包，Inter 字体 OFL-1.1）。
 
 ---
-
-### 已知问题
-
-**终末地启动校验的 Windows 直启路径未接入（Linux 已修复，2026-10-18）**
-
-- 本次修复覆盖 Linux 原生 umu 链；Windows 上本启动器仍以直启方式启动游戏（父进程是启动器本体而非官方启动器，同因会被游戏拒绝）。后续可按同一机制在 Windows 侧补齐（P/Invoke `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS`），需 Windows 真机验证。**更新功能不受影响**。
 
 ### English · 0.1.3 — unreleased
 
@@ -195,7 +200,7 @@ and dependency installs kept running); resource quality tier selection;
 real-time byte-granular download progress with a speed readout;
 automatic hpatchz provisioning and the definitive fix for the Wuthering
 Waves krpdiff incremental-update chain, plus the split-volume extraction
-fix for Endfield package updates plus stale-file cleanup and the delta update path; the Endfield launch check is now handled on Linux by a decoy parent bridge (no official launcher needed). 1527 tests green (measured 2026-10-19).
+fix for Endfield package updates plus stale-file cleanup and the delta update path; the Endfield launch check is handled by a decoy parent bridge (no official launcher needed; Windows direct launch was added on 2026-10-20, and the bridge helper was ported to a C# GUI-subsystem single file to eliminate a spurious console window). 1555 tests green (measured 2026-10-20).
 
 **Added — UI overhaul**
 
@@ -318,14 +323,21 @@ fix for Endfield package updates plus stale-file cleanup and the delta update pa
 
 **Endfield launch check - suspended decoy parent bridge (Linux, no official launcher required, 2026-10-18)**
 
-- Since 1.6.3, Endfield verifies its **direct parent process** (image name + `WinVerifyTrust` signature + signer certificate fingerprint whitelist, implemented in the game's `OneChannelLC.dll`); a direct launch through the native umu chain used to present the container-side `umu.exe` as the parent and was refused (dialog "please open the game through the official launcher", exit code 5). The launch chain now ships a **decoy parent bridge**: a Hypergryph-signed executable already present in the game directory (`PlatformProcess.exe` -> `UnityCrashHandler64.exe` -> `Endfield.exe`, first hit; same signing certificate as the official launcher's `Games.exe`) is copied to `.yagl/bridge/Games.exe` and created suspended as the game process's parent - a tiny helper bundled with the app orchestrates this inside wine (create the suspended decoy -> start the game with the parent attribute -> reap the decoy when the game exits), with **zero downloads, no official launcher install and no game files modified**.
+- Since 1.6.3, Endfield verifies its **direct parent process** (image name + `WinVerifyTrust` signature + signer certificate fingerprint whitelist, implemented in the game's `OneChannelLC.dll`); a direct launch through the native umu chain used to present the container-side `umu.exe` as the parent and was refused (dialog "please open the game through the official launcher", exit code 5). The launch chain now ships a **decoy parent bridge**: a Hypergryph-signed executable already present in the game directory (`PlatformProcess.exe` -> `UnityCrashHandler64.exe` -> `Endfield.exe`, first hit; same signing certificate as the official launcher's `Games.exe`) is copied as the `Games.exe` decoy (into the app-data bridge directory since 2026-10-20, previously `.yagl/bridge/` inside the game directory) and created suspended as the game process's parent - the bundled helper orchestrates this inside wine (create the suspended decoy -> start the game with the parent attribute -> reap the decoy when the game exits), with **zero downloads, no official launcher install and no game files modified**.
 - Gated by `launch.decoyParent` (enabled for Endfield in the built-in sample; existing configs receive it via the one-time schemaVersion 6 migration); missing candidates or preparation failures silently fall back to a direct launch. All three conditions (parent name / signature / fingerprint) plus the three failure codes (10100/10101/10102) were verified by controlled experiments and a passing real-machine run - see `artifacts/bugs.md`.
 
-**Known issue: the Windows direct-launch path is not covered (fixed on Linux, 2026-10-18)**
+**Fixed — Endfield decoy parent bridge: console-window fix, C# helper, Windows direct launch (2026-10-20)**
 
-- This fix covers the Linux native umu chain; on Windows the launcher still starts the game directly (the parent is the launcher itself rather than the official launcher, so the game refuses it for the same reason). The same mechanism can be ported to Windows later (P/Invoke `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS`) and needs verification on a real Windows machine. **Updating is unaffected**.
+- Fixed the full-screen black window that appeared when launching Endfield: the bridge helper used to be a console-subsystem PE, and Wine spawned a `conhost.exe` window for it inside the Proton container (reproduced on a real machine via `hyprctl clients`: `class='conhost.exe'`, title containing the helper path; the helper's stderr is swallowed inside the container, so the window was pure side effect). The helper is now a **C# `WinExe` (GUI subsystem) self-contained single file** (`tools/wine-parent-bridge/`, sources in-repo, no committed binary; the Core build target publishes and embeds it). The real chain (`_v2-entry-point -> proton waitforexitandrun -> helper`) shows no conhost window in both a synthetic fixture and a real game launch, with parent attribution and decoy reaping unchanged.
+- The bridge working directory moved from `<installDir>/.yagl/bridge/` into the launcher data directory (Linux `~/.local/share/yagl/bridge/<gameId>`, Windows `%LOCALAPPDATA%\yagl\bridge\<gameId>`): the game install directory is read-only again (used only as the signed-candidate source), and the legacy directory is removed best-effort without touching `.yagl` state files.
+- **Windows direct launch now uses the same helper**: `launch.decoyParent` is no longer Linux-native-umu-only - on Windows the direct `{exe}` run also starts the game with a suspended decoy as its parent. A `commandTemplate` that does not point straight at the game exe, missing candidates or an unwritable bridge directory now raise an actionable error (a silent direct launch would always be rejected on Windows). Adds a native Windows orchestration test (skipped on Linux) and a .NET Wine verifier (replacing the old shell script and C fixture).
+- Review fixes (2026-10-20): the Core helper build target now pins `RuntimeIdentifier=win-x64;SelfContained=true` and re-runs Restore inside the target - an outer `-p:RuntimeIdentifier=linux-x64` used to override the helper project's own RID, producing an extension-less ELF and breaking the embedded resource on a clean publish; CI adds a Linux clean-publish smoke that asserts the helper is a Windows PE and is embedded in Core.dll.
+- The decoy is no longer overwritten when its content already matches the candidate: on Windows a suspended decoy process locks `Games.exe`, so a second launch (or an orphaned decoy left by a force-killed helper) no longer fails the copy and gets reported as an unwritable bridge directory.
+- Windows direct launch and the Linux native umu chain now share a **helper startup status file**: the helper writes `READY` once the game process exists and `ERROR:<code>:<message>` on a pre-launch failure; the launcher waits for READY/ERROR (30 s cap) instead of interpreting the helper's exit code, so bridge startup failures are actionable on both platforms without misreporting the game's own exit code (e.g. the validation rejection 5) as a bridge fault.
+- The .NET Wine verifier only reuses a Core build output that is not older than the helper sources, and otherwise publishes on the spot, so editing the helper can no longer silently validate a stale binary.
+- Helper Wine quirks are now pinned down: the `lpValue` handle variable passed to `UpdateProcThreadAttribute` must stay alive until `CreateProcessW` returns (Wine stores the pointer instead of copying the value; freeing early fails with `ERROR_INVALID_HANDLE (6)`), and NativeAOT cannot cross-compile across OSes, so the helper uses self-contained single-file publishing. See `docs/PITFALLS.md`.
 
-**Fixed - pre-downloaded split volumes from an older launcher build are no longer wasted (2026-10-17)**
+**Fixed — pre-downloaded split volumes from an older launcher build are no longer wasted (2026-10-17)**
 
 - Staged manifests written by an older build lack the split-volume flag, which used to send the apply step back to per-volume extraction (exactly the `End of Central Directory` failure users reported) after tens of GiB had already been downloaded. The installer now recomputes the classification with the same rule the channel uses, restores the volume order and reuses the download; gapped volume sets fail with a clear error before extraction.
 

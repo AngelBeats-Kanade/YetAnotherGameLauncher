@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Wine 侧没有 .NET 运行时，必须发布为自包含 Windows 单文件；
+         WinExe 让 PE 子系统为 GUI，避免无终端环境下弹出 conhost 黑窗。 -->
+    <OutputType>WinExe</OutputType>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishTrimmed>true</PublishTrimmed>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <AssemblyName>yagl-parent-bridge</AssemblyName>
+    <RootNamespace>WineParentBridge</RootNamespace>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- verify/ 是独立的验证器工程（含自己的 obj/ 生成文件），不能进 helper 的默认 Compile 通配 -->
+    <Compile Remove="verify/**" />
+    <None Remove="verify/**" />
+  </ItemGroup>
+
+</Project>

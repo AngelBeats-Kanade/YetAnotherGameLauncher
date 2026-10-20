@@ -45,13 +45,17 @@ public sealed class LaunchOptions
     public string? ResourceQualityTier { get; set; }
 
     /// <summary>
-    /// 诱饵父进程桥（2026-10-18）：终末地 1.6.3+ 启动时校验直接父进程（镜像名 + Authenticode
-    /// 签名 + 证书指纹白名单，见 docs/ARCHITECTURE.md §3.1）。直启时父进程是启动链中间进程
-    /// （wine 侧为 umu.exe），会被游戏拒绝（弹「请通过官方启动器打开游戏」，退出码 5）。
-    /// 开启后：Linux 原生 umu 链在启动前把游戏目录里鹰角签名的可执行文件
-    /// （PlatformProcess.exe → UnityCrashHandler64.exe → Endfield.exe 首个存在者）复制为
-    /// 游戏目录 .yagl/bridge/Games.exe，以挂起状态作为游戏进程的父进程，游戏退出后回收；
-    /// 候选缺失或准备失败时静默回退直启。仅 native-umu 链生效，其它启动方式忽略。
+    /// 诱饵父进程桥（2026-10-18；Windows 直启 2026-10-20 接入）：终末地 1.6.3+ 启动时校验
+    /// 直接父进程（镜像名 + Authenticode 签名 + 证书指纹白名单，见 docs/ARCHITECTURE.md §3.1）。
+    /// 直启时父进程是启动链中间进程（wine 侧为 umu.exe、Windows 为启动器本体），会被游戏拒绝
+    /// （弹「请通过官方启动器打开游戏」，退出码 5）。开启后：Linux 原生 umu 链与 Windows 直接运行
+    /// （`{exe}`）都在启动前把游戏目录里鹰角签名的可执行文件（PlatformProcess.exe →
+    /// UnityCrashHandler64.exe → Endfield.exe 首个存在者）复制为诱饵 Games.exe，以挂起状态作为
+    /// 游戏进程的父进程，游戏退出后回收。桥工作目录在应用数据目录（&lt;DataDirectory&gt;/bridge/&lt;gameId&gt;，
+    /// 游戏安装目录只读）。**准备**失败处理按平台：Linux 静默回退直启；Windows 抛可操作错误
+    /// （静默直启必被拒）。准备成功后 helper 在游戏进程创建前失败（READY 之前）两个平台都报错；
+    /// READY 之后游戏自身退出码（如校验拒绝的 5）不算桥故障。
+    /// 模板直启链上仅 Windows 生效（Linux 以原生 umu 链的 decoyParent 参数为准）。
     /// </summary>
     public bool DecoyParent { get; set; }
 
