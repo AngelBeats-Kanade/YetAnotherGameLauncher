@@ -260,12 +260,12 @@ public sealed class GameBackdropService(
             .ConfigureAwait(false))
         {
             response.EnsureSuccessStatusCode();
-            // CA2007 误报：await using 声明的 DisposeAsync 续体由编译器生成，无法对其追加 ConfigureAwait。
-#pragma warning disable CA2007
-            await using var http = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            await using var file = File.Create(tempPath);
-#pragma warning restore CA2007
-            await http.CopyToAsync(file, cancellationToken).ConfigureAwait(false);
+            using var http = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            var file = File.Create(tempPath);
+            await using (file.ConfigureAwait(false))
+            {
+                await http.CopyToAsync(file, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         // Windows 语义：旧背景仍被上会话播放器占用时 Delete/Move 会失败（Linux rename 总能成功）；

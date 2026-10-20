@@ -163,51 +163,50 @@ public sealed class HttpFileDownloader(
         var startByte = resume ? existingTempBytes : 0;
         logger?.LogDebug("Downloading {Url}: resuming from byte {Start} (resume={Resume})", request.Url, startByte, resume);
 
-        // CA2007 误报：await using 声明的 DisposeAsync 续体由编译器生成，无法对其追加 ConfigureAwait。
-#pragma warning disable CA2007
-        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using var source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
 
         // 本地写路径三处（建流/写入/冲刷）单独折算（F65）：磁盘满/只读/占用不是网络瞬态，
         // 重下多少遍都不会好——单次终止，消息指向本地文件而非 URL（与 ReplaceDestination 同纪律）。
         // 网络读（source.ReadAsync）的 IOException 不在此列，保持瞬态重试语义
-        await using var target = CreateTempTarget(tempPath, resume, _options.BufferSize, cancellationToken);
-#pragma warning restore CA2007
-
-        var written = startByte;
-        progress?.Report(written);
-
-        var buffer = new byte[_options.BufferSize];
-        int read;
-        while ((read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+        var target = CreateTempTarget(tempPath, resume, _options.BufferSize, cancellationToken);
+        await using (target.ConfigureAwait(false))
         {
+            var written = startByte;
+            progress?.Report(written);
+
+            var buffer = new byte[_options.BufferSize];
+            int read;
+            while ((read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+            {
+                try
+                {
+                    await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                           && !cancellationToken.IsCancellationRequested)
+                {
+                    throw LocalWriteFailure(tempPath, ex);
+                }
+
+                written += read;
+                progress?.Report(written);
+
+                var wait = Limiter.Acquire(read);
+                if (wait > TimeSpan.Zero)
+                {
+                    await Task.Delay(wait, cancellationToken).ConfigureAwait(false);
+                }
+            }
+
             try
             {
-                await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                await target.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                        && !cancellationToken.IsCancellationRequested)
             {
                 throw LocalWriteFailure(tempPath, ex);
             }
-
-            written += read;
-            progress?.Report(written);
-
-            var wait = Limiter.Acquire(read);
-            if (wait > TimeSpan.Zero)
-            {
-                await Task.Delay(wait, cancellationToken).ConfigureAwait(false);
-            }
-        }
-
-        try
-        {
-            await target.FlushAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                                   && !cancellationToken.IsCancellationRequested)
-        {
-            throw LocalWriteFailure(tempPath, ex);
         }
     }
 

@@ -23,10 +23,7 @@ public static class Hashing
     public static async Task<string> Md5HexAsync(
         string filePath, CancellationToken cancellationToken = default, IProgress<long>? progress = null)
     {
-        // CA2007 误报：await using 声明的 DisposeAsync 续体由编译器生成，无法对其追加 ConfigureAwait。
-#pragma warning disable CA2007
-        await using var stream = File.OpenRead(filePath);
-#pragma warning restore CA2007
+        using var stream = File.OpenRead(filePath);
         using var md5 = System.Security.Cryptography.IncrementalHash.CreateHash(
             System.Security.Cryptography.HashAlgorithmName.MD5);
         var buffer = new byte[64 * 1024];
@@ -45,10 +42,7 @@ public static class Hashing
     /// <summary>文件的 SHA256（流式读取，小写 hex）；不整读内存，适合大安装包。</summary>
     public static async Task<string> Sha256HexAsync(string filePath, CancellationToken cancellationToken = default)
     {
-        // CA2007 误报：await using 声明的 DisposeAsync 续体由编译器生成，无法对其追加 ConfigureAwait。
-#pragma warning disable CA2007
-        await using var stream = File.OpenRead(filePath);
-#pragma warning restore CA2007
+        using var stream = File.OpenRead(filePath);
         return Convert.ToHexStringLower(
             await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false));
     }

@@ -248,11 +248,8 @@ public sealed partial class KuroGachaService(HttpClient httpClient, string? cach
             using var response = await httpClient.PostAsJsonAsync(
                 $"{apiBase}/gacha/record/query", request, cancellationToken).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
-            // CA2007 误报：await using 声明的 DisposeAsync 续体由编译器生成，无法对其追加 ConfigureAwait。
-#pragma warning disable CA2007
-            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
-#pragma warning restore CA2007
 
             var page = ParsePage(doc.RootElement, poolType);
             if (page.Count == 0)

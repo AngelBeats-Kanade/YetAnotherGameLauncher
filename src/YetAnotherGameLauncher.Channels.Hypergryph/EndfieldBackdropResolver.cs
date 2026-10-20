@@ -54,10 +54,7 @@ public sealed class EndfieldBackdropResolver(HttpClient httpClient, ILogger<Endf
             $"{apiBase.TrimEnd('/')}/proxy/web/batch_proxy", payload, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
-        // CA2007 误报：await using 声明的 DisposeAsync 续体由编译器生成，无法对其追加 ConfigureAwait。
-#pragma warning disable CA2007
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-#pragma warning restore CA2007
+        using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         // 协议为逆向所得、结构可能随官方更新变化：全程用 TryGetProperty/数组检查，不抛键缺失异常
