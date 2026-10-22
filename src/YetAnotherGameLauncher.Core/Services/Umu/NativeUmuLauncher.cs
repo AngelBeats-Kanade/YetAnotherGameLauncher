@@ -21,6 +21,8 @@ public sealed record UmuNativeLaunchPlan(
 /// <remarks>
 /// <c>logDirectory</c> 是启动日志目录；覆盖它时应同时传 <c>appLogDirectory</c>（应用日志、
 /// 超时提示用），否则提示可能指向组合根未写入的文件。应用日志目录不从启动日志目录反推。
+/// 注入 <c>dataHome</c> 也会把缺省启动日志目录移到 <c>{dataHome}/yagl/logs</c>；
+/// <c>appLogDirectory</c> 缺省仍为 <see cref="AppPaths.LogDirectory"/>，测试/定制部署需显式同步。
 /// </remarks>
 public sealed class NativeUmuLauncher(
     IProcessRunner processRunner,
@@ -35,7 +37,7 @@ public sealed class NativeUmuLauncher(
 
     /// <summary>启动日志目录（显式注入便于测试/自定义部署；缺省跟随 dataHome 下的 yagl/logs）。</summary>
     private readonly string _logDirectory = logDirectory
-        ?? Path.Combine(dataHome ?? AppPaths.DataHomeDirectory, "yagl", "logs");
+        ?? Path.Combine(AppPaths.DataRoot(dataHome), "logs");
 
     /// <summary>应用日志目录（超时提示用；不能从启动日志目录反推）。</summary>
     private readonly string _appLogDirectory = appLogDirectory ?? AppPaths.LogDirectory;
@@ -94,7 +96,7 @@ public sealed class NativeUmuLauncher(
 
     /// <summary>桥工作根：<c>{dataHome}/yagl/bridge/&lt;gameId&gt;</c>（dataHome 缺省取 AppPaths.DataHomeDirectory，Linux 尊重 XDG_DATA_HOME）。</summary>
     private string ResolveBridgeRoot(string gameId) =>
-        Path.Combine(dataHome ?? AppPaths.DataHomeDirectory, "yagl", "bridge", gameId);
+        Path.Combine(AppPaths.DataRoot(dataHome), "bridge", gameId);
 
     /// <summary>构建启动计划（不启动进程）：prefix + 环境 + 容器命令。umuId 覆盖 UMU_ID（空 = umu-{gameId}）。
     /// decoyParent 非空时切换诱饵父进程桥：容器目标换成桥 helper，游戏命令行经 YAGL_BRIDGE_* 环境变量传递。</summary>
@@ -175,13 +177,19 @@ public sealed class NativeUmuLauncher(
             }
         }
 
-        // Proton 日志目录与启动日志同源：feature 开关注入 PROTON_LOG=1 时，原生链用 launcher
-        // 的日志目录覆盖调用方传入值（模板直启链在 BuildPlan 里也是同一目录）；未开开关时
-        // 保留用户配置的 PROTON_LOG_DIR。
+        // Proton 日志目录与启动日志同源：PROTON_LOG=1 时仅接管“未设置/空值/调用方注入的
+        // 应用日志目录（FeatureEnvironment 的托管值）”，用户手写的自定义 PROTON_LOG_DIR 保留
+        //（与模板直启链“开关关闭时用户键优先”一致）。
         if (environment.TryGetValue("PROTON_LOG", out var protonLog)
             && string.Equals(protonLog, "1", StringComparison.Ordinal))
         {
-            environment["PROTON_LOG_DIR"] = _logDirectory;
+            var hasUserDirectory = environment.TryGetValue("PROTON_LOG_DIR", out var protonLogDir)
+                && !string.IsNullOrWhiteSpace(protonLogDir)
+                && !string.Equals(protonLogDir, AppPaths.LogDirectory, StringComparison.Ordinal);
+            if (!hasUserDirectory)
+            {
+                environment["PROTON_LOG_DIR"] = _logDirectory;
+            }
         }
 
         // 游戏参数（2026-10-03 Steam 语义）：用户自定义 %command% 之后的 token 在前，启动器

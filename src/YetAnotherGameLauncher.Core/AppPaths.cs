@@ -16,16 +16,23 @@ public static class AppPaths
     public static string DataHomeDirectory { get; } = ResolveDataHomeRoot();
 
     /// <summary>
+    /// 指定 dataHome 下的应用数据根：{dataHome}/yagl；dataHome 缺省取 <see cref="DataHomeDirectory"/>。
+    /// prefix/bridge/logs 等子目录共用，避免各自拼 "yagl"。
+    /// </summary>
+    public static string DataRoot(string? dataHome = null) =>
+        Path.Combine(dataHome ?? DataHomeDirectory, "yagl");
+
+    /// <summary>
     /// 数据目录（Wine prefix 等大体积数据）：Linux 为 ~/.local/share/yagl（尊重 XDG_DATA_HOME），
     /// Windows 为 %LOCALAPPDATA%\yagl。与配置目录分离：数据可清理重建，配置不行。
     /// </summary>
-    public static string DataDirectory { get; } = Path.Combine(DataHomeDirectory, "yagl");
+    public static string DataDirectory { get; } = DataRoot();
 
     /// <summary>
     /// 日志目录（应用级日志与游戏启动日志共用）：{DataDirectory}/logs。应用日志文件命名见
     /// <see cref="Utilities.FileUtilities.ApplicationLogFilePath"/>。
     /// </summary>
-    public static string LogDirectory { get; } = Path.Combine(DataDirectory, "logs");
+    public static string LogDirectory { get; } = Path.Combine(DataRoot(), "logs");
 
     /// <summary>配置文件路径。环境变量 YAGL_CONFIG 可覆盖（测试/多实例场景）。</summary>
     public static string GetConfigFilePath()

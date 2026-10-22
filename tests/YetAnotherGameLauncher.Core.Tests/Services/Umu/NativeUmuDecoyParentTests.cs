@@ -312,6 +312,36 @@ public sealed class NativeUmuDecoyParentTests : IDisposable
         Assert.False(Directory.Exists(Path.Combine(install, ".yagl")));
     }
 
+    [Fact]
+    public async Task LaunchAsync_ProtonLogDirectoryMatchesLaunchLogDirectory()
+    {
+        // 一个断言同时钉住两端：PROTON_LOG_DIR 与 LaunchAsync 实际写出的 OutputLogPath 目录，
+        // 防止只改 BuildPlan 或只改 LaunchAsync 时“同源”不变量静默失效。
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("原生 umu 链仅 Linux");
+        }
+
+        var (protonDir, install) = SetupFixture(withPlatformProcess: false);
+        var logDirectory = _temp.FilePath("custom-logs");
+        var launcher = new NativeUmuLauncher(
+            _runner,
+            provisioner: null,
+            dataHome: _temp.Path,
+            logDirectory: logDirectory);
+
+        await launcher.LaunchAsync(
+            "arknights-endfield",
+            install,
+            "Endfield.exe",
+            protonDir,
+            extraEnvironment: new Dictionary<string, string> { ["PROTON_LOG"] = "1" });
+
+        var spec = Assert.Single(_runner.Specs);
+        Assert.Equal(logDirectory, Path.GetDirectoryName(spec.OutputLogPath));
+        Assert.Equal(logDirectory, spec.Environment!["PROTON_LOG_DIR"]);
+    }
+
     /// <summary>假 Proton（steamrt4 runtime）+ 安装目录；executable = 游戏主程序名（默认 Endfield.exe——
     /// 它自身也是桥的兜底候选，需按用例语义选择是否提供）。</summary>
     private (string ProtonDir, string InstallDir) SetupFixture(

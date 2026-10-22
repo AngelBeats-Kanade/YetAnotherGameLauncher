@@ -163,7 +163,7 @@ public static class CompatTools
 
     /// <summary>Wine prefix 统一根目录：{dataHome}/yagl/prefixes（dataHome 缺省取 AppPaths.DataHomeDirectory，Linux 尊重 XDG_DATA_HOME）。</summary>
     public static string PrefixRoot(string? dataHome = null) =>
-        Path.Combine(dataHome ?? AppPaths.DataHomeDirectory, "yagl", "prefixes");
+        Path.Combine(AppPaths.DataRoot(dataHome), "prefixes");
 
     /// <summary>指定游戏的 Wine prefix 路径：{dataHome}/yagl/prefixes/&lt;gameId&gt;。</summary>
     public static string PrefixPathFor(string gameId, string? dataHome = null) =>

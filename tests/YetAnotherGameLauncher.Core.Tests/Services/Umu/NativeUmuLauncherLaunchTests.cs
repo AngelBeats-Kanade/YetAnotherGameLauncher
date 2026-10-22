@@ -79,12 +79,36 @@ public sealed class NativeUmuLauncherLaunchTests : IDisposable
             new Dictionary<string, string>
             {
                 ["PROTON_LOG"] = "1",
-                ["PROTON_LOG_DIR"] = _temp.FilePath("wrong-logs"),
+                // 模拟 GameItemViewModel 注入的托管值：应被 launcher 的自定义目录接管。
+                ["PROTON_LOG_DIR"] = AppPaths.LogDirectory,
             },
             umuId: null,
             logDirectory: logDirectory);
 
         Assert.Equal(logDirectory, plan.Environment["PROTON_LOG_DIR"]);
+    }
+
+    [Fact]
+    public void BuildPlan_RespectsUserProtonLogDirectory()
+    {
+        // 用户手写 PROTON_LOG=1 + PROTON_LOG_DIR 时，开关未开启（FeatureEnvironment 未注入）
+        // 必须保留用户目录；不能因为 PROTON_LOG=1 就无条件接管。
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("BuildPlan 仅 Linux（由 Linux 腿覆盖）");
+        }
+
+        var userLogDirectory = _temp.FilePath("user-logs");
+        var plan = BuildPlanWithExtraEnvironment(
+            new Dictionary<string, string>
+            {
+                ["PROTON_LOG"] = "1",
+                ["PROTON_LOG_DIR"] = userLogDirectory,
+            },
+            umuId: null,
+            logDirectory: _temp.FilePath("app-logs"));
+
+        Assert.Equal(userLogDirectory, plan.Environment["PROTON_LOG_DIR"]);
     }
 
     [Fact]
