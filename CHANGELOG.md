@@ -3,7 +3,7 @@
 所有对外可感知的变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [0.1.3] — 未发布
+## [0.1.3] — 2026-10-22
 
 0.1.2 之后的功能版本：界面全面翻新（详情页身份、侧栏提示与短状态、危险操作样式、
 对比度门禁、字号与间距栅格）；依赖安装（Linux，内置思源黑体）；自定义启动选项对齐
@@ -194,7 +194,7 @@ Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻�
 
 ---
 
-### English · 0.1.3 — unreleased
+### English · 0.1.3 — 2026-10-22
 
 A feature release after 0.1.2: a full UI overhaul (detail-page identity,
 sidebar tooltips and short statuses, danger-styled destructive actions,
