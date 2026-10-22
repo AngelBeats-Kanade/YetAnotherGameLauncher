@@ -16,13 +16,15 @@ public sealed class SystemProcessRunner(
     private const int ErrorElevationRequired = 740;
 
     /// <summary>
-    /// 宿主调试/热重载注入的 .NET 变量（Rider/JetBrains 调试与 Hot Reload）。只属于启动器自身：
+    /// 宿主 .NET 诊断/热重载变量（Rider/JetBrains 调试与 Hot Reload，及其他宿主诊断开关）。只属于启动器自身：
     /// 子进程继承后，Wine 内的 Windows .NET 桥 helper 会在连接调试器 IPC 时挂起，永远不写
     /// STARTING（2026-10-21 真机实锤：点击启动按钮卡死后超时）。
     /// </summary>
     internal static readonly IReadOnlyList<string> HostInjectedDotnetVariables =
     [
         "DOTNET_DiagnosticPorts",
+        // 同样会让运行时在 Main 之前等待诊断端口恢复；防御性纳入，未证实 Rider 注入。
+        "DOTNET_DefaultDiagnosticPortSuspend",
         "DOTNET_STARTUP_HOOKS",
         "DOTNET_HOTRELOAD_NAMEDPIPE_NAME",
         "DOTNET_MODIFIABLE_ASSEMBLIES",

@@ -21,6 +21,12 @@ public static class AppPaths
     /// </summary>
     public static string DataDirectory { get; } = Path.Combine(DataHomeDirectory, "yagl");
 
+    /// <summary>
+    /// 日志目录（应用级日志与游戏启动日志共用）：{DataDirectory}/logs。应用日志文件命名见
+    /// <see cref="Utilities.FileUtilities.ApplicationLogFilePath"/>。
+    /// </summary>
+    public static string LogDirectory { get; } = Path.Combine(DataDirectory, "logs");
+
     /// <summary>配置文件路径。环境变量 YAGL_CONFIG 可覆盖（测试/多实例场景）。</summary>
     public static string GetConfigFilePath()
     {

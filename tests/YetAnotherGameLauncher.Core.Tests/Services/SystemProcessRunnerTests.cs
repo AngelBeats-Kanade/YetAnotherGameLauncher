@@ -485,6 +485,7 @@ public class SystemProcessRunnerHostEnvironmentTests
     private static readonly string[] HostVariables =
     [
         "DOTNET_DiagnosticPorts",
+        "DOTNET_DefaultDiagnosticPortSuspend",
         "DOTNET_STARTUP_HOOKS",
         "DOTNET_HOTRELOAD_NAMEDPIPE_NAME",
         "DOTNET_MODIFIABLE_ASSEMBLIES",
@@ -503,7 +504,7 @@ public class SystemProcessRunnerHostEnvironmentTests
         {
             var output = await RunEnvironmentDumpAsync();
             // 正向控制：环境 dump 非空，且 fixture 注入的普通变量确实到达子进程，
-            // 避免 dump 失败时四个 DoesNotContain 全部假绿。
+            // 避免 dump 失败时所有 DoesNotContain 全部假绿。
             Assert.Contains("PATH=", output, StringComparison.OrdinalIgnoreCase);
             Assert.Contains(
                 $"{ControlVariable}={ControlMarker}", output, StringComparison.OrdinalIgnoreCase);
@@ -530,8 +531,9 @@ public class SystemProcessRunnerHostEnvironmentTests
 
             await new SystemProcessRunner().RunAsync(new ProcessStartSpec(
                 fileName, arguments, WaitForExit: false, OutputLogPath: logPath));
-            var output = await WaitForLogMarkerAsync(
-                logPath, $"{ControlVariable}={ControlMarker}");
+            // 等退出脚注而不是等控制变量：控制变量可能先于 HostVariables 出现在 dump 里，
+            // 提前快照会让 DoesNotContain 对不完整输出假绿。
+            var output = await WaitForLogMarkerAsync(logPath, "# process exited");
 
             Assert.Contains(
                 $"{ControlVariable}={ControlMarker}", output, StringComparison.OrdinalIgnoreCase);

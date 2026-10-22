@@ -22,10 +22,18 @@ public sealed class NativeUmuLauncher(
     IProcessRunner processRunner,
     IUmuComponentProvisioner? provisioner = null,
     ILogger? logger = null,
-    string? dataHome = null)
+    string? dataHome = null,
+    string? logDirectory = null,
+    string? appLogDirectory = null)
 {
     /// <summary>诱饵父进程桥准备器（终末地 1.6.3+ 启动校验；无状态，可安全共享）。</summary>
     private readonly DecoyParentBridge _decoyBridge = new(logger);
+
+    /// <summary>启动日志目录（显式注入便于测试/自定义部署）。</summary>
+    private readonly string _logDirectory = logDirectory ?? AppPaths.LogDirectory;
+
+    /// <summary>应用日志目录（超时提示用；不能从启动日志目录反推）。</summary>
+    private readonly string _appLogDirectory = appLogDirectory ?? AppPaths.LogDirectory;
 
     /// <summary>等待桥 READY/ERROR 的上限（测试注入；helper 写出首个状态后开始计时，生产 10 秒）。</summary>
     internal TimeSpan BridgeStatusTimeout { get; init; } = BridgeLaunchStatus.DefaultTimeout;
@@ -283,9 +291,8 @@ public sealed class NativeUmuLauncher(
             throw;
         }
 
-        var logDirectory = Path.Combine(AppPaths.DataDirectory, "logs");
-        Directory.CreateDirectory(logDirectory);
-        var logPath = FileUtilities.LaunchLogFilePath(logDirectory, gameId);
+        Directory.CreateDirectory(_logDirectory);
+        var logPath = FileUtilities.LaunchLogFilePath(_logDirectory, gameId);
 
         var spec = new ProcessStartSpec(
             plan.FileName,
@@ -324,6 +331,7 @@ public sealed class NativeUmuLauncher(
                         BridgeStatusTimeout,
                         BridgeStartupTimeout,
                         logPath,
+                        _appLogDirectory,
                         "Proton/umu 容器冷启动失败或桥 helper 未能运行");
                     throw new LaunchException(
                         LaunchFailureKind.StartFailed, message, logPath: logPath);

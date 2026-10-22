@@ -5,6 +5,7 @@ using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Services.Umu;
+using YetAnotherGameLauncher.Core.Utilities;
 using YetAnotherGameLauncher.TestSupport;
 
 namespace YetAnotherGameLauncher.Core.Tests.Services;
@@ -24,13 +25,17 @@ public class GameLauncherServiceTests : IDisposable
 
     /// <summary>假 Windows 平台 + 临时应用数据目录：驱动 decoyParent 的 Windows 直启分支。</summary>
     private GameLauncherService WindowsService(
-        string dataDirectory, TimeSpan? statusTimeout = null, TimeSpan? startupTimeout = null) =>
+        string dataDirectory,
+        TimeSpan? statusTimeout = null,
+        TimeSpan? startupTimeout = null,
+        string? appLogDirectory = null) =>
         new(
             _runner,
             logDirectory: _tempDir.FilePath("logs"),
             pathValue: "",
             platformInfo: new FakePlatformInfo(isLinux: false),
-            dataDirectory: dataDirectory)
+            dataDirectory: dataDirectory,
+            appLogDirectory: appLogDirectory)
         {
             BridgeStatusTimeout = statusTimeout ?? BridgeLaunchStatus.DefaultTimeout,
             BridgeStartupTimeout = startupTimeout ?? BridgeLaunchStatus.DefaultStartupTimeout,
@@ -490,17 +495,23 @@ public class GameLauncherServiceTests : IDisposable
         var game = Game("\"{exe}\"");
         game.Launch.DecoyParent = true;
         _runner.Handler = _ => new ProcessResult(0, "", "");
+        // 应用日志目录与启动日志目录分离：提示必须使用显式传入的应用日志目录。
+        var appLogDirectory = _tempDir.FilePath("app-logs");
 
         var ex = await Assert.ThrowsAsync<LaunchException>(
             () => WindowsService(
                     _tempDir.FilePath("data"),
                     TimeSpan.FromMilliseconds(100),
-                    startupTimeout: TimeSpan.FromMilliseconds(100))
+                    startupTimeout: TimeSpan.FromMilliseconds(100),
+                    appLogDirectory: appLogDirectory)
                 .LaunchAsync(game, _tempDir.Path, "bin/game.exe"));
 
         Assert.Equal(LaunchFailureKind.StartFailed, ex.Kind);
         Assert.Contains("未启动", ex.Message, StringComparison.Ordinal);
         Assert.NotNull(ex.LogPath);
+        var appLogPath = FileUtilities.ApplicationLogFilePath(
+            appLogDirectory, DateOnly.FromDateTime(DateTime.Now));
+        Assert.Contains(appLogPath, ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]

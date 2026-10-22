@@ -177,26 +177,27 @@ public static class BridgeLaunchStatus
     /// <summary>
     /// 统一生成两段超时的用户提示（2026-10-21）：helper 未启动走启动预算文案；helper 已启动
     /// 但未 READY 走游戏进程创建文案。调用方只提供各自平台的启动失败原因，避免两条启动链
-    /// 各维护一份模板导致漏改。提示同时给出启动日志与同目录应用日志路径——first status /
-    /// startup timeout 边界记录在后者（2026-10-22 复审）。
+    /// 各维护一份模板导致漏改。提示同时给出启动日志与应用日志路径（目录由调用方显式传入）——
+    /// first status / startup timeout 边界记录在后者（2026-10-22 复审）。
     /// </summary>
     /// <param name="result">超时结果（<see cref="BridgeLaunchState.TimedOut"/>）。</param>
     /// <param name="readyTimeout">READY 段上限。</param>
     /// <param name="startupTimeout">helper 启动段上限。</param>
     /// <param name="logPath">启动日志路径。</param>
+    /// <param name="appLogDirectory">应用日志目录（显式传入，不能从启动日志路径反推）。</param>
     /// <param name="startupFailureReason">启动失败括号内的平台特有原因。</param>
     public static string DescribeTimeout(
         BridgeLaunchResult result,
         TimeSpan readyTimeout,
         TimeSpan startupTimeout,
         string logPath,
+        string appLogDirectory,
         string startupFailureReason)
     {
-        // first status / startup timeout 诊断写在应用日志（与 launch 日志同目录），
-        // 用户按超时提示打开应用日志才能看到边界；文件名与 FileLoggerProvider 共用单一来源。
+        // first status / startup timeout 诊断写在应用日志；目录由调用方显式传入，
+        // 避免“启动日志目录 == 应用日志目录”的隐式耦合。文件名与 FileLoggerProvider 共用单一来源。
         var appLogPath = FileUtilities.ApplicationLogFilePath(
-            Path.GetDirectoryName(logPath) ?? string.Empty,
-            DateOnly.FromDateTime(DateTime.Now));
+            appLogDirectory, DateOnly.FromDateTime(DateTime.Now));
         var appLogHint = $"；桥启动边界日志见应用日志：{appLogPath}";
 
         if (result.HelperStarted)

@@ -197,9 +197,11 @@ public sealed class BridgeLaunchStatusTests : IDisposable
     [Fact]
     public void DescribeTimeout_IncludesLaunchAndApplicationLogPaths()
     {
-        var logPath = _temp.FilePath(Path.Combine("logs", "launch-game.log"));
+        // 两个目录故意不同：应用日志目录必须由调用方显式传入，不能从启动日志路径反推。
+        var launchLogPath = _temp.FilePath(Path.Combine("launch-logs", "launch-game.log"));
+        var appLogDirectory = _temp.FilePath("app-logs");
         var appLogPath = FileUtilities.ApplicationLogFilePath(
-            Path.GetDirectoryName(logPath)!, DateOnly.FromDateTime(DateTime.Now));
+            appLogDirectory, DateOnly.FromDateTime(DateTime.Now));
 
         foreach (var helperStarted in new[] { false, true })
         {
@@ -207,11 +209,16 @@ public sealed class BridgeLaunchStatusTests : IDisposable
                 new BridgeLaunchResult(BridgeLaunchState.TimedOut, HelperStarted: helperStarted),
                 TimeSpan.FromSeconds(10),
                 TimeSpan.FromSeconds(10),
-                logPath,
+                launchLogPath,
+                appLogDirectory,
                 "test reason");
 
-            Assert.Contains(logPath, message, StringComparison.Ordinal);
+            Assert.Contains(launchLogPath, message, StringComparison.Ordinal);
             Assert.Contains(appLogPath, message, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                Path.Combine(Path.GetDirectoryName(launchLogPath)!, "yagl-"),
+                message,
+                StringComparison.Ordinal);
         }
     }
 

@@ -24,10 +24,14 @@ public sealed class GameLauncherService(
     string? logDirectory = null,
     string? pathValue = null,
     IPlatformInfo? platformInfo = null,
-    string? dataDirectory = null)
+    string? dataDirectory = null,
+    string? appLogDirectory = null)
 {
     private readonly string _logDirectory = logDirectory
-        ?? Path.Combine(AppPaths.DataDirectory, "logs");
+        ?? AppPaths.LogDirectory;
+
+    /// <summary>应用日志目录（超时提示用；显式传入，不能从启动日志目录反推）。</summary>
+    private readonly string _appLogDirectory = appLogDirectory ?? AppPaths.LogDirectory;
 
     /// <summary>PATH 环境变量值（null = 真实环境；测试注入空串禁用 PATH 扫描）。</summary>
     private readonly string? _pathValue = pathValue;
@@ -241,6 +245,7 @@ public sealed class GameLauncherService(
                     BridgeStatusTimeout,
                     BridgeStartupTimeout,
                     logPath,
+                    _appLogDirectory,
                     "桥 helper 未能运行");
             }
 

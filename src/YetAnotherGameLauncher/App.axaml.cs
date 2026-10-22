@@ -32,7 +32,7 @@ public class App : Application
             // 有意不持有/Dispose ServiceProvider：退出期平台拆除会弄坏 GPU 解码栈等原生资源，
             // IDisposable 单例的释放由下方 ShutdownRequested 的 videoPlayer.Stop() 显式承担；
             // 若未来出现有真实释放逻辑的 IDisposable 单例，需先补 provider 的关闭路径再依赖其 Dispose
-            var services = BuildServices(Path.Combine(AppPaths.DataDirectory, "logs"));
+            var services = BuildServices(AppPaths.LogDirectory);
             var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("YetAnotherGameLauncher");
             InstallGlobalExceptionLogging(logger);
             var viewModel = services.GetRequiredService<MainWindowViewModel>();
@@ -187,7 +187,9 @@ public class App : Application
         services.AddSingleton(sp => new GameLauncherService(
             sp.GetRequiredService<IProcessRunner>(),
             logger: sp.GetRequiredService<ILoggerFactory>().CreateLogger<GameLauncherService>(),
-            platformInfo: sp.GetRequiredService<IPlatformInfo>()));
+            logDirectory: logDirectory,
+            platformInfo: sp.GetRequiredService<IPlatformInfo>(),
+            appLogDirectory: logDirectory));
         services.AddSingleton<ThemeService>();
         services.AddSingleton<ILocalizationService, LocalizationService>();
         services.AddSingleton<BackgroundImageService>();
@@ -216,7 +218,9 @@ public class App : Application
         services.AddSingleton(sp => new NativeUmuLauncher(
             sp.GetRequiredService<IProcessRunner>(),
             sp.GetRequiredService<IUmuComponentProvisioner>(),
-            sp.GetRequiredService<ILoggerFactory>().CreateLogger<NativeUmuLauncher>()));
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger<NativeUmuLauncher>(),
+            logDirectory: logDirectory,
+            appLogDirectory: logDirectory));
 
         // Wine prefix 依赖安装（游戏设置页依赖区）：显式工厂 + 类型化 logger（与 HttpFileDownloader 同理，
         // 裸 ILogger 不在容器）；cacheRoot 缺省走 DependencyPaths.CacheRoot（XDG_CACHE_HOME 语义）

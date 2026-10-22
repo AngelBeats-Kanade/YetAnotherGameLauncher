@@ -981,7 +981,7 @@ public partial class GameItemViewModel(
                 // 与用户自定义变量同键时开关优先（模板直启链在 GameLauncherService.BuildPlan 同型合并）
                 var extraEnvironment = new Dictionary<string, string>(Game.Launch.Environment, StringComparer.Ordinal);
                 foreach (var (key, value) in CompatTools.FeatureEnvironment(
-                    Game.Launch, Path.Combine(AppPaths.DataDirectory, "logs")))
+                    Game.Launch, AppPaths.LogDirectory))
                 {
                     extraEnvironment[key] = value;
                 }

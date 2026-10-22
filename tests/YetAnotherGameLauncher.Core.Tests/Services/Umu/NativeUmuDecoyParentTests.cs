@@ -1,6 +1,7 @@
 using Xunit;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Services.Umu;
+using YetAnotherGameLauncher.Core.Utilities;
 using YetAnotherGameLauncher.TestSupport;
 
 namespace YetAnotherGameLauncher.Core.Tests.Services.Umu;
@@ -140,7 +141,13 @@ public sealed class NativeUmuDecoyParentTests : IDisposable
         }
 
         var (protonDir, install) = SetupFixture(withPlatformProcess: true);
-        var launcher = new NativeUmuLauncher(_runner, provisioner: null, dataHome: _temp.Path)
+        var appLogDirectory = _temp.FilePath("app-logs");
+        var launcher = new NativeUmuLauncher(
+            _runner,
+            provisioner: null,
+            dataHome: _temp.Path,
+            logDirectory: _temp.FilePath("launch-logs"),
+            appLogDirectory: appLogDirectory)
         {
             BridgeStatusTimeout = TimeSpan.FromMilliseconds(100),
             BridgeStartupTimeout = TimeSpan.FromMilliseconds(100),
@@ -154,6 +161,9 @@ public sealed class NativeUmuDecoyParentTests : IDisposable
         Assert.Equal(LaunchFailureKind.StartFailed, ex.Kind);
         Assert.Contains("未启动", ex.Message, StringComparison.Ordinal);
         Assert.NotNull(ex.LogPath);
+        var appLogPath = FileUtilities.ApplicationLogFilePath(
+            appLogDirectory, DateOnly.FromDateTime(DateTime.Now));
+        Assert.Contains(appLogPath, ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
