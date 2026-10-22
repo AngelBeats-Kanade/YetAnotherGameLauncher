@@ -12,8 +12,8 @@ namespace YetAnotherGameLauncher.Services;
 /// </summary>
 public sealed class FileLoggerProvider : ILoggerProvider
 {
-    /// <summary>文件名前缀（保留期清理只针对本前缀）。</summary>
-    public const string FilePrefix = "yagl";
+    /// <summary>文件名前缀（保留期清理只针对本前缀；与 Core 的应用日志路径 helper 共用）。</summary>
+    public const string FilePrefix = FileUtilities.ApplicationLogFilePrefix;
 
     private readonly string _directory;
     private readonly int _retentionDays;

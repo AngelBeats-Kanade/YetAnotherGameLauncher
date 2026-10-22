@@ -382,11 +382,16 @@ public static class FileUtilities
         $"launch-{SanitizeGameId(gameId)}-{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..4]}.log");
 
     /// <summary>
+    /// 应用级日志文件名前缀：写入、保留期清理与启动超时提示共用，避免前缀三处维护。
+    /// </summary>
+    public const string ApplicationLogFilePrefix = "yagl";
+
+    /// <summary>
     /// 应用级日志文件路径：{logDir}/yagl-yyyyMMdd.log。FileLoggerProvider 与启动超时提示共用，
     /// 避免文件命名格式两处维护（2026-10-22 复审：边界诊断写在应用日志里，提示必须指向它）。
     /// </summary>
     public static string ApplicationLogFilePath(string logDirectory, DateOnly date) => Path.Combine(
-        logDirectory, $"yagl-{date:yyyyMMdd}.log");
+        logDirectory, $"{ApplicationLogFilePrefix}-{date:yyyyMMdd}.log");
 
     /// <summary>文件是否存在且可执行：Linux 校验 UserExecute 位；Windows 无执行位概念，存在即可。</summary>
     public static bool IsExecutableFile(string path)
