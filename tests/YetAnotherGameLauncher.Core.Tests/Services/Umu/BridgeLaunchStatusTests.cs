@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 using Xunit;
 using YetAnotherGameLauncher.Core.Services.Umu;
 using YetAnotherGameLauncher.Core.Utilities;
@@ -128,20 +128,27 @@ public sealed class BridgeLaunchStatusTests : IDisposable
         // 否则调用方注入短超时后仍可能等满默认启动预算（2026-10-21 review 的 API 脚枪）。
         var path = _temp.FilePath("status.txt");
         File.WriteAllText(path, string.Empty);
-        var logger = new CollectingLogger();
+        var logger = new CapturingLogger();
+        var stopwatch = Stopwatch.StartNew();
 
         var result = await BridgeLaunchStatus.WaitAsync(
             path, TimeSpan.FromMilliseconds(100), logger: logger);
 
+        stopwatch.Stop();
         Assert.Equal(BridgeLaunchState.TimedOut, result.State);
         Assert.False(result.HelperStarted);
         Assert.False(File.Exists(path));
+        // 只断言 TimedOut 无法区分“用了 100 ms”与“静默用了 10 s 默认启动预算”，
+        // 因此钉住耗时上限（M84 变异守卫）。
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(1),
+            $"启动段应使用 100 ms 注入值，实际耗时 {stopwatch.Elapsed.TotalMilliseconds:0} ms");
         // 真启动超时时状态文件始终为空，first status 行不会出现；超时路径必须自己留下
         // elapsed/limit，否则用户报「未启动」时日志里没有可核对的边界。
         Assert.Contains(
-            logger.Messages,
-            message => message.Contains("startup timeout", StringComparison.Ordinal)
-                && message.Contains("ms", StringComparison.Ordinal));
+            logger.Entries,
+            entry => entry.Message.Contains("startup timeout", StringComparison.Ordinal)
+                && entry.Message.Contains("ms", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -163,6 +170,28 @@ public sealed class BridgeLaunchStatusTests : IDisposable
 
         Assert.Equal(BridgeLaunchState.TimedOut, result.State);
         Assert.True(result.HelperStarted);
+    }
+
+    [Fact]
+    public async Task WaitAsync_HelperStarted_ReadyPhaseUsesConfiguredTimeout()
+    {
+        // 显式 startupTimeout 时，STARTING 出现后必须改用 timeout（READY 上限），
+        // 不能再沿用 5 s 的启动上限。只用结果断言无法区分两者，耗时断言钉住 READY 段（M85）。
+        var path = _temp.FilePath("status.txt");
+        File.WriteAllText(path, "STARTING");
+        var stopwatch = Stopwatch.StartNew();
+
+        var result = await BridgeLaunchStatus.WaitAsync(
+            path,
+            timeout: TimeSpan.FromMilliseconds(100),
+            startupTimeout: TimeSpan.FromSeconds(5));
+
+        stopwatch.Stop();
+        Assert.Equal(BridgeLaunchState.TimedOut, result.State);
+        Assert.True(result.HelperStarted);
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(1),
+            $"READY 段应使用 100 ms timeout，实际耗时 {stopwatch.Elapsed.TotalMilliseconds:0} ms");
     }
 
     [Fact]
@@ -211,38 +240,26 @@ public sealed class BridgeLaunchStatusTests : IDisposable
     public async Task WaitAsync_FirstStatus_LogsElapsedForDiagnosis()
     {
         // 阶段边界可诊断（2026-10-21）：真机需要知道 STARTING 出现在第几毫秒，
-        // 才能判断 10 秒启动预算是否擦边。
+        // 才能判断 10 秒启动预算是否擦边；这里先写 STARTING，覆盖正常诊断路径。
         var path = _temp.FilePath("status.txt");
-        File.WriteAllText(path, DecoyParentBridge.ReadyStatus);
-        var logger = new CollectingLogger();
+        File.WriteAllText(path, "STARTING");
+        var logger = new CapturingLogger();
 
-        var result = await BridgeLaunchStatus.WaitAsync(
+        var wait = BridgeLaunchStatus.WaitAsync(
             path,
             TimeSpan.FromSeconds(1),
             startupTimeout: TimeSpan.FromSeconds(1),
             logger: logger);
+        await Task.Delay(100);
+        File.WriteAllText(path, DecoyParentBridge.ReadyStatus);
+
+        var result = await wait;
 
         Assert.Equal(BridgeLaunchState.Ready, result.State);
         Assert.Contains(
-            logger.Messages,
-            message => message.Contains("first status", StringComparison.Ordinal)
-                && message.Contains("ms", StringComparison.Ordinal));
-    }
-
-    private sealed class CollectingLogger : ILogger
-    {
-        public List<string> Messages { get; } = [];
-
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(
-            LogLevel logLevel,
-            EventId eventId,
-            TState state,
-            Exception? exception,
-            Func<TState, Exception?, string> formatter) =>
-            Messages.Add(formatter(state, exception));
+            logger.Entries,
+            entry => entry.Message.Contains("first status", StringComparison.Ordinal)
+                && entry.Message.Contains("STARTING", StringComparison.Ordinal)
+                && entry.Message.Contains("ms", StringComparison.Ordinal));
     }
 }

@@ -829,6 +829,39 @@ const MUTATIONS = [
     dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
     method: 'YetAnotherGameLauncher.Core.Tests.Services.SystemProcessRunnerHostEnvironmentTests.RunAsync_WaitForExit_StripsInheritedDotnetHostInstrumentation',
   },
+  {
+    // 2026-10-22：省略 startupTimeout 时必须用调用方 timeout，而不是静默回退 10 s；
+    // 仅断言 TimedOut 会被 10 s 默认值蒙混通过，耗时限界负责击杀。
+    id: 'M84-bridge-startup-omitted-default',
+    file: 'src/YetAnotherGameLauncher.Core/Services/Umu/BridgeLaunchStatus.cs',
+    find: 'var startupLimit = startupTimeout ?? timeout;',
+    replace: 'var startupLimit = startupTimeout ?? DefaultStartupTimeout;',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.BridgeLaunchStatusTests.WaitAsync_StartupTimeoutOmitted_StartupPhaseUsesTimeout',
+  },
+  {
+    // 2026-10-22：STARTING 后必须改用 READY 上限；沿用 startupLimit 会让不等预算的调用方
+    // 多等一整段启动预算，耗时限界负责击杀。
+    id: 'M85-bridge-ready-uses-startup-budget',
+    file: 'src/YetAnotherGameLauncher.Core/Services/Umu/BridgeLaunchStatus.cs',
+    find: 'var limit = helperStarted ? timeout : startupLimit;',
+    replace: 'var limit = startupLimit;',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.BridgeLaunchStatusTests.WaitAsync_HelperStarted_ReadyPhaseUsesConfiguredTimeout',
+  },
+  {
+    // 2026-10-22：生产 helper 走 fire-and-forget + 输出日志；剥离若被限定在 WaitForExit
+    // 分支，只有该路径的守卫能发现。
+    id: 'M86-process-runner-strip-only-wait-for-exit',
+    file: 'src/YetAnotherGameLauncher.Core/Services/SystemProcessRunner.cs',
+    find: 'if (startInfo.Environment.Remove(variable))',
+    replace: 'if (waitForExit && startInfo.Environment.Remove(variable))',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.SystemProcessRunnerHostEnvironmentTests.RunAsync_FireAndForgetWithLog_StripsInheritedDotnetHostInstrumentation',
+  },
 ];
 
 function run(cmd, args) {

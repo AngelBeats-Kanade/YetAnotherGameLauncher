@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Xunit;
+using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Services.Umu;
 using YetAnotherGameLauncher.TestSupport;
 
@@ -45,6 +46,12 @@ public sealed class WineParentBridgeWindowsTests : IDisposable
             $"\"{helper}\" --write-parent \"{result}\"";
         psi.Environment[DecoyParentBridge.WorkingDirectoryVariable] = _temp.Path;
         psi.Environment[DecoyParentBridge.StatusVariable] = status;
+        // 该测试绕过 SystemProcessRunner 直接 Process.Start；若测试宿主运行在 Rider
+        // 调试/热重载会话，必须自己剥离同一组宿主变量，否则 helper 会在 Main 前挂起。
+        foreach (var variable in SystemProcessRunner.HostInjectedDotnetVariables)
+        {
+            psi.Environment.Remove(variable);
+        }
 
         using var process = Process.Start(psi);
         Assert.NotNull(process);

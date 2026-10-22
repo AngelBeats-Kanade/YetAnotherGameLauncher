@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Xunit;
+using YetAnotherGameLauncher.Core.Utilities;
 using YetAnotherGameLauncher.Services;
 using YetAnotherGameLauncher.TestSupport;
 
@@ -26,6 +27,11 @@ public class FileLoggerProviderTests : IDisposable
         provider.Dispose();
 
         var file = Assert.Single(Directory.GetFiles(_temp.Path, "yagl-*.log"));
+        // 超时提示用同一个 helper 推导应用日志路径；这里钉住 provider 实际写盘位置。
+        Assert.Equal(
+            FileUtilities.ApplicationLogFilePath(
+                _temp.Path, DateOnly.FromDateTime(DateTime.Now)),
+            file);
         var text = File.ReadAllText(file);
         Assert.Contains("[Info]", text);
         Assert.Contains("[Warn]", text);

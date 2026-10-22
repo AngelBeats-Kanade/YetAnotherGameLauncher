@@ -518,6 +518,32 @@ public class SystemProcessRunnerHostEnvironmentTests
     }
 
     [Fact]
+    public async Task RunAsync_FireAndForgetWithLog_StripsInheritedDotnetHostInstrumentation()
+    {
+        // 生产桥 helper 走 WaitForExit:false + OutputLogPath；剥离逻辑若被重构成只在
+        // WaitForExit:true 分支执行，上面的用例仍是绿的，这条路径就会重新复现 Rider 挂起。
+        await WithInheritedHostVariablesAsync(async () =>
+        {
+            using var temp = new TempDir();
+            var logPath = temp.FilePath("env.log");
+            var (fileName, arguments) = EnvironmentDumpCommand();
+
+            await new SystemProcessRunner().RunAsync(new ProcessStartSpec(
+                fileName, arguments, WaitForExit: false, OutputLogPath: logPath));
+            var output = await WaitForLogMarkerAsync(
+                logPath, $"{ControlVariable}={ControlMarker}");
+
+            Assert.Contains(
+                $"{ControlVariable}={ControlMarker}", output, StringComparison.OrdinalIgnoreCase);
+            foreach (var variable in HostVariables)
+            {
+                Assert.DoesNotContain(
+                    $"{variable}={InheritedMarker}", output, StringComparison.OrdinalIgnoreCase);
+            }
+        });
+    }
+
+    [Fact]
     public async Task RunAsync_WaitForExit_ExplicitDotnetVariableOverridesStripping()
     {
         // 顺序契约：先剥离继承值，再注入 spec.Environment；显式同名变量必须生效。
@@ -558,14 +584,49 @@ public class SystemProcessRunnerHostEnvironmentTests
         }
     }
 
+    private static (string FileName, string Arguments) EnvironmentDumpCommand() =>
+        OperatingSystem.IsWindows()
+            ? ("cmd.exe", "/c set")
+            : ("/bin/sh", "-c \"env\"");
+
     private static async Task<string> RunEnvironmentDumpAsync(
         IReadOnlyDictionary<string, string>? environment = null)
     {
-        var (fileName, arguments) = OperatingSystem.IsWindows()
-            ? ("cmd.exe", "/c set")
-            : ("/bin/sh", "-c \"env\"");
+        var (fileName, arguments) = EnvironmentDumpCommand();
         var result = await new SystemProcessRunner().RunAsync(
             new ProcessStartSpec(fileName, arguments, Environment: environment));
         return result.StandardOutput;
+    }
+
+    private static async Task<string> WaitForLogMarkerAsync(string logPath, string marker)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (File.Exists(logPath))
+            {
+                try
+                {
+                    using var stream = new FileStream(
+                        logPath, FileMode.Open, FileAccess.Read,
+                        FileShare.ReadWrite | FileShare.Delete);
+                    using var reader = new StreamReader(stream);
+                    var text = await reader.ReadToEndAsync();
+                    if (text.Contains(marker, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return text;
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // 日志正被写入：下一轮再读
+                }
+            }
+
+            await Task.Delay(50);
+        }
+
+        Assert.Fail($"10 秒内未在启动日志中找到标记「{marker}」：{logPath}");
+        return string.Empty;
     }
 }

@@ -10,7 +10,7 @@
 Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻留 + 关闭按钮行为设置
 （退出应用 / 关闭窗口驻留托盘，下载与依赖安装后台继续）；资源包档位、实时下载进度
 与速度；hpatchz 自动供给与鸣潮 krpdiff 增量更新链终局修复；终末地更新链路（分卷解压修复、官方废弃清单清理、改走官方 v2 增量补丁）；终末地启动链黑窗修复（桥 helper 迁移 C# GUI 子系统）与 Windows 直启接入。
-1572 个测试全绿（2026-10-22 实测）。
+1574 个测试全绿（2026-10-22 实测）。
 
 ### 新增
 
@@ -204,7 +204,7 @@ and dependency installs kept running); resource quality tier selection;
 real-time byte-granular download progress with a speed readout;
 automatic hpatchz provisioning and the definitive fix for the Wuthering
 Waves krpdiff incremental-update chain, plus the split-volume extraction
-fix for Endfield package updates plus stale-file cleanup and the delta update path; the Endfield launch check is handled by a decoy parent bridge (no official launcher needed; Windows direct launch was added on 2026-10-20, and the bridge helper was ported to a C# GUI-subsystem single file to eliminate a spurious console window). 1572 tests green (measured 2026-10-22).
+fix for Endfield package updates plus stale-file cleanup and the delta update path; the Endfield launch check is handled by a decoy parent bridge (no official launcher needed; Windows direct launch was added on 2026-10-20, and the bridge helper was ported to a C# GUI-subsystem single file to eliminate a spurious console window). 1574 tests green (measured 2026-10-22).
 
 **Added — UI overhaul**
 
