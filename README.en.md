@@ -71,7 +71,7 @@ Currently supported games:
 | Wish (gacha) records | Wuthering Waves: automatic in-game URL extraction, official API fetching, local cache and pity statistics |
 | Modern UI | Borderless rounded window with custom title bar (drag region / minimize / maximize / close; title follows the selected game); poster-style detail page: official artwork fills the main area (left edge preserved, no overlay) with top-left rounded full-bleed layout and a status/version chip cluster under a gradient scrim (gold version accent), with an empty-state guide card when the game is not installed; two-phase sidebar selection indicator animation; sidebar auto-collapses below a width threshold (with hysteresis); light/dark/follow-system themes; page transitions and button micro-animations; custom app background image in settings |
 | Video backdrop | Detail page plays the official video backdrop: FFmpeg hardware decoding (D3D11VA on Windows / VAAPI→NVDEC on Linux), smart loop points (color-aware scoring / multi-point rotation / adaptive crossfade) + preroll for gapless looping; one player per game — switching games or pages pauses and keeps sessions alive for instant resume; on Linux prefers the distro FFmpeg 9 (libavcodec.so.63) and auto-downloads a BtbN build to the app data directory when missing |
-| Asset cache & preheat | Icons and backdrops are all cached locally: all game icons show from disk cache at startup and backdrops pre-load (without waiting for selection) — zero network; version/preload detection runs once per game per launch, and backdrops/icons are only re-fetched after the game version changes (backdrops strictly follow game versions) |
+| Asset cache & preheat | Icons and backdrops are all cached locally: all game icons show from disk cache at startup and backdrops pre-load (without waiting for selection) — zero network; version/preload detection runs at most once per server per launch, and backdrops/icons are only re-fetched after the game version changes (backdrops strictly follow game versions) |
 | Wine prefix | Uniformly located at `~/.local/share/yagl/prefixes/<gameId>` (the Windows-shaped STEAM_COMPAT_DATA_PATH points here too), never inside the game install directory — install sync cannot wipe it |
 | UI language | Simplified Chinese / English, optional follow-system, switching takes effect immediately (settings page) |
 | Proxy settings | Follow system / direct / manual |
@@ -137,9 +137,9 @@ Enter via the **gear** button at the bottom of the detail page; "Back to game" r
 
 ![Game settings page](docs/images/screenshot-game-settings.png)
 
-- **Server**: switch between CN / Bilibili / Global (each server keeps its own install directory;
-  the default server is restored after restarting the launcher)
-- **Location**: **install directory** and **game executable**, both with a "Browse…" button backed by the
+- **Server**: switch between CN / Bilibili / Global (each server keeps its own version/install state;
+  they share one install directory; the default server is restored after restarting the launcher)
+- **Location**: **install directory** and **game executable**, with a "Choose folder…" / "Browse…" button backed by the
   system file picker; if you already downloaded the game yourself, just point at its main executable —
   no re-download needed
 - **Launch**:
@@ -156,7 +156,8 @@ Enter via the **gear** button at the bottom of the detail page; "Back to game" r
 
 ![Linux launch settings](docs/images/screenshot-launch-settings-linux.png)
 
-Location and Proton flavor changes are saved instantly; for everything else click **Save Launch Options**
+Proton flavor changes are saved instantly; a location picked with "Choose folder…/Browse…" is saved instantly too,
+while manually typed paths (and everything else) are persisted by **Save Launch Options**
 at the bottom of the launch card. A toast in the top-right corner lists the changed fields when something
 actually changed.
 
@@ -256,10 +257,12 @@ happens once at first-run generation, and any user edits afterwards are never ov
 
 **Upgrading from older versions**: legacy configs are migrated automatically on first load (each migration runs
 only once) — official servers and localized names added to a game are filled in from the built-in template
-(`schemaVersion 3`); bare `{exe}` (`schemaVersion 4`) and legacy `umu-run {exe}` (`schemaVersion 5`, a
+(`schemaVersion 3`); on Linux, bare `{exe}` (`schemaVersion 4`) and legacy `umu-run {exe}` (`schemaVersion 5`, a
 historically auto-generated form) launch templates are upgraded to the recommended chain, with the status bar
 reporting the result; Endfield's decoy-parent bridge flag `launch.decoyParent` (`schemaVersion 6`) is merged
-from the built-in template as well. For the full field reference and an "add a new game" tutorial, see
+from the built-in template as well, and so is the Wuthering Waves tier resource-pack index
+`servers[].options.resourcePackIndexUrl` (`schemaVersion 7`, existing keys are never overwritten). For the full
+field reference and an "add a new game" tutorial, see
 [docs/GAME_CONFIG.md](docs/GAME_CONFIG.md).
 
 ### Example: launching via wine/Proton on Linux
@@ -288,11 +291,11 @@ from the built-in template as well. For the full field reference and an "add a n
 | Wuthering Waves incremental update fails mentioning hpatchz | Automatic download needs network and wine (system wine, or the one bundled with an installed Proton); alternatively install a native [HDiffPatch](https://github.com/sisong/HDiffPatch/releases) build and put `hpatchz` on PATH |
 | Picked UHD/SD tier but the incremental update downloads HD resources | The delta itself is tier-independent (the official tier packs have no cross-version deltas, measured 2026-10-16); the target tier pack is filled in by the full verify/repair round after the update. Downloading tier packs needs the server's official tier index (the built-in sample covers the CN server only; the Global/Bilibili servers have none, so the tier is a launch argument only there, as the settings page notes) |
 | Want to stop a download / closed the app mid-download | The "Pause" button in the busy area stops it and keeps everything downloaded and staged; on the next start the main button reads "Resume download" and continues from the break, never re-downloading finished parts |
-| Pre-download button missing | The official pre-download window is not open (Wuthering Waves `predownload.config` missing / Endfield has no `patch` node) |
+| Pre-download button missing | The official pre-download window is not open (Wuthering Waves `predownloadSwitch` off or `predownload.config` missing / Endfield has no `patch` node) |
 | Endfield version/download errors | The GRYPHLINE protocol is undocumented and fields may change when the official launcher updates — issues welcome |
 | Launch fails on Linux | A themed error card appears: retry umu component downloads or pick a locally installed Proton; use "open log folder" to inspect `launch-*.log`, or check the command template and runtime in the game settings page. On Windows a direct `{exe}` works (Endfield goes through the built-in decoy-parent bridge; bridge preparation or helper startup failures show an actionable error instead of silently falling back) |
 | UI tiny/blurry on Linux | Only the XWayland path has this issue: the launcher syncs the Hyprland scale into `Xft.dpi` automatically (only when unset); manual fix `xrdb -merge <<< "Xft.dpi: 160"` (value = 96 × compositor scale). The native Wayland path gets scaling from the compositor and is unaffected; if the native path misbehaves, fall back with `YAGL_FORCE_XWAYLAND=1` |
-| Wuthering Waves backdrop missing | Normal when no backdrop has been published officially (offline it falls back to the last successful cache, otherwise the theme gradient); first video playback downloads the FFmpeg library (~60 MB on Linux / ~75 MB on Windows; falls back to the static poster on failure) |
+| Wuthering Waves backdrop missing | Normal when no backdrop has been published officially (offline it falls back to the last successful cache, otherwise the theme gradient); video playback downloads the FFmpeg library only when no matching FFmpeg 9 is available (~60 MB on Linux / ~75 MB on Windows; falls back to the static poster on failure) |
 
 ## 📖 Documentation
 

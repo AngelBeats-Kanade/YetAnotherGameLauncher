@@ -30,9 +30,9 @@ dotnet tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLa
 - `CaptureRenderedFrame()` 内部会触发渲染计时器 tick 并返回最后一帧（可能返回 null——先 `window.Show()`）。
 - 保存：`frame.Save(path, new PngBitmapEncoderOptions())`。
 - 数据必须真实：用 `VmFactory` 样例数据（两个游戏、假渠道状态：已安装/有更新/预下载可用都摆出来）。
-- 截图窗口固定 1120×720（`UiScreenshotTests` 内写死，与主窗口默认 1464×720 无关，保证构图稳定）。
-- **清单（2026-10-19 实测；改动 UI 或新增导出后同步本清单）**：八个导出组共 27 张——
-  01-15 + 02b + 05b + 16 + 17/18 + 10b + 11b + 19 + 20/21 + 22/23。归属：`Export_UiScreenshots_ForReview` 12 张；
+- 截图窗口基础尺寸 1120×720（`UiScreenshotTests` 内写死，与主窗口默认 1464×720 无关，保证构图稳定）；`11/11b` 与 `24~26` 使用 1120×1200 专用窗口（整卡/档位区块入画）。
+- **清单（2026-10-22 实测；改动 UI 或新增导出后同步本清单）**：八个导出组共 31 张——
+  01-15 + 02b + 05b + 16 + 17/18 + 10b + 11b + 19 + 20/21 + 22/23 + 24~27。归属：`Export_UiScreenshots_ForReview` 12 张；
   `Export_LaunchErrorOverlay_ForReview` 10 张（10/10b/11/11b/12/14/24/25/26/27，10b=CanRetry=true 覆盖层；
   该导出同时覆盖启动失败覆盖层与 Linux 启动设置卡（2026-10-03 起 11/11b 含「自定义启动选项」改名与 ⓘ 图标）：umu 启动 + Proton 发行版下拉 + 检查更新按钮 +
   功能开关区 + 自定义启动选项框（ⓘ 图标引导）——11 用 1120×1200 专用窗口整卡入画且在 toast 注入前截

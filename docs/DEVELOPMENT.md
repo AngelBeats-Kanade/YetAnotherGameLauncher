@@ -27,7 +27,7 @@ src/
                     UpdatePlan、DeltaPackage（v2 增量计划/分卷/文件节点）、
                     UpdateProgress、LocalGameState、ChannelVersionInfo、DownloadRequest（单文件下载请求）、
                     LaunchOptions（启动命令模板）、ThemeMode
-    Abstractions/   IGameChannelApi、IDownloader、IPatchApplier（目录差分）、IFilePatchApplier（单文件差分，终末地 v2 载荷）、IProcessRunner、异常类型（UpdateException/LaunchException + LaunchFailureKind、DeltaPackageNotApplicableException/DeltaPackageUnusableException/DeltaPackageSupplyException、PatchToolUnavailableException）、
+    Abstractions/   IGameChannelApi、IDownloader、IPatchApplier（目录差分）、IFilePatchApplier（单文件差分，终末地 v2 载荷）、IProcessRunner、异常类型（UpdateException/LaunchException + LaunchFailureKind、DownloadException/DownloadVerificationException（DownloadExceptions.cs）、DeltaPackageNotApplicableException/DeltaPackageUnusableException/DeltaPackageSupplyException、PatchToolUnavailableException）、
                     IPlatformInfo（平台环境：Linux/GPU 厂商探测、文件管理器打开目录，含 GpuVendor 枚举）、IBackdropResolver（详情页背景解析，含 BackdropKind/BackdropSource）、
                     IUmuComponentProvisioner（原生 umu 组件准备契约）
     Services/       GameCatalogService（含首次运行 CreateDefaultFileAsync）、HttpFileDownloader（+HttpFileDownloaderOptions）、
@@ -40,13 +40,13 @@ src/
                     "基文件与目标零重叠"；下载前空闲空间预检、供给失败保留载荷）、
                     GameLauncherService（启动预检/类目化错误/启动日志）、LocalStateService、SystemProcessRunner（输出泵落盘启动日志）、
                     NetworkProxyManager（全局共享 SocketsHttpHandler，代理切换即时生效）、SpeedLimiter（泄漏桶全局限速）、
-                    ByteProgressAggregator（三条下载链共用的字节进度聚合：per-file 累计→全局增量→100ms 节流投递）、
+                    ByteProgressAggregator（全量/增量/包式/v2 载荷四条下载链共用的字节进度聚合：per-file 累计→全局增量→100ms 节流投递）、
                     AutostartService.cs（IAutostartService + WindowsAutostartService（HKCU Run 注册表）/ LinuxAutostartService（XDG autostart）双实现）、
                     CompatTools（Linux 兼容层单一来源：umu/wine/Proton 发现、prefix 统一路径、推荐链 BuildRecommendedLaunch、Proton 发行版代号/umuId 解析、含 LaunchMode 枚举与 CompatLaunch）、
                     Umu/（原生 umu：UmuPaths、VdfMiniParser、SteamRuntimeCatalog、ToolManifest、UmuPrefix、UmuEnvironment、NativeUmuLauncher、
                     DecoyParentBridge（诱饵父进程桥准备：候选挑选→诱饵复制→helper 落盘到启动器数据目录的 bridge/<游戏id>，
                     并 best-effort 清理旧版 <安装目录>/.yagl/bridge；helper 源码/构建/自检在 tools/wine-parent-bridge/）、
-                    BridgeLaunchStatus（helper 启动状态 READY/ERROR 轮询：把桥启动失败与游戏自身退出码区分开）），
+                    BridgeLaunchStatus（helper 启动状态 STARTING/READY/ERROR 轮询 + 两段 10 秒预算：把桥启动失败与游戏自身退出码区分开）），
                     GameBackdropService（详情页背景远程解析 + 本地缓存编排：区域/游戏版本门控，版本一致零网络）、WindowsPlatformInfo / LinuxPlatformInfo（IPlatformInfo 双实现）+ PlatformInfoFactory（唯一的 OS 选择分支，DI 与各 ViewModel 缺省共用）
     Dependencies/   Wine prefix 依赖安装（管线细节见 docs/ARCHITECTURE.md §3.9）：DependencyManifest/DependencyCatalog（内嵌 catalog.json 清单：解析+校验+聚合错误）、
                     WineRegistryScriptBuilder（清单 → UTF-16LE .reg，供单次 wine reg import）、DependencyPaths（全局下载缓存 ~/.cache/yagl/deps + prefix 内 .yagl-deps 状态目录布局）、
@@ -130,10 +130,12 @@ tests/
   YetAnotherGameLauncher.App.Tests/             # VM + Headless 窗口测试
   # 测试数量单一事实源在 README.md「运行测试」节（带实测日期；README.en.md 为同步翻译），此处不再复制快照
 
-tools/                                          # 不在解决方案里的辅助工程（CI 单独构建/格式门禁）
+tools/                                          # 不在解决方案里的辅助工程
   wine-parent-bridge/                           # 诱饵父进程桥 helper：C# WinExe 自包含单文件（win-x64；
-                                                #   Core 构建目标发布后嵌入为 yagl-parent-bridge.exe 资源，产物不入库）
+                                                #   Core 构建目标发布后嵌入为 yagl-parent-bridge.exe 资源，产物不入库；
+                                                #   由 CI 单独构建/格式门禁）
     verify/                                     # .NET Wine 自检器（dotnet run --project；断言父进程归属与诱饵回收）
+  IconGen/                                      # 图标生成工具（dotnet run --project tools/IconGen；不在 CI 门禁内）
 ```
 
 构建约定（`Directory.Build.props`）：`net10.0`、`Nullable=enable`、`ImplicitUsings`、

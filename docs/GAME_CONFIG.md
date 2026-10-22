@@ -34,7 +34,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `installRoot` | string | 必填 | 安装根目录，支持 `~` 展开；游戏 `installDir` 相对它解析 |
 | `theme` | `"System" \| "Light" \| "Dark"` | `"System"` | 界面主题，System 跟随操作系统（也可在设置页切换） |
 | `downloadSpeedLimitBytes` | long | `0` | 下载限速（字节/秒）；`0` = 不限速 |
-| `language` | string | `"system"` | 界面语言：`"system"` 跟随系统 / `"zh-CN"` / `"en-US"`（也可在设置页切换，即时生效）。字段缺省时应用内默认 `zh-CN`，但首次运行模板写入 `"system"`（跟随系统） |
+| `language` | string | `"zh-CN"` | 界面语言：`"system"` 跟随系统 / `"zh-CN"` / `"en-US"`（也可在设置页切换，即时生效）。模型默认 `zh-CN`；首次运行写入的样例模板是 `"system"`（跟随系统） |
 | `sidebarExpanded` | bool | `true` | 侧栏是否展开（`false` 为图标窄条模式，由界面折叠按钮切换） |
 | `windowWidth` | int? | | 主窗口宽度持久化（DIP），关闭窗口时写回；缺省用内置默认。内部字段，设置页不展示 |
 | `windowHeight` | int? | | 主窗口高度持久化（DIP），关闭窗口时写回；缺省用内置默认。内部字段，设置页不展示 |
@@ -43,7 +43,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `proxyMode` | `"System" \| "None" \| "Manual"` | `"System"` | 出站网络代理：System 跟随系统代理 / None 直连 / Manual 使用 `proxyAddress` |
 | `proxyAddress` | string | | 手动代理地址（如 `http://127.0.0.1:7890`）；`proxyMode` 为 `"Manual"` 时必填且须为可解析的 http(s) URL，其余模式可有可无 |
 | `closeAction` | `"Exit" \| "HideToTray"` | `"Exit"` | 标题栏关闭按钮行为：`Exit` 退出应用 / `HideToTray` 只隐藏窗口并驻留系统托盘（托盘图标唤回，下载与依赖安装继续）。可在设置页切换 |
-| `schemaVersion` | int | `0` | 配置结构版本（内部使用）。旧版本配置首次被新版加载时自动迁移并写回版本号，仅执行一次：`3` 补齐内置模板中同一游戏新增的官方服务器、本地化名称与缺失图标；`4` 把 Linux 裸 `{exe}` 启动模板升级为推荐链；`5` 把存量 `umu-run {exe}` 模板（历史自动生成形态）升级为推荐链；`6` 把内置样例中终末地条目开启的 `launch.decoyParent`（诱饵父进程桥）旗标并入存量配置 |
+| `schemaVersion` | int | `0` | 配置结构版本（内部使用）。旧版本配置首次被新版加载时自动迁移并写回版本号，仅执行一次：`3` 补齐内置模板中同一游戏新增的官方服务器与缺失图标（本地化名称仅在映射整体为空时补齐）；`4` 在 Linux 上把裸 `{exe}` 启动模板升级为推荐链（其他平台只推进版本号）；`5` 在 Linux 上把存量 `umu-run {exe}` 模板（历史自动生成形态）升级为推荐链；`6` 把内置样例中终末地条目开启的 `launch.decoyParent`（诱饵父进程桥）旗标并入存量配置；`7` 把内置样例中鸣潮官服的 `servers[].options.resourcePackIndexUrl`（档位资源包索引）并入存量配置（已有该键时不覆盖） |
 
 ### games[]（GameDefinition）
 
@@ -51,7 +51,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 |---|---|---|---|
 | `id` | string | ✔ | 唯一标识，仅允许字母/数字/`-`/`_`/`.`；`.` 与 `..` 是路径保留段，结尾不能是 `.`（Windows 会规范化尾点，`game.` 与 `game` 同目录）；写入本地状态文件用于校验 |
 | `displayName` | string | ✔ | 默认显示名（列表图标取首字） |
-| `nameLocalized` | object | | 显示名本地化映射，如 `{"zh-CN": "鸣潮", "en-US": "Wuthering Waves"}`；按界面语言取值，缺失回退 `displayName` |
+| `nameLocalized` | object | | 显示名本地化映射，如 `{"zh-CN": "鸣潮", "en-US": "Wuthering Waves"}`；按界面语言取值，精确项缺失时按语言前缀回退（如 `zh-TW` → `zh-CN`），仍无则回退 `displayName` |
 | `channel` | string | ✔ | 渠道实现键：`"kuro"`（鸣潮及库洛系）、`"hypergryph"`（终末地/GRYPHLINE） |
 | `icon` | string | | 官方游戏图标：http(s) URL、本地路径或随包内置资源（`avares://…`，内置样例即用）；加载失败回退显示名首字 |
 | `installDir` | string | ✔ | 安装目录；相对 `settings.installRoot`，也可为绝对路径 |
@@ -74,7 +74,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | `upgradeDlss` | bool | `false` | 注入 `PROTON_DLSS_UPGRADE=1`（连带 `PROTON_ENABLE_NVAPI=1`）：启动时由 protonfixes 把游戏内 DLSS 换成 Proton 内置新版。仅 NVIDIA 显卡生效。设置页「功能开关 → 升级 DLSS 模型」 |
 | `enableProtonLog` | bool | `false` | 注入 `PROTON_LOG=1` + `PROTON_LOG_DIR={启动日志目录}`（与 `launch-*.log` 同源），记录 Proton 运行日志；功能开关打开时覆盖用户手写的同名 `PROTON_LOG_DIR`。设置页「功能开关 → 打印 Proton 日志」 |
 | `resourceQualityTier` | string | | 鸣潮资源包档位：`hd` / `sd` / `uhd` 之一（白名单外/大写拒收）。**两个作用**：①启动时以 `-krqlv=<tier>` 命令行参数传给游戏（官方启动器同款参数，两条启动链均生效）；②决定下载/补包走哪一档资源（2026-10-19 起：同步清单按该档裁剪未选中档位目录 + 只补目标档位包）。留空 = 跟随游戏内设置（生效档 = `hd`，即官方默认 bundle = common + HD），且不追加参数。设置页下拉仅鸣潮渠道显示；启动链不按渠道过滤——手改 JSON 给非鸣潮游戏填了该值仍会传参，非鸣潮请保持留空。按档位下载需服务器带 `resourcePackIndexUrl`（见下表）；没有该地址的服务器档位只作启动参数（设置页给出提示）。档位资源"追加式共存"：切换档位不删旧档内容，清理只经设置页「清理其他档位」显式动作——详见 §1「档位资源包」节 |
-| `decoyParent` | bool | `false` | 诱饵父进程桥（终末地 1.6.3+ 启动校验的修复，2026-10-18；Windows 直启 2026-10-20 接入）：Linux 原生 umu 链与 Windows 直接运行（`{exe}`）均生效。开启后在启动前把游戏目录里鹰角签名的可执行文件（`PlatformProcess.exe` → `UnityCrashHandler64.exe` → `Endfield.exe` 首个存在者）复制为诱饵 `Games.exe`（内容与候选一致时复用现有文件——Windows 上已挂起的诱饵会锁住镜像文件，避免第二次启动被误报为目录不可写；工作目录在启动器数据目录下的 `bridge/<游戏id>/`——`{数据目录}/yagl/bridge/<游戏id>`，Linux `~/.local/share/yagl/bridge/<id>`、Windows `%LOCALAPPDATA%\yagl\bridge\<id>`；游戏安装目录只读，旧版 `<安装目录>/.yagl/bridge` best-effort 清理），并以挂起状态作为游戏进程的父进程（不开启时游戏会弹「请通过官方启动器打开游戏」并以退出码 5 结束）。失败处理按平台/阶段：Linux 候选缺失/准备失败静默回退直启；Windows 必须由 helper 拉起游戏 exe——候选缺失、桥目录不可写或 `commandTemplate` 未直接指向游戏 exe 都会抛可操作错误；准备成功后 helper 在游戏进程创建前失败（状态文件 `ERROR:<码>:<消息>`）在两个平台都抛错，`READY` 之后游戏自身退出码（如校验拒绝的 5）不再算桥失败（静默直启必被游戏拒绝）。内置样例的终末地条目已开启；存量配置由 `schemaVersion 6` 一次性迁移补上；机制、三层判据与真机实测见 [ARCHITECTURE.md §3.1](ARCHITECTURE.md) |
+| `decoyParent` | bool | `false` | 诱饵父进程桥（终末地 1.6.3+ 启动校验的修复，2026-10-18；Windows 直启 2026-10-20 接入）：Linux 原生 umu 链与 Windows 直接运行（`{exe}`）均生效。开启后在启动前把游戏目录里鹰角签名的可执行文件（`PlatformProcess.exe` → `UnityCrashHandler64.exe` → `Endfield.exe` 首个存在者）复制为诱饵 `Games.exe`（内容与候选一致时复用现有文件——Windows 上已挂起的诱饵会锁住镜像文件，避免第二次启动被误报为目录不可写；工作目录在启动器数据目录下的 `bridge/<游戏id>/`——`{数据目录}/bridge/<游戏id>`，Linux `~/.local/share/yagl/bridge/<id>`、Windows `%LOCALAPPDATA%\yagl\bridge\<id>`；游戏安装目录只读，旧版 `<安装目录>/.yagl/bridge` best-effort 清理），并以挂起状态作为游戏进程的父进程（不开启时游戏会弹「请通过官方启动器打开游戏」并以退出码 5 结束）。失败处理按平台/阶段：Linux 候选缺失/准备失败静默回退直启；Windows 必须由 helper 拉起游戏 exe——候选缺失、桥目录不可写或 `commandTemplate` 未直接指向游戏 exe 都会抛可操作错误；准备成功后 helper 在游戏进程创建前失败（状态文件 `ERROR:<码>:<消息>`）在两个平台都抛错，`READY` 之后游戏自身退出码（如校验拒绝的 5）不再算桥失败（静默直启必被游戏拒绝）。内置样例的终末地条目已开启；存量配置由 `schemaVersion 6` 一次性迁移补上；机制、三层判据与真机实测见 [ARCHITECTURE.md §3.1](ARCHITECTURE.md) |
 
 可用占位符：
 
@@ -95,7 +95,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 > 发行版本体用"检查更新"按钮显式检测/更新（更新后自动清理同发行版旧版本目录）；
 > 旧版 wine/Proton 模板仍可运行，进设置页仅作 umu 显示映射，主动切换并保存后才会改写。
 >
-> Wine prefix 由启动器统一放在 `{数据目录}/yagl/prefixes/<游戏id>`
+> Wine prefix 由启动器统一放在 `{数据目录}/prefixes/<游戏id>`
 > （Linux `~/.local/share/yagl/prefixes/`），不写入游戏安装目录——
 > 安装同步的清单外清理不会误删 prefix；需要独立 prefix 时用 `WINEPREFIX`/`STEAM_COMPAT_DATA_PATH` 覆盖。
 
@@ -141,17 +141,17 @@ UHD = common + UHD 66.04 GB，2026-10-16 端点实测）。`launch.resourceQuali
   目录当游离文件删掉）；档位索引不可用的服务器（国际服/B 服）档位只作启动参数。
 - 「清理其他档位」在切换档位后即可执行（不要求先下载新档）：若选中档位尚未落盘，确认文案会附加
   "补齐前游戏可能无法正常运行"的警示。
-- 存量配置由 `schemaVersion 7` 一次性迁移补上样例里的 `resourcePackIndexUrl`（见 §6）。
+- 存量配置由 `schemaVersion 7` 一次性迁移补上样例里的 `resourcePackIndexUrl`（迁移清单见 §1 `settings.schemaVersion`）。
 
 ### 详情页背景与名称本地化（代码内置，不写入配置）
 
-- **详情页背景**：配置文件不携带背景地址。背景缓存元数据记录抓取时的区域与游戏版本，两者均未变化时启动直接用缓存（零网络）；每游戏每启动一次版本/预载检测，**游戏版本更新后**的首次解析才按界面语言选择渠道（中文 → 国服端点，其余 → 国际服端点）向官方接口确认当期背景，地址变化时自动下载到应用数据目录缓存（数据目录下 `backdrops/<gameId>/`，Linux 即 `~/.local/share/yagl/backdrops/`、Windows 即 `%LOCALAPPDATA%\yagl\backdrops\`——2026-09-22 起可重建缓存统一归数据目录，见 §6），离线时回退上次缓存：
+- **详情页背景**：配置文件不携带背景地址。背景缓存元数据记录抓取时的区域与游戏版本，两者均未变化时启动直接用缓存（零网络）；每服务器每启动至多一次版本/预载检测，**游戏版本更新后**的首次解析才按界面语言选择渠道（中文 → 国服端点，其余 → 国际服端点）向官方接口确认当期背景，地址变化时自动下载到应用数据目录缓存（数据目录下 `backdrops/<gameId>/`，Linux 即 `~/.local/share/yagl/backdrops/`、Windows 即 `%LOCALAPPDATA%\yagl\backdrops\`——2026-09-22 起可重建缓存统一归数据目录，见 §6），离线时回退上次缓存：
   - 终末地：官方启动器 `get_main_bg_image` 接口（当期版本主视觉，端点参数取自该游戏 `servers[].options`）。
   - 鸣潮：直连官方启动器运营配置两跳取当期投放（launcher-config 的 `functionCode.background` 哈希 → 背景内容 JSON，背景视频 + 首帧图，随官方投放即时更新；2026-09 起官方弃用固定 `switch.json` 改哈希寻址）。视频不可用时首帧图即一级回退，与终末地同款。
   - 均不可用时回退主题渐变背景。
 - **游戏名**：`nameLocalized` 按界面语言显示（样例模板已含鸣潮/终末地中英文名，旧配置自动迁移补齐）；服务器名等其余配置数据按配置文件原样显示。
 
-## 2. 完整示例
+## 2. 示例（节选）
 
 见 [`samples/games.json`](../samples/games.json)，节选：
 
@@ -249,13 +249,13 @@ Steam Runtime 容器与 Proton，发行版三选一），由启动器自动生�
 - `launch.resourceQualityTier` 非空时须为 `hd` / `sd` / `uhd` 之一
 - `servers` 至少 1 个；服务器 `id` 唯一且非空、`name` 非空
 - JSON 语法错误 / 未知枚举值 → 归一为校验异常提示
-- 容器/元素显式 `null`（`settings`、`launch`、`games[]` 元素、`servers[]` 元素、`nameLocalized`）归一为校验错误（不崩溃）
+- 容器/元素显式 `null`（`settings`、`launch`、`games`/`servers` 容器、`games[]` 元素、`servers[]` 元素、`nameLocalized`）归一为校验错误（不崩溃）；`launch.environment` 与 `servers[].options` 为 `null` 时按空对象处理、不报错
 
 ## 6. 运行时产生的状态文件
 
 | 路径（相对安装目录） | 内容 |
 |---|---|
-| `.yagl/state.json` | 本地版本状态：`gameId`、`serverId`、`version`、`verified`、`resourceTier`（切换游戏/服务器错配时视为未安装）。`verified=false` = 仅由包式渠道"检测到现有文件 → 登记为渠道最新版"的零校验流程写入（未核对任何内容；UI 明示未校验并指向校验修复，旧文件缺该字段时缺省 true）。`resourceTier` = 本地内容对应的档位（`hd`/`sd`/`uhd`，2026-10-19 起由安装/更新/校验修复成功时写入；不支持按档位下载的服务器恒记 `hd`，旧文件缺该字段 = 视为未同步，UI 提示补包） |
+| `.yagl/state.json` | 本地版本状态：`gameId`、`serverId`、`version`、`verified`、`resourceTier`（切换游戏/服务器错配时视为未安装）。`verified=false` = 仅由包式渠道"检测到现有文件 → 登记为渠道最新版"的零校验流程写入（未核对任何内容；UI 明示未校验并指向校验修复，旧文件缺该字段时缺省 true）。`resourceTier` = 本地内容对应的档位（`hd`/`sd`/`uhd`，2026-10-19 起由安装/更新/校验修复成功时写入；支持档位下载的渠道写实际落盘档位，鸣潮未配置档位索引的服务器归 `hd`，包式渠道（终末地）不写该字段（`null`）；旧文件缺该字段 = 视为未同步，UI 仅在支持档位下载的服务器提示补包） |
 | `.yagl/download-session.json` | 未完成的下载标记（2026-10-19）：操作开始时写（含操作种类与游戏/服务器归属）、<b>成功收尾时清</b>，取消/失败/进程中断都留存——重开应用据此把主按钮显示为「继续下载」，并按种类派回被暂停的动作（预下载 → 预下载链；内容已下完/应用中被停 → 应用链续跑）从已下载处续传。只承载"有没有未完成的操作"，进度以磁盘为准（完成文件跳过、`.temp` 走 HTTP Range、暂存按 size/MD5 复用，均见 §6 同族的暂存目录）；标记带归属，同一安装目录被多服务器复用时只认写入本服务器的那条。**不可继续的预下载标记就地清除**：预下载窗口已关闭或本地版本已覆盖目标时，那条 `predownload` 标记无从继续（留着就是假承诺），Core 在报可行动错误/幂等短路的同时清掉它（其它种类的标记不动）；同一安装目录里未完成的更新标记不受影响 |
 | `.yagl/predownload/` | 预下载暂存：`manifest.json`（暂存清单，`stagedAsDeltaPackage=true` 表示增量预下载）+ `patches/`、`files/` 或 `packages/`；增量预下载另有 `delta.json`（v2 应用计划，与 `.yagl/delta` 的载荷配套）。**清理时机 = 各链应用的提交点（状态落盘之后）**：载荷与暂存清单在提交前一律保留（2026-10-19 二审 N2），续跑因此走"应用链续跑"零下载重解压/重应用，而不是重下整包差量 |
 | `.yagl/packages` | 包式**整包安装（直接安装/更新、整包回退）的暂存目录**：文件名 + size/MD5 完整时可复用（中断重跑零下载），解压成功后清理；增量更新成功后也会清理它回收空间（实测可达数十 GiB）。预下载内容在 `.yagl/predownload/`，不受影响 |
@@ -271,7 +271,7 @@ Steam Runtime 容器与 Proton，发行版三选一），由启动器自动生�
 `image-cache/`（http 图标缓存）、`gacha/`（鸣潮唤取记录合并缓存）、`prefixes/<游戏id>/`（Wine prefix，见上文；
 其根下 `.yagl-deps/<依赖id>.ok` 为依赖安装完成标记，内容 `依赖id@版本`，随 prefix 删除自动重置；
 手改配置自定义 `WINEPREFIX`/`STEAM_COMPAT_DATA_PATH` 时，标记落在对应 prefix 目录内）。
-依赖下载缓存另在**系统缓存目录**（Linux `~/.cache/yagl/deps`，Windows 回退数据目录 `cache\`）：
+依赖下载缓存另在**系统缓存目录**（Linux `~/.cache/yagl/deps`，Windows `%LOCALAPPDATA%\cache\yagl\deps`）：
 压缩包全局共享（多 prefix 复用，size/MD5 双校验），`staging/<依赖id>/` 为解压暂存（用后即清）。
 依赖安装管线见 docs/ARCHITECTURE.md §3.9。
 

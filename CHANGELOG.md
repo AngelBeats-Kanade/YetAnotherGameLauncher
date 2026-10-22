@@ -65,7 +65,7 @@ Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻�
 
 **实时下载进度与速度**
 
-- 下载进度按字节实时推进（增量差分包 / 全量同步 / 包式三条链统一），不再按文件完成跳变——大文件下载期间进度条纹丝不动的问题消除。
+- 下载进度按字节实时推进（增量差分包 / 全量同步 / 包式 / v2 增量载荷四条链统一），不再按文件完成跳变——大文件下载期间进度条纹丝不动的问题消除。
 - 进度文案附带 EMA 平滑的实时下载速度（中英双语）。
 - 预载/更新失败后重跑只补缺失部分：完好暂存文件按 size+MD5 核验跳过、`.temp` 断点续传（此前重跑会清空暂存从头重下）。
 
@@ -91,9 +91,10 @@ Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻�
 
 ### 修复
 
-**启动（2026-10-21）**
+**启动（2026-10-21/22）**
 
 - 修复 Rider 调试/热重载会话下点「启动游戏」卡死直至超时：启动器继承的宿主 .NET 变量（`DOTNET_DiagnosticPorts` 等，已实锤诊断端口一项会让 Wine 内的 Windows .NET 运行时卡在 Main 之前）被原样传给 Proton → Wine → .NET 桥 helper，helper 永远不写 `STARTING`；现在 `SystemProcessRunner` 在正常的 `UseShellExecute=false` 派生路径中剥离宿主调试/热重载变量族（`DOTNET_DiagnosticPorts`、`DOTNET_DefaultDiagnosticPortSuspend` 等；显式配置仍可覆盖；740 提权回退的 ShellExecute 不经过该剥离）。本地 Wine 探针：设置 `DOTNET_DiagnosticPorts` → 25 秒零状态，空值/未设置 → 0.2 秒 READY；上一批次迁移 C# helper 前 helper 是原生 C，不读该变量，故表现为“迁移后突然卡死”。
+- 原生 umu 链的 Proton 日志目录与启动日志同源（2026-10-22）：`PROTON_LOG=1` 时仅在 `PROTON_LOG_DIR` 缺失、空白或等于启动器托管的日志目录时接管为本次启动日志目录，用户手写的自定义目录保留；功能开关打开时仍以托管值覆盖（与模板直启链一致）。
 
 **界面**
 
@@ -108,6 +109,8 @@ Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻�
 
 **可靠性（内部）**
 
+- 窗口关闭时的尺寸/最大化状态改为同步原子写（`GameCatalogService.Save()`），不再在 UI 线程同步等待异步保存——关闭/退出/托盘隐藏路径不再有阻塞死锁与半写损坏的窗口（2026-10-22）。
+- Windows 上增量应用成功后先释放载荷文件流再删暂存树：此前流句柄仍在作用域内，每次成功更新都残留约 8.72 GiB 载荷（2026-10-22）。
 - **FFmpeg 供给（背景视频依赖，2026-09-24 真机定位）**：目录库改按依赖序预载、绑定就绪探针覆盖全部在用库（BtbN 构建无 RUNPATH、兄弟依赖须先加载——按 AutoGen 请求序加载必败，界面只剩静态海报）；系统库回退只认精确主版本（按库映射 avutil=61/avcodec=63 等，不再一律 `.so.63`）；tar 解包还原符号链接（此前压平成 0 字节文件）并重写存量扁平文件；下载改为 staging + 完成标记 + 原子落位，中断残留的半成品目录在绑定前删除（治愈「一次损坏永久锁死」），完成标记记录资产名、版本不符目录绑定前清掉（应用升级换资产不再绑到旧库）；校验/布局异常不再每次启动重下 60~75MB。
 - **背景视频**：4K 帧位图改按 2 秒宽限回收（每张约 33MB，14 秒循环此前约漏 140MB/分钟）；`FrameSurface` 仅在挂载期订阅（修复重复订阅与脱挂泄漏）；播放器原生帧泄漏（循环结束/异常路径）收口；陈旧资产加载不再落进新会话（海报/静态窗口加代际复核）；停止时有界 join 解码任务（消除退出时 VAAPI destroy 报错）；解码器 EOF 排空（修复循环切点早跳 0.1~0.5 秒）；泊车会话重进不再续播陈旧区域/版本视频。
 - **umu/Proton 容器**：放行根内向上相对符号链接（修复 dwproton 11.0-13 `default_pfx` 提取缺 DLL、游戏启动 0.5 秒即死）；Proton 升级删旧目录后自动重连悬空 builtin 链接（prefix 曾全灭、wine 退出码 53），升级改为先迁移后删旧、迁移不全保留旧树；运行时归档首段失败即清理（不再长期占用数百 MB 缓存）；上游版本/BUILD_ID 白名单校验（防路径穿越）、`SHA256SUMS` 缺条目拒装；替换安装改为先旁置再落位（长目录删除中崩溃不再毁掉可用安装）。
@@ -261,7 +264,7 @@ fix for Endfield package updates plus stale-file cleanup and the delta update pa
 
 **Added — real-time download progress & speed**
 
-- Download progress now advances per byte across all three download chains (incremental patches / full sync / package installs) instead of jumping per completed file — no more frozen progress bars during large-file downloads.
+- Download progress now advances per byte across all four download chains (incremental patches / full sync / package installs / v2 delta payloads) instead of jumping per completed file — no more frozen progress bars during large-file downloads.
 - The progress line carries an EMA-smoothed speed readout (Chinese and English).
 - Failed pre-downloads/updates resume on rerun: intact staged files are verified (size+MD5) and skipped, `.temp` files resume via HTTP Range (previously a rerun wiped the staging directory and restarted from scratch).
 
@@ -285,6 +288,8 @@ fix for Endfield package updates plus stale-file cleanup and the delta update pa
 
 **Fixed — reliability (internal)**
 
+- Window size/maximized state is now persisted with a synchronous atomic write (`GameCatalogService.Save()`), no longer blocking the UI thread on an async save - closing/exiting/hiding to tray no longer has a deadlock or half-written window (2026-10-22).
+- On Windows, a successful delta apply now releases the payload file stream before deleting the staging tree: the handle used to outlive the deletion, leaving about 8.72 GiB of payload behind after every successful update (2026-10-22).
 - **FFmpeg provisioning (the backdrop-video dependency; root-caused on a real machine 2026-09-24)**: directory libs now preload in dependency order and the bind readiness probe covers every library in use (BtbN builds carry no RUNPATH and depend on sibling sonames - loading in AutoGen request order always failed, leaving the static poster); the system fallback accepts exact majors only (a per-library map: avutil=61/avcodec=63 etc., instead of a blanket .so.63); tar extraction restores symlinks (previously flattened into 0-byte files) and re-extracts legacy flattened dirs; downloads go through a staging dir + completion marker + atomic move, and unmarked half-extracted dirs are deleted before any bind (healing the "one interrupted download locks the binding forever" state); the completion marker records the asset name and version-mismatched dirs are removed before binding (an app upgrade no longer binds old libs); checksum/layout failures no longer re-download 60-75MB every session.
 - **Backdrop video**: 4K frame bitmaps retire through a 2s grace queue (about 33MB per bitmap; a 14s-looping 4K backdrop leaked ~140MB/minute); FrameSurface subscribes only while attached (double-subscribe and detached-surface leaks fixed); native frame leaks (loop-end and exception paths) are closed; stale asset loads can no longer land after a newer load (poster/static windows re-check the generation); Stop bounded-joins the decode tasks (exit-time VAAPI destroy errors gone); the decoder drains its reorder buffer at EOF (seam cuts jumped 0.1-0.5s early); re-entering a parked session no longer resumes a stale region/version video.
 - **umu/Proton containers**: in-root relative-upward tar links are allowed again (dwproton 11.0-13 default_pfx extraction lost every DLL and launches died in 0.5s); after a Proton upgrade deletes the old tree, dangling builtin links are relinked (prefixes had died wholesale, wine exit code 53) and upgrades now migrate first, keeping the old tree when migration is incomplete; a first-segment runtime download failure cleans its archive (no more hundreds of MB rotting in the cache); upstream version/BUILD_ID texts are whitelisted (path-traversal segments rejected) and a missing SHA256SUMS entry refuses the install; replacements rename the old tree aside and move the new one in (a crash mid-delete no longer destroys the usable install).
@@ -333,6 +338,10 @@ fix for Endfield package updates plus stale-file cleanup and the delta update pa
 **Fixed — launch hangs under Rider debug/hot-reload sessions (2026-10-21)**
 
 - Fixed the launch button hanging until timeout when the launcher runs under a Rider debug/hot-reload session: host .NET variables inherited by the launcher (notably `DOTNET_DiagnosticPorts`; a local Wine probe showed the Windows .NET helper blocking before `Main` when it is set) were passed through Proton -> Wine -> the .NET bridge helper, which then never wrote `STARTING`. `SystemProcessRunner` now strips the host debug/hot-reload variable family (`DOTNET_DiagnosticPorts` / `DOTNET_DefaultDiagnosticPortSuspend` / `DOTNET_STARTUP_HOOKS` / `DOTNET_HOTRELOAD_NAMEDPIPE_NAME` / `DOTNET_MODIFIABLE_ASSEMBLIES`) from child processes on the normal `UseShellExecute=false` path before appending explicit configuration (the 740 elevation fallback uses `UseShellExecute=true` ShellExecute and does not go through this stripping). Local Wine probe: variable set -> no status for 25 s; unset/empty -> `READY` in 0.2 s. The previous batch's C# helper migration is why this only started after 2026-10-20: the old native C helper ignored .NET variables.
+
+**Fixed — Proton log directory ownership (2026-10-22)**
+
+- The native umu chain now points `PROTON_LOG_DIR` at the launch log directory: with `PROTON_LOG=1`, the launcher takes over only when `PROTON_LOG_DIR` is missing, blank or equal to the managed log directory; a user-written custom directory is preserved. With the feature toggle on, the managed value still wins (same as the template direct-launch chain).
 
 **Fixed — Endfield decoy parent bridge: console-window fix, C# helper, Windows direct launch (2026-10-20)**
 

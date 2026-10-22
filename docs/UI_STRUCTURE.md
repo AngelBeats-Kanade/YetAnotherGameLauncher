@@ -12,7 +12,7 @@
 - 窗口 `Title` 绑定 `MainWindowViewModel.WindowTitle`：游戏页"名 · 应用名"、其余页应用名，经 `OnCurrentPageChanged` 通知。自绘游戏名标题已移除（2026-09-25 用户决定），识别职责由窗口 Title 与侧栏选中项承担。
 - 窗口默认尺寸 `Width=1464 Height=720`、最小 `MinWidth=920 MinHeight=620`（`MainWindow.axaml`；920 恰触发侧栏自动收起）。
 - **整页与详情页大块均为 `Controls/` 下的 UserControl**（2026-09 提取：AboutPage/GachaPage/SettingsPage/GameSettingsPage/DetailActionDock/LaunchErrorOverlay；2026-09-29 增 GameDetailPage——MainWindow 内联的详情页模板整体迁出，五个页面模板全部一行引用，MainWindow 只留窗口骨架+侧栏）。提取约束：窗口骨架的具名元素不能动——`FindControl` 测试依赖 window namescope，UserControl 内名字只有视觉树搜索可见（GameDetailPage 的 PosterImage/ArtworkFallback/EmptyStateCard 全部走视觉树断言）。
-- **MainWindow 样式库在 `Themes/WindowStyles.axaml`**（2026-09-29 自 Window.Styles 迁出，经 `StyleInclude` 引用、作用域保持窗口级）：98 个选择器（按钮四态族/卡片/侧栏/覆盖层/导航动画等）；按钮圆角 10 收敛为该字典 `Styles.Resources` 内的 `ButtonCornerRadius` 令牌（icon-btn 9、caption-btn 8、toast 关闭钮 11 为既有例外；卡片/操作坞/chips 仍为字面 14）；四态按钮族的 presenter 下沉语义逐字保留（skills avalonia-ui 坑 9）。 MainWindow.axaml 只剩窗口骨架（290 行）。
+- **MainWindow 样式库在 `Themes/WindowStyles.axaml`**（2026-09-29 自 Window.Styles 迁出，经 `StyleInclude` 引用、作用域保持窗口级）：选择器集中在按钮四态族/卡片/侧栏/覆盖层/导航动画等（102 个，2026-10-22 实测）；按钮圆角 10 收敛为该字典 `Styles.Resources` 内的 `ButtonCornerRadius` 令牌（icon-btn 9、caption-btn 8、toast 关闭钮 11 为既有例外；裸 `btn-sm`/`back-btn` 未设圆角，沿用 Fluent 默认 3；卡片/操作坞/chips 仍为字面 14）；四态按钮族的 presenter 下沉语义逐字保留（skills avalonia-ui 坑 9）。 MainWindow.axaml 只剩窗口骨架。
 - XAML 引用 C# 常量须 `x:Static`，编译绑定不解析 const。
 - **应用背景层 `Controls/AppBackdrop`**（2026-09-29 补记）：四层 Panel——`AppBackdropBaseBrush` 主题渐变 → `AppBackdropGlowBrush` 光晕 → `AppBackdropGlowWarmBrush` 暖光晕（两光晕 Margin 由宿主 `GlowMargin` StyledProperty 决定，窗口骨架传 `0,46,0,0` 避开标题色带、页面板内缺省全出血）→ 自定义背景图 `UniformToFill`（`AppBackgroundImage` 非空时覆盖前三层——渐变 + 双光晕）。窗口级与 BootSplash、页面板内各一枚。
 - **窗口自绘标题三钮**（2026-09-29 补记）：右上 `StackPanel`（Margin 0,4,8,0）内 `CaptionMinimize`/`CaptionMaximize`/`CaptionClose` 三钮，`caption-btn` 样式 46×34 圆角 8、透明底、hover `AppSidebarHover`（close hover 红 `#E81123` + 白前景）；`MaximizeIcon`/`RestoreIcon` 两个 Path 的可见性由 `IsWindowMaximized` 驱动、tooltip 随态切换（`window_maximize`/`window_restore`）。x:Name 五枚被 headless 测试按 window namescope `FindControl` 引用（代码后置不按名引用：Click 走 XAML 事件接线、图标可见性走绑定）——**留在窗口文件内，不得提取为 UserControl**。
@@ -46,11 +46,12 @@
 - 版本 chip 金色数字走 `AppVersionChipAccent`：暗色 #FFC861 / 亮色 #8A5A0C 成对；chip 底暗 70%/亮 90% 不透明度。三者均受 `ThemeTokenContrastTests` 对比度门禁管辖（2026-09-23 达标）；门禁暗侧最坏背景钉住背板渐变最亮 stop `#131A2E`——改 `AppBackdropBaseBrush` 渐变需同步门禁口径。
 - 顶部渐变纱带 `AppOnArtworkScrimBrush`：全出血**固定高 140**（chips 位置不随窗口缩放、固定高恰好覆盖；主题无关、IsHitTestVisible=False；2026-09-25 曾为压官方烧录 Logo 加深加高至 30% 比例，随标题移除回调本值）。回归 `GameDetailPage_Scrim_DimsArtworkBehindTitleCluster` 像素探针。
 - 未安装空态引导卡 `EmptyStateCard`：`ShowEmptyState` = `!IsInstalled && !CanLaunch`——detected 态（可直接启动）不显示，避免安装引导与启动主钮同屏矛盾。回归 `DetailPageIdentityTests`（渠道/最新版本/服务器/安装目录 + 引导文案 `detail_emptyTitle/emptyHint`）。操作坞启动钮同步 `IsVisible=CanLaunch`，不再以禁用态常驻——隐藏的按钮模板不实例化，断言其 presenter 前景的旧测试已改探针承载。
-- 色值：暗色 accent #2E68E0、亮色 #1E66D6（2026-09-23 经对比度门禁压暗：原 #3D7DFF/#2E7CF6 白字仅 3.77:1/3.94:1；hover 各再压一档），NavIndicator 辉光同色。操作坞底色 `AppOnArtworkDockBrush` + 1px `AppOnArtworkCardBorder` 描边；标签 `AppOnArtworkTertiary` 12px（#B6BCCB，2026-09-23 自 #8F95A6 提亮达标）；值列必须显式 `AppOnArtworkBrush`（继承主题前景在亮色主题会黑字上黑底——judge 实锤）。
+- 色值：暗色 accent #2E68E0、亮色 #1E66D6（2026-09-23 经对比度门禁压暗：原 #3D7DFF/#2E7CF6 白字仅 3.77:1/3.94:1；hover 各再压一档），NavIndicator 辉光固定暗色 accent `#592E68E0`（亮色主题沿用同一值，不随 `AppAccentBrush` 变色）。操作坞底色 `AppOnArtworkDockBrush` + 1px `AppOnArtworkCardBorder` 描边；标签 `AppOnArtworkTertiary` 12px（#B6BCCB，2026-09-23 自 #8F95A6 提亮达标）；值列必须显式 `AppOnArtworkBrush`（继承主题前景在亮色主题会黑字上黑底——judge 实锤）。
 - 旧"页中上方居中合并胶囊"与"标题上墙"（DisplayName 30px + `DetailMetaText` 元信息行）已删除（2026-09-16 起仅留 chips 簇，`detail_meta_*` 本地化键一并移除）。
 - 无插画回退层 `ArtworkFallback`：`AppArtworkFallbackBrush` 底 + 图标水印（`MaxWidth/MaxHeight 380`、Margin `0,0,56,72`、Opacity 0.13）。
 - 校验修复确认条：`ShowRepairConfirm` 驱动（Padding `16,12`、CornerRadius 12、文本 `MaxWidth 430` Wrap、`danger-onart` + `glass-onart` 按钮）。
 - 操作坞内部：dock Padding `16,12`、信息行行距 22、唤取入口图标 19px、启动钮 Padding `32,12`（`DetailActionDock.axaml` / `WindowStyles.axaml`）；**下载/更新等忙碌期启动钮禁用**（`IsEnabled={Binding !IsBusy}`，2026-10-18 用户点名——此前仅命令内早退、外观仍可点），禁用观感由 `accent-onart:disabled` / `glass-onart:disabled`（卡底 + 次级前景，亮暗同一组插画上令牌）承担。
+- **主操作按钮文案优先级**（`DetailActionDock.axaml:87-93` 的 `InstallOrUpdateCommand` 钮，`InstallButtonText`）：有未完成下载 →「继续下载」；未安装 →「安装」/检测到文件 →「校验修复」或包式「登记版本」；档位资源包未下载 →「下载资源包」（优先于更新）；有更新 →「更新」；否则「校验修复」。形态由 `InstallIsPrimary`（仅全新安装）/`InstallIsSecondary`（其余，`glass-onart`）决定；`needs-action` 状态点与档位缺包/续传同源。
 - 操作坞忙碌态：进度条 `ProgressBar.on-artwork`（轨道 `AppOnArtworkTrack` rgba(255,255,255,.20)、填充 `AppOnArtworkBrush`，亮暗同值——Fluent 主题轨道在亮色下压深色坞实测 1.03:1 不可见，2026-10-19 judge 实锤后令牌化，坞体两主题逐像素一致由 `Export_BusyDock_ForReview` 断言）；禁用按钮的内容区图标随 `Button.*:disabled` 的 Foreground 一起下沉（此前是"白图标 + 灰字"混合态）。
 - **忙碌区「暂停」按钮（2026-10-19 增）**：进度条下方 `HorizontalAlignment=Left` 的次级钮（`Classes="glass-onart pressable"`，Padding `16,6` 比设置页 `btn-sm` 略收，避免撑高坞体），`Command={Binding PauseDownloadCommand}`、`IsVisible={Binding CanPauseDownload}`（只有挂了取消源的忙碌态
 ——更新/校验/应用预下载/预下载——才出现；启动/登记/拉清单等忙碌态隐藏，避免点了没反应的死控件）；
@@ -93,7 +94,7 @@
   ②**应用背景**：只读 TextBox（`AppBackgroundPath`）+ 浏览/恢复两钮 + `AppBackgroundSave` 消息槽。
   ③**下载**：安装根目录行（`InstallRootBox` + inline 浏览钮，`*,Auto` ColumnSpacing 12——评审 P2-5 与游戏设置页位置卡同款）+ `InstallRootSave` 槽；限速行（TextBox 宽 140 + 保存钮 + `SpeedLimitSave` 槽）；自启 ToggleSwitch（On/Off 文案本地化）+ `AutostartSave` 槽。各槽互不复用（各自 SaveMessageSlot 实例）。
   ④**关闭按钮**（2026-09-29 增，0.1.3）：`x:Name="CloseActionCard"` 具名（截图测试滚动定位）——两个 RadioButton（退出应用 / 关闭窗口驻留托盘，GroupName=closeAction，`IsChecked` OneWay + 命令即时应用，同自启开关交互）+ hint caption（Wrap）+ `CloseActionSave` 槽。
-  ⑤**网络（代理）**：`ProxyCard` 具名（截图测试滚动定位）——三个 RadioButton（跟随系统/直连/手动，GroupName=proxy）+ 地址 TextBox（`ProxyAddressBox`，缩进 24，`IsEnabled=IsProxyAddressEnabled`）+ 保存钮 + `ProxySave` 槽。`InstallRootBox`/`ProxyAddressBox` 具名供窗口级 Enter 处理器按名分发。
+  ⑤**网络（代理）**：`ProxyCard` 具名（保留测试锚点，当前截图滚动定位的是 ④`CloseActionCard`）——三个 RadioButton（跟随系统/直连/手动，GroupName=proxy）+ 地址 TextBox（`ProxyAddressBox`，缩进 24，`IsEnabled=IsProxyAddressEnabled`）+ 保存钮 + `ProxySave` 槽。`InstallRootBox`/`ProxyAddressBox` 具名供窗口级 Enter 处理器按名分发。
   ⑥**配置文件**：路径只读展示（13px 辅助色 Wrap）+ 打开所在目录钮。
   底部"返回游戏" `back-btn`。截图 `05-settings-dark`（滚动定位 ④卡）/`05b-settings-light`。
 

@@ -115,9 +115,9 @@ flowchart TD
   （鸣潮 krpdiff 与开源 HDiffPatch 全线构建不兼容：真机实证官方 v4.8.0/v5.1.3 的 Linux 与
   Windows 构建、master 源码自编译一律退出码 109 读不了 krpdiff 头；供给 ww-manager 社区打包的
   hpatchz.exe，MD5 实测校验，产出经官方清单核对）。Linux 经 wine 运行（系统 wine 或已装 Proton
-  自带 wine——CompatTools.FindProtonWine，独立 WINEPREFIX 于 tools/hpatchz/ww-v4.8.0/prefix，
+  自带 wine——CompatTools.FindProtonWine，独立 WINEPREFIX 于 `{数据目录}/yagl/tools/hpatchz/ww-v4.8.0/prefix`（非仓库 `tools/`），
   不污染 ~/.wine）；Windows 原生直跑；已就绪零网络。对齐 FFmpeg 库/umu 组件的自动供给哲学。
-- **包式（终末地）**：清单 = 压缩包（packs），下载解压即安装；无按版本差分，更新=请求新版本整包，预下载=响应 `patch` 节点。
+- **包式（终末地）**：清单 = 压缩包（packs），下载解压即安装；没有 krpdiff 式目录差分清单，更新优先请求官方 v2 增量载荷（按本地→目标版本，9 卷 ≈8.72 GiB），不可得/不适用才回退请求新版本整包；预下载=响应 `patch` 节点。
   解压**只覆盖不删除**，所以更新落地后还要按官方废弃清单清理上一版残留（`IGameChannelApi.GetObsoleteFilesAsync`：
   带本地版本请求时官方补丁包内的 `delete_files.txt`，经 `RemoteZipEntryReader` 的 Range 分段读取取出；
   1.5.3→1.6.4 实测 324 条 / 47.72 GiB 旧 VFS 分块）。
@@ -150,7 +150,7 @@ sequenceDiagram
 
 启动是**即启即走**（fire-and-forget）：`ProcessStartSpec.WaitForExit = false`，
 启动器不等待游戏退出、不杀进程树。游戏 stdout/stderr 经输出泵写入
-`~/.local/share/yagl/logs/launch-<游戏id>-<时间戳>.log`（逐行读取到 EOF——
+`{AppPaths.LogDirectory}/launch-<游戏id>-<时间戳>.log`（`AppPaths.LogDirectory` = Linux `~/.local/share/yagl/logs`、Windows `%LOCALAPPDATA%\yagl\logs`；逐行读取到 EOF——
 不用 `BeginOutputReadLine` 事件：`WaitForExit()` 只排空 stdout，stderr 会丢；
 日志路径模式的进程句柄在泵收尾后才释放，`using` 作用域提前 Dispose 会掐断管道）。
 游戏秒退的排查线索由日志尾注 + 应用日志共同记录：退出码与存活时长。
@@ -159,7 +159,7 @@ sequenceDiagram
 事件与异常尾巴都在这里，事故复盘不再只能靠文件 mtime（2026-10-17 立案④）。
 
 **预检**（`BuildPlan` 内）：① 主程序存在（`ExecutableMissing`）；② 模板首段可执行——
-裸命令名按 PATH 解析（找不到 → `RuntimeMissing`），绝对路径缺执行位自动补
+裸命令名按 PATH 解析（找不到 → `RuntimeMissing`；Windows 生产路径把裸命令交给 `CreateProcess` 的 PATH/PATHEXT，缺失在启动期报 `StartFailed`），绝对路径缺执行位自动补
 `chmod +x`（从压缩包解出的 proton 脚本常见，补不上 → `RuntimeNotExecutable`）；
 ③ `WINEPREFIX` / `STEAM_COMPAT_DATA_PATH` 目录创建（Proton 要求已存在，
 失败 → `PrefixCreateFailed`）。失败抛 `LaunchException`（`UpdateException` 子类，
@@ -247,9 +247,10 @@ helper 写出首个状态（`STARTING`）前用启动上限（10 s，Linux 链�
 `useWayland` → `PROTON_USE_WAYLAND=1`（DW 同时接受 PROTON_ENABLE_WAYLAND 别名，同一 compat 选项）；
 `upgradeDlss` → `PROTON_DLSS_UPGRADE=1` + `PROTON_ENABLE_NVAPI=1`（DLSS 依赖 NVAPI；由 protonfixes
 在启动时替换游戏内 nvngx_dlss.dll，仅 NVIDIA 生效）；`enableProtonLog` → `PROTON_LOG=1` +
-`PROTON_LOG_DIR={应用日志目录}`。原生链在 `BuildPlan` 中以 `NativeUmuLauncher` 的日志目录接管
-`PROTON_LOG_DIR`（缺失/空值/托管的应用日志目录才接管；功能开关关闭时用户手写目录保留，
-开关打开时 `FeatureEnvironment` 已先以托管值覆盖），与启动日志同源；
+`PROTON_LOG_DIR={启动日志目录}`。原生链在 `BuildPlan` 中以 `NativeUmuLauncher` 的日志目录接管
+`PROTON_LOG_DIR`（缺失/空值/托管值 `AppPaths.LogDirectory` 才接管；功能开关关闭时用户手写目录保留，
+开关打开时 `FeatureEnvironment` 已先以托管值覆盖）；生产组合根把启动日志目录与应用日志目录都设为
+`AppPaths.LogDirectory`，两者默认同址。
 启动日志目录默认 `{dataHome}/yagl/logs`（`dataHome` 缺省即 `AppPaths.LogDirectory`）。两个启动链在各自入口做同型合并、开关键优先于用户同名配置：
 模板直启链在 `GameLauncherService.BuildPlan`，原生 umu 链在 `GameItemViewModel.LaunchAsync`
 （经 `extraEnvironment`）。原生链合并时 `UMU_ID`/`GAMEID` 在 `launch.umuId` 显式设置时不被
@@ -266,7 +267,7 @@ helper 写出首个状态（`STARTING`）前用启动上限（10 s，Linux 链�
 外部 `umu-run` zipapp 路径（`UmuLauncherInstaller`）已整体移除；存量模板经 schemaVersion 5 迁移转入原生链。
 Wine prefix 统一在 `{数据目录}/yagl/prefixes/<游戏id>`（`STEAM_COMPAT_DATA_PATH` 同址），
 绝不写入游戏安装目录——安装同步的清单外清理不会误删 prefix（`GameInstallService.PreservedEntries`
-保留名单把 prefix/`compatdata` 列入纵深防御：prefix 内有注册表/着色器缓存/用户数据，误删即毁游戏环境）。
+保留名单把旧版 `compatdata`（曾存放 Proton prefix）列入纵深防御：prefix 内有注册表/着色器缓存/用户数据，误删即毁游戏环境）。
 本地解析同样按主机架构过滤（`FindInstalledProton` byName 与 `FindLatestLocalProton` 经 `MatchesHostArch`）：
 已装的错架构目录视同缺失、下次启动自动重装自愈。更新清理（`PruneOtherProtonVersions`）与安装共用
 `proton.lock`；**删除旧版前先把受管 prefix 指向它的 builtin 链接当场迁到新版**（`WinePrefixBuiltinRepair.RepointTree`
@@ -394,13 +395,13 @@ flowchart TD
 `PredownloadAsync` 在本地版本已达到/超过预下载目标时**短路为幂等空操作**（F66，2026-09-29）：
 否则包式渠道会无条件整包重下数十 GB、Kuro 侧给出"no patch for local version V2"的自相矛盾文案
 （此时 local 就是 V2）；UI 预下载入口同步按本地版本隐藏（预下载目标版本未知的渠道保持旧可见性），
-短路返回的 From==To 摘要以 `predownload_alreadyCurrent` 文案提示"无需重复预下载"。
+短路返回的摘要满足 `To` 不比 `From` 新（版本归一化比较，覆盖本地已超过目标与 `3.6`/`3.6.0` 形态漂移）时，以 `predownload_alreadyCurrent` 文案提示"无需重复预下载"。
 预载暂存**重跑不重置**（2026-10-02）：完好暂存文件按 size+MD5 条目级核验跳过、`.temp` 由下载器
 Range 续传（此前整树清空会把已下载的几十 GB 全部作废重下）；清单版本切换的孤儿残留由 Apply 成功时
 的整目录清理回收。旧版本写入的暂存清单没有分卷标记（字段缺省 = false），Apply 阶段按
 `SplitVolumeNaming` 复算认定并重排（2026-10-17 复审补：否则分卷暂存会退回逐卷解压——正是用户报障
 形态，而此刻几十 GiB 已下载完；序号不连续则明确报错）。下载进度为**字节级实时**（下载器 64KB 回调 → `ByteProgressAggregator` 全局增量 →
-100ms 节流投递，三条链共用；进度口径 = 本地已就绪字节，含续传起点；重跑暂存时的逐块 MD5 核验同样
+100ms 节流投递，全量/增量/包式/v2 载荷四条链共用；进度口径 = 本地已就绪字节，含续传起点；重跑暂存时的逐块 MD5 核验同样
 经该管道上报字节——判未就绪时负增量回吐，故核验阶段也有进度与速度反馈），UI 端 `GameItemViewModel`
 按 ≥0.4s 采样 EMA 平滑显示下载速度。HTTP 4xx（除 408/429/416 特判）为永久失败、单次终止带状态码
 （404 重试三次只是拖长失败，2026-10-02 用户 log 实证）。
@@ -440,8 +441,8 @@ flowchart LR
   文件在盘时直接返回缓存、不调解析器；版本变化后的解析若地址未变则仅升级元数据不重下。
   `ResolveCachedAsync` 纯磁盘读取（启动预加载用），`GetCachedGameVersion` 供 VM 免网络对齐资产版本。
 - **启动资产预热与一次性版本检测**（`MainWindowViewModel.WarmupGames` + `GameItemViewModel`）：
-  启动时全部游戏并行 `PreloadAssetsAsync`（图标 + 背景仅读磁盘缓存）让侧栏图标即刻可见；
-  每游戏每启动一次 `GetVersionInfoAsync`（`GameItemViewModel` 按 SelectedServer 会话缓存，
+  启动时非选中游戏并行 `PreloadAssetsAsync`（图标 + 背景仅读磁盘缓存）让侧栏图标即刻可见（选中游戏跳过预热，由 `SelectedGame` 赋值触发的完整刷新加载）；
+  每服务器每启动至多一次 `GetVersionInfoAsync`（`GameItemViewModel` 按 SelectedServer 会话缓存，
   选中/切语言/操作完成后的刷新不再打网络；测试经 `ResetVersionCheckCache` 模拟重启），
   版本检测成功且与资产缓存记录版本不一致时才重新解析背景并重取 http 图标。
   图标 URL 缓存于 `%DataDirectory%/image-cache/`（`BackgroundImageService`，URL SHA256 键；
@@ -468,8 +469,9 @@ flowchart LR
   （落后超阈值重定基线，不做爆发追帧），渲染尺寸 clamp ≤4K（防呆上限：官方投放原样渲染不降采样，
   2026-09 实测投放最高 2324×1392；解码本就按源分辨率全量进行，clamp 只作用于 swscale 输出目标），
   静音不解码音轨。
-  硬解日志语义：设备创建成功/失败（含 `av_strerror` 错误文本）各一条，`avcodec_open2` 后再打一条
-  协商出的分辨率与像素格式（`2324x1392 vaapi_vld (hardware)` / `2048x1216 yuv420p (software)`）——设备创建成功 ≠ 硬解生效，
+  硬解日志语义：设备创建成功/失败（含 `av_strerror` 错误文本）各一条；`avcodec_open2` 打开后记录分辨率与设备挂载状态
+  （`decoder opened {Width}x{Height} (…hw device attached…|no hw device…)`）；首帧成功解码后再记录协商出的像素格式与
+  `hardware/software` 判定（`decoder output {Format} (hardware|software)`）——设备创建成功 ≠ 硬解生效，
   协商格式才是判据；循环点分析源刻意纯软解，不打硬解日志（勿把"软解分析"误读成回退失败）。
 - **原生库供给**（`FfmpegLibraryResolver`，与 FFmpeg.AutoGen 9.0 绑定精确配套 = libavcodec 主版本 63）：
   应用数据目录已下载库 → 系统库（Linux 探测 `libavcodec.so.63`——其它主版本 ABI 不配套会崩，宁缺毋滥；
@@ -732,7 +734,7 @@ flowchart LR
 自带戳记，应用时按"实际核实过的档位"落盘——窗口期提前应用（跳过修复轮）时记暂存档位而非用户当前选择，
 避免把没下载的档呈现成已就绪。
 
-**续传标记（暂停/跨会话）**：`DownloadSessionService` 在 `UpdateAsync` / `PredownloadAsync` /
+**续传标记（暂停/跨会话）**：`DownloadSessionService` 在 `UpdateAsync`（全新安装记 `install`，否则 `update`）/ `PredownloadAsync` /
 `ApplyPredownloadAsync` 开始时写 `.yagl/download-session.json`（含操作种类与游戏/服务器归属）、成功收尾才清；
 取消（暂停按钮即取消本次操作）、失败、进程被杀都留存。进度与产物一律以磁盘为准：完成文件由快速校验跳过、
 半成品 `.temp` 走 HTTP Range、预载/整包暂存按 size/MD5 复用——无独立进度记录，也就无进度与磁盘不一致的窗口。

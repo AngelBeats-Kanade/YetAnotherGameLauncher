@@ -17,7 +17,7 @@
 - **`DeflateStream`/`GZipStream` 默认 Dispose 会连带关闭内层流**（2026-10-18 实锤：流式 AES 解密器被
   `DeflateStream` 作用域提前 Dispose，随后的"读尽剩余密文再验 HMAC"直接 `ObjectDisposedException`）：
   内层流在解压器退出后还要继续用（补读尾部/校验/复用）时必须 `new DeflateStream(inner, mode, leaveOpen: true)`；
-  该重载 .NET 9 起才有。另：增量 HMAC 用 `IncrementalHash.CreateHMAC(SHA1, key)`（`AppendData`/
+  该重载自 .NET Framework 4.5 / .NET Core 1.0 起即有（.NET 9 新增的是 `ZLibCompressionOptions` 重载）。另：增量 HMAC 用 `IncrementalHash.CreateHMAC(SHA1, key)`（`AppendData`/
   `GetHashAndReset`），`HMACSHA1` 本类没有增量方法。
 - **UI 线程上同步等待 async（`.GetAwaiter().GetResult()` / `.Result` / `.Wait()`）会死锁：Avalonia 续体要回 Dispatcher，而阻塞的 UI 线程不泵队列**（2026-10-20 修复 `PersistWindowState`；同族事故 2026-09-06 设置页 `QueryWindowsAsync` 死锁 f38bbb6）。关闭/退出/托盘隐藏路径必须保证落盘时用**纯同步**原子写（`FileUtilities.WriteAtomic`），不要用"同步等待 async"；`ConfigureAwait(false)` 只是库侧缓解，不是根因修复——它管不到 App 层的阻塞调用，也挡不住未来某个库方法漏配。改这些路径前先按本条检查。
 - **`await using` 不等于真异步；声明式 `await using var` 无法配置 `ConfigureAwait`**（2026-10-20 dotnet/runtime 源码复核）：`Stream.DisposeAsync` 默认同步调用 `Dispose()`；只读 `FileStream` / HTTP 响应流释放时没有真正的异步 I/O，写流（`FileStream` 写缓冲非空）才可能异步 flush。CA2007 对声明式 `await using` 的告警无法用 `ConfigureAwait(false)` 消除（编译器生成的 `DisposeAsync` 续体），只读流改 `using`；写流要保留异步释放时用块形式 `await using (stream.ConfigureAwait(false))`（本项目清零 pragma 的形态），或退回窄 pragma。
