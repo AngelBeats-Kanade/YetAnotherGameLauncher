@@ -1,6 +1,5 @@
 using Xunit;
 
-using YetAnotherGameLauncher.Core;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Services.Umu;
@@ -115,7 +114,8 @@ public class NativeUmuLaunchRoutingTests : IDisposable
         // 启动选项开关注入（FeatureEnvironment 单一事实源）：开关写入最终容器环境
         Assert.Equal("1", env["PROTON_USE_WAYLAND"]);
         Assert.Equal("1", env["PROTON_LOG"]);
-        Assert.Equal(AppPaths.LogDirectory, env["PROTON_LOG_DIR"]);
+        // NativeUmuLauncher 的缺省日志目录跟随注入的 dataHome；PROTON_LOG_DIR 与启动日志同源。
+        Assert.Equal(Path.Combine(_temp.Path, "yagl", "logs"), env["PROTON_LOG_DIR"]);
         // 配置里的代号不得泄漏到最终环境（已解析为绝对路径）
         Assert.NotEqual("DW-Proton", env["PROTONPATH"]);
     }

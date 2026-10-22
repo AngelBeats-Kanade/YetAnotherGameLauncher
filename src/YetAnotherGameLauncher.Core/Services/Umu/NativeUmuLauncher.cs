@@ -18,6 +18,10 @@ public sealed record UmuNativeLaunchPlan(
 /// 原生 umu 启动器：解析 Proton/Runtime → 准备 prefix → 构建环境 → 经容器 entry-point 启动。
 /// 默认不依赖外部 Python umu-run。仅在 Linux 上有意义；Windows 调用直接抛错。
 /// </summary>
+/// <remarks>
+/// <c>logDirectory</c> 是启动日志目录；覆盖它时应同时传 <c>appLogDirectory</c>（应用日志、
+/// 超时提示用），否则提示可能指向组合根未写入的文件。应用日志目录不从启动日志目录反推。
+/// </remarks>
 public sealed class NativeUmuLauncher(
     IProcessRunner processRunner,
     IUmuComponentProvisioner? provisioner = null,
@@ -29,8 +33,9 @@ public sealed class NativeUmuLauncher(
     /// <summary>诱饵父进程桥准备器（终末地 1.6.3+ 启动校验；无状态，可安全共享）。</summary>
     private readonly DecoyParentBridge _decoyBridge = new(logger);
 
-    /// <summary>启动日志目录（显式注入便于测试/自定义部署）。</summary>
-    private readonly string _logDirectory = logDirectory ?? AppPaths.LogDirectory;
+    /// <summary>启动日志目录（显式注入便于测试/自定义部署；缺省跟随 dataHome 下的 yagl/logs）。</summary>
+    private readonly string _logDirectory = logDirectory
+        ?? Path.Combine(dataHome ?? AppPaths.DataHomeDirectory, "yagl", "logs");
 
     /// <summary>应用日志目录（超时提示用；不能从启动日志目录反推）。</summary>
     private readonly string _appLogDirectory = appLogDirectory ?? AppPaths.LogDirectory;
@@ -168,6 +173,15 @@ public sealed class NativeUmuLauncher(
                 // 与 GameLauncherService.Expand 一致：环境值支持 {exe}/{installDir}
                 environment[key] = GameLauncherService.Expand(value, exe, installFullPath);
             }
+        }
+
+        // Proton 日志目录与启动日志同源：feature 开关注入 PROTON_LOG=1 时，原生链用 launcher
+        // 的日志目录覆盖调用方传入值（模板直启链在 BuildPlan 里也是同一目录）；未开开关时
+        // 保留用户配置的 PROTON_LOG_DIR。
+        if (environment.TryGetValue("PROTON_LOG", out var protonLog)
+            && string.Equals(protonLog, "1", StringComparison.Ordinal))
+        {
+            environment["PROTON_LOG_DIR"] = _logDirectory;
         }
 
         // 游戏参数（2026-10-03 Steam 语义）：用户自定义 %command% 之后的 token 在前，启动器
@@ -327,12 +341,12 @@ public sealed class NativeUmuLauncher(
                 if (status.State == BridgeLaunchState.TimedOut)
                 {
                     var message = BridgeLaunchStatus.DescribeTimeout(
-                        status,
-                        BridgeStatusTimeout,
-                        BridgeStartupTimeout,
-                        logPath,
-                        _appLogDirectory,
-                        "Proton/umu 容器冷启动失败或桥 helper 未能运行");
+                        result: status,
+                        readyTimeout: BridgeStatusTimeout,
+                        startupTimeout: BridgeStartupTimeout,
+                        logPath: logPath,
+                        appLogDirectory: _appLogDirectory,
+                        startupFailureReason: "Proton/umu 容器冷启动失败或桥 helper 未能运行");
                     throw new LaunchException(
                         LaunchFailureKind.StartFailed, message, logPath: logPath);
                 }

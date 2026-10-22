@@ -65,6 +65,29 @@ public sealed class NativeUmuLauncherLaunchTests : IDisposable
     }
 
     [Fact]
+    public void BuildPlan_ProtonLogDirectoryUsesLauncherLogDirectory()
+    {
+        // 原生链的 PROTON_LOG_DIR 必须与启动日志目录同源；调用方（GameItemViewModel）
+        // 目前按 AppPaths.LogDirectory 预先注入，launcher 注入自定义 logDirectory 后要覆盖它。
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("BuildPlan 仅 Linux（由 Linux 腿覆盖）");
+        }
+
+        var logDirectory = _temp.FilePath("custom-logs");
+        var plan = BuildPlanWithExtraEnvironment(
+            new Dictionary<string, string>
+            {
+                ["PROTON_LOG"] = "1",
+                ["PROTON_LOG_DIR"] = _temp.FilePath("wrong-logs"),
+            },
+            umuId: null,
+            logDirectory: logDirectory);
+
+        Assert.Equal(logDirectory, plan.Environment["PROTON_LOG_DIR"]);
+    }
+
+    [Fact]
     public void BuildPlan_LogsResolvedCommandAtDebugLevel()
     {
         // 2026-10-02 用户需求：与 GameLauncherService 同型——Debug 级输出全量启动面（entry exe +
@@ -249,10 +272,16 @@ public sealed class NativeUmuLauncherLaunchTests : IDisposable
     /// <summary>BuildPlan 组装（守卫两腿共用）：假 Proton + steamrt4 运行时 + 真实 exe。</summary>
     private UmuNativeLaunchPlan BuildPlanWithExtraEnvironment(
         Dictionary<string, string> extraEnvironment, string? umuId, CapturingLogger? logger = null,
-        IReadOnlyList<string>? gameArguments = null, string? resourceQualityTier = null)
+        IReadOnlyList<string>? gameArguments = null, string? resourceQualityTier = null,
+        string? logDirectory = null)
     {
         var runner = new FakeProcessRunner();
-        var launcher = new NativeUmuLauncher(runner, provisioner: null, logger: logger, dataHome: _temp.Path);
+        var launcher = new NativeUmuLauncher(
+            runner,
+            provisioner: null,
+            logger: logger,
+            dataHome: _temp.Path,
+            logDirectory: logDirectory);
         var protonDir = CreateFakeProton();
         var runtimeDir = UmuPaths.RuntimeDirectory("steamrt4", _temp.Path);
         Directory.CreateDirectory(runtimeDir);

@@ -247,7 +247,8 @@ helper 写出首个状态（`STARTING`）前用启动上限（10 s，Linux 链�
 `useWayland` → `PROTON_USE_WAYLAND=1`（DW 同时接受 PROTON_ENABLE_WAYLAND 别名，同一 compat 选项）；
 `upgradeDlss` → `PROTON_DLSS_UPGRADE=1` + `PROTON_ENABLE_NVAPI=1`（DLSS 依赖 NVAPI；由 protonfixes
 在启动时替换游戏内 nvngx_dlss.dll，仅 NVIDIA 生效）；`enableProtonLog` → `PROTON_LOG=1` +
-`PROTON_LOG_DIR={应用日志目录}`。两个启动链在各自入口做同型合并、开关键优先于用户同名配置：
+`PROTON_LOG_DIR={应用日志目录}`。原生链在 `BuildPlan` 中以 `NativeUmuLauncher` 的日志目录覆盖
+`PROTON_LOG_DIR`，与启动日志同源（默认 `AppPaths.LogDirectory`）。两个启动链在各自入口做同型合并、开关键优先于用户同名配置：
 模板直启链在 `GameLauncherService.BuildPlan`，原生 umu 链在 `GameItemViewModel.LaunchAsync`
 （经 `extraEnvironment`）。原生链合并时 `UMU_ID`/`GAMEID` 在 `launch.umuId` 显式设置时不被
 配置 env 反超（首运托管的 `umu-{游戏id}` 残留曾使 umuId 覆盖静默失效）；`PROTONPATH`

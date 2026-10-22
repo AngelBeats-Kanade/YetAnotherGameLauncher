@@ -206,12 +206,12 @@ public sealed class BridgeLaunchStatusTests : IDisposable
         foreach (var helperStarted in new[] { false, true })
         {
             var message = BridgeLaunchStatus.DescribeTimeout(
-                new BridgeLaunchResult(BridgeLaunchState.TimedOut, HelperStarted: helperStarted),
-                TimeSpan.FromSeconds(10),
-                TimeSpan.FromSeconds(10),
-                launchLogPath,
-                appLogDirectory,
-                "test reason");
+                result: new BridgeLaunchResult(BridgeLaunchState.TimedOut, HelperStarted: helperStarted),
+                readyTimeout: TimeSpan.FromSeconds(10),
+                startupTimeout: TimeSpan.FromSeconds(10),
+                logPath: launchLogPath,
+                appLogDirectory: appLogDirectory,
+                startupFailureReason: "test reason");
 
             Assert.Contains(launchLogPath, message, StringComparison.Ordinal);
             Assert.Contains(appLogPath, message, StringComparison.Ordinal);

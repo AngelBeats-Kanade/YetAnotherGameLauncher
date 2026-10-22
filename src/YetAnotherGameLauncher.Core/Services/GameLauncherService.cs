@@ -18,6 +18,10 @@ public sealed record LaunchResult(int ExitCode, string? LogPath);
 /// （<see cref="LaunchWithDecoyParentAsync"/>）；其余路径不做平台假设
 /// （<see cref="ValidateCommand"/> 另有一处 Windows 裸命令 PATH 特例）。
 /// </summary>
+/// <remarks>
+/// <c>logDirectory</c> 是启动日志目录；覆盖它时应同时传 <c>appLogDirectory</c>（应用日志、
+/// 超时提示用），否则提示可能指向组合根未写入的文件。应用日志目录不从启动日志目录反推。
+/// </remarks>
 public sealed class GameLauncherService(
     IProcessRunner processRunner,
     ILogger? logger = null,
@@ -241,12 +245,12 @@ public sealed class GameLauncherService(
             else
             {
                 message = BridgeLaunchStatus.DescribeTimeout(
-                    status,
-                    BridgeStatusTimeout,
-                    BridgeStartupTimeout,
-                    logPath,
-                    _appLogDirectory,
-                    "桥 helper 未能运行");
+                    result: status,
+                    readyTimeout: BridgeStatusTimeout,
+                    startupTimeout: BridgeStartupTimeout,
+                    logPath: logPath,
+                    appLogDirectory: _appLogDirectory,
+                    startupFailureReason: "桥 helper 未能运行");
             }
 
             throw new LaunchException(LaunchFailureKind.StartFailed, message, logPath: logPath);
