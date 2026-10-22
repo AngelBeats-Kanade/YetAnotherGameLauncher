@@ -883,6 +883,18 @@ const MUTATIONS = [
     dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
     method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.NativeUmuLauncherLaunchTests.BuildPlan_RespectsUserProtonLogDirectory',
   },
+  {
+    // 2026-10-22 复审补：M88 改指无条件接管（用户优先面）后，托管值排除项无人扰动。
+    // 摘掉 AppPaths.LogDirectory 比对即把调用方注入的托管值误判为用户目录、不再接管，
+    // 与 M87（改赋值目标）是不同失效面，故单列一条。
+    id: 'M89-umu-managed-value-exclusion',
+    file: 'src/YetAnotherGameLauncher.Core/Services/Umu/NativeUmuLauncher.cs',
+    find: '&& !string.Equals(protonLogDir, AppPaths.LogDirectory, StringComparison.Ordinal);',
+    replace: '&& true;',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.NativeUmuLauncherLaunchTests.BuildPlan_ProtonLogDirectoryUsesLauncherLogDirectory',
+  },
 ];
 
 function run(cmd, args) {
