@@ -178,8 +178,8 @@ public sealed class NativeUmuLauncher(
         }
 
         // Proton 日志目录与启动日志同源：PROTON_LOG=1 时仅接管“未设置/空值/调用方注入的
-        // 应用日志目录（FeatureEnvironment 的托管值）”，用户手写的自定义 PROTON_LOG_DIR 保留
-        //（与模板直启链“开关关闭时用户键优先”一致）。
+        // 应用日志目录（FeatureEnvironment 的托管值）”；用户手写的自定义 PROTON_LOG_DIR 保留
+        //（功能开关打开时调用方已先用托管值覆盖，与模板直启链一致）。
         if (environment.TryGetValue("PROTON_LOG", out var protonLog)
             && string.Equals(protonLog, "1", StringComparison.Ordinal))
         {

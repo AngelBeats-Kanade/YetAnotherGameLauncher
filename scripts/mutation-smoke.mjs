@@ -862,6 +862,27 @@ const MUTATIONS = [
     dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
     method: 'YetAnotherGameLauncher.Core.Tests.Services.SystemProcessRunnerHostEnvironmentTests.RunAsync_FireAndForgetWithLog_StripsInheritedDotnetHostInstrumentation',
   },
+  {
+    // 2026-10-22：托管 PROTON_LOG_DIR 必须被自定义 logDirectory 接管；退回应用日志目录
+    // 会让原生链的 Proton 日志与 launch 日志分叉。
+    id: 'M87-umu-managed-proton-log-dir',
+    file: 'src/YetAnotherGameLauncher.Core/Services/Umu/NativeUmuLauncher.cs',
+    find: 'environment["PROTON_LOG_DIR"] = _logDirectory;',
+    replace: 'environment["PROTON_LOG_DIR"] = AppPaths.LogDirectory;',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.NativeUmuLauncherLaunchTests.BuildPlan_ProtonLogDirectoryUsesLauncherLogDirectory',
+  },
+  {
+    // 2026-10-22：用户手写 PROTON_LOG_DIR 必须保留；把所有非空值都当托管值会吞用户目录。
+    id: 'M88-umu-user-proton-log-dir',
+    file: 'src/YetAnotherGameLauncher.Core/Services/Umu/NativeUmuLauncher.cs',
+    find: '&& !string.Equals(protonLogDir, AppPaths.LogDirectory, StringComparison.Ordinal);',
+    replace: '&& true;',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.NativeUmuLauncherLaunchTests.BuildPlan_RespectsUserProtonLogDirectory',
+  },
 ];
 
 function run(cmd, args) {

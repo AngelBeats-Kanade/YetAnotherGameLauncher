@@ -248,7 +248,8 @@ helper 写出首个状态（`STARTING`）前用启动上限（10 s，Linux 链�
 `upgradeDlss` → `PROTON_DLSS_UPGRADE=1` + `PROTON_ENABLE_NVAPI=1`（DLSS 依赖 NVAPI；由 protonfixes
 在启动时替换游戏内 nvngx_dlss.dll，仅 NVIDIA 生效）；`enableProtonLog` → `PROTON_LOG=1` +
 `PROTON_LOG_DIR={应用日志目录}`。原生链在 `BuildPlan` 中以 `NativeUmuLauncher` 的日志目录接管
-`PROTON_LOG_DIR`（缺失/空值/托管的应用日志目录才接管，用户手写目录保留），与启动日志同源；
+`PROTON_LOG_DIR`（缺失/空值/托管的应用日志目录才接管；功能开关关闭时用户手写目录保留，
+开关打开时 `FeatureEnvironment` 已先以托管值覆盖），与启动日志同源；
 启动日志目录默认 `{dataHome}/yagl/logs`（`dataHome` 缺省即 `AppPaths.LogDirectory`）。两个启动链在各自入口做同型合并、开关键优先于用户同名配置：
 模板直启链在 `GameLauncherService.BuildPlan`，原生 umu 链在 `GameItemViewModel.LaunchAsync`
 （经 `extraEnvironment`）。原生链合并时 `UMU_ID`/`GAMEID` 在 `launch.umuId` 显式设置时不被
