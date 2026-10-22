@@ -51,8 +51,12 @@ public sealed class WineParentBridgeWindowsTests : IDisposable
 
         // 2026-10-20 复审：Windows CI 上把真实 helper 的原子 temp+rename 与 launcher 的
         // 共享读路径放在一起验证（此前两者分别只在 Wine 验证器 / fake runner 覆盖）。
+        // 显式两段参数，避免落回旧 API 的单一总预算（Windows CI 慢时启动段会被 READY 段挤占）。
         var statusResult = await BridgeLaunchStatus.WaitAsync(
-            status, TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            status,
+            TimeSpan.FromSeconds(30),
+            TestContext.Current.CancellationToken,
+            startupTimeout: TimeSpan.FromSeconds(30));
         Assert.Equal(BridgeLaunchState.Ready, statusResult.State);
         Assert.False(File.Exists(status), "READY 状态文件应在读取后清理");
 

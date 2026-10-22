@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using Microsoft.Extensions.Logging;
+using YetAnotherGameLauncher.Core.Utilities;
 
 namespace YetAnotherGameLauncher.Core.Services.Umu;
 
@@ -176,7 +177,8 @@ public static class BridgeLaunchStatus
     /// <summary>
     /// 统一生成两段超时的用户提示（2026-10-21）：helper 未启动走启动预算文案；helper 已启动
     /// 但未 READY 走游戏进程创建文案。调用方只提供各自平台的启动失败原因，避免两条启动链
-    /// 各维护一份模板导致漏改。
+    /// 各维护一份模板导致漏改。提示同时给出启动日志与同目录应用日志路径——first status /
+    /// startup timeout 边界记录在后者（2026-10-22 复审）。
     /// </summary>
     /// <param name="result">超时结果（<see cref="BridgeLaunchState.TimedOut"/>）。</param>
     /// <param name="readyTimeout">READY 段上限。</param>
@@ -190,14 +192,21 @@ public static class BridgeLaunchStatus
         string logPath,
         string startupFailureReason)
     {
+        // first status / startup timeout 诊断写在应用日志（与 launch 日志同目录），
+        // 用户按超时提示打开应用日志才能看到边界；文件名与 FileLoggerProvider 共用单一来源。
+        var appLogPath = FileUtilities.ApplicationLogFilePath(
+            Path.GetDirectoryName(logPath) ?? string.Empty,
+            DateOnly.FromDateTime(DateTime.Now));
+        var appLogHint = $"；桥启动边界日志见应用日志：{appLogPath}";
+
         if (result.HelperStarted)
         {
             return $"诱饵父进程桥已启动，但游戏进程在 {readyTimeout.TotalSeconds:0} 秒内未创建" +
-                   $"（游戏可能仍在启动，也可能已失败）。请查看启动日志：{logPath}";
+                   $"（游戏可能仍在启动，也可能已失败）。请查看启动日志：{logPath}{appLogHint}";
         }
 
         return $"诱饵父进程桥在 {startupTimeout.TotalSeconds:0} 秒内未启动" +
-               $"（{startupFailureReason}）。请查看启动日志：{logPath}";
+               $"（{startupFailureReason}）。请查看启动日志：{logPath}{appLogHint}";
     }
 
     /// <summary>读取状态文件；文件尚未创建/正被替换/权限失败都视为"暂不可读"。</summary>

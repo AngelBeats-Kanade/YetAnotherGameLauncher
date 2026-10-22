@@ -77,7 +77,7 @@ public sealed class FileLoggerProvider : ILoggerProvider
         }
 
         _writer?.Dispose();
-        var path = Path.Combine(_directory, $"{FilePrefix}-{date:yyyyMMdd}.log");
+        var path = FileUtilities.ApplicationLogFilePath(_directory, date);
         var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
         _writer = new StreamWriter(stream) { AutoFlush = true }; // 崩溃/被杀也保住最后几行（事故复盘要的就是它）
         _writerDate = date;

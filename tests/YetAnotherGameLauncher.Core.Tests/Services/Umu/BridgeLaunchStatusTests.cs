@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Xunit;
 using YetAnotherGameLauncher.Core.Services.Umu;
+using YetAnotherGameLauncher.Core.Utilities;
 using YetAnotherGameLauncher.TestSupport;
 
 namespace YetAnotherGameLauncher.Core.Tests.Services.Umu;
@@ -147,21 +148,42 @@ public sealed class BridgeLaunchStatusTests : IDisposable
     public async Task WaitAsync_StartupTimeoutOmitted_ReadyAfterTotalBudget_TimesOut()
     {
         // 省略 startupTimeout 时 timeout 是总预算：STARTING 出现后 READY 段只能使用剩余时间，
-        // 不能重置出第二个完整 timeout。STARTING 在 0.7 s 出现时，旧实现把截止时间推到 1.7 s，
-        // READY 在 1.5 s 会被接受；共享预算应在 1 s 到点超时。
+        // 不能重置出第二个完整 timeout。STARTING 在 1 s 出现时，旧实现把截止时间推到 3 s，
+        // READY 在 2.5 s 会被接受；共享预算应在 2 s 到点超时。时序留足调度余量。
         var path = _temp.FilePath("status.txt");
         File.WriteAllText(path, string.Empty);
 
-        var wait = BridgeLaunchStatus.WaitAsync(path, TimeSpan.FromSeconds(1));
-        await Task.Delay(TimeSpan.FromMilliseconds(700));
+        var wait = BridgeLaunchStatus.WaitAsync(path, TimeSpan.FromSeconds(2));
+        await Task.Delay(TimeSpan.FromSeconds(1));
         File.WriteAllText(path, "STARTING");
-        await Task.Delay(TimeSpan.FromMilliseconds(800));
+        await Task.Delay(TimeSpan.FromMilliseconds(1500));
         File.WriteAllText(path, DecoyParentBridge.ReadyStatus);
 
         var result = await wait;
 
         Assert.Equal(BridgeLaunchState.TimedOut, result.State);
         Assert.True(result.HelperStarted);
+    }
+
+    [Fact]
+    public void DescribeTimeout_IncludesLaunchAndApplicationLogPaths()
+    {
+        var logPath = _temp.FilePath(Path.Combine("logs", "launch-game.log"));
+        var appLogPath = FileUtilities.ApplicationLogFilePath(
+            Path.GetDirectoryName(logPath)!, DateOnly.FromDateTime(DateTime.Now));
+
+        foreach (var helperStarted in new[] { false, true })
+        {
+            var message = BridgeLaunchStatus.DescribeTimeout(
+                new BridgeLaunchResult(BridgeLaunchState.TimedOut, HelperStarted: helperStarted),
+                TimeSpan.FromSeconds(10),
+                TimeSpan.FromSeconds(10),
+                logPath,
+                "test reason");
+
+            Assert.Contains(logPath, message, StringComparison.Ordinal);
+            Assert.Contains(appLogPath, message, StringComparison.Ordinal);
+        }
     }
 
     [Fact]
