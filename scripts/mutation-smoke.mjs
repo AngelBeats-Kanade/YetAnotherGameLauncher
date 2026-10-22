@@ -874,11 +874,11 @@ const MUTATIONS = [
     method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.NativeUmuLauncherLaunchTests.BuildPlan_ProtonLogDirectoryUsesLauncherLogDirectory',
   },
   {
-    // 2026-10-22：用户手写 PROTON_LOG_DIR 必须保留；把所有非空值都当托管值会吞用户目录。
+    // 2026-10-22：用户手写 PROTON_LOG_DIR 必须保留；无条件接管会吞用户目录。
     id: 'M88-umu-user-proton-log-dir',
     file: 'src/YetAnotherGameLauncher.Core/Services/Umu/NativeUmuLauncher.cs',
-    find: '&& !string.Equals(protonLogDir, AppPaths.LogDirectory, StringComparison.Ordinal);',
-    replace: '&& true;',
+    find: 'if (!hasUserDirectory)',
+    replace: 'if (true)',
     project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
     method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.NativeUmuLauncherLaunchTests.BuildPlan_RespectsUserProtonLogDirectory',
