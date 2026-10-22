@@ -38,8 +38,11 @@ public sealed class GameLauncherService(
     /// <summary>应用数据目录（桥工作目录 <c>bridge/&lt;gameId&gt;</c> 的根；测试注入临时目录）。</summary>
     private readonly string _dataDirectory = dataDirectory ?? AppPaths.DataDirectory;
 
-    /// <summary>等待桥 READY/ERROR 的上限（测试注入；生产 30 秒）。</summary>
+    /// <summary>等待桥 READY/ERROR 的上限（测试注入；helper 写出首个状态后开始计时，生产 10 秒）。</summary>
     internal TimeSpan BridgeStatusTimeout { get; init; } = BridgeLaunchStatus.DefaultTimeout;
+
+    /// <summary>等待 helper 写出首个状态的上限（测试注入；Windows 直启无容器冷启动，通常毫秒级）。</summary>
+    internal TimeSpan BridgeStartupTimeout { get; init; } = BridgeLaunchStatus.DefaultStartupTimeout;
 
     /// <summary>解析启动命令。commandTemplate 中以第一个未转义空格为界拆分为文件名与参数（支持引号）。</summary>
     public LaunchPlan BuildPlan(GameDefinition game, string installDir, string effectiveExecutable)
@@ -210,20 +213,37 @@ public sealed class GameLauncherService(
         {
             await processRunner.RunAsync(spec, cancellationToken).ConfigureAwait(false);
             var status = await BridgeLaunchStatus
-                .WaitAsync(statusPath, BridgeStatusTimeout, cancellationToken)
+                .WaitAsync(
+                    statusPath,
+                    BridgeStatusTimeout,
+                    cancellationToken,
+                    startupTimeout: BridgeStartupTimeout,
+                    logger: logger)
                 .ConfigureAwait(false);
             if (status.State == BridgeLaunchState.Ready)
             {
                 return new LaunchResult(0, logPath);
             }
 
-            // ERROR = 游戏进程尚未创建（真桥故障）；超时 = 状态通道没就绪。
-            // READY 之后 helper 透传的退出码是游戏自身的（例如校验拒绝 5），不在此处处理。
-            var message = status.State == BridgeLaunchState.Failed
-                ? $"{DecoyParentBridge.DescribeFailure(status.ExitCode)} {status.Message} " +
-                  $"详见启动日志：{logPath}"
-                : $"诱饵父进程桥在 {BridgeStatusTimeout.TotalSeconds:0} 秒内未就绪" +
-                  $"（游戏可能仍在启动，也可能已失败）。请查看启动日志：{logPath}";
+            // ERROR = 游戏进程尚未创建（真桥故障）；超时 = helper 未启动，或已启动但游戏进程
+            // 未创建（2026-10-21 两段超时语义）。READY 之后 helper 透传的退出码是游戏自身的
+            // （例如校验拒绝 5），不在此处处理。
+            string message;
+            if (status.State == BridgeLaunchState.Failed)
+            {
+                message = $"{DecoyParentBridge.DescribeFailure(status.ExitCode)} {status.Message} " +
+                          $"详见启动日志：{logPath}";
+            }
+            else
+            {
+                message = BridgeLaunchStatus.DescribeTimeout(
+                    status,
+                    BridgeStatusTimeout,
+                    BridgeStartupTimeout,
+                    logPath,
+                    "桥 helper 未能运行");
+            }
+
             throw new LaunchException(LaunchFailureKind.StartFailed, message, logPath: logPath);
         }
         catch (OperationCanceledException)

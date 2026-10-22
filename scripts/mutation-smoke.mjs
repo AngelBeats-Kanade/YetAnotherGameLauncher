@@ -809,6 +809,26 @@ const MUTATIONS = [
     dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
     method: 'YetAnotherGameLauncher.Core.Tests.Services.GameCatalogServiceTests.LoadAsync_GameIdDotSegment_ThrowsValidationException',
   },
+  {
+    // 2026-10-21：容器拉起 helper 的阶段必须按启动上限计时（含 Proton/umu 冷启动），
+    // 与 READY 上限分开；退回单一超时即击杀「helper 迟到但最终 READY」用例。
+    id: 'M82-bridge-status-startup-window',
+    file: 'src/YetAnotherGameLauncher.Core/Services/Umu/BridgeLaunchStatus.cs',
+    find: 'var limit = helperStarted ? timeout : startupLimit;',
+    replace: 'var limit = timeout;',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.BridgeLaunchStatusTests.WaitAsync_HelperStartsAfterReadyTimeout_StillWaitsForStartupWindow',
+  },
+  {
+    id: 'M83-process-runner-keeps-inherited-diagnostic-ports',
+    file: 'src/YetAnotherGameLauncher.Core/Services/SystemProcessRunner.cs',
+    find: '"DOTNET_DiagnosticPorts",',
+    replace: '"DOTNET_DiagnosticPorts_DISABLED",',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.SystemProcessRunnerHostEnvironmentTests.RunAsync_WaitForExit_StripsInheritedDotnetHostInstrumentation',
+  },
 ];
 
 function run(cmd, args) {

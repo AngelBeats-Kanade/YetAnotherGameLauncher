@@ -12,6 +12,10 @@ namespace YetAnotherGameLauncher.Core.Tests;
 /// （复审 P3-3 与第六轮 P3-1，2026-10-17）。
 /// 设置或经过这些代码路径的测试类都必须加入本集合；**关键是找齐 setter**（集合与非集合互斥，
 /// setter 入集合即关闭两个方向）。与 App.Tests 的同名集合同型（本仓先例）。
+/// <para>
+/// 另外，<c>SystemProcessRunnerHostEnvironmentTests</c> 临时改写进程级 <c>Environment</c> 的
+/// .NET 宿主变量（调试/热重载），必须与并行 <c>Process.Start</c> 启动子进程的测试互斥。
+/// </para>
 /// </summary>
 [CollectionDefinition("sequential", DisableParallelization = true)]
 public sealed class SequentialTestCollection;

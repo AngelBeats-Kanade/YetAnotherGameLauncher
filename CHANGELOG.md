@@ -10,7 +10,7 @@
 Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻留 + 关闭按钮行为设置
 （退出应用 / 关闭窗口驻留托盘，下载与依赖安装后台继续）；资源包档位、实时下载进度
 与速度；hpatchz 自动供给与鸣潮 krpdiff 增量更新链终局修复；终末地更新链路（分卷解压修复、官方废弃清单清理、改走官方 v2 增量补丁）；终末地启动链黑窗修复（桥 helper 迁移 C# GUI 子系统）与 Windows 直启接入。
-1560 个测试全绿（2026-10-20 实测）。
+1571 个测试全绿（2026-10-22 实测）。
 
 ### 新增
 
@@ -90,6 +90,10 @@ Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻�
 - 载荷里的静态文件（dll/exe 等）整文件覆盖游戏根；`config.ini` 按官方习惯写成 `config.ini.new`。
 
 ### 修复
+
+**启动（2026-10-21）**
+
+- 修复 Rider 调试/热重载会话下点「启动游戏」卡死直至超时：启动器继承的宿主 .NET 变量（`DOTNET_DiagnosticPorts` 等，已实锤诊断端口一项会让 Wine 内的 Windows .NET 运行时卡在 Main 之前）被原样传给 Proton → Wine → .NET 桥 helper，helper 永远不写 `STARTING`；现在 `SystemProcessRunner` 在正常的 `UseShellExecute=false` 派生路径中剥离宿主调试/热重载变量族（显式配置仍可覆盖；740 提权回退的 ShellExecute 不经过该剥离）。本地 Wine 探针：设置 `DOTNET_DiagnosticPorts` → 25 秒零状态，空值/未设置 → 0.2 秒 READY；上一批次迁移 C# helper 前 helper 是原生 C，不读该变量，故表现为“迁移后突然卡死”。
 
 **界面**
 
@@ -178,7 +182,7 @@ Steam（%command% 占位符）并新增「功能开关」区；系统托盘驻�
 - helper 的 Wine 兼容坑一并固化：`UpdateProcThreadAttribute` 的 `lpValue` 句柄变量必须保活到 `CreateProcessW` 返回（Wine 存指针而非拷贝值，提前释放 → `ERROR_INVALID_HANDLE (6)`）；NativeAOT 跨 OS 交叉编译不可用，helper 采用自包含单文件发布。详见 `docs/PITFALLS.md`。
 - 复审修复（2026-10-20）：Core 的 helper 构建目标显式钉死 `RuntimeIdentifier=win-x64;SelfContained=true` 并在目标内重新 Restore——此前外层 `-p:RuntimeIdentifier=linux-x64` 会压过 helper 工程自己的 RID，发布出无 `.exe` 的 ELF，嵌入资源缺失使干净发布失败；CI 新增 Linux 干净发布冒烟（断言 helper 为 Windows PE 且已嵌入 Core.dll）。
 - 诱饵内容与候选一致时跳过覆盖：Windows 上已挂起的诱饵进程会锁住 `Games.exe`，第二次启动或 helper 被强杀留下孤儿诱饵不再因覆盖失败被报成"桥目录不可写"。
-- Windows 直启与 Linux 原生 umu 链统一改走 **helper 启动状态文件**：helper 在游戏进程创建后写 `READY`，创建前失败写 `ERROR:<退出码>:<消息>`；launcher 等待 READY/ERROR（30 s 上限）而不是看 helper 退出码——既能在两个平台把桥启动失败显示为可操作错误，也不会把游戏自身退出码（如启动校验拒绝的 5）误报成桥故障。
+- Windows 直启与 Linux 原生 umu 链统一改走 **helper 启动状态文件**：helper 在游戏进程创建后写 `READY`，创建前失败写 `ERROR:<退出码>:<消息>`；launcher 等待 READY/ERROR 而不是看 helper 退出码——既能在两个平台把桥启动失败显示为可操作错误，也不会把游戏自身退出码（如启动校验拒绝的 5）误报成桥故障。等待按**两段计时**（2026-10-21）：helper 写出首个状态前用启动上限（10 s，Linux 链含 Proton/umu 容器冷启动），helper 开始执行后用 READY 上限（10 s，游戏进程创建）；两段超时提示分开（helper 未启动 / 已启动但游戏进程未创建）。2026-10-21 真机彻底冷启动实测首个桥状态 READY 4062 ms（10 秒预算余量约 5.9 秒）。之前真机观察到的 74 s 是点击到手动关闭旧实例的时长，属于 READY 之后游戏自身的单实例等待，不在 launcher 的状态等待内（旧的单一 30 s 上限不会等 74 s）——两段超时只约束 helper 启动与游戏进程创建。
 - .NET Wine 自检器只在 Core 构建产物不旧于 helper 源码时复用，否则现场发布，避免改完 helper 后自检静默 PASS 旧二进制。
 
 **其他**
@@ -200,7 +204,7 @@ and dependency installs kept running); resource quality tier selection;
 real-time byte-granular download progress with a speed readout;
 automatic hpatchz provisioning and the definitive fix for the Wuthering
 Waves krpdiff incremental-update chain, plus the split-volume extraction
-fix for Endfield package updates plus stale-file cleanup and the delta update path; the Endfield launch check is handled by a decoy parent bridge (no official launcher needed; Windows direct launch was added on 2026-10-20, and the bridge helper was ported to a C# GUI-subsystem single file to eliminate a spurious console window). 1560 tests green (measured 2026-10-20).
+fix for Endfield package updates plus stale-file cleanup and the delta update path; the Endfield launch check is handled by a decoy parent bridge (no official launcher needed; Windows direct launch was added on 2026-10-20, and the bridge helper was ported to a C# GUI-subsystem single file to eliminate a spurious console window). 1571 tests green (measured 2026-10-22).
 
 **Added — UI overhaul**
 
@@ -326,6 +330,10 @@ fix for Endfield package updates plus stale-file cleanup and the delta update pa
 - Since 1.6.3, Endfield verifies its **direct parent process** (image name + `WinVerifyTrust` signature + signer certificate fingerprint whitelist, implemented in the game's `OneChannelLC.dll`); a direct launch through the native umu chain used to present the container-side `umu.exe` as the parent and was refused (dialog "please open the game through the official launcher", exit code 5). The launch chain now ships a **decoy parent bridge**: a Hypergryph-signed executable already present in the game directory (`PlatformProcess.exe` -> `UnityCrashHandler64.exe` -> `Endfield.exe`, first hit; same signing certificate as the official launcher's `Games.exe`) is copied as the `Games.exe` decoy (into the app-data bridge directory since 2026-10-20, previously `.yagl/bridge/` inside the game directory) and created suspended as the game process's parent - the bundled helper orchestrates this inside wine (create the suspended decoy -> start the game with the parent attribute -> reap the decoy when the game exits), with **zero downloads, no official launcher install and no game files modified**.
 - Gated by `launch.decoyParent` (enabled for Endfield in the built-in sample; existing configs receive it via the one-time schemaVersion 6 migration); missing candidates or preparation failures silently fall back to a direct launch. All three conditions (parent name / signature / fingerprint) plus the three failure codes (10100/10101/10102) were verified by controlled experiments and a passing real-machine run - see `artifacts/bugs.md`.
 
+**Fixed — launch hangs under Rider debug/hot-reload sessions (2026-10-21)**
+
+- Fixed the launch button hanging until timeout when the launcher runs under a Rider debug/hot-reload session: host .NET variables inherited by the launcher (notably `DOTNET_DiagnosticPorts`; a local Wine probe showed the Windows .NET helper blocking before `Main` when it is set) were passed through Proton -> Wine -> the .NET bridge helper, which then never wrote `STARTING`. `SystemProcessRunner` now strips the host debug/hot-reload variable family (`DOTNET_DiagnosticPorts` / `DOTNET_STARTUP_HOOKS` / `DOTNET_HOTRELOAD_NAMEDPIPE_NAME` / `DOTNET_MODIFIABLE_ASSEMBLIES`) from child processes on the normal `UseShellExecute=false` path before appending explicit configuration (the 740 elevation fallback uses `UseShellExecute=true` ShellExecute and does not go through this stripping). Local Wine probe: variable set -> no status for 25 s; unset/empty -> `READY` in 0.2 s. The previous batch's C# helper migration is why this only started after 2026-10-20: the old native C helper ignored .NET variables.
+
 **Fixed — Endfield decoy parent bridge: console-window fix, C# helper, Windows direct launch (2026-10-20)**
 
 - Fixed the full-screen black window that appeared when launching Endfield: the bridge helper used to be a console-subsystem PE, and Wine spawned a `conhost.exe` window for it inside the Proton container (reproduced on a real machine via `hyprctl clients`: `class='conhost.exe'`, title containing the helper path; the helper's stderr is swallowed inside the container, so the window was pure side effect). The helper is now a **C# `WinExe` (GUI subsystem) self-contained single file** (`tools/wine-parent-bridge/`, sources in-repo, no committed binary; the Core build target publishes and embeds it). The real chain (`_v2-entry-point -> proton waitforexitandrun -> helper`) shows no conhost window in both a synthetic fixture and a real game launch, with parent attribution and decoy reaping unchanged.
@@ -333,7 +341,7 @@ fix for Endfield package updates plus stale-file cleanup and the delta update pa
 - **Windows direct launch now uses the same helper**: `launch.decoyParent` is no longer Linux-native-umu-only - on Windows the direct `{exe}` run also starts the game with a suspended decoy as its parent. A `commandTemplate` that does not point straight at the game exe, missing candidates or an unwritable bridge directory now raise an actionable error (a silent direct launch would always be rejected on Windows). Adds a native Windows orchestration test (skipped on Linux) and a .NET Wine verifier (replacing the old shell script and C fixture).
 - Review fixes (2026-10-20): the Core helper build target now pins `RuntimeIdentifier=win-x64;SelfContained=true` and re-runs Restore inside the target - an outer `-p:RuntimeIdentifier=linux-x64` used to override the helper project's own RID, producing an extension-less ELF and breaking the embedded resource on a clean publish; CI adds a Linux clean-publish smoke that asserts the helper is a Windows PE and is embedded in Core.dll.
 - The decoy is no longer overwritten when its content already matches the candidate: on Windows a suspended decoy process locks `Games.exe`, so a second launch (or an orphaned decoy left by a force-killed helper) no longer fails the copy and gets reported as an unwritable bridge directory.
-- Windows direct launch and the Linux native umu chain now share a **helper startup status file**: the helper writes `READY` once the game process exists and `ERROR:<code>:<message>` on a pre-launch failure; the launcher waits for READY/ERROR (30 s cap) instead of interpreting the helper's exit code, so bridge startup failures are actionable on both platforms without misreporting the game's own exit code (e.g. the validation rejection 5) as a bridge fault.
+- Windows direct launch and the Linux native umu chain now share a **helper startup status file**: the helper writes `READY` once the game process exists and `ERROR:<code>:<message>` on a pre-launch failure; the launcher waits for READY/ERROR instead of interpreting the helper's exit code, so bridge startup failures are actionable on both platforms without misreporting the game's own exit code (e.g. the validation rejection 5) as a bridge fault. The wait is **two-phase** (2026-10-21): a 10 s startup budget (including Proton/umu container cold start on Linux) before the helper writes its first status, then a 10 s READY budget for game-process creation; the two timeout paths report different errors (helper did not start / helper started but the game process was not created). A real fully-cold launch on 2026-10-21 reached the first bridge status READY in 4062 ms (about 5.9 s of headroom under the 10 s budget; READY already includes helper startup plus game-process creation). The earlier 74 s observation measured the time until the previous instance was closed manually; that wait belongs to the game's own single-instance handling after READY and is not part of the launcher's status wait (the old single 30 s cap never waited 74 s). The two phases only bound helper startup and game-process creation.
 - The .NET Wine verifier only reuses a Core build output that is not older than the helper sources, and otherwise publishes on the spot, so editing the helper can no longer silently validate a stale binary.
 - Helper Wine quirks are now pinned down: the `lpValue` handle variable passed to `UpdateProcThreadAttribute` must stay alive until `CreateProcessW` returns (Wine stores the pointer instead of copying the value; freeing early fails with `ERROR_INVALID_HANDLE (6)`), and NativeAOT cannot cross-compile across OSes, so the helper uses self-contained single-file publishing. See `docs/PITFALLS.md`.
 

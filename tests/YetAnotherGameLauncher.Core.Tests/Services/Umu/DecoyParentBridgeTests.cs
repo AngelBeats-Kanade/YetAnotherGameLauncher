@@ -123,7 +123,7 @@ public sealed class DecoyParentBridgeTests : IDisposable
     public void TryPrepare_RemovesStaleStatusFilesButKeepsFreshOnes()
     {
         // 状态文件由 launcher 正常清理；崩溃/取消可能留下孤儿。按 1 天阈值清理，
-        // 活跃会话（最多 30 s）不会被误删。
+        // 活跃会话（最多 20 s）不会被误删。
         var install = _temp.FilePath("game");
         Directory.CreateDirectory(install);
         File.WriteAllText(Path.Combine(install, "PlatformProcess.exe"), "signed-decoy");

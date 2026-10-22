@@ -23,7 +23,8 @@ public class GameLauncherServiceTests : IDisposable
         new(_runner, logger, logDirectory: logDir ?? _tempDir.FilePath("logs"), pathValue: pathValue);
 
     /// <summary>假 Windows 平台 + 临时应用数据目录：驱动 decoyParent 的 Windows 直启分支。</summary>
-    private GameLauncherService WindowsService(string dataDirectory, TimeSpan? statusTimeout = null) =>
+    private GameLauncherService WindowsService(
+        string dataDirectory, TimeSpan? statusTimeout = null, TimeSpan? startupTimeout = null) =>
         new(
             _runner,
             logDirectory: _tempDir.FilePath("logs"),
@@ -32,6 +33,7 @@ public class GameLauncherServiceTests : IDisposable
             dataDirectory: dataDirectory)
         {
             BridgeStatusTimeout = statusTimeout ?? BridgeLaunchStatus.DefaultTimeout,
+            BridgeStartupTimeout = startupTimeout ?? BridgeLaunchStatus.DefaultStartupTimeout,
         };
 
     private GameDefinition Game(string commandTemplate = "{exe}") => new()
@@ -490,11 +492,43 @@ public class GameLauncherServiceTests : IDisposable
         _runner.Handler = _ => new ProcessResult(0, "", "");
 
         var ex = await Assert.ThrowsAsync<LaunchException>(
-            () => WindowsService(_tempDir.FilePath("data"), TimeSpan.FromMilliseconds(100)).LaunchAsync(
-                game, _tempDir.Path, "bin/game.exe"));
+            () => WindowsService(
+                    _tempDir.FilePath("data"),
+                    TimeSpan.FromMilliseconds(100),
+                    startupTimeout: TimeSpan.FromMilliseconds(100))
+                .LaunchAsync(game, _tempDir.Path, "bin/game.exe"));
 
         Assert.Equal(LaunchFailureKind.StartFailed, ex.Kind);
-        Assert.Contains("未就绪", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("未启动", ex.Message, StringComparison.Ordinal);
+        Assert.NotNull(ex.LogPath);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_DecoyParent_OnWindows_HelperStartedButGameNotCreated_ReportsReadyTimeout()
+    {
+        // helper 已写出 STARTING，但游戏进程在 READY 窗口内没创建 → 提示必须指向“游戏进程未创建”，
+        // 不能误报“桥未启动”。
+        await CreateExecutable();
+        await File.WriteAllTextAsync(_tempDir.FilePath("PlatformProcess.exe"), "signed-decoy");
+        var game = Game("\"{exe}\"");
+        game.Launch.DecoyParent = true;
+        _runner.Handler = spec =>
+        {
+            File.WriteAllText(
+                spec.Environment![DecoyParentBridge.StatusVariable], "STARTING");
+            return new ProcessResult(0, "", "");
+        };
+
+        var ex = await Assert.ThrowsAsync<LaunchException>(
+            () => WindowsService(
+                    _tempDir.FilePath("data"),
+                    TimeSpan.FromMilliseconds(100),
+                    startupTimeout: TimeSpan.FromSeconds(5))
+                .LaunchAsync(game, _tempDir.Path, "bin/game.exe"));
+
+        Assert.Equal(LaunchFailureKind.StartFailed, ex.Kind);
+        Assert.Contains("已启动", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("未创建", ex.Message, StringComparison.Ordinal);
         Assert.NotNull(ex.LogPath);
     }
 

@@ -24,7 +24,8 @@ Wine/Proton 链与 Windows 原生直启共用同一个 helper。
 - **输出状态**（`YAGL_BRIDGE_STATUS` 指定的文件，原子 temp+rename 写入）：`STARTING` →
   游戏进程创建成功后 `READY`；创建前失败写 `ERROR:<退出码>:<消息>`。**YAGL launcher 启动路径必须
   提供该文件并用 `READY` 判成功**；helper 单独运行/自检可省略。写入失败时 helper 仍继续启动游戏，
-  但 launcher 会按超时报错（不静默成功）。**消费者必须在 READY 之前才把失败视为桥故障**——
+  但 launcher 会按超时报错（不静默成功；等待分两段：helper 启动 10 秒 + READY 10 秒）。
+  **消费者必须在 READY 之前才把失败视为桥故障**——
   `READY` 之后 helper 透传的是游戏自身退出码（例如启动校验拒绝的 5）。
 - **退出码**：`2` = 必填输入缺失；`3` = 诱饵创建/父进程属性失败；`4` = 游戏创建失败；
   否则透传游戏退出码。常量以 `BridgeContract.cs` 为单一来源。
@@ -57,4 +58,4 @@ Wine/Proton 链与 Windows 原生直启共用同一个 helper。
 - 桥工作目录在**应用数据目录**（`<DataDirectory>/bridge/<gameId>`），游戏安装目录只作为诱饵来源
   被读取；旧版 `<installDir>/.yagl/bridge` 由 `DecoyParentBridge` best-effort 清理。
 - 状态文件在 READY/ERROR/超时/取消后删除；异常遗留的 `status-*`（含半写 `.tmp`）由下次
-  `TryPrepare` 按 1 天阈值清理（正常活跃会话的状态文件最多存在 30 秒，不会误删并发启动）。
+  `TryPrepare` 按 1 天阈值清理（正常活跃会话的状态文件最多存在启动窗口 10+10 秒，不会误删并发启动）。

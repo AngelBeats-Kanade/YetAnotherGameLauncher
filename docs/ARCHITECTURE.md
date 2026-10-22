@@ -228,8 +228,11 @@ UMU_ID 由 `launch.umuId` 覆盖（对齐 umu 数据库规范 ID：鸣潮 `umu-3
 `GameLauncherService.LaunchWithDecoyParentAsync` 要求 `commandTemplate` 直接指向游戏 exe（否则
 显式报错，不做静默降级），以原生路径注入同一组变量并启动 helper（即启即走）。两条链都额外传
 `YAGL_BRIDGE_STATUS`：helper 在**游戏进程创建后**写 `READY`，创建前失败写
-`ERROR:<退出码>:<消息>`；launcher 轮询该状态文件（上限 30 s）而不是看 helper 的退出码——
-状态文件写失败/helper 未写 READY 时按超时报错（不静默成功）；helper 会把游戏自身退出码
+`ERROR:<退出码>:<消息>`；launcher 轮询该状态文件而不是看 helper 的退出码——
+状态文件写失败/helper 未写 READY 时按超时报错（不静默成功）；**超时按两段计时**（2026-10-21）：
+helper 写出首个状态（`STARTING`）前用启动上限（10 s，Linux 链的计时从容器入口
+`_v2-entry-point` 启动算起，含 Proton/umu 容器冷启动），helper 开始执行后用 READY 上限（10 s，
+游戏进程创建）；两段超时给出不同提示（helper 未启动 / 已启动但游戏进程未创建）；helper 会把游戏自身退出码
 （如启动校验拒绝的 5）原样透传，只看退出码会把"游戏已启动但拒绝了自己"
 误报成桥故障。helper 以 `CREATE_SUSPENDED` 创建诱饵且永不恢复、经 `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS`
 指定为游戏父进程、等游戏退出后 `TerminateProcess` 回收诱饵并透传退出码——**零下载、不依赖官方

@@ -15,6 +15,19 @@ public sealed class SystemProcessRunner(
     /// <summary>Windows 错误码 740：ERROR_ELEVATION_REQUIRED（可执行文件清单要求管理员权限）。</summary>
     private const int ErrorElevationRequired = 740;
 
+    /// <summary>
+    /// 宿主调试/热重载注入的 .NET 变量（Rider/JetBrains 调试与 Hot Reload）。只属于启动器自身：
+    /// 子进程继承后，Wine 内的 Windows .NET 桥 helper 会在连接调试器 IPC 时挂起，永远不写
+    /// STARTING（2026-10-21 真机实锤：点击启动按钮卡死后超时）。
+    /// </summary>
+    internal static readonly IReadOnlyList<string> HostInjectedDotnetVariables =
+    [
+        "DOTNET_DiagnosticPorts",
+        "DOTNET_STARTUP_HOOKS",
+        "DOTNET_HOTRELOAD_NAMEDPIPE_NAME",
+        "DOTNET_MODIFIABLE_ASSEMBLIES",
+    ];
+
     private readonly bool _supportsElevationRetry = supportsElevationRetry;
 
     /// <summary>
@@ -64,8 +77,24 @@ public sealed class SystemProcessRunner(
             CreateNoWindow = true,
         };
 
-        // 仅在确有自定义环境变量时才触碰 Environment 集合：.NET 一旦发现该集合被访问过，
-        // 就会在 UseShellExecute=true 时抛 InvalidOperationException——提权回退路径会被误伤
+        // 宿主调试/热重载变量只属于启动器自身：子进程（尤其 Wine 内的 Windows .NET 桥 helper）
+        // 继承后会尝试连接不存在的调试器 IPC 并挂起，永远不写 STARTING（2026-10-21 实锤）。
+        // 先剥离继承环境，再按 spec 注入——显式配置的同名变量仍然生效。
+        foreach (var variable in HostInjectedDotnetVariables)
+        {
+            if (startInfo.Environment.Remove(variable))
+            {
+                logger?.LogDebug(
+                    "Stripped inherited {Variable} from child environment (launcher host instrumentation must not leak into launched processes)",
+                    variable);
+            }
+        }
+
+        // 仅在确有自定义环境变量时才逐项注入；提权回退用全新 StartInfo（CreateElevatedStartInfo），
+        // 因此上面访问 Environment 集合不会误伤 UseShellExecute=true 路径（该路径禁止自定义环境）。
+        // 注意：提权回退的 ShellExecute 仍继承启动器当前环境，不经过上面的剥离。当前没有需要
+        // 提权的 .NET 目标——桥 helper 虽是 C# 程序，但清单为 asInvoker，不会触发 740；游戏 exe
+        // 为原生。故无现网影响；若未来提权目标是 .NET，需另设 wrapper 或清理环境（见 docs/PITFALLS.md）。
         if (spec.Environment is { Count: > 0 })
         {
             foreach (var (key, value) in spec.Environment)

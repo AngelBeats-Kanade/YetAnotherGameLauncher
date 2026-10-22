@@ -27,8 +27,11 @@ public sealed class NativeUmuLauncher(
     /// <summary>诱饵父进程桥准备器（终末地 1.6.3+ 启动校验；无状态，可安全共享）。</summary>
     private readonly DecoyParentBridge _decoyBridge = new(logger);
 
-    /// <summary>等待桥 READY/ERROR 的上限（测试注入；生产 30 秒）。</summary>
+    /// <summary>等待桥 READY/ERROR 的上限（测试注入；helper 写出首个状态后开始计时，生产 10 秒）。</summary>
     internal TimeSpan BridgeStatusTimeout { get; init; } = BridgeLaunchStatus.DefaultTimeout;
+
+    /// <summary>等待 helper 写出首个状态的上限（测试注入；Linux 链含 Proton/umu 容器冷启动，生产 10 秒）。</summary>
+    internal TimeSpan BridgeStartupTimeout { get; init; } = BridgeLaunchStatus.DefaultStartupTimeout;
 
     /// <summary>
     /// 解析 Proton 路径（绝对目录或版本代号），必要时经 provisioner 下载，
@@ -298,7 +301,12 @@ public sealed class NativeUmuLauncher(
             if (decoy is not null && statusPath is not null)
             {
                 var status = await BridgeLaunchStatus
-                    .WaitAsync(statusPath, BridgeStatusTimeout, cancellationToken)
+                    .WaitAsync(
+                        statusPath,
+                        BridgeStatusTimeout,
+                        cancellationToken,
+                        startupTimeout: BridgeStartupTimeout,
+                        logger: logger)
                     .ConfigureAwait(false);
                 if (status.State == BridgeLaunchState.Failed)
                 {
@@ -311,11 +319,14 @@ public sealed class NativeUmuLauncher(
 
                 if (status.State == BridgeLaunchState.TimedOut)
                 {
+                    var message = BridgeLaunchStatus.DescribeTimeout(
+                        status,
+                        BridgeStatusTimeout,
+                        BridgeStartupTimeout,
+                        logPath,
+                        "Proton/umu 容器冷启动失败或桥 helper 未能运行");
                     throw new LaunchException(
-                        LaunchFailureKind.StartFailed,
-                        $"诱饵父进程桥在 {BridgeStatusTimeout.TotalSeconds:0} 秒内未就绪" +
-                        $"（游戏可能仍在启动，也可能已失败）。请查看启动日志：{logPath}",
-                        logPath: logPath);
+                        LaunchFailureKind.StartFailed, message, logPath: logPath);
                 }
             }
 

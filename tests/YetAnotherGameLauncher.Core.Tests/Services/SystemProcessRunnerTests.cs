@@ -466,3 +466,106 @@ public class SystemProcessRunnerTests
         }
     }
 }
+
+/// <summary>
+/// 进程级宿主环境变量测试（2026-10-21 复审）：该测试临时改写 <see cref="Environment"/> 的
+/// .NET 调试/热重载变量；xunit.v3 默认并行跑不同测试类，若与直接 <c>Process.Start</c> 启动
+/// .NET helper 的测试重叠，helper 会继承启动钩子/诊断端口并挂起。放入 sequential 集合，
+/// 关闭并行窗口（同仓进程级静态测试缝的既有做法）。
+/// </summary>
+[Collection("sequential")]
+public class SystemProcessRunnerHostEnvironmentTests
+{
+    private const string InheritedMarker = "yagl-inherited-marker";
+    private const string ControlVariable = "YAGL_INHERITED_CONTROL";
+    private const string ControlMarker = "yagl-inherited-control";
+
+    // 故意不复用 SystemProcessRunner.HostInjectedDotnetVariables：本列表是测试契约的独立副本，
+    // 生产列表若误删变量，测试必须变红，而不是跟着缩短。
+    private static readonly string[] HostVariables =
+    [
+        "DOTNET_DiagnosticPorts",
+        "DOTNET_STARTUP_HOOKS",
+        "DOTNET_HOTRELOAD_NAMEDPIPE_NAME",
+        "DOTNET_MODIFIABLE_ASSEMBLIES",
+    ];
+
+    [Fact]
+    public async Task RunAsync_WaitForExit_StripsInheritedDotnetHostInstrumentation()
+    {
+        // 2026-10-21 实锤：Rider 调试/热重载会话给启动器进程注入 .NET 宿主变量；子进程继承后，
+        // Wine 里的 Windows .NET 桥 helper 会在连接调试器 IPC 时挂起，永远不写 STARTING
+        //（本地 Wine 探针：设置 DOTNET_DiagnosticPorts → 25 秒无任何状态；不设置 → READY 0.2 秒）。
+        // 宿主调试/热重载变量只属于启动器自身，正常 UseShellExecute=false 派生路径必须剥离。
+        // 本用例是 M83 的守卫：不要在这里注入同名变量，否则 Remove 失效后会被显式注入覆盖，
+        // 子进程只剩 explicit 值，变异会存活。
+        await WithInheritedHostVariablesAsync(async () =>
+        {
+            var output = await RunEnvironmentDumpAsync();
+            // 正向控制：环境 dump 非空，且 fixture 注入的普通变量确实到达子进程，
+            // 避免 dump 失败时四个 DoesNotContain 全部假绿。
+            Assert.Contains("PATH=", output, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(
+                $"{ControlVariable}={ControlMarker}", output, StringComparison.OrdinalIgnoreCase);
+            foreach (var variable in HostVariables)
+            {
+                // Windows 环境变量名大小写不敏感，cmd /c set 保留存储时的 casing；
+                // 用 Ordinal 会被 Rider 会话里的不同 casing 绕过（2026-10-22 review）。
+                Assert.DoesNotContain(
+                    $"{variable}={InheritedMarker}", output, StringComparison.OrdinalIgnoreCase);
+            }
+        });
+    }
+
+    [Fact]
+    public async Task RunAsync_WaitForExit_ExplicitDotnetVariableOverridesStripping()
+    {
+        // 顺序契约：先剥离继承值，再注入 spec.Environment；显式同名变量必须生效。
+        await WithInheritedHostVariablesAsync(async () =>
+        {
+            var output = await RunEnvironmentDumpAsync(new Dictionary<string, string>
+            {
+                ["DOTNET_DiagnosticPorts"] = "explicit-override",
+            });
+
+            Assert.Contains(
+                "DOTNET_DiagnosticPorts=explicit-override", output, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
+                $"DOTNET_DiagnosticPorts={InheritedMarker}", output, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
+    private static async Task WithInheritedHostVariablesAsync(Func<Task> action)
+    {
+        var variables = HostVariables.Append(ControlVariable).ToArray();
+        var originals = variables.ToDictionary(v => v, Environment.GetEnvironmentVariable);
+        foreach (var variable in variables)
+        {
+            Environment.SetEnvironmentVariable(
+                variable, variable == ControlVariable ? ControlMarker : InheritedMarker);
+        }
+
+        try
+        {
+            await action();
+        }
+        finally
+        {
+            foreach (var (variable, value) in originals)
+            {
+                Environment.SetEnvironmentVariable(variable, value);
+            }
+        }
+    }
+
+    private static async Task<string> RunEnvironmentDumpAsync(
+        IReadOnlyDictionary<string, string>? environment = null)
+    {
+        var (fileName, arguments) = OperatingSystem.IsWindows()
+            ? ("cmd.exe", "/c set")
+            : ("/bin/sh", "-c \"env\"");
+        var result = await new SystemProcessRunner().RunAsync(
+            new ProcessStartSpec(fileName, arguments, Environment: environment));
+        return result.StandardOutput;
+    }
+}

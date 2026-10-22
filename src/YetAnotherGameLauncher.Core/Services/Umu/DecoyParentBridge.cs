@@ -138,7 +138,8 @@ public sealed class DecoyParentBridge(ILogger? logger = null)
 
     /// <summary>
     /// 清理崩溃/取消遗留的状态文件与半写临时文件：只删超过 1 天的（launcher 正常在 READY/ERROR/
-    /// 超时后删除，活跃会话的 status 文件最多存在 30 秒，按时间阈值清理不会误删并发启动）。
+    /// 超时后删除；活跃会话的 status 文件最多存在启动窗口，即启动上限 + READY 上限 10+10 秒，
+    /// 按时间阈值清理不会误删并发启动）。
     /// </summary>
     private static void TryRemoveStaleStatusFiles(string bridgeRoot)
     {

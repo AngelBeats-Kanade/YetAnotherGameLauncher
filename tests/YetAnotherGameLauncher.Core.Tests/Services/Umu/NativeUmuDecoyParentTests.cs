@@ -143,6 +143,7 @@ public sealed class NativeUmuDecoyParentTests : IDisposable
         var launcher = new NativeUmuLauncher(_runner, provisioner: null, dataHome: _temp.Path)
         {
             BridgeStatusTimeout = TimeSpan.FromMilliseconds(100),
+            BridgeStartupTimeout = TimeSpan.FromMilliseconds(100),
         };
         _runner.Handler = _ => new ProcessResult(0, "", "");
 
@@ -151,8 +152,86 @@ public sealed class NativeUmuDecoyParentTests : IDisposable
                 "arknights-endfield", install, "Endfield.exe", protonDir, decoyParent: true));
 
         Assert.Equal(LaunchFailureKind.StartFailed, ex.Kind);
-        Assert.Contains("未就绪", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("未启动", ex.Message, StringComparison.Ordinal);
         Assert.NotNull(ex.LogPath);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_DecoyParent_HelperStartedButGameNotCreated_ReportsReadyTimeout()
+    {
+        // helper 已写出 STARTING，但游戏进程在 READY 窗口内没创建（helper 卡在创建阶段或崩溃，
+        // 不再写 READY）→ Linux 链提示必须指向“游戏进程未创建”，不能误报“桥未启动”。
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("原生 umu 链仅 Linux");
+        }
+
+        var (protonDir, install) = SetupFixture(withPlatformProcess: true);
+        var launcher = new NativeUmuLauncher(_runner, provisioner: null, dataHome: _temp.Path)
+        {
+            BridgeStatusTimeout = TimeSpan.FromMilliseconds(100),
+            BridgeStartupTimeout = TimeSpan.FromSeconds(5),
+        };
+        _runner.Handler = _ =>
+        {
+            WriteBridgeStatus("STARTING");
+            return new ProcessResult(0, "", "");
+        };
+
+        var ex = await Assert.ThrowsAsync<LaunchException>(
+            () => launcher.LaunchAsync(
+                "arknights-endfield", install, "Endfield.exe", protonDir, decoyParent: true));
+
+        Assert.Equal(LaunchFailureKind.StartFailed, ex.Kind);
+        Assert.Contains("已启动", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("未创建", ex.Message, StringComparison.Ordinal);
+        Assert.NotNull(ex.LogPath);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_DecoyParent_HelperStartsAfterReadyTimeout_StillSucceeds()
+    {
+        // 两段计时（2026-10-21）：READY 上限只在 helper 写出首个状态后生效；容器冷启动
+        // 慢于 READY 上限但仍在启动窗口内时，不能提前判桥故障。
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("原生 umu 链仅 Linux");
+        }
+
+        var (protonDir, install) = SetupFixture(withPlatformProcess: true);
+        var launcher = new NativeUmuLauncher(_runner, provisioner: null, dataHome: _temp.Path)
+        {
+            BridgeStatusTimeout = TimeSpan.FromMilliseconds(500),
+            BridgeStartupTimeout = TimeSpan.FromSeconds(5),
+        };
+        Task? statusWriter = null;
+        _runner.Handler = _spec =>
+        {
+            statusWriter = Task.Run(async () =>
+            {
+                await Task.Delay(1000);
+                WriteBridgeStatus("STARTING");
+                await Task.Delay(100);
+                WriteBridgeStatus(DecoyParentBridge.ReadyStatus);
+            });
+            return new ProcessResult(0, "", "");
+        };
+
+        try
+        {
+            var result = await launcher.LaunchAsync(
+                "arknights-endfield", install, "Endfield.exe", protonDir, decoyParent: true);
+
+            Assert.Equal(0, result.ExitCode);
+        }
+        finally
+        {
+            // 观察后台写入异常：否则 WriteBridgeStatus 失败会被启动超时掩盖，看不到真实原因。
+            if (statusWriter is not null)
+            {
+                await statusWriter;
+            }
+        }
     }
 
     [Fact]
