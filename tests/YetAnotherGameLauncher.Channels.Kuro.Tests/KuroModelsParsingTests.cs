@@ -42,7 +42,7 @@ public class KuroModelsParsingTests
         Assert.Equal(["Client/Content/Paks/old.pak"], parsed.DeleteFiles);
         var group = Assert.Single(parsed.GroupInfos!);
         Assert.Equal(0, group.Size); // 组层无 size 键（真机形态），默认 0——size 由渠道层回填
-        var dst = Assert.Single(group.DstFiles);
+        var dst = Assert.Single(group.DstFiles!);
         var chunk = Assert.Single(dst.ChunkInfos!);
         Assert.Equal(0, chunk.Start);
         Assert.Equal(104857599, chunk.End);

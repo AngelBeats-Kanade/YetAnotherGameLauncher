@@ -31,9 +31,11 @@ src/
                     IPlatformInfo（平台环境：Linux/GPU 厂商探测、文件管理器打开目录，含 GpuVendor 枚举）、IBackdropResolver（详情页背景解析，含 BackdropKind/BackdropSource）、
                     IUmuComponentProvisioner（原生 umu 组件准备契约）
     Services/       GameCatalogService（含首次运行 CreateDefaultFileAsync）、HttpFileDownloader（+HttpFileDownloaderOptions）、
-                    ManifestVerifier、UpdatePlanner、GameInstallService、IncrementalUpdateService、PackageInstallerService、
+                    ManifestVerifier、UpdatePlanner、GameInstallService（SyncAsync 带 verifyAllExistingFiles：默认 true 全量 MD5，
+                    false = 补档快速路径，已有文件只快速校验、仅本次下载文件 MD5 后验）、IncrementalUpdateService、PackageInstallerService、
                     GameUpdateService（增量优先/不适用回退整包；预下载链同样优先 v2 增量载荷、暂存计划与标记清单，
-                    不适用时重走常规更新；档位随操作贯穿清单/应用/状态写盘，未完成操作标记的写/清也在此收口）、
+                    不适用时重走常规更新；档位随操作贯穿清单/应用/状态写盘（应用预下载按暂存档位钉住核实），
+                    未完成操作标记的写/清也在此收口）、
                     ResourcePackService（档位资源包测量/清理其他档位：预览不改文件；只删各档位清单点名、且解析后确实位于该档目录下的文件与同名下载半成品 `.temp`）、
                     DownloadSessionService（未完成下载标记 .yagl/download-session.json：操作开始写、成功清，记操作种类与游戏/服务器归属供续传分派与归属核对；进度以磁盘为准）、DeltaPackageApplier（v2 增量载荷应用：分卷下载/仅下载暂存→
                     静态条目→逐文件差分/整文件/只读校验（尺寸+内容 md5）→官方废弃清单→载荷清理；就地替换依据
@@ -66,7 +68,14 @@ src/
                     不可信；TryReadContent 归一 AES 与明文条目、TryCopyContentTo 流式落盘（大条目不入内存，
                     2026-10-18））、WinZipAesReader（WinZip AES-256/AE-2 解密：PBKDF2-HMAC-SHA1
                     + AES-CTR + HMAC 校验，.NET zip 库不支持 AE-x；含流式解密 `TryCopyDecrypted`）、
-                    LaunchOptionsText（自定义启动选项文本/参数解析与序列化：Steam 启动选项风格 shell 词法 + %command% 切分，严格/宽松解析与环境/参数序列化）
+                    LaunchOptionsText（自定义启动选项文本/参数解析与序列化：Steam 启动选项风格 shell 词法 + %command% 切分，严格/宽松解析与环境/参数序列化）、
+                    ManifestBoundary（清单边界校验，2026-10-23，当前由库洛渠道构造清单时调用——官方清单是不可信输入：
+                    拒绝逃逸/绝对路径、清单**禁写**路径（`.yagl/`、`Saved/`、`launcherDownloadConfig.json`、
+                    `launcherDownloadConfig/`、`compatdata/`）、文件与目录同名冲突、畸形 MD5/负尺寸（空校验字段沿用
+                    ManifestVerifier "未提供"语义）、段尾点/尾空格（Windows 归一后 `Saved.` 即 `Saved/`）；空白/重复条目
+                    按 F42 家族跳过而非拒收（重复 dest 在 ToManifestFiles 先登记者胜去重）。档位包条目必须全在目标档目录下。
+                    注意"禁写"≠ GameInstallService.PreservedEntries 的"清理保留"：launcherDownloadConfig/ 只禁写、清理仍删
+                    （用户决定不兼容官方启动器）。`IsReservedPath` 另供增量 deleteFiles 的消费端守卫共用，判定按落地语义归一）
   YetAnotherGameLauncher.Channels.Kuro/         # 库洛渠道（鸣潮）
     KuroChannelApi（index.json/indexFile 解析、CDN 选择、URL 拼接）
     KuroUrlBuilder（含同文件的 KuroCdnSelector：CDN 节点优先级选择）、HpatchzApplier（HDiffPatch 目录模式 + IFilePatchApplier 单文件模式（终末地 v2 载荷）；HpatchzApplierOptions 配置路径/超时）、HpatchzProvisioner（hpatchz 自动供给：PATH 无自备时下载社区验证构建 hpatchz.exe 到应用数据目录并 MD5 实测校验；Linux 经 wine 运行（独立 WINEPREFIX），Windows 原生直跑）

@@ -87,6 +87,77 @@ public class ResourceTierUpdateTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateAsync_PackAdd_SkipsFullHashForPreexistingFiles()
+    {
+        // 版本已最新、仅档位不一致（补档）：已有 common 只做快速校验，新增档位文件仍 MD5 后验。
+        // 同尺寸损坏的 common 留待显式“校验修复”；补档不再顺带把整个 common 重算一遍。
+        var common = "common"u8.ToArray();
+        var corrupt = "xxxxxx"u8.ToArray();
+        Assert.Equal(common.Length, corrupt.Length);
+        await File.WriteAllBytesAsync(_tempDir.FilePath("common.dat"), corrupt);
+        RegisterFile("common.dat", common); // 全量模式会尝试修复；补档快速路径不应请求
+        var pack = "pack-uhd"u8.ToArray();
+        RegisterFile("uhd.dat", pack);
+        _channel.SupportsResourcePacks = true;
+        _game.Launch.ResourceQualityTier = "uhd";
+        await new LocalStateService(_tempDir.Path).SaveAsync(
+            new LocalGameState
+            {
+                GameId = _game.Id,
+                ServerId = _server.Id,
+                Version = "2.0.0",
+                ResourceTier = ResourceTiers.Hd,
+            });
+        _channel.VersionInfo = new ChannelVersionInfo { LatestVersion = "2.0.0" };
+        _channel.Manifests["2.0.0"] = new GameManifest
+        {
+            Version = "2.0.0",
+            Files = [FileEntry("common.dat", common), FileEntry("uhd.dat", pack)],
+            ResourceTier = ResourceTiers.Uhd,
+        };
+
+        await CreateService().UpdateAsync(_tempDir.Path, _game, _server, _channel);
+
+        Assert.Equal(["uhd"], _channel.ManifestTiers);
+        Assert.Equal("uhd", LoadState()!.ResourceTier);
+        Assert.Equal([Url("uhd.dat")], _downloader.Requests);
+        Assert.Equal(corrupt, await File.ReadAllBytesAsync(_tempDir.FilePath("common.dat")));
+    }
+
+    [Fact]
+    public async Task UpdateAsync_VerifyRepair_StillFullHashesExistingFiles()
+    {
+        // 档位已一致时主按钮的语义是“校验修复”：同尺寸损坏的已有文件仍必须被 MD5 检出并修复
+        var common = "common"u8.ToArray();
+        var corrupt = "xxxxxx"u8.ToArray();
+        Assert.Equal(common.Length, corrupt.Length);
+        await File.WriteAllBytesAsync(_tempDir.FilePath("common.dat"), corrupt);
+        RegisterFile("common.dat", common);
+        _channel.SupportsResourcePacks = true;
+        _game.Launch.ResourceQualityTier = "uhd";
+        await new LocalStateService(_tempDir.Path).SaveAsync(
+            new LocalGameState
+            {
+                GameId = _game.Id,
+                ServerId = _server.Id,
+                Version = "2.0.0",
+                ResourceTier = ResourceTiers.Uhd,
+            });
+        _channel.VersionInfo = new ChannelVersionInfo { LatestVersion = "2.0.0" };
+        _channel.Manifests["2.0.0"] = new GameManifest
+        {
+            Version = "2.0.0",
+            Files = [FileEntry("common.dat", common)],
+            ResourceTier = ResourceTiers.Uhd,
+        };
+
+        await CreateService().UpdateAsync(_tempDir.Path, _game, _server, _channel);
+
+        Assert.Contains(Url("common.dat"), _downloader.Requests);
+        Assert.Equal(common, await File.ReadAllBytesAsync(_tempDir.FilePath("common.dat")));
+    }
+
+    [Fact]
     public async Task UpdateAsync_IncrementalTiered_PassesTierToManifestAndRepair()
     {
         var oldContent = "old"u8.ToArray();
@@ -183,13 +254,14 @@ public class ResourceTierUpdateTests : IDisposable
     }
 
     [Fact]
-    public async Task ApplyPredownload_RepairRuns_RecordsTierVerifiedByRepairManifest()
+    public async Task ApplyPredownload_RepairRuns_UsesStagedTierNotNewSelection()
     {
-        // 版本一致的常规应用：修复轮按用户当前档位（sd）取全量清单核实 → 落盘档位记 sd
+        // 预下载时是 HD，应用前用户切成 UHD：应用只核实暂存内容（HD），不顺手把 UHD 拉下来。
+        // 落盘档位记 HD；应用后 UI 按"本地 HD ≠ 选中 UHD"提示「下载资源包」，那才是补新档的入口。
         var stagedContent = "hd-pack"u8.ToArray();
-        var sdPack = "sd-pack"u8.ToArray();
+        var uhdPack = "uhd-pack"u8.ToArray();
         _channel.SupportsResourcePacks = true;
-        _game.Launch.ResourceQualityTier = "sd";
+        _game.Launch.ResourceQualityTier = "uhd";
         var staging = IncrementalUpdateService.PredownloadDir(_tempDir.Path);
         Directory.CreateDirectory(staging);
         await IncrementalUpdateService.WriteStagedManifestAsync(
@@ -201,20 +273,29 @@ public class ResourceTierUpdateTests : IDisposable
                 ResourceTier = ResourceTiers.Hd,
             },
             CancellationToken.None);
-        Directory.CreateDirectory(_tempDir.FilePath("Client/Content/SD"));
-        File.WriteAllBytes(_tempDir.FilePath("Client/Content/SD/pack.pak"), sdPack);
-        _channel.VersionInfo = new ChannelVersionInfo { LatestVersion = "2.0.0" }; _channel.Manifests["2.0.0"] = new GameManifest
+        _channel.ManifestHandler = (_, version, tier, _) => Task.FromResult(new GameManifest
         {
-            Version = "2.0.0",
-            Files = [FileEntry("Client/Content/SD/pack.pak", sdPack)],
-            ResourceTier = ResourceTiers.Sd,
-            PreservedPaths = ["Client/Content/HD", "Client/Content/UHD"],
-        };
+            Version = version,
+            Files = tier == ResourceTiers.Hd
+                ? [FileEntry("Client/Content/HD/pack.pak", stagedContent)]
+                : tier == ResourceTiers.Uhd
+                    ? [FileEntry("Client/Content/UHD/pack.pak", uhdPack)]
+                    : [],
+            ResourceTier = tier ?? ResourceTiers.Hd,
+            PreservedPaths = tier == ResourceTiers.Hd
+                ? ["Client/Content/SD", "Client/Content/UHD"]
+                : ["Client/Content/HD", "Client/Content/SD"],
+        });
+        RegisterFile("Client/Content/HD/pack.pak", stagedContent);
+        RegisterFile("Client/Content/UHD/pack.pak", uhdPack); // 旧行为会下 UHD；新行为不得请求它
+        _channel.VersionInfo = new ChannelVersionInfo { LatestVersion = "2.0.0" };
 
         await CreateService().ApplyPredownloadAsync(_tempDir.Path, _game, _server, _channel);
 
-        Assert.Equal(["sd"], _channel.ManifestTiers);
-        Assert.Equal("sd", LoadState()!.ResourceTier);
+        Assert.Equal(["hd"], _channel.ManifestTiers);
+        Assert.Equal("hd", LoadState()!.ResourceTier);
+        Assert.Contains(Url("Client_Content_HD_pack.pak"), _downloader.Requests);
+        Assert.DoesNotContain(Url("Client_Content_UHD_pack.pak"), _downloader.Requests);
     }
 
     // ---------- 清理游离文件：保留前缀（未选中档位目录）不得被隐式删除 ----------

@@ -37,7 +37,8 @@ public sealed class GameUpdateService(
         CancellationToken cancellationToken = default)
     {
         var state = new LocalStateService(installDir);
-        var localVersion = GetLocalVersion(state, game, server);
+        var localState = state.Load(game.Id, server.Id);
+        var localVersion = localState?.Version;
         var info = await channel.GetVersionInfoAsync(server, cancellationToken).ConfigureAwait(false);
 
         // 空版本拒收：渠道层已把版本缺失当错误，这里防漏检的实现（含测试替身）穿透——
@@ -50,6 +51,23 @@ public sealed class GameUpdateService(
 
         var plan = UpdatePlanner.Plan(localVersion, info.LatestVersion, info.PatchSourceVersions);
 
+        // 补档快速路径（2026-10-23）：版本已经是最新、仅档位与本地落盘不一致时，本次动作是
+        // “把选中档位补齐”而不是版本更新/显式校验修复——已有文件只做快速校验，避免把整个
+        // common 重算一遍；显式校验修复（档位已一致）仍走全量 MD5。
+        var requestedTier = RequestedTier(game, server, channel);
+        var isResourcePackAdd = localState is not null
+            && plan.Strategy == UpdateStrategy.FullSync
+            && string.Equals(plan.FromVersion, plan.ToVersion, StringComparison.Ordinal)
+            && requestedTier is not null
+            && !string.Equals(localState.ResourceTier, requestedTier, StringComparison.Ordinal);
+        if (isResourcePackAdd)
+        {
+            logger?.LogInformation(
+                "Resource pack add for {Game}: local tier {LocalTier} -> {RequestedTier}; " +
+                "existing files size-checked, downloaded pack files md5-verified.",
+                game.DisplayName, localState!.ResourceTier ?? "(none)", requestedTier);
+        }
+
         // 下载会话标记（2026-10-19 暂停/续传）：成功收尾才清；取消/失败/进程中断都留存，
         // 重开应用据此提示「继续下载」并按其种类派回被暂停的动作（预下载 → 预下载链，
         // 已下完/应用中被停 → 应用链续跑；见 GameItemViewModel.InstallOrUpdateAsync 的分派）。
@@ -61,7 +79,9 @@ public sealed class GameUpdateService(
 
         var (repaired, manifestTier, deltaPayloadUsed) = plan.Strategy == UpdateStrategy.Incremental
             ? await UpdateIncrementalAsync(installDir, game, server, channel, plan, progress, cancellationToken).ConfigureAwait(false)
-            : await UpdateFullAsync(installDir, game, server, channel, plan, progress, cancellationToken).ConfigureAwait(false);
+            : await UpdateFullAsync(
+                installDir, game, server, channel, plan, progress, cancellationToken,
+                verifyAllExistingFiles: !isResourcePackAdd).ConfigureAwait(false);
 
         await state.SaveAsync(
             new LocalGameState
@@ -485,7 +505,8 @@ public sealed class GameUpdateService(
         IGameChannelApi channel,
         UpdatePlan plan,
         IProgress<UpdateProgress>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool verifyAllExistingFiles)
     {
         var manifest = await channel.GetManifestAsync(
             server, plan.ToVersion, RequestedTier(game, server, channel), cancellationToken).ConfigureAwait(false);
@@ -508,7 +529,9 @@ public sealed class GameUpdateService(
         }
 
         var installer = new GameInstallService(downloader, options, logger);
-        var repaired = await installer.SyncAsync(installDir, manifest, progress, cancellationToken).ConfigureAwait(false);
+        var repaired = await installer.SyncAsync(
+            installDir, manifest, progress, cancellationToken,
+            verifyAllExistingFiles: verifyAllExistingFiles).ConfigureAwait(false);
         return (repaired, manifest.ResourceTier, false);
     }
 
@@ -573,13 +596,18 @@ public sealed class GameUpdateService(
             return (0, staged.ResourceTier);
         }
 
-        var tier = RequestedTier(game, server, channel);
+        // 钉住暂存档位（2026-10-23）：应用期用户可能已切到别的档。修复轮只核实本次真正落盘的
+        // 暂存内容；按新选择取清单会把新档资源顺手拉下来，也把状态记成没下过的档。新档由应用后
+        // UI 的「下载资源包」（补档快速路径）承担。
+        var tier = staged.ResourceTier ?? RequestedTier(game, server, channel);
         var repaired = await RepairAgainstManifestAsync(
             installDir, server, channel, staged.Version, tier, progress, cancellationToken).ConfigureAwait(false);
         return (repaired.Repaired, repaired.ManifestTier ?? staged.ResourceTier);
     }
 
     /// <summary>按目标版本全量清单做事后校验，修复缺失/损坏文件（通常为 0 个）。
+    /// **判缺用快速校验，修复仍走全量 MD5**：`SyncAsync` 用默认 `verifyAllExistingFiles: true`
+    /// ——修复轮的存在意义就是找损坏，这里不能图快（2026-10-26 复审澄清文档口径）。
     /// 返回"修复文件数 + 清单戳记的档位"（渠道是落盘档位的单一事实源）。</summary>
     private async Task<(int Repaired, string? ManifestTier)> RepairAgainstManifestAsync(
         string installDir,

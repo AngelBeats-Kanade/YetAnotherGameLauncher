@@ -173,8 +173,8 @@ const MUTATIONS = [
     // 用户报障的 404 URL 即此形态），且下载两遍、apply 时搬进游戏目录
     id: 'M21-kuro-krpdiff-excluded-from-files',
     file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
-    find: 'var directResources = patchIndexFile.Resource\n                .Where(r => !IsDiffResource(r.Dest) && !otherTiers.Any(t => IsInTierDirectory(r.Dest, t)))\n                .ToList();',
-    replace: 'var directResources = patchIndexFile.Resource\n                .Where(r => !otherTiers.Any(t => IsInTierDirectory(r.Dest, t)))\n                .ToList();',
+    find: 'var directResources = (patchIndexFile.Resource ?? [])\n                .Where(r => !IsDiffResource(r.Dest) && !tiersToCrop.Any(t => IsInTierDirectory(r.Dest, t)))\n                .ToList();',
+    replace: 'var directResources = (patchIndexFile.Resource ?? [])\n                .Where(r => !tiersToCrop.Any(t => IsInTierDirectory(r.Dest, t)))\n                .ToList();',
     project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
     method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroChannelApiTests.GetIncrementalManifest_KrpdiffEntries_ExcludedFromFilesAndBackfilledIntoGroups',
@@ -206,7 +206,7 @@ const MUTATIONS = [
     // 产物时必须跳过（否则刚产出且校验通过的文件被删且无自愈路径）
     id: 'M24-deletefiles-produced-spare',
     file: 'src/YetAnotherGameLauncher.Core/Services/IncrementalUpdateService.cs',
-    find: 'if (producedThisUpdate.Contains(relative))',
+    find: 'if (producedThisUpdate.Contains(canonical))',
     replace: 'if (producedThisUpdate.Count < 0)',
     project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
@@ -546,8 +546,8 @@ const MUTATIONS = [
     // 清单——"只下所选档"语义失效（HD 45.7 GB 白下一遍），且档位目录内容随同步被改写。
     id: 'M57-kuro-tier-crop-other-dirs',
     file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
-    find: 'indexFile.Resource.Where(e => !otherTiers.Any(t => IsInTierDirectory(e.Dest, t))),',
-    replace: 'indexFile.Resource.Where(e => true),',
+    find: 'baseEntries.Where(e => !ResourceTiers.All.Any(t => IsInTierDirectory(e.Dest, t))),',
+    replace: 'baseEntries.Where(e => true),',
     project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
     method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroResourcePackTests.GetManifest_TieredTier_CropsOtherTiersAndAppendsSelectedPack',
@@ -579,8 +579,8 @@ const MUTATIONS = [
     // HD 目录里清单点名的文件，与"切档不删旧档、删除只经显式清理"冲突（几十 GB 用户数据）。
     id: 'M60-kuro-tier-deletefiles-crop',
     file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
-    find: '                    .. (patchIndexFile.DeleteFiles ?? [])\n                        .Where(d => !otherTiers.Any(t => IsInTierDirectory(d, t))),',
-    replace: '                    .. (patchIndexFile.DeleteFiles ?? []),',
+    find: '                if (tiersToCrop.Any(t => IsInTierDirectory(path, t)))\n                {\n                    continue;\n                }',
+    replace: '                if (DateTime.MinValue == DateTime.MaxValue)\n                {\n                    continue;\n                }',
     project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
     method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroResourcePackTests.GetIncrementalManifest_SdTier_CropsOtherTierFilesAndGroups',
@@ -590,8 +590,10 @@ const MUTATIONS = [
     // 渠道漏裁时这里兜底，删掉即"档位内容被隐式删除"且用户无确认机会。
     id: 'M61-preserved-prefix-delete-guard',
     file: 'src/YetAnotherGameLauncher.Core/Services/IncrementalUpdateService.cs',
-    find: 'if (ManifestVerifier.IsUnderPreservedPrefix(relative, preservedPrefixes))',
-    replace: 'if (false && ManifestVerifier.IsUnderPreservedPrefix(relative, preservedPrefixes))',
+    // 2026-10-26 归一串重构后锚点由 relative 改 canonical。替换形态保持原作者写法：`false && <非空常量>`
+    // 不是常量表达式、不触发 CS0162（实测；只有恒定 `if (false){…}` 才触发）。
+    find: 'if (ManifestVerifier.IsUnderPreservedPrefix(canonical, preservedPrefixes))',
+    replace: 'if (false && ManifestVerifier.IsUnderPreservedPrefix(canonical, preservedPrefixes))',
     project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
     method: 'YetAnotherGameLauncher.Core.Tests.Services.IncrementalUpdateServiceTests.ApplyAsync_DeleteFilesUnderPreservedPrefix_SparesThem',
@@ -894,6 +896,336 @@ const MUTATIONS = [
     project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
     method: 'YetAnotherGameLauncher.Core.Tests.Services.Umu.NativeUmuLauncherLaunchTests.BuildPlan_ProtonLogDirectoryUsesLauncherLogDirectory',
+  },
+  {
+    // 2026-10-23 补档快速路径：版本已最新、仅档位不一致才允许跳过已有文件的整份 MD5。
+    // 检测恒假后补档测试会请求已有 common（全量 MDS 模式），守卫应变红。
+    id: 'M90-pack-add-fast-detection',
+    file: 'src/YetAnotherGameLauncher.Core/Services/GameUpdateService.cs',
+    find: '&& !string.Equals(localState.ResourceTier, requestedTier, StringComparison.Ordinal);',
+    replace: '&& false;',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.ResourceTierUpdateTests.UpdateAsync_PackAdd_SkipsFullHashForPreexistingFiles',
+  },
+  {
+    // 2026-10-23 补档快速路径：快速模式不得退化成全量校验修复——退化后同尺寸损坏的已有文件
+    // 会被检出并重下（Requests 多出已有文件），快速路径测试应变红。
+    // 注：Subset(manifest, downloaded) 本身是性能措施（只对下载文件算 MD5），行为上被
+    // broken.Join(downloaded) 兜住，无可观察差异，故不作为变异点（2026-10-23 实测该变异存活）。
+    id: 'M91-pack-add-fast-mode-not-full-verify',
+    file: 'src/YetAnotherGameLauncher.Core/Services/GameInstallService.cs',
+    find: 'if (verifyAllExistingFiles)',
+    replace: 'if (DateTime.MinValue != DateTime.MaxValue || verifyAllExistingFiles)',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.GameInstallServiceTests.SyncAsync_FastMode_SkipsFullHashForPreexistingFiles',
+  },
+  {
+    // 2026-10-23 档位版本一致性：去掉包版本比较后，base 3.7.1 + pack 3.7.0 的
+    // 错版清单会被放行；全量清单守卫测试应变红。
+    id: 'M92-kuro-tier-version-guard',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
+    find: 'if (!VersionsMatch(pack.Version, baseVersion))',
+    replace: 'if (false)',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroResourcePackTests.GetManifest_TierPackVersionMismatch_ThrowsBeforeFetchingPackFiles',
+  },
+  {
+    // 2026-10-23 预下载应用：修复轮必须按暂存档位取清单。改回用户当前选择后，
+    // 暂存 HD、应用期切 UHD 的守卫测试会请求 UHD 清单并落 UHD 状态。
+    id: 'M93-predownload-staged-tier-pin',
+    file: 'src/YetAnotherGameLauncher.Core/Services/GameUpdateService.cs',
+    find: 'var tier = staged.ResourceTier ?? RequestedTier(game, server, channel);',
+    replace: 'var tier = RequestedTier(game, server, channel);',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.ResourceTierUpdateTests.ApplyPredownload_RepairRuns_UsesStagedTierNotNewSelection',
+  },
+  {
+    // 2026-10-23 清单边界：去掉全量清单校验后，保留路径/重复/冲突/坏 MD5 都会被放行；
+    // 保留路径守卫测试应变红。
+    id: 'M94-kuro-full-manifest-boundary',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
+    find: 'ManifestBoundary.ValidateManifest(hdManifest, "Kuro full manifest");',
+    replace: '// MUTATION: full manifest boundary validation removed',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroResourcePackTests.GetManifest_EntryUnderReservedPath_Throws',
+  },
+  {
+    // 2026-10-23 清单边界消费端：废弃清单点名 .yagl/state.json 时必须跳过，
+    // 去掉守卫后状态文件被删，守卫测试应变红。
+    id: 'M95-deletefiles-reserved-guard',
+    file: 'src/YetAnotherGameLauncher.Core/Services/IncrementalUpdateService.cs',
+    find: 'if (ManifestBoundary.IsReservedPath(relative))',
+    replace: 'if (false && ManifestBoundary.IsReservedPath(relative))',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.IncrementalUpdateServiceTests.ApplyAsync_DeleteFilesUnderReservedPaths_Spared',
+  },
+  {
+    // 2026-10-23 清单边界：非 HD 基础清单必须裁掉目标档目录（再追加目标包）。
+    // 退回"只裁其它档"后，base 里的目标档旧条目会与包条目并存，守卫测试应变红。
+    id: 'M96-kuro-crop-selected-tier',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
+    find: 'baseEntries.Where(e => !ResourceTiers.All.Any(t => IsInTierDirectory(e.Dest, t))),',
+    replace: 'baseEntries.Where(e => !ResourceTiers.OtherTiers(tier).Any(t => IsInTierDirectory(e.Dest, t))),',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroResourcePackTests.GetManifest_TargetTierBaseEntryCoveredByPack_UsesPackEntry',
+  },
+  {
+    // 2026-10-23 补档快速路径：本次下载的文件仍必须过 MD5 后验（只信下载返回值会被写坏内容穿透）。
+    // 跳过后验后同尺寸篡改内容会被当成功落盘，守卫测试应变红（测试数据同尺寸，尺寸差异兜不住）。
+    id: 'M97-fast-mode-downloaded-md5-verify',
+    file: 'src/YetAnotherGameLauncher.Core/Services/GameInstallService.cs',
+    find: 'installDir, manifest, downloaded, state, progress, cancellationToken).ConfigureAwait(false);',
+    replace: 'installDir, manifest, [], state, progress, cancellationToken).ConfigureAwait(false);',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.GameInstallServiceTests.SyncAsync_FastMode_StillVerifiesDownloadedFiles',
+  },
+  {
+    // 2026-10-23 补档快速路径罕见回退：下载窗口内已有文件被删/改尺寸时必须当第二轮下载补下并
+    // MD5 后验（不动其余已有文件）。跳过回退后被改动的文件残留（缺文件/尺寸不符），守卫测试应变红。
+    id: 'M98-fast-mode-changed-file-fallback',
+    file: 'src/YetAnotherGameLauncher.Core/Services/GameInstallService.cs',
+    find: 'var fastPost = ManifestVerifier.VerifyFast(installDir, manifest);\n            if (!fastPost.IsComplete)',
+    replace: 'var fastPost = ManifestVerifier.VerifyFast(installDir, manifest);\n            if (DateTime.MinValue == DateTime.MaxValue)',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.GameInstallServiceTests.SyncAsync_FastMode_ExistingFileChangedDuringDownload_RepairsItInSecondRound',
+  },
+  {
+    // 2026-10-23 复审阻塞项 1 回归：增量入口若恢复按 toVersion 硬校验档位包版本，预下载窗口期
+    // （toVersion ≠ 线上版、resourcePacks 单值）sd/uhd 的预下载必被挡死 → 预下载窗口用例应变红。
+    id: 'M99-incremental-no-pack-version-gate',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
+    find: '            var tier = SyncTier(server, resourceTier);\n\n            var patchIndexJson = await FetchTextAsync(',
+    replace: '            var tier = SyncTier(server, resourceTier);\n            if (tier != ResourceTiers.Hd && DateTime.MinValue != DateTime.MaxValue)\n            {\n                var packIndex0 = await FetchResourcePackIndexAsync(server, cancellationToken).ConfigureAwait(false);\n                EnsurePackVersion(RequireResourcePack(packIndex0, tier), tier, toVersion);\n            }\n\n            var patchIndexJson = await FetchTextAsync(',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroResourcePackTests.GetIncrementalManifest_PredownloadWindow_TierPackNotYetAtTarget_DoesNotHardFail',
+  },
+  {
+    // 2026-10-23 复审项 2 回归：裁掉目标档条目后若不校验"被裁条目 ⊆ 档位包"，静默丢条目会被
+    // 收尾清理当游离文件删除且无自愈路径 → 拒收守卫用例应变红。
+    id: 'M100-kuro-target-tier-drop-guard',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
+    find: '        if (droppedTargetTier.Count > 0)',
+    replace: '        if (DateTime.MinValue == DateTime.MaxValue && droppedTargetTier.Count > 0)',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroResourcePackTests.GetManifest_TargetTierBaseEntryMissingFromPack_RejectsInsteadOfDroppingIt',
+  },
+  {
+    // 2026-10-23 复审项 3 回归：罕见回退若对整份清单判失败，一个与本次下载无关的同尺寸损坏
+    // 文件会把补档升级成硬失败 → 回退容忍用例应变红。
+    id: 'M101-fast-mode-fallback-scope',
+    file: 'src/YetAnotherGameLauncher.Core/Services/GameInstallService.cs',
+    find: 'installDir, manifest, late, state, progress, cancellationToken).ConfigureAwait(false);',
+    replace: 'installDir, manifest, late, state, progress, cancellationToken).ConfigureAwait(false);\n                if (!ManifestVerifier.VerifyFull(installDir, manifest).IsComplete)\n                {\n                    throw new UpdateException("Post-download verification failed.");\n                }',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.GameInstallServiceTests.SyncAsync_FastMode_ConcurrentDamage_DoesNotFailOnUnrelatedCorruptExistingFile',
+  },
+  {
+    // 2026-10-23 复审项 4 回归：Windows 吃掉段尾点/尾空格（`Saved.` → `Saved`、`pak.` → `pak`），
+    // 去掉该拒收后 `Client/Content/HD/pak.` 会被放行 → 尾点/尾空格用例应变红。
+    id: 'M102-manifest-trailing-dot-reject',
+    file: 'src/YetAnotherGameLauncher.Core/Utilities/ManifestBoundary.cs',
+    find: '            if (segment[^1] is \'.\' or \' \')',
+    replace: '            if (DateTime.MinValue == DateTime.MaxValue && (segment[^1] is \'.\' or \' \'))',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroResourcePackTests.GetManifest_TrailingDotOrSpaceSegment_Throws',
+  },
+  {
+    // 2026-10-23 复审项 4 回归（消费端纵深）：IsReservedPath 的尾点归一被去掉后 `Saved./slot.sav`
+    // 逃过保留判定、被废弃清单删除 → 保留路径守卫用例应变红。
+    id: 'M103-reserved-path-trailing-normalize',
+    file: 'src/YetAnotherGameLauncher.Core/Utilities/ManifestBoundary.cs',
+    find: '            var segment = trimmed.TrimEnd(\'.\', \' \');',
+    replace: '            var segment = trimmed;',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.IncrementalUpdateServiceTests.ApplyAsync_DeleteFilesUnderReservedPaths_Spared',
+  },
+  {
+    // 2026-10-26 复审 P2 回归：`"deleteFiles": [null]` 会被 STJ 解析出 null 元素，渠道侧跳过失守后
+    // IsReservedPath 直接 NRE 掉整份清单获取 → 空白条目用例应变红。
+    id: 'M104-blank-deletefiles-skip-channel',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
+    find: '                if (string.IsNullOrWhiteSpace(path))\n                {\n                    logger?.LogWarning("Kuro incremental deleteFiles has a blank entry; skipping it.");\n                    continue;\n                }',
+    replace: '                if (DateTime.MinValue == DateTime.MaxValue)\n                {\n                    logger?.LogWarning("Kuro incremental deleteFiles has a blank entry; skipping it.");\n                    continue;\n                }',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroResourcePackTests.GetIncrementalManifest_BlankDeleteFilesEntry_SkippedInsteadOfThrowing',
+  },
+  {
+    // 2026-10-26 复审 P2 回归（消费端）：旧暂存清单的 null deleteFiles 条目同理，跳过失守即 NRE 掉整轮更新
+    id: 'M105-blank-deletefiles-skip-consumer',
+    file: 'src/YetAnotherGameLauncher.Core/Services/IncrementalUpdateService.cs',
+    find: '            if (string.IsNullOrWhiteSpace(relative))\n            {\n                logger?.LogWarning("deleteFiles has a blank entry; skipping it.");\n                continue;\n            }',
+    replace: '            if (DateTime.MinValue == DateTime.MaxValue)\n            {\n                logger?.LogWarning("deleteFiles has a blank entry; skipping it.");\n                continue;\n            }',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.IncrementalUpdateServiceTests.ApplyAsync_BlankDeleteFilesEntry_SkippedInsteadOfThrowing',
+  },
+  {
+    // 2026-10-26 复审 P3 回归：父目录弹出失守后 `data/../Saved/x` 归一成 `data/Saved/x`，
+    // 逃过禁写判定而 ResolveSafe 仍落进 Saved/ → 点段绕过用例应变红。
+    id: 'M106-reserved-path-dotdot-pop',
+    file: 'src/YetAnotherGameLauncher.Core/Utilities/ManifestBoundary.cs',
+    find: '            if (trimmed == "..")',
+    replace: '            if (DateTime.MinValue == DateTime.MaxValue && trimmed == "..")',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.IncrementalUpdateServiceTests.ApplyAsync_DeleteFilesReservedPathWithDotSegments_Spared',
+  },
+  {
+    // 2026-10-26 复审 P3 回归：重复 dest 的去重失守后清单带两条同路径条目（并发写同一目标、
+    // 后到者覆盖先到者）→ 先登记者胜用例应变红。
+    id: 'M107-manifest-duplicate-dedupe',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
+    find: '            .Where(entry => seen.Add(entry.Dest.Replace(\'\\\\\', \'/\')))',
+    replace: '            .Where(entry => seen.Count >= 0)',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroResourcePackTests.GetManifest_DuplicatePaths_DedupesFirstWins',
+  },
+  {
+    // 2026-10-26 复审小项：空白 MD5 一旦按"未提供"放行，下游 IsNullOrEmpty 口径会把它当
+    // "已提供但比不上"而永久失败 → 畸形校验值用例应变红。
+    id: 'M108-whitespace-md5-rejected',
+    file: 'src/YetAnotherGameLauncher.Core/Utilities/ManifestBoundary.cs',
+    find: '        if (!string.IsNullOrEmpty(file.Md5) && !IsMd5(file.Md5))',
+    replace: '        if (!string.IsNullOrWhiteSpace(file.Md5) && !IsMd5(file.Md5))',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroResourcePackTests.GetManifest_WhitespaceMd5_Throws',
+  },
+  {
+    // 2026-10-26 复审 nit 回归：真名只吃尾点、不吃"尾点后尾空格"，`Saved ./x` 归一成 `Saved `
+    // 逃过禁写判定（Win32 连吃点与空格会落到 Saved/）→ 归一口径用例应变红。
+    id: 'M109-canonicalize-trailing-dot-space',
+    file: 'src/YetAnotherGameLauncher.Core/Utilities/ManifestBoundary.cs',
+    find: '            var segment = trimmed.TrimEnd(\'.\', \' \');',
+    replace: '            var segment = trimmed.TrimEnd(\'.\');',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Utilities.ManifestBoundaryTests.IsReservedPath_TargetLandsInReservedArea_ReturnsTrue',
+  },
+  {
+    // 2026-10-26 复审 nit 回归：保留前缀判定退回原始串后 `./Client/Content/HD/x`、
+    // `Client/Content/../Client/Content/HD/x` 匹配不上前缀，保留档位内容被废弃清单删掉。
+    id: 'M110-deletefiles-prefix-canonical',
+    file: 'src/YetAnotherGameLauncher.Core/Services/IncrementalUpdateService.cs',
+    find: '            if (ManifestVerifier.IsUnderPreservedPrefix(canonical, preservedPrefixes))',
+    replace: '            if (ManifestVerifier.IsUnderPreservedPrefix(relative, preservedPrefixes))',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.IncrementalUpdateServiceTests.ApplyAsync_DeleteFilesPreservedPrefixWithDotSegments_Spared',
+  },
+  {
+    // 2026-10-26 复审 nit 回归：产物豁免退回原始串后 `./data/file.dat` 与 `data/file.dat`
+    // 匹配不上，刚产出且校验通过的文件被删（RF-C 同族）。
+    id: 'M111-deletefiles-produced-canonical',
+    file: 'src/YetAnotherGameLauncher.Core/Services/IncrementalUpdateService.cs',
+    find: '            if (producedThisUpdate.Contains(canonical))',
+    replace: '            if (producedThisUpdate.Contains(relative))',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.IncrementalUpdateServiceTests.ApplyAsync_DeleteFilesListingFreshlyProducedFileWithDotSegments_SparedIt',
+  },
+  {
+    // 2026-10-26 复审 P1 回归：空全量清单守卫失守后 `{}`/空 resource 会被当合法清单返回，
+    // 同步收尾随后删光已装内容 → 空清单拒收用例应变红。
+    id: 'M112-empty-full-manifest-guard',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
+    find: '        if (fileCount == 0)',
+    replace: '        if (DateTime.MinValue == DateTime.MaxValue)',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroResourcePackTests.GetManifest_EmptyOrNullBase_RejectsInsteadOfReturningEmptyManifest',
+  },
+  {
+    // 2026-10-26 复审 P1 回归（消费端兜底）：清理空清单守卫失守后，绕过渠道的注入清单会把
+    // 安装目录删光 → 空清单不清理用例应变红。
+    id: 'M113-empty-manifest-cleanup-guard',
+    file: 'src/YetAnotherGameLauncher.Core/Services/GameInstallService.cs',
+    find: '        if (manifest.Files.Count == 0)',
+    replace: '        if (DateTime.MinValue == DateTime.MaxValue)',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.GameInstallServiceTests.SyncAsync_EmptyManifest_DoesNotDeleteInstalledFiles',
+  },
+  {
+    // 2026-10-26 复审 P2 回归：删除清单退回严格 NormalizeRelativePath 后，目录条目/别名会被
+    // 清单获取期拒收、增量更新被永久挡住 → 宽容形态用例应变红。
+    id: 'M114-deletefiles-tolerance',
+    file: 'src/YetAnotherGameLauncher.Core/Utilities/ManifestBoundary.cs',
+    find: '            if (CanonicalizeWithinRoot(path) is null)\n            {\n                throw new UpdateException($"{source}: deleteFiles path escapes the install root: {path}");\n            }',
+    replace: '            NormalizeRelativePath(path, source, "deleteFiles entry");',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroResourcePackTests.GetIncrementalManifest_DeleteFilesTolerantShapes_Kept',
+  },
+  {
+    // 2026-10-26 复审 P2 回归：删除清单的逃逸拒收失守后 `../outside.pak` 会被放行 → 逃逸拒收用例应变红。
+    id: 'M117-deletefiles-escape-reject',
+    file: 'src/YetAnotherGameLauncher.Core/Utilities/ManifestBoundary.cs',
+    find: '            if (CanonicalizeWithinRoot(path) is null)',
+    replace: '            if (DateTime.MinValue == DateTime.MaxValue)',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroResourcePackTests.GetIncrementalManifest_DeleteFilesEscapingRoot_Rejected',
+  },
+  {
+    // 2026-10-26 复审 P3 回归：档位目录判定不归一 '\' 时，base 的 `Client\Content\SD\x` 漏裁、
+    // 与包条目叠成"双条目写同一文件" → 反斜杠裁剪用例应变红。
+    id: 'M115-tier-dir-backslash-normalize',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
+    find: '        && dest.Replace(\'\\\\\', \'/\').StartsWith(PackDirectoryFor(tier) + "/", StringComparison.OrdinalIgnoreCase);',
+    replace: '        && dest.StartsWith(PackDirectoryFor(tier) + "/", StringComparison.OrdinalIgnoreCase);',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroResourcePackTests.GetManifest_BackslashTierEntry_CroppedLikeSlashForm',
+  },
+  {
+    // 2026-10-26 复审 P3 回归：`srcFiles: null` 不做 coalesce 时 ToManifestFiles 抛未分类异常
+    // （ArgumentNullException）而非 UpdateException → null 集合用例应变红。
+    id: 'M116-null-group-files-coalesce',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
+    find: 'ToManifestFiles(group.SrcFiles ?? [], cdn, resourcesBasePath, withUrl: false),',
+    replace: 'ToManifestFiles(group.SrcFiles!, cdn, resourcesBasePath, withUrl: false),',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroResourcePackTests.GetIncrementalManifest_NullCollectionProperties_Coalesced',
+  },
+  {
+    // 2026-10-26 复审回归：清理判定退回原始串后，清单里的 `data/./file.dat` 与磁盘上的
+    // `data/file.dat` 匹配不上，清单内文件被当游离文件删掉 → 归一串用例应变红。
+    id: 'M118-cleanup-manifest-normalize',
+    file: 'src/YetAnotherGameLauncher.Core/Services/GameInstallService.cs',
+    find: '            .Select(f => NormalizeForCleanup(f.Path))',
+    replace: '            .Select(f => f.Path.Replace(\'\\\\\', \'/\'))',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.GameInstallServiceTests.SyncAsync_ManifestPathWithDotSegment_DoesNotDeleteListedFile',
+  },
+  {
+    // 2026-10-26 复审扫尾：`resource` 条目的 dest 为 null 时 IsDiffResource 若不判空会 NRE
+    //（不是 UpdateException，增量链无回退）→ 顶层 null dest 用例应变红。
+    id: 'M119-incremental-null-dest-diff-check',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
+    find: '        !string.IsNullOrWhiteSpace(dest)\n        && (dest.EndsWith(".krpdiff", StringComparison.OrdinalIgnoreCase)\n            || dest.EndsWith(".krdiff", StringComparison.OrdinalIgnoreCase));',
+    replace: '        (dest!.EndsWith(".krpdiff", StringComparison.OrdinalIgnoreCase)\n            || dest!.EndsWith(".krdiff", StringComparison.OrdinalIgnoreCase));',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroChannelApiTests.GetIncrementalManifest_NullDestInTopLevelResource_SkippedInsteadOfThrowing',
   },
 ];
 

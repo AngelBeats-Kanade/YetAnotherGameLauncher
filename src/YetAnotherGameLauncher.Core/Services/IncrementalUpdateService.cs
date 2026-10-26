@@ -330,17 +330,22 @@ public sealed class IncrementalUpdateService(
     /// 增量清单不再含该文件）；豁免记警告跳过，下轮清单若坚持删除（届时不在产物集）仍会执行。</summary>
     private static void DeleteListedFiles(string installDir, GameManifest manifest, ILogger? logger)
     {
+        // 产物豁免集合同样按归一串登记：否则 `./x`、`a/../x` 这类写法与裸名 `x` 是同一目标却匹配不上，
+        // 会把刚产出且校验通过的文件删掉（2026-10-26 复审）。
         var producedThisUpdate = new HashSet<string>(StringComparer.Ordinal);
+        void AddProduced(string path) =>
+            producedThisUpdate.Add(ManifestBoundary.CanonicalizeWithinRoot(path) ?? path.Replace('\\', '/'));
+
         foreach (var file in manifest.Files)
         {
-            producedThisUpdate.Add(file.Path);
+            AddProduced(file.Path);
         }
 
         foreach (var group in manifest.Groups)
         {
             foreach (var dst in group.DstFiles)
             {
-                producedThisUpdate.Add(dst.Path);
+                AddProduced(dst.Path);
             }
         }
 
@@ -351,7 +356,30 @@ public sealed class IncrementalUpdateService(
 
         foreach (var relative in manifest.DeleteFiles)
         {
-            if (ManifestVerifier.IsUnderPreservedPrefix(relative, preservedPrefixes))
+            // 空白条目（含旧暂存清单反序列化出的 null）不指向任何可删文件：跳过，别 NRE 掉整轮更新
+            //（F42 同族，2026-10-26 复审）。
+            if (string.IsNullOrWhiteSpace(relative))
+            {
+                logger?.LogWarning("deleteFiles has a blank entry; skipping it.");
+                continue;
+            }
+
+            // 清单边界（2026-10-23）：deleteFiles 是外部输入，点名启动器状态/存档/官方兼容目录
+            // 一律跳过。渠道层已过滤，这里是不依赖渠道实现的消费端纵深守卫（旧暂存清单也走此处）。
+            if (ManifestBoundary.IsReservedPath(relative))
+            {
+                logger?.LogWarning(
+                    "deleteFiles lists reserved path {Path}; sparing it (state/saves/official-launcher files are never deleted).",
+                    relative);
+                continue;
+            }
+
+            // 下面两项判定与产物豁免共用同一条归一串：`./x`、`a/../x`、尾点/尾空格形态在 Win32 下
+            // 与裸名是同一目标，只比原始串会被它们绕过（删掉保留档位内容 / 刚产出的文件）。
+            // 逃逸形态归一为 null → 回退原串，由下方 ResolveSafe 以 "escapes sandbox" 拒收。
+            var canonical = ManifestBoundary.CanonicalizeWithinRoot(relative) ?? relative.Replace('\\', '/');
+
+            if (ManifestVerifier.IsUnderPreservedPrefix(canonical, preservedPrefixes))
             {
                 logger?.LogWarning(
                     "deleteFiles lists {Path} under a preserved prefix; sparing it (tier content is deleted only by the explicit cleanup).",
@@ -362,7 +390,7 @@ public sealed class IncrementalUpdateService(
             // 逃逸路径由 ResolveSafe 直接抛 UpdateException（2026-10-02 三轮统一，F42 同族）
             var target = ManifestVerifier.ResolveSafe(installDir, relative);
 
-            if (producedThisUpdate.Contains(relative))
+            if (producedThisUpdate.Contains(canonical))
             {
                 // 自相矛盾清单（废弃条目同时是本次产物）：保护产出，警告暴露矛盾供上游排查
                 logger?.LogWarning(

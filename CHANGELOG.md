@@ -3,6 +3,52 @@
 所有对外可感知的变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 修复 / 变更
+
+- 资源包档位「下载资源包」（补档）改为快速路径：已有文件只做存在性 + 尺寸校验，只对**本次运行下载
+  的文件**（含缺失的 common 文件）做 MD5 后验；同尺寸损坏的已有文件留给「校验修复」（全量 MD5 不变）。
+  下载窗口内已有文件被删/改尺寸时，把这些文件当第二轮下载补下并 MD5 后验（不动其余已有文件）。（Fix/Change:
+  tier pack add (download resource pack) now fast-checks existing files and MD5-verifies everything downloaded
+  in that run, including missing common files; full MD5 stays for explicit verify & repair. Files that disappear or
+  change size during the download window are re-downloaded and MD5-verified as a second round, without
+  touching the remaining existing files.）
+- 档位包版本与本体版本不一致（或缺失版本）时硬失败并提示稍后重试/暂切 HD，不再混用两版内容；
+  守卫只设在档位包条目真正并入清单处（全量清单），预下载的差量清单不受阻——窗口期目标版本就
+  还不是线上版。 （Fix: tier pack version mismatch or missing version now fails hard instead of
+  mixing versions; the guard sits only where tier pack entries are assembled, so pre-downloads are
+  not blocked during the rollout window.）
+- 非 HD 档裁掉的目标档条目必须全部被档位包收录，否则拒收（原本会被收尾清理当游离文件删除）。
+  （Robustness: base-manifest tier entries dropped in favour of the pack must all be covered by the
+  pack, otherwise the sync is refused rather than silently losing files to stale cleanup.）
+- 预下载应用的修复轮按暂存档位核实：应用前切档不顺手下载新档，应用后状态记实际落盘档位。
+  （Fix: applying a pre-download verifies against the staged tier; a tier switched during apply is
+  not silently downloaded.）
+- 官方清单边界校验（当前由库洛渠道接入）：拒绝逃逸/绝对路径、清单**禁写**路径（`.yagl/`、`Saved/`、
+  `launcherDownloadConfig*`、`compatdata/`）、文件与目录同名冲突、畸形 MD5/负尺寸、路径段尾点或尾空格
+  （Windows 会归一它们，`Saved.` 实际落进 `Saved/`）；空白/重复条目跳过而非拒收（重复路径按先登记者胜
+  去重，与既有 manifest 处理一致）；空校验字段沿用既有"未提供"语义；增量 `deleteFiles` 点名禁写路径时
+  跳过并告警，同族的保留前缀/产物豁免判定也按归一串匹配（`./x`、`a/../x` 绕不过去，否则会删掉保留档位
+  内容或刚产出的文件）。注意"禁写"≠"清理保留"：`launcherDownloadConfig/` 只禁写，同步收尾清理仍会删它
+  （不兼容官方启动器，2026-10-23 决定）。（Security/Robustness: manifest boundary validation rejects
+  escaping, reserved-to-write, conflicting paths, malformed checksums and trailing dot/space segments;
+  blank and duplicate entries are skipped (first entry wins on duplicate paths); empty checksum fields keep
+  the existing "not provided" semantics; deleteFiles entries under no-write paths are spared, and the sibling
+  preserved-prefix / freshly-produced-file checks match on the normalized form so aliases like `./x` or `a/../x`
+  cannot slip through. Note that "no write" is not "preserved from cleanup": `launcherDownloadConfig/` is still
+  removed by stale cleanup, as official-launcher interop was deliberately declined.）
+- 安全修复：空的全量清单（`{}` / 空数组 / `null` / 全空白 `dest`）现在拒绝同步，清理侧也跳过
+  空清单；否则一次残缺的 `indexFile.json` 会把已安装内容当游离文件整批删除。（Safety fix: an empty
+  full manifest is now rejected, and stale cleanup is skipped for empty manifests - a truncated
+  `indexFile.json` could otherwise delete the whole installed game.）
+- 增量 `deleteFiles` 的边界校验放宽到只拒绝对/逃逸路径：目录条目（尾斜杠）与 `./x`、`a/../x`、
+  `a//b` 别名放行（消费端本就跳过目录并按落地语义归一），避免官方列表里的这类写法把增量更新永久
+  挡住（增量链无整包回退）；`resource`/`srcFiles`/`dstFiles` 为 `null` 时按空集合消费，不再抛
+  未分类异常。（Robustness: deleteFiles validation now only rejects absolute/escaping paths, so
+  directory and alias forms no longer hard-block incremental updates; null collection properties are
+  treated as empty instead of throwing.）
+
 ## [0.1.3] — 2026-10-22
 
 0.1.2 之后的功能版本：界面全面翻新（详情页身份、侧栏提示与短状态、危险操作样式、

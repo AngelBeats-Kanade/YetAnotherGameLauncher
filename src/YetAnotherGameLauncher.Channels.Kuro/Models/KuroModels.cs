@@ -123,8 +123,10 @@ internal sealed class KuroPatchEntry
 /// <summary>游戏文件清单 indexFile.json。</summary>
 internal sealed class KuroIndexFile
 {
+    /// <summary>文件条目。声明可空：STJ 对 <c>"resource": null</c> 会把非空注解属性赋成 null
+    ///（未开 RespectNullableAnnotations），消费处必须 <c>?? []</c>，否则 Where 抛未分类异常。</summary>
     [JsonPropertyName("resource")]
-    public List<KuroResourceEntry> Resource { get; set; } = [];
+    public List<KuroResourceEntry>? Resource { get; set; } = [];
 
     [JsonPropertyName("groupInfos")]
     public List<KuroGroupInfo>? GroupInfos { get; set; }
@@ -188,8 +190,8 @@ internal sealed class KuroGroupInfo
     public string? Md5 { get; set; }
 
     [JsonPropertyName("srcFiles")]
-    public List<KuroResourceEntry> SrcFiles { get; set; } = [];
+    public List<KuroResourceEntry>? SrcFiles { get; set; } = [];
 
     [JsonPropertyName("dstFiles")]
-    public List<KuroResourceEntry> DstFiles { get; set; } = [];
+    public List<KuroResourceEntry>? DstFiles { get; set; } = [];
 }

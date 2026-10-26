@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using YetAnotherGameLauncher.Channels.Kuro.Models;
@@ -61,24 +62,44 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         // 服务器无档位索引（国际服/B 服实测 404 或用户未配）时档位归一为 hd：内容恒为官方默认
         // bundle（common + HD），档位只作启动参数（UI 侧按 SupportsResourcePackDownload 提示）。
         var tier = SyncTier(server, resourceTier);
+        var baseEntries = indexFile.Resource ?? [];
         if (tier == ResourceTiers.Hd)
         {
-            return new GameManifest
+            var hdFiles = ToManifestFiles(baseEntries, cdn, config.BaseUrl ?? block.ResourcesBasePath);
+            // 空清单安全闸（2026-10-26 复审 P1）：indexFile.json 是 {} / {"resource":[]} / 全空白
+            // dest 时，返回空清单会让同步收尾把已装内容全当游离文件删掉（几十 GB）。与包清单空
+            // 同一哲学：宁可拒收让用户重试。
+            EnsureNonEmptyFullManifest("indexFile.json", hdFiles.Count);
+            var hdManifest = new GameManifest
             {
                 Version = version,
-                Files = ToManifestFiles(indexFile.Resource, cdn, config.BaseUrl ?? block.ResourcesBasePath),
+                Files = hdFiles,
                 Groups = ToGroups(indexFile.GroupInfos, cdn, patchBaseUrl: null, config.BaseUrl, block.ResourcesBasePath),
                 ResourceTier = ResourceTiers.Hd,
                 PreservedPaths = PreservedTierDirs(ResourceTiers.Hd),
             };
+            ManifestBoundary.ValidateManifest(hdManifest, "Kuro full manifest");
+            return hdManifest;
         }
+
+        // 非 HD：基础清单里的**所有**档位目录都裁掉，再由目标档位包单独提供目标档内容。
+        // 只裁"其它档"会把 base 里的目标档旧条目与包条目叠在一起（同路径/旧内容），
+        // 也让"目标档内容只来自档位包"这一来源事实失效（2026-10-23 清单边界批）。
+        // base 裁完为空同样视为异常：只剩档位包的清单会让收尾清理删掉全部 common 内容。
+        var baseFiles = ToManifestFiles(
+            baseEntries.Where(e => !ResourceTiers.All.Any(t => IsInTierDirectory(e.Dest, t))),
+            cdn, config.BaseUrl ?? block.ResourcesBasePath);
+        EnsureNonEmptyFullManifest($"base manifest common files (tier {tier})", baseFiles.Count);
 
         var packIndex = await FetchResourcePackIndexAsync(server, cancellationToken).ConfigureAwait(false);
         var pack = RequireResourcePack(packIndex, tier);
+        // 版本一致性（2026-10-23）：档位包与 base 清单必须同版。窗口期官方可能先切 base、
+        // 后切档位包；混用两版内容会让修复轮/游戏挂载对不上，硬失败让用户稍后重试或暂切 HD。
+        EnsurePackVersion(pack, tier, RequireVersion(block));
         // 档位索引的节点在顶层下发（包配置块无 cdnList，2026-10-16 实测）；顶层无可用节点回退标准块
         var packCdn = KuroCdnSelector.SelectCdn(packIndex.CdnList) ?? cdn;
         var packIndexFile = await FetchPackIndexFileAsync(pack, packCdn, tier, cancellationToken).ConfigureAwait(false);
-        var packFiles = ToManifestFiles(packIndexFile.Resource, packCdn, pack.BaseUrl);
+        var packFiles = ToManifestFiles(packIndexFile.Resource ?? [], packCdn, pack.BaseUrl);
 
         // 包清单空 = 拉到了残缺/异常响应的信号：绝不能返回"缺目标档位包"的清单——同步收尾会把
         // 目标档位目录当游离文件删掉（几十 GB）。宁可拒收让用户重试（与 dstFiles 缺 url 的
@@ -90,23 +111,56 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
                 "(a pack-less manifest would delete the tier's local files as stale). Please retry.");
         }
 
-        var otherTiers = ResourceTiers.OtherTiers(tier);
-        return new GameManifest
+        // 体积诊断（2026-10-26 复审 P2）：resourcePacks[tier].size 自述"未压缩总字节数"，但真机语义
+        // 尚未核对，故只告警不设门禁——把它当硬失败条件，一旦口径不符（含额外元数据/压缩前后混用）
+        // 会把 sd/uhd 同步永久挡死且无回退。真机核对后再考虑升级为守卫。
+        var packBytes = packFiles.Sum(f => f.Size);
+        if (pack.Size > 0 && packBytes != pack.Size)
+        {
+            logger?.LogWarning(
+                "Kuro resource pack {Tier} declares {Declared} bytes but lists {Actual}; " +
+                "treating the per-file manifest as authoritative (size is diagnostic only).",
+                tier, pack.Size, packBytes);
+        }
+
+        ManifestBoundary.ValidatePackFiles(
+            PackDirectoryFor(tier), packFiles, $"Kuro \"{tier}\" resource pack");
+
+        // 目标档条目若在 base 清单里出现、却不在档位包里，裁掉后它既不在清单、也不在保留名单
+        //（PreservedPaths 只保其它档），同步收尾清理会把它当游离文件删除且无自愈路径——
+        // 与"缺目标档包拒收"同一哲学，显式拒收而不是静默丢条目（2026-10-23 复审）。
+        // 注：实测 base 形态是 common + HD，目标档条目通常不存在，此守卫在真实数据上多为空操作；
+        // 保留它是防官方形态变化时静默丢内容。
+        var packPaths = packFiles
+            .Select(f => f.Path.Replace('\\', '/'))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var droppedTargetTier = baseEntries
+            .Where(e => !string.IsNullOrWhiteSpace(e.Dest)
+                && IsInTierDirectory(e.Dest, tier)
+                && !packPaths.Contains(e.Dest.Replace('\\', '/')))
+            .ToList();
+        if (droppedTargetTier.Count > 0)
+        {
+            throw new UpdateException(
+                $"Kuro base manifest lists {droppedTargetTier.Count} \"{tier}\" tier file(s) the " +
+                $"\"{tier}\" resource pack does not contain (e.g. {droppedTargetTier[0].Dest}); refusing to sync - " +
+                "dropping them would let stale cleanup delete tier content.");
+        }
+
+        // base 已裁掉所有档位目录、档位包条目被限制在目标档目录下，两者天然不相交——跨列表不会
+        // 出现同目标双条目（同目标异构写法由 IsInTierDirectory 的 '\'→'/' 归一键覆盖）。
+        var manifest = new GameManifest
         {
             Version = version,
-            Files =
-            [
-                .. ToManifestFiles(
-                    indexFile.Resource.Where(e => !otherTiers.Any(t => IsInTierDirectory(e.Dest, t))),
-                    cdn, config.BaseUrl ?? block.ResourcesBasePath),
-                .. packFiles,
-            ],
+            Files = [.. baseFiles, .. packFiles],
             Groups = ToGroups(
-                indexFile.GroupInfos?.Where(g => !otherTiers.Any(t => IsInTierDirectory(g.Dest, t))),
+                indexFile.GroupInfos?.Where(g => !ResourceTiers.All.Any(t => IsInTierDirectory(g.Dest, t))),
                 cdn, patchBaseUrl: null, config.BaseUrl, block.ResourcesBasePath),
             ResourceTier = tier,
             PreservedPaths = PreservedTierDirs(tier),
         };
+        ManifestBoundary.ValidateManifest(manifest, "Kuro full manifest");
+        return manifest;
     }
 
     public async Task<GameManifest?> GetIncrementalManifestAsync(
@@ -141,6 +195,14 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
             // cdnList 字段）；选中块缺可用节点时回退 default 块，仍无才拒收
             var cdn = RequireCdn(block, index.Default);
 
+            // 版本一致性守卫只放在 GetManifestAsync（档位包条目真正并入清单的地方），本方法不设：
+            // 这里产出的差量清单不含任何档位包内容，档位包落盘由更新/应用后的全量修复轮承担，
+            // 那里 EnsurePackVersion 已经把关。此前在此按 toVersion 硬校验是过度拦截——预下载
+            // 窗口期内 toVersion（预下载目标版）按定义不是线上版，而 GetManifestAsync 又按线上版
+            // 校验，resourcePacks[tier].version 是单值，两种口径必有一侧不成立：sd/uhd 的预下载
+            // 会被无解地挡死（2026-10-23 复审阻塞项）。
+            var tier = SyncTier(server, resourceTier);
+
             var patchIndexJson = await FetchTextAsync(
                 KuroUrlBuilder.BuildFileUrl(cdn, null, patchEntry.IndexFile),
                 patchEntry.IndexFileMd5,
@@ -153,35 +215,60 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
             // fromFolder 前缀 zip/ → 真机 38/38 全 404，且下载两遍、apply 时被搬进游戏目录）——
             // 参考实现 ww-manager incremental.py 同语义（_is_diff_resource 过滤 complete_files）。
             //
-            // 档位（2026-10-19）：sd/uhd 时裁掉其它档位目录的条目与差分组——档位包自身跨版本不变
-            // （官方实测 hd/sd/uhd 的 3.7.0 → 3.7.1 增量清单为空：resource 与 deleteFiles 均空），
-            // 其落盘由更新/应用后的全量修复轮按档位清单补齐（GameUpdateService.RepairAgainstManifestAsync）。
-            var tier = SyncTier(server, resourceTier);
-            var otherTiers = ResourceTiers.OtherTiers(tier);
-            var directResources = patchIndexFile.Resource
-                .Where(r => !IsDiffResource(r.Dest) && !otherTiers.Any(t => IsInTierDirectory(r.Dest, t)))
+            // 档位（2026-10-19）：sd/uhd 时裁掉**所有**档位目录的条目与差分组——档位包自身
+            // 跨版本不变（官方实测 hd/sd/uhd 的 3.7.0 → 3.7.1 增量清单为空：resource 与
+            // deleteFiles 均空），其落盘由更新/应用后的全量修复轮按档位清单补齐
+            // （GameUpdateService.RepairAgainstManifestAsync）。HD 仍保留 HD 条目（它就是基础包）。
+            var tiersToCrop = tier == ResourceTiers.Hd ? ResourceTiers.OtherTiers(tier) : ResourceTiers.All;
+            var directResources = (patchIndexFile.Resource ?? [])
+                .Where(r => !IsDiffResource(r.Dest) && !tiersToCrop.Any(t => IsInTierDirectory(r.Dest, t)))
                 .ToList();
 
-            return new GameManifest
+            // 废弃清单同样裁掉档位目录（2026-10-19 review 实锤：原样透传会让 SD/UHD 更新
+            // 删掉 HD 目录里清单点名的文件，与"切档不删旧档、删除只经显式清理"冲突）；
+            // 另跳过 .yagl/Saved/官方兼容目录——删除清单是外部输入，不能碰用户数据/启动器状态。
+            var deleteFiles = new List<string>();
+            foreach (var path in patchIndexFile.DeleteFiles ?? [])
+            {
+                // F42 同族：空白条目（含 STJ 对 `"deleteFiles": [null]` 解析出的 null）不指向任何
+                // 可删文件，跳过即可——不能让它 NRE 掉整份清单获取（2026-10-26 复审）。
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    logger?.LogWarning("Kuro incremental deleteFiles has a blank entry; skipping it.");
+                    continue;
+                }
+
+                if (tiersToCrop.Any(t => IsInTierDirectory(path, t)))
+                {
+                    continue;
+                }
+
+                if (ManifestBoundary.IsReservedPath(path))
+                {
+                    logger?.LogWarning(
+                        "Kuro incremental deleteFiles lists reserved path {Path}; sparing it.", path);
+                    continue;
+                }
+
+                deleteFiles.Add(path);
+            }
+
+            var manifest = new GameManifest
             {
                 Version = toVersion,
                 Files = ToManifestFiles(
                     directResources, cdn,
                     folder: FirstFromFolder(directResources) ?? patchEntry.BaseUrl ?? config.BaseUrl ?? block.ResourcesBasePath),
                 Groups = ToGroups(
-                    patchIndexFile.GroupInfos?.Where(g => !otherTiers.Any(t => IsInTierDirectory(g.Dest, t))),
+                    patchIndexFile.GroupInfos?.Where(g => !tiersToCrop.Any(t => IsInTierDirectory(g.Dest, t))),
                     cdn, patchEntry.BaseUrl, config.BaseUrl, block.ResourcesBasePath,
                     patchIndexFile.Resource),
-                // 废弃清单同样裁掉其它档位目录（2026-10-19 review 实锤：原样透传会让 SD/UHD 更新
-                // 删掉 HD 目录里清单点名的文件，与"切档不删旧档、删除只经显式清理"冲突）
-                DeleteFiles =
-                [
-                    .. (patchIndexFile.DeleteFiles ?? [])
-                        .Where(d => !otherTiers.Any(t => IsInTierDirectory(d, t))),
-                ],
+                DeleteFiles = deleteFiles,
                 ResourceTier = tier,
                 PreservedPaths = PreservedTierDirs(tier),
             };
+            ManifestBoundary.ValidateManifest(manifest, "Kuro incremental manifest");
+            return manifest;
         }
 
         return null;
@@ -248,7 +335,11 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
 
         var packCdn = KuroCdnSelector.SelectCdn(packIndex.CdnList) ?? RequireCdn(RequireDefault(await FetchIndexAsync(server, cancellationToken).ConfigureAwait(false)));
         var packIndexFile = await FetchPackIndexFileAsync(pack, packCdn, tier, cancellationToken).ConfigureAwait(false);
-        return new ResourcePackManifest(tier, PackDirectoryFor(tier), pack.Version ?? "", ToManifestFiles(packIndexFile.Resource, packCdn, pack.BaseUrl));
+        var files = ToManifestFiles(packIndexFile.Resource ?? [], packCdn, pack.BaseUrl);
+        // 清理/测量同样只信"条目在目标档目录下"：混入别的档位会被算成本档体积，甚至被清理误删。
+        ManifestBoundary.ValidatePackFiles(
+            PackDirectoryFor(tier), files, $"Kuro \"{tier}\" resource pack manifest");
+        return new ResourcePackManifest(tier, PackDirectoryFor(tier), pack.Version ?? "", files);
     }
 
     /// <summary>本次同步实际落盘的档位：支持档位索引的服务器取配置档（未设置 = hd）；
@@ -260,9 +351,12 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
     internal static string PackDirectoryFor(string tier) => $"Client/Content/{tier.ToUpperInvariant()}";
 
     /// <summary>dest 是否落在指定档位的资源目录之下（档位目录内的一切都算该档位的内容）。
-    /// dest 为 null（STJ null-over-initializer 形态）按"不在"处理——单条畸形不得炸清单获取（F42 同族）。</summary>
+    /// dest 为 null（STJ null-over-initializer 形态）按"不在"处理——单条畸形不得炸清单获取（F42 同族）。
+    /// 判定前把 '\' 归一成 '/'：JSON 里允许反斜杠分隔，`Client\Content\SD\x` 与 `Client/Content/SD/x`
+    /// 是同一目标，不归一会漏裁、与档位包条目叠成"双条目写同一文件"（2026-10-26 复审）。</summary>
     private static bool IsInTierDirectory(string? dest, string tier) =>
-        dest is not null && dest.StartsWith(PackDirectoryFor(tier) + "/", StringComparison.OrdinalIgnoreCase);
+        dest is not null
+        && dest.Replace('\\', '/').StartsWith(PackDirectoryFor(tier) + "/", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>不在本次清单内、但必须保留的档位目录（未选中档位）：同步收尾清理不得隐式删除，
     /// 删除只经用户的显式「清理其他档位」动作（GameUpdateService 侧 ResourcePackService）。</summary>
@@ -304,16 +398,24 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
 
     /// <summary>资源条目 → 清单文件；withUrl=false 用于差分组的源/目标描述（只需校验信息，URL 无意义）。
     /// dest 空白的条目跳过（F42）：显式 null 会覆盖 ="" 初始化器，直通 BuildFileUrl/下游 ResolveSafe
-    /// 即 NRE——单条畸形炸全量更新、分类 Unknown，与 ParsePage 对缺失字段 continue 的语义对齐。</summary>
+    /// 即 NRE——单条畸形炸全量更新、分类 Unknown，与 ParsePage 对缺失字段 continue 的语义对齐。
+    /// 重复 dest 先登记者胜（与 <see cref="BuildResourceByDest"/> 同一决定：清单不可信，F42 同族——
+    /// 冗余条目不得炸清单获取），去重同时消除"两个条目并发写同一目标"的竞态（2026-10-26 复审）。
+    /// 去重键按 '\'→'/' 归一后 Ordinal：只有**完全同名**的 dest 被去重（Windows 下它们必是同一文件）；
+    /// Linux 下大小写仅异是不同文件、不去重（少收一条会让清理把它当游离文件删掉）。</summary>
     private static IReadOnlyList<ManifestFile> ToManifestFiles(
-        IEnumerable<KuroResourceEntry> entries, string cdn, string? folder, bool withUrl = true) =>
-        [.. entries
+        IEnumerable<KuroResourceEntry> entries, string cdn, string? folder, bool withUrl = true)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        return [.. entries
             .Where(entry => !string.IsNullOrWhiteSpace(entry.Dest))
+            .Where(entry => seen.Add(entry.Dest.Replace('\\', '/')))
             .Select(entry => new ManifestFile(
                 entry.Dest,
                 entry.Size,
                 entry.Md5,
                 withUrl ? KuroUrlBuilder.BuildFileUrl(cdn, entry.FromFolder ?? folder, entry.Dest) : null))];
+    }
 
     private static IReadOnlyList<PatchGroup> ToGroups(
         IEnumerable<KuroGroupInfo>? groups, string cdn,
@@ -344,17 +446,21 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
                     group.Dest,
                     diffEntry is { Size: > 0 } ? diffEntry.Size : group.Size,
                     diffEntry is { Md5: { Length: > 0 } md5 } ? md5 : group.Md5,
-                    ToManifestFiles(group.SrcFiles, cdn, resourcesBasePath, withUrl: false),
-                    ToManifestFiles(group.DstFiles, cdn, resourcesBasePath, withUrl: false),
+                    ToManifestFiles(group.SrcFiles ?? [], cdn, resourcesBasePath, withUrl: false),
+                    ToManifestFiles(group.DstFiles ?? [], cdn, resourcesBasePath, withUrl: false),
                     KuroUrlBuilder.BuildPatchUrl(cdn, patchBaseUrl, defaultBaseUrl, group.Dest));
             })];
     }
 
     /// <summary>增量清单条目是否为 krpdiff/krdiff 差分文件（按扩展名判定，大小写不敏感）。
-    /// 差分文件由 Groups 表达（差分目录前缀），不作为直下安装文件下载。</summary>
-    private static bool IsDiffResource(string dest) =>
-        dest.EndsWith(".krpdiff", StringComparison.OrdinalIgnoreCase)
-        || dest.EndsWith(".krdiff", StringComparison.OrdinalIgnoreCase);
+    /// 差分文件由 Groups 表达（差分目录前缀），不作为直下安装文件下载。
+    /// dest 可空：STJ 的 null-over-initializer 会让非空注解属性变成 null，而本方法在
+    /// `ToManifestFiles` 滤空白**之前**调用——不判空就是 NRE 而非 UpdateException
+    ///（增量链没有整包回退，重试会一直撞同一处；2026-10-26 复审）。</summary>
+    private static bool IsDiffResource(string? dest) =>
+        !string.IsNullOrWhiteSpace(dest)
+        && (dest.EndsWith(".krpdiff", StringComparison.OrdinalIgnoreCase)
+            || dest.EndsWith(".krdiff", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>resource 条目按 dest 建索引（回填 size/md5 用）；重复 dest 先登记者胜，
     /// 空白 dest 跳过——与 ToManifestFiles 的顺序处理/空白过滤语义一致。</summary>
@@ -421,6 +527,84 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         index.ResourcePacks?.GetValueOrDefault(tier)
         ?? throw new UpdateException(
             $"Kuro resource pack index has no \"{tier}\" pack; cannot sync the selected resource tier.");
+
+    /// <summary>全量清单必须有可安装文件：空清单会让同步收尾把已装内容全当游离文件删除（几十 GB）。
+    /// 与"档位包包清单空拒收"同一哲学（2026-10-26 复审 P1）。注意只把关**全量清单构造**——
+    /// 增量清单可以为空 Files + 非空 Groups/DeleteFiles，不能套用此规则。</summary>
+    private static void EnsureNonEmptyFullManifest(string what, int fileCount)
+    {
+        if (fileCount == 0)
+        {
+            throw new UpdateException(
+                $"Kuro {what} lists no files; refusing to sync " +
+                "(an empty full manifest would delete installed content as stale). Please retry.");
+        }
+    }
+
+    /// <summary>版本一致性守卫：档位包版本必须与本次 base 内容同版。缺失版本同样拒收——
+    /// 无法确认同版时宁可让用户稍后重试，也不返回来源不明的档位内容（2026-10-23）。</summary>
+    private static void EnsurePackVersion(KuroResourcePack pack, string tier, string baseVersion)
+    {
+        if (string.IsNullOrWhiteSpace(pack.Version))
+        {
+            throw new UpdateException(
+                $"Kuro resource pack \"{tier}\" has no version; cannot verify it matches game content " +
+                $"{baseVersion}. Please retry later or switch to HD temporarily.");
+        }
+
+        if (!VersionsMatch(pack.Version, baseVersion))
+        {
+            throw new UpdateException(
+                $"Kuro resource pack \"{tier}\" is version {pack.Version}, but the game content is " +
+                $"{baseVersion}; refusing to sync mismatched tier content. " +
+                "Please retry later or switch to HD temporarily.");
+        }
+    }
+
+    /// <summary>版本等价比较：按点分段数字比较并补零，3.7 ≡ 3.7.0 ≡ 3.7.0.0；
+    /// 非纯数字段（如带预发布后缀）回退逐字符比较，避免把不同构建误判为同版。</summary>
+    internal static bool VersionsMatch(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+        {
+            return false;
+        }
+
+        var leftParts = ParseVersionParts(left);
+        var rightParts = ParseVersionParts(right);
+        if (leftParts is null || rightParts is null)
+        {
+            return string.Equals(left, right, StringComparison.Ordinal);
+        }
+
+        var length = Math.Max(leftParts.Length, rightParts.Length);
+        for (var i = 0; i < length; i++)
+        {
+            var leftValue = i < leftParts.Length ? leftParts[i] : 0;
+            var rightValue = i < rightParts.Length ? rightParts[i] : 0;
+            if (leftValue != rightValue)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static int[]? ParseVersionParts(string value)
+    {
+        var parts = value.Split('.');
+        var numbers = new int[parts.Length];
+        for (var i = 0; i < parts.Length; i++)
+        {
+            if (!int.TryParse(parts[i], NumberStyles.None, CultureInfo.InvariantCulture, out numbers[i]))
+            {
+                return null;
+            }
+        }
+
+        return numbers;
+    }
 
     private static T ParseJson<T>(string json, string source) where T : class
     {

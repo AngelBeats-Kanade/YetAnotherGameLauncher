@@ -163,6 +163,29 @@ public class KuroChannelApiTests
     }
 
     [Fact]
+    public async Task GetIncrementalManifest_NullDestInTopLevelResource_SkippedInsteadOfThrowing()
+    {
+        // F42 同族扫尾（2026-10-26 复审）：`resource` 条目的 dest 在 STJ null-over-initializer 下会是
+        // null，而 IsDiffResource 在 ToManifestFiles 滤空白**之前**就解引用——NRE 不是 UpdateException，
+        // 且增量链没有整包回退，重试会一直撞同一处。
+        RegisterFullFixture();
+        const string patchIndexFile = """
+            {
+              "resource": [
+                { "dest": null, "md5": "99999999999999999999999999999999", "size": 4 },
+                { "dest": "Client/Content/Paks/keep.pak", "md5": "12341234123412341234123412341234", "size": 40 }
+              ]
+            }
+            """;
+        _downloader.Serve(Cdn + "resource/10003/3.6.0/350/indexFile.json", patchIndexFile);
+
+        var manifest = await CreateApi().GetIncrementalManifestAsync(Server(), "3.5.0", "3.6.0");
+
+        Assert.NotNull(manifest);
+        Assert.Equal(["Client/Content/Paks/keep.pak"], [.. manifest.Files.Select(f => f.Path)]);
+    }
+
+    [Fact]
     public async Task GetVersionInfo_ParsesVersionPatchSourcesAndPredownload()
     {
         RegisterFullFixture();

@@ -16,6 +16,10 @@ public sealed class FakeDownloader : IDownloader
     /// 默认单次 Report 全量长度（既有测试语义）。</summary>
     public bool ReportProgressInChunks { get; set; }
 
+    /// <summary>下载落盘后的副作用钩子（写入成功后触发）：注入"下载窗口内目标/其它文件被外部改动"
+    /// 这类并发场景用（2026-10-23 补档回退分支的确定性测试缝）。</summary>
+    public Action<DownloadRequest>? OnDownload { get; set; }
+
     public void Serve(string url, string content) => Responses[url] = System.Text.Encoding.UTF8.GetBytes(content);
 
     public void Serve(string url, byte[] content) => Responses[url] = content;
@@ -31,6 +35,7 @@ public sealed class FakeDownloader : IDownloader
         var content = Responses[request.Url];
         Directory.CreateDirectory(Path.GetDirectoryName(request.DestinationPath)!);
         File.WriteAllBytes(request.DestinationPath, content);
+        OnDownload?.Invoke(request);
         if (ReportProgressInChunks && content.Length > 0)
         {
             var written = 0;

@@ -138,6 +138,153 @@ public class GameInstallServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task SyncAsync_FastMode_SkipsFullHashForPreexistingFiles()
+    {
+        // 补档快速路径（2026-10-23）：已有文件只信快速校验（存在性 + 尺寸），本次下载的文件
+        // 仍做 MD5 后验；同尺寸损坏的已有文件留给显式“校验修复”，不在补档时顺带全盘重算。
+        var existing = "content-a"u8.ToArray();
+        var corrupt = "corrupt-X"u8.ToArray();
+        Assert.Equal(existing.Length, corrupt.Length);
+        await File.WriteAllBytesAsync(_tempDir.FilePath("existing.txt"), corrupt);
+        _downloader.Responses[Url("existing.txt")] = existing; // 全量模式会尝试修复；快速模式不应请求
+        var added = "content-b!!"u8.ToArray();
+        _downloader.Responses[Url("added.txt")] = added;
+        var service = new GameInstallService(_downloader);
+
+        var repaired = await service.SyncAsync(
+            _tempDir.Path,
+            Manifest(FileEntry("existing.txt", existing), FileEntry("added.txt", added)),
+            verifyAllExistingFiles: false);
+
+        Assert.Equal(1, repaired);
+        Assert.Equal([Url("added.txt")], _downloader.Requests);
+        Assert.Equal(corrupt, await File.ReadAllBytesAsync(_tempDir.FilePath("existing.txt")));
+        Assert.Equal(added, await File.ReadAllBytesAsync(_tempDir.FilePath("added.txt")));
+    }
+
+    [Fact]
+    public async Task SyncAsync_FastMode_StillVerifiesDownloadedFiles()
+    {
+        // 快速路径只跳过"已有文件"的 MD5；本次下载的文件必须仍过 MD5 后验。
+        // 篡改内容与清单**同尺寸**：尺寸差异会被最终快速校验兜住，只有 MD5 后验本身能拆穿它
+        // （2026-10-23 变异实验实锤：原 8 vs 9 字节形态下拆掉 MD5 后验测试照样绿 = 空洞守卫）。
+        var a = "content-a"u8.ToArray();
+        var tampered = "tampered!"u8.ToArray();
+        Assert.Equal(a.Length, tampered.Length);
+        _downloader.Responses[Url("a.txt")] = tampered;
+        var service = new GameInstallService(_downloader);
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => service.SyncAsync(_tempDir.Path, Manifest(FileEntry("a.txt", a)), verifyAllExistingFiles: false));
+
+        Assert.Contains("Post-download verification failed", ex.Message);
+    }
+
+    [Fact]
+    public async Task SyncAsync_FastMode_ExistingFileChangedDuringDownload_RepairsItInSecondRound()
+    {
+        // 补档快速路径的罕见回退（2026-10-23）：下载窗口内已有文件被外部改动/删除时，最终快速校验
+        // 会发现缺口 → 把这些文件当第二轮下载补下并 MD5 后验（不动其余已有文件）；缺文件/尺寸不符
+        // 的安装不当成功，但无关的同尺寸损坏照旧容忍。
+        var existing = "content-a"u8.ToArray();
+        await File.WriteAllBytesAsync(_tempDir.FilePath("existing.txt"), existing);
+        _downloader.Responses[Url("existing.txt")] = existing;
+        var added = "content-b!!"u8.ToArray();
+        _downloader.Responses[Url("added.txt")] = added;
+        _downloader.OnDownload = request =>
+        {
+            if (request.Url == Url("added.txt"))
+            {
+                // 下载窗口内"另一个进程"把已有文件改短：快速校验层（存在 + 尺寸）可见
+                File.WriteAllBytes(_tempDir.FilePath("existing.txt"), "x"u8.ToArray());
+            }
+        };
+        var service = new GameInstallService(_downloader);
+
+        var repaired = await service.SyncAsync(
+            _tempDir.Path,
+            Manifest(FileEntry("existing.txt", existing), FileEntry("added.txt", added)),
+            verifyAllExistingFiles: false);
+
+        Assert.Equal(2, repaired); // added.txt + 被改动后补下的 existing.txt
+        Assert.Equal(existing, await File.ReadAllBytesAsync(_tempDir.FilePath("existing.txt")));
+    }
+
+    [Fact]
+    public async Task SyncAsync_FastMode_ConcurrentDamage_DoesNotFailOnUnrelatedCorruptExistingFile()
+    {
+        // 罕见回退只处理"被并发改动的文件"：无关的同尺寸损坏是快速路径显式容忍的（留给「校验修复」），
+        // 不得因为回退触发就把整个补档升级成硬失败——否则一个与本次下载无关的损坏文件会让补档
+        // 必败且无自愈路径（2026-10-23 复审）。
+        var spare = "spare-ok"u8.ToArray();
+        var spareCorrupt = "spareBAD"u8.ToArray();
+        Assert.Equal(spare.Length, spareCorrupt.Length);
+        await File.WriteAllBytesAsync(_tempDir.FilePath("spare.txt"), spareCorrupt);
+        _downloader.Responses[Url("spare.txt")] = spare;
+
+        var victim = "victim-ok"u8.ToArray();
+        await File.WriteAllBytesAsync(_tempDir.FilePath("victim.txt"), victim);
+        _downloader.Responses[Url("victim.txt")] = victim;
+
+        var added = "content-b!!"u8.ToArray();
+        _downloader.Responses[Url("added.txt")] = added;
+
+        var damaged = false;
+        _downloader.OnDownload = request =>
+        {
+            if (request.Url == Url("added.txt") && !damaged)
+            {
+                damaged = true;
+                // 下载窗口内"另一个进程"把 victim 改短（快速校验层可见）→ 触发罕见回退
+                File.WriteAllBytes(_tempDir.FilePath("victim.txt"), "x"u8.ToArray());
+            }
+        };
+        var service = new GameInstallService(_downloader);
+
+        var repaired = await service.SyncAsync(
+            _tempDir.Path,
+            Manifest(
+                FileEntry("spare.txt", spare),
+                FileEntry("victim.txt", victim),
+                FileEntry("added.txt", added)),
+            verifyAllExistingFiles: false);
+
+        Assert.Equal(2, repaired); // added.txt + 被改动后补下的 victim.txt
+        Assert.Equal(victim, await File.ReadAllBytesAsync(_tempDir.FilePath("victim.txt")));
+        Assert.Equal(spareCorrupt, await File.ReadAllBytesAsync(_tempDir.FilePath("spare.txt")));
+    }
+
+    [Fact]
+    public async Task SyncAsync_EmptyManifest_DoesNotDeleteInstalledFiles()
+    {
+        // P1 兜底（2026-10-26 复审）：即使渠道层漏检，空清单也不得触发清理把整个安装删光——
+        // 清理的语义是"删清单外的游离文件"，空清单下这个语义会退化成"删掉一切"。
+        var keep = "installed-content"u8.ToArray();
+        await File.WriteAllBytesAsync(_tempDir.FilePath("common.dat"), keep);
+        var service = new GameInstallService(_downloader);
+
+        await service.SyncAsync(_tempDir.Path, new GameManifest { Version = "1.0.0", Files = [] });
+
+        Assert.Equal(keep, await File.ReadAllBytesAsync(_tempDir.FilePath("common.dat")));
+    }
+
+    [Fact]
+    public async Task SyncAsync_ManifestPathWithDotSegment_DoesNotDeleteListedFile()
+    {
+        // 清理判定与清单边界共用同一条归一串（2026-10-26 复审）：清单里的 `data/./file.dat` 与磁盘上的
+        // `data/file.dat` 是同一目标，只比原始串会把清单内文件当游离文件删掉。
+        // 直接调 SyncAsync（公开入口），不依赖渠道校验层先拒收这类写法。
+        var content = "installed"u8.ToArray();
+        Directory.CreateDirectory(_tempDir.FilePath("data"));
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "file.dat"), content);
+        var service = new GameInstallService(_downloader);
+
+        await service.SyncAsync(_tempDir.Path, Manifest(FileEntry("data/./file.dat", content)));
+
+        Assert.Equal(content, await File.ReadAllBytesAsync(_tempDir.FilePath("data", "file.dat")));
+    }
+
+    [Fact]
     public async Task SyncAsync_PostVerificationFailure_Throws()
     {
         // 下载器写入的内容与清单 MD5 不符 → 事后校验必须失败

@@ -249,6 +249,72 @@ public class IncrementalUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyAsync_DeleteFilesUnderReservedPaths_Spared()
+    {
+        // 2026-10-23 清单边界批：官方 deleteFiles 是外部输入，点名启动器状态/存档/官方兼容目录
+        // 时必须跳过——.yagl/state.json 被删会让本地版本记录消失，Saved 被删直接丢用户存档。
+        Directory.CreateDirectory(_tempDir.FilePath(".yagl"));
+        Directory.CreateDirectory(_tempDir.FilePath("Saved"));
+        Directory.CreateDirectory(_tempDir.FilePath("data"));
+        await File.WriteAllTextAsync(_tempDir.FilePath(".yagl", "state.json"), "{}");
+        await File.WriteAllTextAsync(_tempDir.FilePath("Saved", "slot.sav"), "save");
+        Directory.CreateDirectory(_tempDir.FilePath("Saved."));
+        await File.WriteAllTextAsync(_tempDir.FilePath("Saved.", "slot.sav"), "save");
+        await File.WriteAllTextAsync(_tempDir.FilePath("data", "gone.pak"), "gone");
+        var manifest = new GameManifest
+        {
+            Version = "2.0.0",
+            // `Saved./slot.sav`：Windows 会把尾点吃掉、实际落进 Saved/——消费端守卫同样要归一识别
+            DeleteFiles = [".yagl/state.json", "Saved/slot.sav", "Saved./slot.sav", "data/gone.pak"],
+        };
+
+        await CreateService().ApplyAsync(_tempDir.Path, manifest);
+
+        Assert.True(File.Exists(_tempDir.FilePath(".yagl", "state.json")), "启动器状态文件不得被废弃清单删除");
+        Assert.True(File.Exists(_tempDir.FilePath("Saved", "slot.sav")), "存档不得被废弃清单删除");
+        Assert.True(File.Exists(_tempDir.FilePath("Saved.", "slot.sav")), "尾点变体同样命中保留目录");
+        Assert.False(File.Exists(_tempDir.FilePath("data", "gone.pak")), "普通废弃条目照删");
+    }
+
+    [Theory]
+    [InlineData("./Saved/slot.sav")]
+    [InlineData("data/../Saved/slot.sav")]
+    public async Task ApplyAsync_DeleteFilesReservedPathWithDotSegments_Spared(string entry)
+    {
+        // `./Saved/x`、`data/../Saved/x` 词法上看不出命中 Saved/，但 ResolveSafe 归一后确实落进
+        // Saved/——消费端守卫必须按落地语义判定，否则旧暂存清单能删掉存档（2026-10-26 复审）。
+        Directory.CreateDirectory(_tempDir.FilePath("Saved"));
+        await File.WriteAllTextAsync(_tempDir.FilePath("Saved", "slot.sav"), "save");
+        var manifest = new GameManifest
+        {
+            Version = "2.0.0",
+            DeleteFiles = [entry],
+        };
+
+        await CreateService().ApplyAsync(_tempDir.Path, manifest);
+
+        Assert.True(File.Exists(_tempDir.FilePath("Saved", "slot.sav")), $"{entry} 归一后落进 Saved/，不得删除");
+    }
+
+    [Fact]
+    public async Task ApplyAsync_BlankDeleteFilesEntry_SkippedInsteadOfThrowing()
+    {
+        // 旧暂存清单可能带 null/空白 deleteFiles 条目（STJ `"deleteFiles": [null]`）：不指向任何
+        // 可删文件，跳过即可——不能 NRE 掉整轮更新（F42 同族，2026-10-26 复审）。
+        Directory.CreateDirectory(_tempDir.FilePath("data"));
+        await File.WriteAllTextAsync(_tempDir.FilePath("data", "gone.pak"), "gone");
+        var manifest = new GameManifest
+        {
+            Version = "2.0.0",
+            DeleteFiles = [null!, string.Empty, "data/gone.pak"],
+        };
+
+        await CreateService().ApplyAsync(_tempDir.Path, manifest);
+
+        Assert.False(File.Exists(_tempDir.FilePath("data", "gone.pak")), "空白条目不得拖垮其余删除");
+    }
+
+    [Fact]
     public async Task ApplyAsync_DeleteFilesIntersectingGroupSrc_AppliesGroupThenDeletes()
     {
         // T1（2026-10-02 真机 P1 实锤）：deleteFiles ∩ group.srcFiles 非空（3.6.1→3.7.0 group_37
@@ -300,6 +366,54 @@ public class IncrementalUpdateServiceTests : IDisposable
 
         Assert.Equal(newContent, await File.ReadAllBytesAsync(_tempDir.FilePath("data", "file.dat"))); // 产物豁免
         Assert.False(File.Exists(_tempDir.FilePath("data", "obsolete.bin"))); // 普通废弃条目照删
+    }
+
+    [Fact]
+    public async Task ApplyAsync_DeleteFilesListingFreshlyProducedFileWithDotSegments_SparedIt()
+    {
+        // 产物豁免要按归一串匹配：`./data/file.dat` 与 `data/file.dat` 是同一目标，只比原始串
+        // 会把刚产出且校验通过的文件删掉且无自愈路径（2026-10-26 复审，RF-C 同族）。
+        var oldContent = "old-content"u8.ToArray();
+        var newContent = "brand-new"u8.ToArray();
+        Directory.CreateDirectory(_tempDir.FilePath("data"));
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "file.dat"), oldContent);
+        var group = PrepareGroup("g1.krpdiff", [("data/file.dat", oldContent)], [("data/file.dat", newContent)]);
+        var manifest = new GameManifest
+        {
+            Version = "2.0.0",
+            Groups = [group],
+            Files = [FileEntry("data/file.dat", newContent)],
+            DeleteFiles = ["./data/file.dat"],
+        };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+
+        await CreateService().ApplyAsync(_tempDir.Path, manifest);
+
+        Assert.Equal(newContent, await File.ReadAllBytesAsync(_tempDir.FilePath("data", "file.dat")));
+    }
+
+    [Theory]
+    [InlineData("./Client/Content/HD/pak.pak")]
+    [InlineData("Client/Content/../Client/Content/HD/pak.pak")]
+    public async Task ApplyAsync_DeleteFilesPreservedPrefixWithDotSegments_Spared(string entry)
+    {
+        // 归一后确实落在保留档位目录（ResolveSafe 会删掉它），但词法前缀比较匹配不上——
+        // 禁写/保留前缀/产物豁免三项判定必须共用归一串，否则保留档位内容被废弃清单删掉
+        //（2026-10-26 复审；"档位内容永不隐式删除"是全仓不变量）。
+        Directory.CreateDirectory(_tempDir.FilePath("Client", "Content", "HD"));
+        await File.WriteAllBytesAsync(_tempDir.FilePath("Client", "Content", "HD", "pak.pak"), "hd-payload"u8.ToArray());
+        var manifest = new GameManifest
+        {
+            Version = "2.0.0",
+            DeleteFiles = [entry],
+            PreservedPaths = ["Client/Content/HD"],
+        };
+
+        await CreateService().ApplyAsync(_tempDir.Path, manifest);
+
+        Assert.True(
+            File.Exists(_tempDir.FilePath("Client", "Content", "HD", "pak.pak")),
+            $"{entry} 归一后落在保留档位目录，不得删除");
     }
 
     [Fact]
