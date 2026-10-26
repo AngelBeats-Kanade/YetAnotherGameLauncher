@@ -207,7 +207,7 @@ public class App : Application
             sp.GetRequiredService<ILoggerFactory>().CreateLogger<FfmpegLibraryResolver>()));
         services.AddTransient<IVideoBackdropPlayer, FfmpegVideoBackdropPlayer>();
         services.AddSingleton(sp => new Func<IVideoBackdropPlayer>(
-            () => sp.GetRequiredService<IVideoBackdropPlayer>()));
+            sp.GetRequiredService<IVideoBackdropPlayer>));
 
         // Linux 兼容层：原生 umu（内置 C# 启动链，自动准备 Proton 与 Steam Runtime）
         services.AddSingleton<IUmuComponentProvisioner>(sp => new UmuComponentProvisioner(
@@ -257,7 +257,7 @@ public class App : Application
                 sp.GetRequiredService<ILocalizationService>(),
                 sp.GetRequiredService<BackgroundImageService>(),
                 sp.GetRequiredService<GameBackdropService>(),
-                channelKey => keyed.GetKeyedService<IGameChannelApi>(channelKey),
+                keyed.GetKeyedService<IGameChannelApi>,
                 TryLoadEmbeddedSampleTemplate,
                 sp.GetRequiredService<IFilePickerService>(),
                 sp.GetRequiredService<Func<IVideoBackdropPlayer>>(),
