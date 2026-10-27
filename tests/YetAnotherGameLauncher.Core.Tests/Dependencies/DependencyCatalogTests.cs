@@ -155,15 +155,15 @@ public class DependencyCatalogTests
         Assert.Throws<DependencyCatalogException>(() => DependencyCatalog.Parse(json));
     }
 
-    /// <summary>内嵌 cjk-fonts 清单自检：资源在、过校验、内容与 Bottles cjkfonts.yml 一致
-    /// （28 族名 + 4 替换组 10/7/18/16，含 CJK 原名条目）。</summary>
+    /// <summary>内嵌 cjk-fonts 清单自检：资源在、过校验、Bottles 4 组 + YAGL KRSDK H7GBK 别名组
+    /// （28 族名 + 5 替换组 10/6/7/18/16；SC 目标两组：系统字体名 + KRSDK H7GBK 别名）。</summary>
     [Fact]
     public void LoadEmbedded_CjkFonts_MatchesResearchedManifestShape()
     {
         var manifests = DependencyCatalog.LoadEmbedded();
 
         var cjk = Assert.Single(manifests, m => m.Id == "cjk-fonts");
-        Assert.Equal("2.004R", cjk.Version);
+        Assert.Equal("2.004R-1", cjk.Version);
         Assert.StartsWith("https://github.com/adobe-fonts/source-han-sans/releases/", cjk.DownloadUrl);
         Assert.Equal("SourceHanSans.ttc.zip", cjk.FileName);
         Assert.Equal(32, cjk.Md5.Length);
@@ -175,11 +175,20 @@ public class DependencyCatalogTests
         Assert.Contains("Source Han Sans SC ExtraLight", font.Families);
         Assert.Contains("Source Han Sans K Heavy", font.Families);
 
-        Assert.Equal(4, cjk.ReplacementGroups.Count);
-        var sc = Assert.Single(cjk.ReplacementGroups, g => g.Target == "Source Han Sans SC");
+        Assert.Equal(5, cjk.ReplacementGroups.Count);
+        Assert.Equal(57, cjk.ReplacementGroups.Sum(g => g.Replaces.Count));
+        var sc = Assert.Single(cjk.ReplacementGroups, g => g.Replaces.Contains("Microsoft YaHei"));
+        Assert.Equal("Source Han Sans SC", sc.Target);
         Assert.Equal(10, sc.Replaces.Count);
-        Assert.Contains("Microsoft YaHei", sc.Replaces);
         Assert.Contains("SimSun-ExtB", sc.Replaces);
+        var h7 = Assert.Single(cjk.ReplacementGroups, g => g.Replaces.Contains("文鼎方新书H7GBK_H"));
+        Assert.Equal("Source Han Sans SC", h7.Target);
+        Assert.Equal(
+            [
+                "文鼎方新书H7GBK_H", "文鼎方新书H7GBK", "AR FangXinShuH7GBK",
+                "AR FangXinShuH7GBK Heavy", "H7GBKHeavy", "Source Han Sans CN Regular",
+            ],
+            h7.Replaces);
         var tc = Assert.Single(cjk.ReplacementGroups, g => g.Target == "Source Han Sans TC");
         Assert.Equal(7, tc.Replaces.Count);
         Assert.Contains("PMingLiU", tc.Replaces);

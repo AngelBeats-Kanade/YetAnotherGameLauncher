@@ -1227,6 +1227,27 @@ const MUTATIONS = [
     dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
     method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroChannelApiTests.GetIncrementalManifest_NullDestInTopLevelResource_SkippedInsteadOfThrowing',
   },
+  {
+    // 2026-10-27 W1：内嵌 cjk-fonts 的 57 条替换（含 KRSDK H7GBK 别名）序列化守卫——
+    // 关掉 Replacements 分支后 Build_EmbeddedCjkFonts... 必须红（无节 / 行数不足）。
+    id: 'M120-cjk-replacements-serialized',
+    file: 'src/YetAnotherGameLauncher.Core/Dependencies/WineRegistryScriptBuilder.cs',
+    find: 'if (manifest.ReplacementGroups.Count > 0)',
+    replace: 'if (manifest.ReplacementGroups.Count > 100)',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Dependencies.WineRegistryScriptBuilderTests.Build_EmbeddedCjkFonts_EmitsAllReplacementMappingsIncludingSdkAliases',
+  },
+  {
+    // 2026-10-27 W1：.reg 必须以 UTF-16LE BOM 落盘——改成 UTF-8 后 H7 中文名写读回环守卫必须红。
+    id: 'M121-cjk-reg-utf16le-bom',
+    file: 'src/YetAnotherGameLauncher.Core/Dependencies/WineRegistryScriptBuilder.cs',
+    find: 'await File.WriteAllTextAsync(path, content, Encoding.Unicode, cancellationToken).ConfigureAwait(false);',
+    replace: 'await File.WriteAllTextAsync(path, content, Encoding.UTF8, cancellationToken).ConfigureAwait(false);',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Dependencies.WineRegistryScriptBuilderTests.WriteAsync_EmbeddedCjkFonts_RoundTripsH7AliasesAsUtf16LeBom',
+  },
 ];
 
 function run(cmd, args) {

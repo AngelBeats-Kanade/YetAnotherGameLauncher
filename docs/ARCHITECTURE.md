@@ -622,17 +622,29 @@ flowchart LR
   `WindowDecorations="BorderOnly"` 给 X11 窗口画 SSD 标题条，故在 `InitializeComponent()` **之后**设
   `WindowDecorations.None`（XAML 属性会覆盖构造函数先写的值；对原生 Wayland 同样正确，2026-09
   实测 CSD 生效、无双标题）。
+- **Wine 文本解码边界（2026-10-27，路线 A 文档）**：鸣潮 KRSDK 登录窗「用户协议」正文乱码的根因在
+  Wine riched20——`EM_SETTEXTEX` 的 RTF 分支丢弃 `SETTEXTEX.codepage`（UTF-8 正文按 RTF 读取器默认
+  cp1252 解码），Windows 用调用方码页；Wine master 仍 `todo_wine`（`dlls/riched20/editor.c:3499`、
+  `reader.c:231`、`tests/editor.c:4545–4548`）。这**不属于**平台后端/窗口状态，也**不由** `cjk-fonts`
+  修复；本文档只记录已知限制与手动原生 `msftedit` workaround，不自动安装原生 DLL。详见
+  `docs/PITFALLS.md` §3 与本文档 §3.9 的依赖边界。
 
 ### 3.9 依赖安装管线（游戏设置页「依赖」区，2026-09-27）
 
 为单个游戏的 Wine prefix 手动安装可选组件（Bottles cjkfonts 语义的适配落地；首版仅内置 cjk-fonts =
-思源黑体 2.004R）。分层与数据流：
+思源黑体 2.004R-1）。分层与数据流：
 
 - **清单（数据与代码分离）**：`Core/Dependencies/catalog.json` 内嵌资源，声明式 schema——
   `id/version/downloadUrl/fileName/md5/sizeBytes` + `fonts[]`（文件→族名登记）+
   `replacementGroups[]`（旧字体名→目标字体）。`DependencyCatalog` 解析并聚合校验（id kebab 唯一、
   https、md5 32hex、size>0、文件名禁路径段与 `..`、**缺省键归一为校验错误而非 NRE**），错误一次性抛
   `DependencyCatalogException`。加新依赖 = 改清单，不改代码。
+- **cjk-fonts 2.004R-1（2026-10-27，W1）**：新增一组 target=`Source Han Sans SC` 的字体替换，源名含
+  KRSDK `Config.txt` 的 `文鼎方新书H7GBK_H`、`文鼎方新书H7GBK`、`AR FangXinShuH7GBK`、
+  `AR FangXinShuH7GBK Heavy`、`H7GBKHeavy`、`Source Han Sans CN Regular`；连同既有 4 组共 57 条替换
+  （10+6+7+18+16）。版本 bump 让已装 2.004R 的用户重装生效。**边界**：只修字体回退/缺字形（真机探针：
+  删除该组后 H7GBK 全名回退 Arial/`0xFFFF`；装上后选中 CJK 字形），**不修** KRSDK 协议正文的
+  cp1252 解码乱码（Wine riched20 RTF codepage bug，见 §3.8 与 PITFALLS）。
 - **目标解析（App 层 `WinePrefixTargetResolver`，纯决策表）**：Direct → 不适用；启动环境里**非生成**
   的自定义 `WINEPREFIX`（≠ 统一 prefix 根）→ 系统 wine 挂该 prefix；Wine 模式定位不到 Proton 时回落
   系统 wine 挂兼容数据根本身；其余按 umu 布局——兼容数据根取
@@ -659,7 +671,8 @@ flowchart LR
   失败不写标记、幂等可重试，OCE 透传。
 - **真机验证记录（2026-09-27）**：Adobe release 包实测 MD5/size 与清单一致；dwproton-11.0-13 直调
   `files/bin/wine` 完成 `wineboot -i`（`WINEDLLOVERRIDES` 下无 mono/gecko 挂起）与 `reg import`，
-  system.reg 28 条登记、user.reg 51 条替换全部落盘并可 `reg query` 读回。已知边界：**直调 Proton wine
+  system.reg 28 条登记、user.reg 51 条替换（当时 2.004R 的 4 组；2.004R-1 起为 57 条）全部落盘并可
+  `reg query` 读回。已知边界：**直调 Proton wine
   时其 freetype 库路径未配置，GDI 字体枚举不可用（查询时有告警）**——但注册表读写不受影响，依赖安装
   只需读写注册表；字体在游戏内最终生效以 umu 完整容器环境启动为准。
 - **真机事故与修复（2026-09-27，F46）**：用户两个游戏 prefix（dwproton-11.0-12 所建）在 provisioner

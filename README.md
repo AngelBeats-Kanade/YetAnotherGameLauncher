@@ -76,7 +76,7 @@
 | 系统托盘驻留 | 托盘图标常驻（左键唤回主窗口，菜单含"显示主窗口 / 退出"）；关闭按钮行为可在设置页二选一：退出应用（默认）/ 关闭窗口驻留系统托盘（驻留时下载与依赖安装后台继续）。依赖桌面环境提供 StatusNotifierItem 托盘：KDE 开箱即用，GNOME 需安装托盘扩展，无托盘环境请保持"退出应用"模式。驻留期间再次启动应用会打开新实例（暂无单实例保护） |
 | 原生 Wayland | Linux 上检测到 Wayland 会话（`WAYLAND_DISPLAY`）即走 Avalonia 12.1 原生 Wayland 后端（实验性）：合成器直供分数缩放（无需 Xft.dpi 补丁）；出问题可 `YAGL_FORCE_XWAYLAND=1` 退回 X11/XWayland（该路径仍保留 EGL 优先渲染与自动 DPI 同步） |
 | 启动设置 | 独立的游戏设置次页（从详情页齿轮进入）：位置 / 启动方式 / 功能开关 / 自定义启动选项，保存钮随变更点亮、保存回配置文件；设置项实际变更保存成功即弹右上角轻提示（列出变更字段，无变更/校验失败不弹），切换服务器亦有提示 |
-| 依赖安装（Linux） | 游戏设置页「依赖」卡：为当前游戏的 Wine prefix 手动安装可选组件。首版内置 **CJK 字体（思源黑体）**——下载思源黑体全量 ttc（MD5 校验、断点续传、全局缓存多游戏复用）装入 `windows/Fonts`，并经 `wine reg` 把宋体/雅黑/MS Gothic 等简繁日韩系统字体名整体映射到思源黑体，修复 Wine 下缺字形导致的方块（豆腐块）乱码；注意游戏内登录窗（KRSDK）协议正文乱码属文本解码层问题、与字体无关（2026-09-29 判别实验定论）；prefix 未初始化（未启动过游戏）或缺 Proton 时给可操作提示而非报错 |
+| 依赖安装（Linux） | 游戏设置页「依赖」卡：为当前游戏的 Wine prefix 手动安装可选组件。首版内置 **CJK 字体（思源黑体 2.004R-1）**——下载思源黑体全量 ttc（MD5 校验、断点续传、全局缓存多游戏复用）装入 `windows/Fonts`，并经 `wine reg` 把宋体/雅黑/MS Gothic 等简繁日韩系统字体名、以及 KRSDK 的 H7GBK 全名（`文鼎方新书H7GBK_H` 等）映射到思源黑体，修复 Wine 下缺字形/字体回退导致的方块（豆腐块）乱码；**它不修复**游戏内登录窗（KRSDK）协议正文乱码——那是 Wine riched20 在 `EM_SETTEXTEX` 的 RTF 分支丢弃 `codepage` 导致的解码问题（2026-10-16 直接 trace 定案，与字体无关）。当前版本不自动安装原生 DLL、不打包微软 DLL；该已知限制仍在：上游 Wine 尚未修复，可手动安装原生 Win7 SP1 `msftedit` + `*msftedit=native,builtin`（已有 winetricks 时优先 `winetricks msftedit`；注意别 `cp` 写穿 prefix 里的 Proton 符号链接，详见 docs/PITFALLS.md）；prefix 未初始化（未启动过游戏）或缺 Proton 时给可操作提示而非报错 |
 | 存储路径可视化配置 | 设置页可改安装根目录；游戏设置页“位置”内可单独修改每个游戏的安装目录，保存即时生效 |
 | 官方图标 | 鸣潮/终末地使用官方应用图标（默认内置资源 `avares://YetAnotherGameLauncher/Assets/game-icons/*.jpg`，`icon` 字段仍支持 URL/本地路径，URL 图标带磁盘缓存，加载失败回退首字） |
 | 架构 | 前后端分离：`Core`（领域层）→ `Channels.*`（厂商渠道）→ `App`（Avalonia UI），全部依赖抽象接口 |
@@ -193,7 +193,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（1649 个，2026-10-26 实测）
+### 运行测试（1651 个，2026-10-27 实测）
 
 ```bash
 # 4 个测试工程分别运行编译产物（Windows 亦可直接跑 .exe；本机 dotnet test 可能发现 0 个测试）：

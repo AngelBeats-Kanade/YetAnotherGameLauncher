@@ -1,3 +1,4 @@
+using System.Text;
 using Xunit;
 using YetAnotherGameLauncher.Core.Dependencies;
 
@@ -53,6 +54,62 @@ public class WineRegistryScriptBuilderTests
         var groupsOnly = WineRegistryScriptBuilder.Build(Manifest(fonts: []));
         Assert.DoesNotContain("CurrentVersion\\Fonts]", groupsOnly);
         Assert.Contains("[HKEY_CURRENT_USER\\Software\\Wine\\Fonts\\Replacements]", groupsOnly);
+    }
+
+    [Fact]
+    public void Build_EmbeddedCjkFonts_EmitsAllReplacementMappingsIncludingSdkAliases()
+    {
+        var cjk = Assert.Single(DependencyCatalog.LoadEmbedded(), m => m.Id == "cjk-fonts");
+        var script = WineRegistryScriptBuilder.Build(cjk);
+
+        var marker = "[HKEY_CURRENT_USER\\Software\\Wine\\Fonts\\Replacements]\n";
+        var index = script.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(index >= 0, "缺少 Replacements 节");
+        var lines = script[(index + marker.Length)..]
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .TakeWhile(line => !line.StartsWith('['))
+            .ToArray();
+        var expectedCount = cjk.ReplacementGroups.Sum(g => g.Replaces.Count);
+
+        // 既有系统字体名 + SDK H7GBK 别名组共用同一 target：在单次 .reg 中合并输出。
+        Assert.Equal(57, expectedCount);
+        Assert.Equal(expectedCount, lines.Length);
+        Assert.Contains("\"SimSun\"=\"Source Han Sans SC\"", lines);
+        foreach (var alias in new[]
+                 {
+                     "文鼎方新书H7GBK_H", "文鼎方新书H7GBK", "AR FangXinShuH7GBK",
+                     "AR FangXinShuH7GBK Heavy", "H7GBKHeavy", "Source Han Sans CN Regular",
+                 })
+        {
+            Assert.Contains($"\"{alias}\"=\"Source Han Sans SC\"", lines);
+        }
+    }
+
+    /// <summary>内嵌清单经 WriteAsync 落成 UTF-16LE BOM 后再按 UTF-16LE 回读：H7 中文别名必须逐字
+    /// 往返（内存字符串断言不能发现编码层把非 ASCII 写坏）。</summary>
+    [Fact]
+    public async Task WriteAsync_EmbeddedCjkFonts_RoundTripsH7AliasesAsUtf16LeBom()
+    {
+        var cjk = Assert.Single(DependencyCatalog.LoadEmbedded(), m => m.Id == "cjk-fonts");
+        var script = WineRegistryScriptBuilder.Build(cjk);
+        var path = Path.Combine(Path.GetTempPath(), $"yagl-cjk-{Guid.NewGuid():N}.reg");
+        try
+        {
+            await WineRegistryScriptBuilder.WriteAsync(path, script);
+
+            var bytes = await File.ReadAllBytesAsync(path);
+            Assert.Equal(0xFF, bytes[0]);
+            Assert.Equal(0xFE, bytes[1]);
+
+            var text = Encoding.Unicode.GetString(bytes[2..]);
+            Assert.Equal(script, text);
+            Assert.Contains("\"文鼎方新书H7GBK_H\"=\"Source Han Sans SC\"", text);
+            Assert.Contains("\"AR FangXinShuH7GBK Heavy\"=\"Source Han Sans SC\"", text);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]

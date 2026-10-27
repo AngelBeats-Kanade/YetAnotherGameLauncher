@@ -434,7 +434,8 @@ public class DependencySectionViewModelTests : IDisposable
             var item = Assert.Single(section.Items);
 
             Assert.True(item.IsInstalled);
-            Assert.Contains("2.004R", item.StatusText);
+            Assert.Equal("2.004R-1", item.Manifest.Version);
+            Assert.Contains(item.Manifest.Version, item.StatusText);
             Assert.Equal("重装", item.ButtonText);
         }
         finally

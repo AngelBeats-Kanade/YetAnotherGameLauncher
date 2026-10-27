@@ -1,9 +1,11 @@
 [
   // CJK 字体依赖（Bottles cjkfonts.yml 同源方案）：
   // Adobe 思源黑体全量 ttc 覆盖简/繁/日/韩，经注册表把 Windows 系统字体名整体映射到思源黑体。
+  // 2.004R-1（2026-10-27）：YAGL 修订，补 KRSDK 的 H7GBK 字体别名组；bump 版本让已装 2.004R 的用户重装生效。
+  // 该组只修字体回退/缺字形，不修 KRSDK 协议正文的 cp1252 解码乱码（Wine riched20 RTF codepage bug，见 PITFALLS）。
   {
     "id": "cjk-fonts",
-    "version": "2.004R",
+    "version": "2.004R-1",
     "downloadUrl": "https://github.com/adobe-fonts/source-han-sans/releases/download/2.004R/SourceHanSans.ttc.zip",
     "fileName": "SourceHanSans.ttc.zip",
     "md5": "ce3fc169af61a4e7bc650e7e78186330",
@@ -29,6 +31,15 @@
         "replaces": [
           "Dengxian", "FangSong", "KaiTi", "Microsoft YaHei", "Microsoft YaHei UI",
           "NSimSun", "SimHei", "SimKai", "SimSun", "SimSun-ExtB"
+        ]
+      },
+      {
+        // KRSDK 的 Config.txt 声明 fontName=文鼎方新书H7GBK_H / fontPath=H7GBKHeavy.TTF；
+        // Wine 在 GB2312_CHARSET 下匹配不到这些全名时回退西文字体（独立于正文乱码）。
+        "target": "Source Han Sans SC",
+        "replaces": [
+          "文鼎方新书H7GBK_H", "文鼎方新书H7GBK", "AR FangXinShuH7GBK",
+          "AR FangXinShuH7GBK Heavy", "H7GBKHeavy", "Source Han Sans CN Regular"
         ]
       },
       {

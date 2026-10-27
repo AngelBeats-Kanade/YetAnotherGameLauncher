@@ -5,9 +5,9 @@ namespace YetAnotherGameLauncher.Core.Dependencies;
 /// <param name="Families">要登记到 HKLM Fonts 键的族名列表。</param>
 public sealed record DependencyFont(string File, IReadOnlyList<string> Families);
 
-/// <summary>字体名替换组：把一组旧字体名（Windows 系统字体）映射到目标字体（Wine Fonts\Replacements 语义）。</summary>
+/// <summary>字体名替换组：把一组旧字体名（Windows 系统字体或应用字体别名）映射到目标字体（Wine Fonts\Replacements 语义）。</summary>
 /// <param name="Target">提供实际字形的目标字体族名（须已在 Fonts 节登记）。</param>
-/// <param name="Replaces">被替换的旧字体名列表。</param>
+/// <param name="Replaces">被替换的旧字体名列表（Windows 系统字体名或应用字体别名）。</param>
 public sealed record DependencyReplacementGroup(string Target, IReadOnlyList<string> Replaces);
 
 /// <summary>
@@ -17,7 +17,7 @@ public sealed record DependencyReplacementGroup(string Target, IReadOnlyList<str
 /// 与 Bottles cjkfonts.yml 的四类动作语义一一对应，但合并为单次 reg import。
 /// </summary>
 /// <param name="Id">依赖标识（kebab-case，全局唯一；完成标记文件名由此派生）。</param>
-/// <param name="Version">上游版本标识（写入完成标记，版本变更可检测重装）。</param>
+/// <param name="Version">版本标识（上游版本或 YAGL 本地修订；写入完成标记，版本变更可检测重装）。</param>
 /// <param name="DownloadUrl">压缩包下载地址（必须 https）。</param>
 /// <param name="FileName">下载缓存文件名（仅文件名，落共享缓存目录）。</param>
 /// <param name="Md5">压缩包 MD5（小写 hex，32 位；下载器负责校验）。</param>

@@ -7,6 +7,23 @@
 
 ### 修复 / 变更
 
+- 依赖 `cjk-fonts` 升级到 **2.004R-1**：新增一组 target=`Source Han Sans SC` 的字体替换，覆盖 KRSDK
+  `Config.txt` 的 `文鼎方新书H7GBK_H`、`文鼎方新书H7GBK`、`AR FangXinShuH7GBK`、
+  `AR FangXinShuH7GBK Heavy`、`H7GBKHeavy`、`Source Han Sans CN Regular`；连同既有 4 组合计 57 条替换。
+  仅修复字体回退/缺字形（真机探针：删除该组后 H7GBK 全名回退 Arial 的 `0xFFFF` 字形，装上后选中 CJK
+  字形），**不修复** KRSDK 登录窗协议正文的 cp1252 解码乱码；已装 2.004R 的用户需重装依赖以触发版本变更。
+  (Dependencies: `cjk-fonts` 2.004R-1 adds a `Source Han Sans SC` replacement group for the KRSDK H7GBK
+  faces, for 57 replacements in total; it fixes font fallback/tofu only, not the KRSDK login-window
+  agreement body decoding mojibake. Users with 2.004R must reinstall the dependency to pick up the
+  version bump.)
+- 文档记录 KRSDK 登录窗正文乱码的根因（Wine riched20 在 `EM_SETTEXTEX` 的 RTF 分支丢弃
+  `SETTEXTEX.codepage`，UTF-8 正文按 cp1252 解码；Wine master 仍 `todo_wine`）、当前版本的已知限制与
+  手动原生 `msftedit` workaround；不自动安装原生 DLL、不扩展依赖负载 schema。
+  (Docs: record the KRSDK login-window decoding root cause (Wine riched20 drops `SETTEXTEX.codepage`
+  on the RTF branch; UTF-8 body is decoded as cp1252; Wine master still `todo_wine`), the current
+  known limitation and the manual native `msftedit` workaround; no automatic native-DLL install and
+  no dependency payload schema extension.)
+
 - 资源包档位「下载资源包」（补档）改为快速路径：已有文件只做存在性 + 尺寸校验，只对**本次运行下载
   的文件**（含缺失的 common 文件）做 MD5 后验；同尺寸损坏的已有文件留给「校验修复」（全量 MD5 不变）。
   下载窗口内已有文件被删/改尺寸时，把这些文件当第二轮下载补下并 MD5 后验（不动其余已有文件）。（Fix/Change:
