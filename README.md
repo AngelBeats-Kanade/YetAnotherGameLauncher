@@ -76,7 +76,7 @@
 | 系统托盘驻留 | 托盘图标常驻（左键唤回主窗口，菜单含"显示主窗口 / 退出"）；关闭按钮行为可在设置页二选一：退出应用（默认）/ 关闭窗口驻留系统托盘（驻留时下载与依赖安装后台继续）。依赖桌面环境提供 StatusNotifierItem 托盘：KDE 开箱即用，GNOME 需安装托盘扩展，无托盘环境请保持"退出应用"模式。驻留期间再次启动应用会打开新实例（暂无单实例保护） |
 | 原生 Wayland | Linux 上检测到 Wayland 会话（`WAYLAND_DISPLAY`）即走 Avalonia 12.1 原生 Wayland 后端（实验性）：合成器直供分数缩放（无需 Xft.dpi 补丁）；出问题可 `YAGL_FORCE_XWAYLAND=1` 退回 X11/XWayland（该路径仍保留 EGL 优先渲染与自动 DPI 同步） |
 | 启动设置 | 独立的游戏设置次页（从详情页齿轮进入）：位置 / 启动方式 / 功能开关 / 自定义启动选项，保存钮随变更点亮、保存回配置文件；设置项实际变更保存成功即弹右上角轻提示（列出变更字段，无变更/校验失败不弹），切换服务器亦有提示 |
-| 依赖安装（Linux） | 游戏设置页「依赖」卡：为当前游戏的 Wine prefix 手动安装可选组件。首版内置 **CJK 字体（思源黑体 2.004R-1）**——下载思源黑体全量 ttc（MD5 校验、断点续传、全局缓存多游戏复用）装入 `windows/Fonts`，并经 `wine reg` 把宋体/雅黑/MS Gothic 等简繁日韩系统字体名、以及 KRSDK 的 H7GBK 全名（`文鼎方新书H7GBK_H` 等）映射到思源黑体，修复 Wine 下缺字形/字体回退导致的方块（豆腐块）乱码；**它不修复**游戏内登录窗（KRSDK）协议正文乱码——那是 Wine riched20 在 `EM_SETTEXTEX` 的 RTF 分支丢弃 `codepage` 导致的解码问题（2026-10-16 直接 trace 定案，与字体无关）。当前版本不自动安装原生 DLL、不打包微软 DLL；该已知限制仍在：上游 Wine 尚未修复，可手动安装原生 Win7 SP1 `msftedit` + `*msftedit=native,builtin`（已有 winetricks 时优先 `winetricks msftedit`；注意别 `cp` 写穿 prefix 里的 Proton 符号链接，详见 docs/PITFALLS.md）；prefix 未初始化（未启动过游戏）或缺 Proton 时给可操作提示而非报错 |
+| 依赖安装（Linux） | 游戏设置页「依赖」卡：为当前游戏的 Wine prefix 安装可选组件，按五态展示（未安装/已安装/损坏/备份缺失/待恢复）并支持安装、重装、修复、还原。**CJK 字体（思源黑体 2.004R-1）**：下载全量 ttc（MD5 校验、断点续传、全局缓存多游戏复用）装入 `windows/Fonts`，并经 `wine reg` 把宋体/雅黑/MS Gothic 等简繁日韩系统字体名、以及 KRSDK 的 H7GBK 全名（`文鼎方新书H7GBK_H` 等）映射到思源黑体，修复缺字形/字体回退导致的方块（豆腐块）乱码；它不修复登录窗协议正文乱码。**原生 RichEdit（msftedit）**：通过 Proton 自带或系统 winetricks 安装 Win7 SP1 原生 `msftedit.dll`，并写入持久化 `*msftedit=native,builtin` 覆盖，修复 Wine 下 KRSDK 登录窗正文按 cp1252 解码的乱码（上游 Wine riched20 未修复，2026-10-16 直接 trace 定案）；首次约下载 1.5 GB，还原可完整恢复原状（Proton 链接指向当前树、旧覆盖值按备份恢复）。自动安装失败时可按 docs/PITFALLS.md §3 的手动命令修复（先备份现有 DLL 与覆盖值；也可用本机已有的 `richedit-fix/msftedit/install.sh` / `revert.sh`）。不打包微软 DLL；prefix 未初始化（未启动过游戏）或缺 Proton 时给可操作提示而非报错 |
 | 存储路径可视化配置 | 设置页可改安装根目录；游戏设置页“位置”内可单独修改每个游戏的安装目录，保存即时生效 |
 | 官方图标 | 鸣潮/终末地使用官方应用图标（默认内置资源 `avares://YetAnotherGameLauncher/Assets/game-icons/*.jpg`，`icon` 字段仍支持 URL/本地路径，URL 图标带磁盘缓存，加载失败回退首字） |
 | 架构 | 前后端分离：`Core`（领域层）→ `Channels.*`（厂商渠道）→ `App`（Avalonia UI），全部依赖抽象接口 |
@@ -138,7 +138,7 @@
   - **检查/下载兼容组件**、**检查更新**（Linux 的 umu 模式）：手动预下载或升级 Proton
   - **功能开关**（仅 Linux 显示）：**使用 Wayland**（Proton 原生 Wayland 驱动）、**升级 DLSS 模型**（NVIDIA）、**打印 Proton 日志**三个开关，随「保存启动设置」落盘
   - **自定义启动选项**（全平台）：与 Steam 启动选项同格式——空格分隔多条 `KEY=VALUE`，值含空格用引号包裹，如 `DXVK_NVAPI_DRS_SETTINGS="NGX_DLSS_SR_OVERRIDE_RENDER_PRESET_SELECTION=13" PROTON_DXVK_LLASYNC=1 OBS_VKCAPTURE=1`，保存后作为环境变量注入启动进程（末尾的 `%command%` 自动补全，无需手写）；显式写一行 `%command%` 时，其后的内容作为游戏命令行参数追加在游戏程序之后（如 `%command% -dx11`）；值与参数支持 `{exe}`、`{installDir}` 占位符。框内只放**用户自定义**变量、默认留空（内置启动变量自动注入，无需手写）；标签旁 ⓘ 图标悬停可看同款填写规则
-- **依赖**：内置依赖（CJK 字体等）的状态展示与一键安装（Linux 显示）
+- **依赖**：内置依赖（CJK 字体、原生 RichEdit 等）的五态展示与一键安装/还原（Linux 显示）
 - **游戏信息**：渠道 / 服务器 / 安装目录等只读信息
 
 ![Linux 启动设置](docs/images/screenshot-launch-settings-linux.png)
@@ -193,7 +193,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（1651 个，2026-10-27 实测）
+### 运行测试（1760 个，2026-11-06 实测）
 
 ```bash
 # 4 个测试工程分别运行编译产物（Windows 亦可直接跑 .exe；本机 dotnet test 可能发现 0 个测试）：

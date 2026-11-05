@@ -143,6 +143,86 @@ public class SystemProcessRunnerTests
         Assert.Equal(7, result.ExitCode);
     }
 
+    /// <summary>argv 形态：逐项原样进入 ProcessStartInfo.ArgumentList，绝不拼进 Arguments
+    /// （含空格路径被 shell/Process 拆分是 winetricks 调用的核心风险）。</summary>
+    [Fact]
+    public void CreateStartInfo_ArgumentList_PreservesArgumentsVerbatim()
+    {
+        string[] expected =
+        [
+            "--unattended", "--force", "msftedit",
+            @"C:/Program Files/winetricks cache/windows6.1-KB976932-X64.exe",
+        ];
+        var spec = new ProcessStartSpec(
+            "/opt/My Tools/winetricks", string.Empty, ArgumentList: expected);
+
+        var startInfo = SystemProcessRunner.CreateStartInfo(spec, redirectOutput: true);
+
+        Assert.Equal(expected, startInfo.ArgumentList);
+        Assert.Empty(startInfo.Arguments);
+    }
+
+    /// <summary>旧式 Arguments 调用不回归：ArgumentList 未提供时仍原样交给 ProcessStartInfo.Arguments。</summary>
+    [Fact]
+    public void CreateStartInfo_LegacyArguments_StillUsed()
+    {
+        var spec = new ProcessStartSpec("/bin/wine", "reg import \"a b.reg\"");
+
+        var startInfo = SystemProcessRunner.CreateStartInfo(spec, redirectOutput: true);
+
+        Assert.Equal("reg import \"a b.reg\"", startInfo.Arguments);
+        Assert.Empty(startInfo.ArgumentList);
+    }
+
+    /// <summary>诊断日志的 # command 必须能看到完整 argv（含空格的项引用后仍可辨认）。</summary>
+    [Fact]
+    public void FormatCommandLine_ArgumentList_QuotesArgumentsWithSpaces()
+    {
+        var spec = new ProcessStartSpec(
+            "/opt/My Tools/winetricks", string.Empty,
+            ArgumentList: ["--unattended", "--force", "msftedit"]);
+
+        var command = SystemProcessRunner.FormatCommandLine(spec);
+
+        Assert.Contains("\"/opt/My Tools/winetricks\"", command, StringComparison.Ordinal);
+        Assert.EndsWith("--unattended --force msftedit", command, StringComparison.Ordinal);
+    }
+
+    /// <summary>提权回退必须复制 argv：只复制 Arguments 会让 requireAdministrator 路径丢参数。</summary>
+    [Fact]
+    public void CreateElevatedStartInfo_CopiesArgumentList()
+    {
+        var original = SystemProcessRunner.CreateStartInfo(
+            new ProcessStartSpec("D:/tools/winetricks", string.Empty,
+                ArgumentList: ["--unattended", "--force", "msftedit"]),
+            redirectOutput: true);
+
+        var elevated = SystemProcessRunner.CreateElevatedStartInfo(original);
+
+        Assert.True(elevated.UseShellExecute);
+        Assert.Equal(original.ArgumentList, elevated.ArgumentList);
+        Assert.Empty(elevated.Arguments);
+    }
+
+    /// <summary>真实进程：含空格的参数作为单个 argv 原样到达（POSIX shell 的 $1）。</summary>
+    [Fact]
+    public async Task RunAsync_ArgumentList_PathWithSpacesArrivesVerbatim()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("POSIX sh $1 语义；Windows 侧由 CreateStartInfo 单测覆盖逐项传递");
+            return;
+        }
+
+        const string path = "C:/Program Files/YAGL/msftedit.dll";
+        var result = await new SystemProcessRunner().RunAsync(new ProcessStartSpec(
+            "/bin/sh", string.Empty,
+            ArgumentList: ["-c", "printf '%s' \"$1\"", "sh", path]));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(path, result.StandardOutput);
+    }
+
     [Fact]
     public void CreateElevatedStartInfo_KeepsIdentityAndSwitchesToShellExecute()
     {

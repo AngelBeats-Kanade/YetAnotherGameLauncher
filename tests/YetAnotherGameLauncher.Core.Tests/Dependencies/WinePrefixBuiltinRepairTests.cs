@@ -91,6 +91,26 @@ public class WinePrefixBuiltinRepairTests : IDisposable
         Assert.False(File.Exists(oldUser));
     }
 
+    /// <summary>原生 msftedit 安装后的真实 DLL 不是 builtin 链接：RepairDangling 必须原样保留
+    /// （误当链接重写会破坏原生文件；这是依赖安装/卸载之外的第三方写入面）。</summary>
+    [Fact]
+    public void Repair_InstalledNativeMsftedit_LeftUntouched()
+    {
+        var newRoot = MakeProtonTree("proton-new", "x86_64-windows", "msftedit.dll");
+        var real = Path.Combine(
+            _temp.FilePath("prefix"), "drive_c", "windows", "system32", "msftedit.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(real)!);
+        byte[] native = [0x4D, 0x5A, 0x90, 0x00];
+        File.WriteAllBytes(real, native);
+
+        var result = WinePrefixBuiltinRepair.RepairDangling(_temp.FilePath("prefix"), newRoot);
+
+        Assert.Equal(0, result.Repaired);
+        Assert.Equal(0, result.Unrepairable);
+        Assert.Null(new FileInfo(real).LinkTarget);
+        Assert.Equal(native, File.ReadAllBytes(real));
+    }
+
     [Fact]
     public void Repair_ValidLinksAndRealFiles_LeftUntouched()
     {

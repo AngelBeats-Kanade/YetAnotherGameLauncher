@@ -55,7 +55,7 @@ public sealed class SystemProcessRunner(
 
             logWriter = new StreamWriter(logPath, append: false) { AutoFlush = true };
             await logWriter.WriteLineAsync($"# YAGL launch log — {DateTime.Now:yyyy-MM-dd HH:mm:ss}").ConfigureAwait(false);
-            await logWriter.WriteLineAsync($"# command: {spec.FileName} {spec.Arguments}").ConfigureAwait(false);
+            await logWriter.WriteLineAsync($"# command: {FormatCommandLine(spec)}").ConfigureAwait(false);
             await logWriter.WriteLineAsync($"# working directory: {spec.WorkingDirectory}").ConfigureAwait(false);
             if (spec.Environment is { Count: > 0 } env)
             {
@@ -67,17 +67,8 @@ public sealed class SystemProcessRunner(
             }
         }
 
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = spec.FileName,
-            Arguments = spec.Arguments,
-            WorkingDirectory = spec.WorkingDirectory ?? Environment.CurrentDirectory,
-            UseShellExecute = false,
-            // 即启即走时无人读取管道，重定向会因缓冲区写满卡死目标进程（写日志路径除外：异步消费）
-            RedirectStandardOutput = redirectOutput,
-            RedirectStandardError = redirectOutput,
-            CreateNoWindow = true,
-        };
+        // 参数形态二选一：ArgumentList（argv 逐项、含空格路径不被拆分）优先，否则沿用旧式 Arguments。
+        var startInfo = CreateStartInfo(spec, redirectOutput);
 
         // 宿主调试/热重载变量只属于启动器自身：子进程（尤其 Wine 内的 Windows .NET 桥 helper）
         // 继承后会尝试连接不存在的调试器 IPC 并挂起，永远不写 STARTING（2026-10-21 实锤）。
@@ -306,18 +297,87 @@ public sealed class SystemProcessRunner(
     }
 
     /// <summary>
+    /// 构造常规启动描述：旧式 Arguments 与 argv 形态 ArgumentList 互斥，后者优先。
+    /// internal 供单测（经 InternalsVisibleTo）：断言含空格路径逐项原样到达，不经过字符串拼接。
+    /// </summary>
+    internal static ProcessStartInfo CreateStartInfo(ProcessStartSpec spec, bool redirectOutput)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = spec.FileName,
+            WorkingDirectory = spec.WorkingDirectory ?? Environment.CurrentDirectory,
+            UseShellExecute = false,
+            // 即启即走时无人读取管道，重定向会因缓冲区写满卡死目标进程（写日志路径除外：异步消费）
+            RedirectStandardOutput = redirectOutput,
+            RedirectStandardError = redirectOutput,
+            CreateNoWindow = true,
+        };
+
+        if (spec.ArgumentList is { Count: > 0 } arguments)
+        {
+            foreach (var argument in arguments)
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+        }
+        else
+        {
+            startInfo.Arguments = spec.Arguments;
+        }
+
+        return startInfo;
+    }
+
+    /// <summary>日志用命令行：argv 形态逐项引用（含空格/引号的项加双引号并转义），旧式 Arguments 原样输出。</summary>
+    internal static string FormatCommandLine(ProcessStartSpec spec)
+    {
+        if (spec.ArgumentList is not { Count: > 0 } arguments)
+        {
+            return $"{spec.FileName} {spec.Arguments}";
+        }
+
+        var parts = new List<string>(arguments.Count + 1) { Quote(spec.FileName) };
+        parts.AddRange(arguments.Select(Quote));
+        return string.Join(' ', parts);
+    }
+
+    /// <summary>命令行诊断引用：无需引用的原样返回，含空白/引号/反斜杠的加双引号并转义（仅日志用途）。</summary>
+    private static string Quote(string value) =>
+        value.Length > 0 && !value.Any(c => char.IsWhiteSpace(c) || c is '"' or '\'')
+            ? value
+            : "\"" + value.Replace("\\", "\\\\", StringComparison.Ordinal)
+                .Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
+
+    /// <summary>
     /// 构造提升（ShellExecute）启动描述：不支持按进程注入环境变量（会抛），
     /// 因此返回全新 StartInfo——文件名/参数/工作目录保留，其余（重定向等）按 ShellExecute 语义。
+    /// argv 形态必须逐项复制：只复制 Arguments 会让提权路径丢参数（日志里也看不到真实命令行）。
     /// internal 供单测（经 InternalsVisibleTo）。
     /// </summary>
-    internal static ProcessStartInfo CreateElevatedStartInfo(ProcessStartInfo original) => new()
+    internal static ProcessStartInfo CreateElevatedStartInfo(ProcessStartInfo original)
     {
-        FileName = original.FileName,
-        Arguments = original.Arguments,
-        WorkingDirectory = original.WorkingDirectory,
-        UseShellExecute = true,
-        CreateNoWindow = true,
-    };
+        var elevated = new ProcessStartInfo
+        {
+            FileName = original.FileName,
+            WorkingDirectory = original.WorkingDirectory,
+            UseShellExecute = true,
+            CreateNoWindow = true,
+        };
+
+        if (original.ArgumentList.Count > 0)
+        {
+            foreach (var argument in original.ArgumentList)
+            {
+                elevated.ArgumentList.Add(argument);
+            }
+        }
+        else
+        {
+            elevated.Arguments = original.Arguments;
+        }
+
+        return elevated;
+    }
 
     /// <summary>即启即走 + 输出日志：等两个输出泵到 EOF（或宽限期到）后写退出脚注、关闭日志并释放进程句柄。
     /// 宽限语义（F72）：游戏派生的常驻子进程继承管道写端时泵 EOF 永不到达——等满宽限即照写脚注并

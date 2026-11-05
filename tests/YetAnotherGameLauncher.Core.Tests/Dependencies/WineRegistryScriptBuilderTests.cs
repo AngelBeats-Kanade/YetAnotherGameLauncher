@@ -69,7 +69,7 @@ public class WineRegistryScriptBuilderTests
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .TakeWhile(line => !line.StartsWith('['))
             .ToArray();
-        var expectedCount = cjk.ReplacementGroups.Sum(g => g.Replaces.Count);
+        var expectedCount = cjk.ReplacementGroups!.Sum(g => g.Replaces.Count);
 
         // 既有系统字体名 + SDK H7GBK 别名组共用同一 target：在单次 .reg 中合并输出。
         Assert.Equal(57, expectedCount);
@@ -110,6 +110,26 @@ public class WineRegistryScriptBuilderTests
         {
             File.Delete(path);
         }
+    }
+
+    /// <summary>winetricks 来源不生成字体注册表脚本：误入 builder 必须显式失败，不能产出空 .reg
+    /// （DLL 覆盖走逐条 <c>reg add</c>）。</summary>
+    [Fact]
+    public void Build_WinetricksManifest_ThrowsInsteadOfEmptyScript()
+    {
+        var manifest = new DependencyManifest(
+            "richedit-msftedit", "6.1.7601.17514",
+            null, null, null, null, null, null,
+            WinetricksVerb: "msftedit",
+            Dlls:
+            [
+                new DependencyDll(
+                    "x64", "msftedit.dll", 799744,
+                    "e15ed4fefc3010c213694331ddfdc03767682325c898d773ab243e2dc8b08461"),
+            ],
+            DllOverrides: new Dictionary<string, string> { ["*msftedit"] = "native,builtin" });
+
+        Assert.Throws<InvalidOperationException>(() => WineRegistryScriptBuilder.Build(manifest));
     }
 
     [Fact]

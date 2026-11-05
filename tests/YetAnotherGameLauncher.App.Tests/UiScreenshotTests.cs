@@ -8,6 +8,7 @@ using Avalonia.VisualTree;
 using Xunit;
 using YetAnotherGameLauncher.AppTests;
 using YetAnotherGameLauncher.Core.Abstractions;
+using YetAnotherGameLauncher.Core.Dependencies;
 using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Utilities;
@@ -287,7 +288,8 @@ public class UiScreenshotTests
             ctx.BackgroundHandler.Map("https://is1-ssl.mzstatic.com/wuwa-icon.jpg", File.ReadAllBytes(iconFile));
 
             RunToCompletion(() => ctx.Vm.InitializeAsync());
-            var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
+            // 900 高：两项依赖 + 备份缺失的多行手动恢复说明需要完整卡片入画（720 会裁掉底部圆角/内边距）
+            var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 900 };
             window.NavIndicatorAnimationEnabled = false;
             window.Show();
             window.UpdateLayout();
@@ -530,7 +532,8 @@ public class UiScreenshotTests
         await HeadlessSession.Instance.Dispatch(() =>
         {
             RunToCompletion(() => ctx.Vm.InitializeAsync());
-            var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
+            // 900 高：两项依赖 + 备份缺失的多行手动恢复说明需要完整卡片入画（720 会裁掉底部圆角/内边距）
+            var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 900 };
             window.NavIndicatorAnimationEnabled = false;
             window.Show();
             window.UpdateLayout();
@@ -618,7 +621,8 @@ public class UiScreenshotTests
         await HeadlessSession.Instance.Dispatch(() =>
         {
             RunToCompletion(() => ctx.Vm.InitializeAsync());
-            var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
+            // 900 高：两项依赖 + 备份缺失的多行手动恢复说明需要完整卡片入画（720 会裁掉底部圆角/内边距）
+            var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 900 };
             window.NavIndicatorAnimationEnabled = false;
             window.Show();
 
@@ -677,7 +681,8 @@ public class UiScreenshotTests
         await HeadlessSession.Instance.Dispatch(() =>
         {
             RunToCompletion(() => ctx.Vm.InitializeAsync());
-            var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
+            // 900 高：两项依赖 + 备份缺失的多行手动恢复说明需要完整卡片入画（720 会裁掉底部圆角/内边距）
+            var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 900 };
             window.NavIndicatorAnimationEnabled = false;
             window.SplashAnimationEnabled = false; // headless 冻结脉动条：关泵取静态帧
             window.Show();
@@ -789,8 +794,10 @@ public class UiScreenshotTests
     }
 
     /// <summary>
-    /// 游戏设置页「依赖」卡的视觉自检（2026-09-27 增）：Linux + 就绪环境（DW-Proton + 已初始化
-    /// prefix）+ 注入安装器 → 暗色未安装态（灰点/安装钮）与亮色已安装态（绿点/重装钮/版本号）。
+    /// 游戏设置页「依赖」卡的视觉自检（2026-09-27 增；2026-10-27 第二项=原生 RichEdit）：
+    /// Linux + 就绪环境 + 注入安装器 → 暗色未安装态（两个安装钮）、亮色已安装态（绿点/重装+还原）、
+    /// 亮色覆盖值校验不可用（状态列短文案 + 补充行提示）、暗色损坏态（修复+还原）、
+    /// 亮色备份缺失态（操作组隐藏 + 手动恢复说明换行）。
     /// </summary>
     [Fact]
     public async Task Export_GameDependencies_ForReview()
@@ -824,7 +831,8 @@ public class UiScreenshotTests
         await HeadlessSession.Instance.Dispatch(() =>
         {
             RunToCompletion(() => ctx.Vm.InitializeAsync());
-            var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
+            // 900 高：两项依赖 + 备份缺失的多行手动恢复说明需要完整卡片入画（720 会裁掉底部圆角/内边距）
+            var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 900 };
             window.NavIndicatorAnimationEnabled = false;
             window.Show();
 
@@ -857,17 +865,53 @@ public class UiScreenshotTests
             var dark = ctx.Vm.ThemeModes.First(t => t.Mode == ThemeMode.Dark);
             var light = ctx.Vm.ThemeModes.First(t => t.Mode == ThemeMode.Light);
             ctx.Vm.SelectedTheme = dark;
-            window.GetVisualDescendants()
-                .OfType<Border>().First(b => b.Name == "DependenciesCard").BringIntoView();
-            window.UpdateLayout();
+            // 依赖卡在页面底部：每次状态刷新后都滚到内容末尾（BackupMissing 的补充行会加高页面），
+            // 保证两项 + 手动恢复说明的整卡入画，且底部返回按钮不被视口裁掉
+            void ScrollDependenciesCardToEnd()
+            {
+                var dependencyCard = window.GetVisualDescendants()
+                    .OfType<Border>().First(b => b.Name == "DependenciesCard");
+                dependencyCard.BringIntoView();
+                if (dependencyCard.FindAncestorOfType<ScrollViewer>() is { } scrollViewer)
+                {
+                    scrollViewer.Offset = new Vector(
+                        scrollViewer.Offset.X, scrollViewer.Extent.Height);
+                }
+
+                window.UpdateLayout();
+            }
+
+            ScrollDependenciesCardToEnd();
             Capture("20-game-dependencies-dark.png");
 
-            // 亮色 · 已安装（绿点 + 重装钮 + 版本号）
+            // 亮色 · 已安装（绿点 + 重装/还原钮 + 版本号；第二项=原生 RichEdit）
             installer.MarkInstalled = true;
             settings.Dependencies.Refresh();
             ctx.Vm.SelectedTheme = light;
-            window.UpdateLayout();
+            ScrollDependenciesCardToEnd();
             Capture("21-game-dependencies-installed-light.png");
+
+            // 亮色 · 已安装但覆盖值校验不可用（状态列保持短文案，提示换行显示在补充行；
+            // 仅原生 RichEdit 有此校验，CJK 不应出现该提示）
+            installer.VerificationUnavailableIds.Add("richedit-msftedit");
+            settings.Dependencies.Refresh();
+            ScrollDependenciesCardToEnd();
+            Capture("30-game-dependencies-unverified-light.png");
+            installer.VerificationUnavailableIds.Clear();
+
+            // 暗色 · 损坏态（RichEdit 损坏 → 「修复」+「还原」；CJK 保持已安装）
+            installer.StateOverrides["richedit-msftedit"] = DependencyStateKind.Damaged;
+            settings.Dependencies.Refresh();
+            ctx.Vm.SelectedTheme = dark;
+            ScrollDependenciesCardToEnd();
+            Capture("28-game-dependencies-damaged-dark.png");
+
+            // 亮色 · 备份缺失（还原不可用：隐藏操作组，长文案在状态补充行换行显示）
+            installer.StateOverrides["richedit-msftedit"] = DependencyStateKind.BackupMissing;
+            settings.Dependencies.Refresh();
+            ctx.Vm.SelectedTheme = light;
+            ScrollDependenciesCardToEnd();
+            Capture("29-game-dependencies-backup-missing-light.png");
 
             window.Close();
         }, CancellationToken.None);
@@ -912,7 +956,8 @@ public class UiScreenshotTests
         await HeadlessSession.Instance.Dispatch(() =>
         {
             RunToCompletion(() => ctx.Vm.InitializeAsync());
-            var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 720 };
+            // 900 高：两项依赖 + 备份缺失的多行手动恢复说明需要完整卡片入画（720 会裁掉底部圆角/内边距）
+            var window = new MainWindow { DataContext = ctx.Vm, Width = 1120, Height = 900 };
             window.NavIndicatorAnimationEnabled = false;
             window.Show();
             window.UpdateLayout();

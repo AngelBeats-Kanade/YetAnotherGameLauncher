@@ -622,23 +622,30 @@ flowchart LR
   `WindowDecorations="BorderOnly"` 给 X11 窗口画 SSD 标题条，故在 `InitializeComponent()` **之后**设
   `WindowDecorations.None`（XAML 属性会覆盖构造函数先写的值；对原生 Wayland 同样正确，2026-09
   实测 CSD 生效、无双标题）。
-- **Wine 文本解码边界（2026-10-27，路线 A 文档）**：鸣潮 KRSDK 登录窗「用户协议」正文乱码的根因在
+- **Wine 文本解码边界（2026-10-27）**：鸣潮 KRSDK 登录窗「用户协议」正文乱码的根因在
   Wine riched20——`EM_SETTEXTEX` 的 RTF 分支丢弃 `SETTEXTEX.codepage`（UTF-8 正文按 RTF 读取器默认
   cp1252 解码），Windows 用调用方码页；Wine master 仍 `todo_wine`（`dlls/riched20/editor.c:3499`、
   `reader.c:231`、`tests/editor.c:4545–4548`）。这**不属于**平台后端/窗口状态，也**不由** `cjk-fonts`
-  修复；本文档只记录已知限制与手动原生 `msftedit` workaround，不自动安装原生 DLL。详见
-  `docs/PITFALLS.md` §3 与本文档 §3.9 的依赖边界。
+  修复。处置 = §3.9 的**内置可选安装**（winetricks 原生 `msftedit`，默认不装、上游修复前可随时还原）；
+  手动脚本仍可用作逃生舱。详见 `docs/PITFALLS.md` §3 与本文档 §3.9 的依赖边界。
 
 ### 3.9 依赖安装管线（游戏设置页「依赖」区，2026-09-27）
 
-为单个游戏的 Wine prefix 手动安装可选组件（Bottles cjkfonts 语义的适配落地；首版仅内置 cjk-fonts =
-思源黑体 2.004R-1）。分层与数据流：
+为单个游戏的 Wine prefix 安装可选组件（2026-09-27 起 Bottles cjkfonts 语义；2026-10-27 增加
+winetricks 原生 DLL 来源）。当前内置两项：`cjk-fonts`（思源黑体 2.004R-1，字体来源）与
+`richedit-msftedit`（Win7 SP1 原生 msftedit，winetricks 来源）。分层与数据流：
 
-- **清单（数据与代码分离）**：`Core/Dependencies/catalog.json` 内嵌资源，声明式 schema——
-  `id/version/downloadUrl/fileName/md5/sizeBytes` + `fonts[]`（文件→族名登记）+
-  `replacementGroups[]`（旧字体名→目标字体）。`DependencyCatalog` 解析并聚合校验（id kebab 唯一、
-  https、md5 32hex、size>0、文件名禁路径段与 `..`、**缺省键归一为校验错误而非 NRE**），错误一次性抛
-  `DependencyCatalogException`。加新依赖 = 改清单，不改代码。
+- **清单（数据与代码分离，两种互斥来源）**：`Core/Dependencies/catalog.json` 内嵌资源，声明式 schema——
+  字体来源：`id/version/downloadUrl/fileName/md5/sizeBytes` + `fonts[]`（文件→族名登记）+
+  `replacementGroups[]`（旧字体名→目标字体）；winetricks 来源：`winetricksVerb` + `dlls[]`
+  （arch/fileName/sizeBytes/sha256，仅用于状态校验/备份/回滚，解包交给 winetricks）+
+  `dllOverrides{}`（写入 HKCU `Software\Wine\DllOverrides`），下载四字段与 fonts/replacementGroups 必须为空。
+  `DependencyCatalog` 按来源分支聚合校验（id kebab 唯一、https、md5 32hex、size>0、文件名禁路径段与 `..`、
+  verb 限 `^[a-z0-9][a-z0-9._-]*$`（argv 注入面）、arch 仅 x86/x64 且不重复、sha256 64 位小写 hex、
+  覆盖 key 禁空白/路径分隔符/等号、value 仅 native/builtin/disabled 逗号组合、**缺省键归一为校验错误
+  而非 NRE**），错误一次性抛 `DependencyCatalogException`。字体来源不进入 winetricks 分支，
+  winetricks 来源不调用 `WineRegistryScriptBuilder`（后者对 winetricks 清单显式抛错，避免空 .reg）。
+  加新依赖 = 改清单，不改代码。
 - **cjk-fonts 2.004R-1（2026-10-27，W1）**：新增一组 target=`Source Han Sans SC` 的字体替换，源名含
   KRSDK `Config.txt` 的 `文鼎方新书H7GBK_H`、`文鼎方新书H7GBK`、`AR FangXinShuH7GBK`、
   `AR FangXinShuH7GBK Heavy`、`H7GBKHeavy`、`Source Han Sans CN Regular`；连同既有 4 组共 57 条替换
@@ -669,6 +676,79 @@ flowchart LR
   版本变更可检测重装）。staging 暂存覆盖解压到落位全程"用后即清"（变异实验钉住）；除取消外所有
   阶段失败都折算分类 `DependencyException`（UI 映射可操作文案，VM 侧另有 catch-all 兜底不静默），
   失败不写标记、幂等可重试，OCE 透传。
+- **winetricks 来源安装（2026-10-27）**：顺序固定，marker 永远最后写：
+  ① 架构预检——读 `<prefix>/system.reg` 首部 `#arch`，文件缺失 = `PrefixMissing`、无 `#arch`/不可读 =
+  `PrefixUnhealthy`、`win32` = `PrefixUnsupported`（零修改拒绝；本功能仅支持 win64，win64 但缺
+  `syswow64` 按损坏的 `PrefixUnhealthy`，不误报“不支持”）；② `WinetricksResolver`——优先
+  `<protonRoot>/protonfixes/files/bin/winetricks`（dwproton 自带），否则 `PATH` 上的 `winetricks`；
+  都没有 = `WinetricksMissing`（可操作文案，不静默）；③ 已装同版本短路；④ `wineserver -w`
+  占用检查（10 s 超时 = `PrefixBusy`，在**任何写操作之前**；Proton 用自带 wineserver，系统 wine 用
+  同目录/PATH）；⑤ 崩溃恢复与备份保护——有备份无 marker 先恢复（失败 `RecoveryFailed`）、有备份有
+  marker 拒绝重备份（`RecoveryFailed`）、有 marker 无备份 `BackupMissing`；⑥ 备份——每个目标按
+  Symlink（记录 target，**绝不 File.Copy 写穿**）/ File（复制 + SHA-256）/ Missing 记录，每个覆盖键
+  `reg query` 整键取旧值（键不存在用父键探针区分“无旧值”与注册表损坏）并 `reg export` 整键
+  UTF-16LE BOM，清单原子写入 `<state>/<id>-backup/manifest.json`；⑦ 跑 winetricks
+  （`--unattended --force <verb>`，argv 逐项传递，环境显式 `WINEPREFIX`/`WINE`/`WINESERVER` +
+  `WINEDLLOVERRIDES=mscoree,mshtml=`，超时 1 h 覆盖首次约 1.5 GB 下载；非零退出 =
+  `WinetricksFailed`，错误带输出尾部与完整日志路径）；⑧ 逐条 `reg add` 写覆盖（持久化，不能只靠
+  `WINEDLLOVERRIDES` 环境变量；失败 `OverrideFailed`）；⑨ 校验每个目标是真实文件（非符号链接）且
+  size/SHA-256 精确匹配（`DllVerifyFailed`）；⑩ 原子写 `<state>/<id>.ok`（`StateWriteFailed`）。
+  失败/取消（`CancellationToken.None`）按备份回滚：链接重建记录的 target、真实文件复制回去并校验、
+  原本缺失的删除、旧覆盖写回/删除；回滚自身失败 = `RollbackFailed`，保留备份与日志。
+- **winetricks 来源状态与卸载（2026-10-27）**：`DependencyInstallState` 五态——`NotInstalled` /
+  `Installed` / `Damaged` / `BackupMissing` / `NeedsRecovery`。`GetState` 的已安装判据 = marker 版本
+  一致 + 每个目标真实文件且 size/SHA-256 匹配 + 每个覆盖值匹配（值名按 `OrdinalIgnoreCase`，值数据
+  大小写敏感；同步一次 `reg query`，读内存注册表，
+  不受 user.reg 落盘延迟影响；同步契约直接供 UI 刷新调用，超时收紧到 3 s，避免挂死的 wineserver 把
+  页面冻结 30 s；**超时/启动失败 = 覆盖值无法确认，返回 `Installed` + `VerificationUnavailable`，
+  UI 在状态补充行提示刷新重试，不得误报 `Damaged` 引导用户重装健康安装**；reg query 非零退出时用
+  父键 `HKCU\Software\Wine` 探针区分“键不存在”（父键可读 = `Damaged`）与“wine/注册表读取失败”
+  （探针也失败 = `VerificationUnavailable`）；只有确认查询成功但键/值缺失才 `Damaged`）
+  + 有效备份清单；备份目录存在但 manifest 缺失/损坏的判定要区分 marker 与未提交哨兵：
+  `CreateBackupAsync` 在复制/导出前写 `.incomplete`，manifest 原子写成功后删除。**只有
+  `.incomplete` 存在、当前目标不是清单里的原生 DLL（`DllsMatch=false`）且覆盖值明确不是 App 写入
+  的期望值（`OverridesMatch=Mismatched`；查询失败/已匹配均保守拒绝）才能确认是写 manifest 前被
+  硬杀（prefix 未修改），按 `NotInstalled` 处理并在下次安装时清理半成品副本**；**.incomplete
+  不存在、当前已是原生 DLL/覆盖、或只是 DLL 已还原而覆盖仍是 App 值时，marker+manifest 缺失也
+  可能是安装成功后丢失/局部还原，按 `BackupMissing` 保留备份并禁止自动重新备份**（否则会把原生
+  DLL/App 覆盖当成原始态，造成 data loss）；marker 存在
+  或 manifest 文件存在但不可用同样 `BackupMissing`（与卸载共用 `TryLoadBackupManifest`，不得误报
+  已安装）。`UninstallAsync`（字体来源 no-op 成功；UI 因此不给字体
+  条目显示「还原」）与 `InstallAsync` **共用同一按 id 的静态锁**（安装取消后的后台回滚用
+  `CancellationToken.None` 继续跑，新页面的还原/修复必须排队，不得并发改同一批 DLL/覆盖/备份目录），
+  前置要求 marker 与备份清单齐全（缺 = `BackupMissing`、零修改），`wineserver -w` 后进入不可取消还原：
+  Proton 分支先校验 `<当前 Proton>/files/lib/wine/{x86_64,i386}-windows/<file>` 存在再重建链接
+  （Proton 升级后指向当前树，不写死旧目录）；系统 wine/自定义 prefix 按备份记录的 target 原样恢复；
+  真实文件复制回并校验；原本缺失的删除。目标缺失 = `RestoreFailed`，保留 marker/备份、绝不创建悬空
+  链接。还原成功后清理 `winetricks.log` 中该 verb 的词元（`installed_file1` 经核对是 winetricks 的
+  verb 元数据变量而非 prefix 文件，不清理；失败仅警告；账本被清空时删除文件本身以完整还原），再按
+  「先备份目录、成功后才删 marker」收尾，删除失败仅告警（残留组合由 UI 的 `BackupMissing` 文案提示
+  手动清理：**仅当 DLL/覆盖已恢复**时才删 `.yagl-deps/<id>.ok` 与 `.yagl-deps/<id>-backup/`；尚未
+  恢复时必须先用备份目录里的 DLL 副本/`dlloverrides.reg` 还原，禁止先删备份目录（它是唯一原始副本）。
+  清理完成且 `GetState` 回到 `NotInstalled` 后才可重新安装）。
+- **真机验收记录（2026-10-27，dwproton-11.0-14 + 用户鸣潮 prefix）**：`~/.cache/winetricks` 已缓存
+  时安装 8.45 s（含 `wineserver -w` 与 `reg` 调用）；两份 DLL 的 size/SHA-256 与清单一致、
+  `reg query` 读回 `*msftedit=native,builtin`、marker=`richedit-msftedit@6.1.7601.17514`、备份清单
+  记录两条原始 Symlink target 与 `oldValue=null`；卸载后两条链接指回当前 Proton 树、覆盖值删除、
+  marker/备份/`winetricks.log` 均消失。功能对照（msftedit-only 复现器）：原生安装后 readback =
+  `在开始游戏前`，强制 `*msftedit=b`（builtin）时 readback 为 cp1252 乱码。游戏运行中（Wine sleep
+  进程）安装 10 s 超时 → `PrefixBusy` 且 prefix 零修改；藏起自带 winetricks + PATH 无 winetricks →
+  `WinetricksMissing` 且零修改；把自带 winetricks 临时替换为 `exit 7` 的脚本模拟下载失败 →
+  `WinetricksFailed`、错误含退出码/输出尾部/完整日志路径（`.yagl-deps/<id>-winetricks.log`）、
+  DLL/覆盖回滚干净且无 marker；改坏 DLL 后 `GetState=Damaged` → 修复（卸载→安装）成功且备份仍是
+  最初的两条符号链接（未被当前真实 DLL 覆盖）；删除 marker → `NeedsRecovery` → 安装器先恢复再安装；
+  临时移走当前 Proton 树的 x64 msftedit → 卸载 `RestoreFailed`、marker/备份保留、当前真实 DLL 未被
+  改成悬空链接，目标恢复后重试卸载成功；1 s 取消 → OCE 且回滚干净；把 `wine` 指向另一棵**完整复制**
+  的 Proton 树（1.6 GB 真实目录，非符号链接夹具）后卸载，链接改指新树（升级语义），随后用真实树
+  重装/卸载复原。另用空 `XDG_CACHE_HOME` + 失效代理强制 winetricks 真实下载失败：退出码 1、
+  `WinetricksFailed`、错误含完整日志路径、DLL/覆盖回滚干净且无 marker。**复现器注意**：
+  原始 `repro-em_settextex-rtf.c` 在原生 msftedit 下会先加载 `msftedit.dll` 再
+  `LoadLibrary("riched20.dll")`——builtin riched20 的 DllMain 因窗口类已存在而失败（1114）并连带
+  注销 `RICHEDIT50W`（1411）；原生验收用只加载 msftedit 的变体。
+- **`ProcessStartSpec.ArgumentList`（2026-10-27，共享抽象）**：新增可选 argv 形态；非空时逐项写入
+  `ProcessStartInfo.ArgumentList` 且不设置 `Arguments`（含空格路径不被拆分），旧 `Arguments` 调用
+  完全保留。`# command` 日志用统一引用函数拼接 argv（含空格/引号项加双引号并转义），
+  `CreateElevatedStartInfo` 逐项复制 `ArgumentList`（只复制 Arguments 会让提权路径丢参数）。
 - **真机验证记录（2026-09-27）**：Adobe release 包实测 MD5/size 与清单一致；dwproton-11.0-13 直调
   `files/bin/wine` 完成 `wineboot -i`（`WINEDLLOVERRIDES` 下无 mono/gecko 挂起）与 `reg import`，
   system.reg 28 条登记、user.reg 51 条替换（当时 2.004R 的 4 组；2.004R-1 起为 57 条）全部落盘并可

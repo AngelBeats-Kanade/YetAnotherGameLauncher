@@ -293,7 +293,8 @@ Steam Runtime 容器与 Proton，发行版三选一），由启动器自动生�
 `ffmpeg/<rid>/`（FFmpeg 原生库，缺失自动重下）、`backdrops/<游戏id>/`（背景视频/首帧图缓存）、
 `image-cache/`（http 图标缓存）、`gacha/`（鸣潮唤取记录合并缓存）、`prefixes/<游戏id>/`（Wine prefix，见上文；
 其根下 `.yagl-deps/<依赖id>.ok` 为依赖安装完成标记，内容 `依赖id@版本`，随 prefix 删除自动重置；
-手改配置自定义 `WINEPREFIX`/`STEAM_COMPAT_DATA_PATH` 时，标记落在对应 prefix 目录内）。
+winetricks 来源另有 `<依赖id>-backup/`（原始 DLL 副本/旧覆盖导出/清单；备份未提交时含 `.incomplete`
+哨兵）；手改配置自定义 `WINEPREFIX`/`STEAM_COMPAT_DATA_PATH` 时，标记落在对应 prefix 目录内）。
 依赖下载缓存另在**系统缓存目录**（Linux `~/.cache/yagl/deps`，Windows `%LOCALAPPDATA%\cache\yagl\deps`）：
 压缩包全局共享（多 prefix 复用，size/MD5 双校验），`staging/<依赖id>/` 为解压暂存（用后即清）。
 依赖安装管线见 docs/ARCHITECTURE.md §3.9。

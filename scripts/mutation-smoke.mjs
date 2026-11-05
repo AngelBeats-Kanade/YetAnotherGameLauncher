@@ -1228,12 +1228,184 @@ const MUTATIONS = [
     method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroChannelApiTests.GetIncrementalManifest_NullDestInTopLevelResource_SkippedInsteadOfThrowing',
   },
   {
+    // 2026-10-27 W2：GetState 的 SHA-256 判据——同长度内容篡改后，去掉哈希比较必须让
+    // "Damaged"断言变红（尺寸分支不会替它兜底）。
+    id: 'M122-native-state-hash-check',
+    file: 'src/YetAnotherGameLauncher.Core/Dependencies/DependencyInstaller.cs',
+    find: '                    || !string.Equals(Hashing.Sha256Hex(path), dll.Sha256, StringComparison.Ordinal))',
+    replace: '                    || false)',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Dependencies.DependencyInstallerWinetricksTests.GetState_Installed_RequiresFilesHashesOverridesAndBackup',
+  },
+  {
+    // 2026-10-27 W2：备份符号链接只记录 target，绝不跟随复制——去掉分支后备份形态变 File，守卫红。
+    id: 'M123-native-backup-symlink-not-followed',
+    file: 'src/YetAnotherGameLauncher.Core/Dependencies/DependencyInstaller.cs',
+    find: '                var linkTarget = GetLinkTarget(path);',
+    replace: '                var linkTarget = (string?)null;',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Dependencies.DependencyInstallerWinetricksTests.Install_HappyPath_SymlinkBackup_WinetricksArgvEnv_FilesOverrideMarker',
+  },
+  {
+    // 2026-10-27 W2：Proton 升级语义——卸载必须按当前树重建链接，改回记录的旧 target 后守卫红。
+    id: 'M124-native-uninstall-current-proton',
+    file: 'src/YetAnotherGameLauncher.Core/Dependencies/DependencyInstaller.cs',
+    find: '                        ? CurrentProtonDllPath(currentProtonRoot, dll)',
+    replace: '                        ? entry.LinkTarget!',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Dependencies.DependencyInstallerWinetricksTests.Uninstall_Proton_RestoresCurrentTreeLinksAndRemovesOverrideAndState',
+  },
+  {
+    // 2026-10-27 W2：argv 形态必须逐项进入 ProcessStartInfo.ArgumentList（含空格路径不拆分）。
+    id: 'M125-process-argument-list',
+    file: 'src/YetAnotherGameLauncher.Core/Services/SystemProcessRunner.cs',
+    find: '        if (spec.ArgumentList is { Count: > 0 } arguments)',
+    replace: '        if (spec.ArgumentList is { Count: > 100 } arguments)',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.SystemProcessRunnerTests.CreateStartInfo_ArgumentList_PreservesArgumentsVerbatim',
+  },
+  {
+    // 2026-10-27 W2：File 备份的 SHA-256 记录必须合法——去掉校验后缺 SHA 的清单会被当有效备份。
+    id: 'M127-native-backup-sha-required',
+    file: 'src/YetAnotherGameLauncher.Core/Dependencies/DependencyInstaller.cs',
+    find: '                        || !IsSha256Hex(entry.Sha256)',
+    replace: '                        || false',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Dependencies.DependencyInstallerWinetricksTests.GetState_TamperedBackupManifest_BackupMissing_AndUninstallNoModification',
+  },
+  {
+    // 2026-10-27 W2：清单 null 元素归一——去掉守卫后加载阶段 NRE（测试必须以失败收场）。
+    id: 'M128-native-backup-null-entry',
+    file: 'src/YetAnotherGameLauncher.Core/Dependencies/DependencyInstaller.cs',
+    find: '                || backup.Dlls.Any(d => d is null)',
+    replace: '                || false',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Dependencies.DependencyInstallerWinetricksTests.GetState_TamperedBackupManifest_BackupMissing_AndUninstallNoModification',
+  },
+  {
+    // 2026-10-27 W2：字体来源携带空 dlls 也算越界字段——退回"仅非空才报错"后守卫红。
+    id: 'M129-catalog-empty-dlls-rejected',
+    file: 'src/YetAnotherGameLauncher.Core/Dependencies/DependencyCatalog.cs',
+    find: '        if (manifest.Dlls is not null)',
+    replace: '        if (manifest.Dlls is { Count: > 0 })',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Dependencies.DependencyCatalogTests.Parse_DownloadManifestWithEmptyDllFields_Rejected',
+  },
+  {
+    // 2026-10-27 W2：字体来源携带空 dllOverrides 也算越界字段。
+    id: 'M130-catalog-empty-overrides-rejected',
+    file: 'src/YetAnotherGameLauncher.Core/Dependencies/DependencyCatalog.cs',
+    find: '        if (manifest.DllOverrides is not null)',
+    replace: '        if (manifest.DllOverrides is { Count: > 0 })',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Dependencies.DependencyCatalogTests.Parse_DownloadManifestWithEmptyDllFields_Rejected',
+  },
+  {
+    // 2026-11-05 W2 复审：覆盖值查询超时不能降级成 Mismatched（否则 UI 把健康安装报 Damaged）。
+    id: 'M131-native-state-timeout-not-damaged',
+    file: 'src/YetAnotherGameLauncher.Core/Dependencies/DependencyInstaller.cs',
+    find: '            return OverrideCheck.Unavailable;',
+    replace: '            return OverrideCheck.Mismatched;',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Dependencies.DependencyInstallerWinetricksTests.GetState_OverrideQueryTimesOut_InstalledWithVerificationUnavailable',
+  },
+  {
+    // 2026-11-05 W2 复审：没有 `.incomplete` 时，偏好“预提交”会把安装后丢失 marker/manifest
+    // 的 prefix 误判为未安装 → 重新备份原生 DLL（data loss）。
+    id: 'M132-native-postinstall-loss-not-precommit',
+    file: 'src/YetAnotherGameLauncher.Core/Dependencies/DependencyInstaller.cs',
+    find: '            || !File.Exists(pendingPath)',
+    replace: '            || false',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Dependencies.DependencyInstallerWinetricksTests.GetState_NoMarkerNoManifestNoPending_BackupMissing',
+  },
+  {
+    // 2026-11-05 W2 复审：非零 reg query 且父键探针失败时不能按 Mismatched（Damaged）处理。
+    id: 'M133-native-override-probe-unavailable',
+    file: 'src/YetAnotherGameLauncher.Core/Dependencies/DependencyInstaller.cs',
+    find: 'return RunRegQuery(target, WineRegistryKey).Succeeded',
+    replace: 'return true',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Dependencies.DependencyInstallerWinetricksTests.GetState_OverrideQueryNonZeroAndParentProbeFails_InstalledWithVerificationUnavailable',
+  },
+  {
+    // 2026-11-05 W2 复审：安装路径不能无条件清理（必须复用 IsUncommittedBackupResidue）。
+    id: 'M134-native-precommit-residue-reinstall',
+    file: 'src/YetAnotherGameLauncher.Core/Dependencies/DependencyInstaller.cs',
+    find: '                if (IsUncommittedBackupResidue(\n                        target, manifest, markerExists, manifestPath, pendingPath))',
+    replace: '                if (true)',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Dependencies.DependencyInstallerWinetricksTests.Install_NoSentinelNoManifest_BackupMissingAndBackupKept',
+  },
+  {
+    // 2026-11-05 W2 复审：DLL 已还原但覆盖仍是 App 值时不能当预提交（会把 App override 当原始值）。
+    id: 'M135-native-partial-restore-overrides',
+    file: 'src/YetAnotherGameLauncher.Core/Dependencies/DependencyInstaller.cs',
+    find: '               || OverridesAllDifferFromExpected(target, manifest);',
+    replace: '               || true;',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Dependencies.DependencyInstallerWinetricksTests.PendingSentinelWithInstalledOverrides_BackupMissingAndNoRebackup',
+  },
+  {
+    // 2026-11-05 W2 复审：原生 DLL 未还原但覆盖被改回旧值（局部还原）也不能当预提交。
+    id: 'M136-native-partial-restore-dlls',
+    file: 'src/YetAnotherGameLauncher.Core/Dependencies/DependencyInstaller.cs',
+    find: '            || DllsMatch(target, manifest))',
+    replace: '            || false)',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Dependencies.DependencyInstallerWinetricksTests.PendingSentinelWithNativeDllsButOldOverrides_BackupMissing',
+  },
+  {
+    // 2026-11-05 W2 复审：任一期望覆盖键仍匹配 App 值时必须判为局部还原，不能当预提交。
+    id: 'M137-native-override-still-app-value',
+    file: 'src/YetAnotherGameLauncher.Core/Dependencies/DependencyInstaller.cs',
+    find: '                if (values.TryGetValue(key, out var actual)\n                    && string.Equals(actual, expectedValue, StringComparison.Ordinal))\n                {\n                    return false;\n                }',
+    replace: '                if (values.TryGetValue(key, out var actual)\n                    && string.Equals(actual, expectedValue, StringComparison.Ordinal))\n                {\n                    return true;\n                }',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Dependencies.DependencyInstallerWinetricksTests.PendingSentinelWithInstalledOverrides_BackupMissingAndNoRebackup',
+  },
+  {
+    // 2026-11-05 W2 复审：任一期望覆盖键仍匹配 App 值就不能当预提交（不能只看第一个键）。
+    id: 'M138-native-partial-restore-override-keys',
+    file: 'src/YetAnotherGameLauncher.Core/Dependencies/DependencyInstaller.cs',
+    find: '            foreach (var (key, expectedValue) in expected)',
+    replace: '            foreach (var (key, expectedValue) in expected.Take(1))',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Dependencies.DependencyInstallerWinetricksTests.PendingSentinelWithPartiallyRestoredOverrides_BackupMissing',
+  },
+  {
+    // 2026-11-06 W2 复审：注册表值名大小写不敏感；改成 Ordinal 会漏掉 *MSFTEDIT 旧值。
+    id: 'M139-registry-value-name-case-insensitive',
+    file: 'src/YetAnotherGameLauncher.Core/Dependencies/DependencyInstaller.cs',
+    find: '        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);',
+    replace: '        var values = new Dictionary<string, string>(StringComparer.Ordinal);',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Dependencies.DependencyInstallerWinetricksTests.UppercaseRegistryValue_BackedUpComparedAndRestoredCaseInsensitively',
+  },
+  {
     // 2026-10-27 W1：内嵌 cjk-fonts 的 57 条替换（含 KRSDK H7GBK 别名）序列化守卫——
     // 关掉 Replacements 分支后 Build_EmbeddedCjkFonts... 必须红（无节 / 行数不足）。
     id: 'M120-cjk-replacements-serialized',
     file: 'src/YetAnotherGameLauncher.Core/Dependencies/WineRegistryScriptBuilder.cs',
-    find: 'if (manifest.ReplacementGroups.Count > 0)',
-    replace: 'if (manifest.ReplacementGroups.Count > 100)',
+    find: 'if (replacementGroups.Count > 0)',
+    replace: 'if (replacementGroups.Count > 100)',
     project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
     method: 'YetAnotherGameLauncher.Core.Tests.Dependencies.WineRegistryScriptBuilderTests.Build_EmbeddedCjkFonts_EmitsAllReplacementMappingsIncludingSdkAliases',

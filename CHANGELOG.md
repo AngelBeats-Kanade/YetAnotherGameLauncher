@@ -16,13 +16,34 @@
   faces, for 57 replacements in total; it fixes font fallback/tofu only, not the KRSDK login-window
   agreement body decoding mojibake. Users with 2.004R must reinstall the dependency to pick up the
   version bump.)
-- 文档记录 KRSDK 登录窗正文乱码的根因（Wine riched20 在 `EM_SETTEXTEX` 的 RTF 分支丢弃
-  `SETTEXTEX.codepage`，UTF-8 正文按 cp1252 解码；Wine master 仍 `todo_wine`）、当前版本的已知限制与
-  手动原生 `msftedit` workaround；不自动安装原生 DLL、不扩展依赖负载 schema。
-  (Docs: record the KRSDK login-window decoding root cause (Wine riched20 drops `SETTEXTEX.codepage`
-  on the RTF branch; UTF-8 body is decoded as cp1252; Wine master still `todo_wine`), the current
-  known limitation and the manual native `msftedit` workaround; no automatic native-DLL install and
-  no dependency payload schema extension.)
+- 依赖卡新增第二项「原生 RichEdit（msftedit）」：调用 Proton 自带（优先）或系统的 `winetricks` 安装
+  Win7 SP1 原生 `msftedit.dll`（首次约下载 1.5 GB），并写入持久化 `*msftedit=native,builtin`，修复
+  Wine riched20 在 `EM_SETTEXTEX` 的 RTF 分支丢弃 `SETTEXTEX.codepage`（UTF-8 正文按 cp1252 解码）
+  导致的 KRSDK 登录窗正文乱码；Wine master 仍 `todo_wine`。支持五态（未安装/已安装/损坏/备份缺失/
+  待恢复）与安装、重装、修复、还原；卸载按备份恢复原符号链接（Proton 升级后指向当前树）与旧覆盖值，
+  `--force` 只作用于 winetricks，应用层重装 = 先完整还原再安装。备份阶段被硬杀留下的空/半份备份
+  按未安装处理（`.incomplete` 哨兵存在且当前不是原生 DLL，prefix 未修改），重装自动清理，不会用
+  半成品副本覆盖原状 DLL；安装成功后 marker/manifest 丢失时按备份缺失保留备份，禁止重装把原生
+  DLL/旧覆盖当成原始态；注册表值名按大小写不敏感处理（`*MSFTEDIT` 旧值不会漏备份/误判损坏）。
+  覆盖值查询失败或注册表不可读时保持「已安装」并在补充行提示刷新，不误报损坏。依赖清单扩展
+  winetricks 来源
+  （`winetricksVerb`/`dlls`/`dllOverrides`，仅 win64 prefix）；不打包微软 DLL，原生 DLL 默认不装。
+  (Dependencies: a second built-in "Native RichEdit (msftedit)" installs the Windows 7 SP1 native DLL
+  through the Proton-bundled (preferred) or system `winetricks` (~1.5 GB on first run) and writes a
+  persistent `*msftedit=native,builtin` override, fixing the KRSDK login-window body mojibake caused by
+  Wine riched20 dropping `SETTEXTEX.codepage` on the RTF branch (Wine master still `todo_wine`). Five
+  states (not installed / installed / damaged / backup missing / needs recovery) with install,
+  reinstall, repair and restore; uninstall restores the original symlinks (rebuilt against the current
+  Proton tree) and old override values from the backup; `--force` only affects winetricks itself, while
+  a reinstall in the app fully restores first and then installs. An interrupted backup (empty/partial
+  directory with the `.incomplete` sentinel and no native DLLs) is treated as not installed and
+  cleaned on reinstall because the prefix is still untouched; if the marker and manifest were lost
+  after a successful install, the backup is kept and reinstall is blocked so the native DLLs and old
+  override are not mistaken for the original state. Registry value names are matched case-insensitively
+  (`*MSFTEDIT` is backed up and compared like `*msftedit`). Failed override verification keeps the
+  install shown as installed with a refresh hint instead of damaged. The manifest schema gains a winetricks source
+  (`winetricksVerb`/`dlls`/`dllOverrides`, win64 prefixes only); Microsoft DLLs are never bundled and
+  the native DLL stays optional.)
 
 - 资源包档位「下载资源包」（补档）改为快速路径：已有文件只做存在性 + 尺寸校验，只对**本次运行下载
   的文件**（含缺失的 common 文件）做 MD5 后验；同尺寸损坏的已有文件留给「校验修复」（全量 MD5 不变）。

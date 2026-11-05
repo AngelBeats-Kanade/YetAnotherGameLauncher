@@ -49,6 +49,14 @@ public class DependencySectionViewModelTests : IDisposable
     }
 
     /// <summary>构建 umu 配置 + 就绪环境 + 已注入安装器的上下文，并导航到游戏设置页返回依赖区。</summary>
+    /// <summary>按 id 取条目（两个内置依赖后不再假设只有一个条目）。</summary>
+    private static DependencyItemViewModel Item(DependencySectionViewModel section, string id) =>
+        Assert.Single(section.Items, i => i.Manifest.Id == id);
+
+    /// <summary>CJK 字体条目（既有用例的主体）。</summary>
+    private static DependencyItemViewModel FontItem(DependencySectionViewModel section) =>
+        Item(section, "cjk-fonts");
+
     private async Task<(VmFactory.Context Ctx, DependencySectionViewModel Section)> BuildReadyUmuSectionAsync(
         FakeDependencyInstaller installer, CapturingLogger? logger = null)
     {
@@ -75,7 +83,7 @@ public class DependencySectionViewModelTests : IDisposable
         var (ctx, section) = await BuildReadyUmuSectionAsync(installer);
         try
         {
-            var item = section.Items[0];
+            var item = FontItem(section);
             var install = section.InstallAsync(item);
             for (var i = 0; i < 200 && !section.IsBusy; i++)
             {
@@ -107,7 +115,7 @@ public class DependencySectionViewModelTests : IDisposable
         try
         {
             // 第一轮：在途安装下走驻留隐藏 → 放行后安装完整跑完、令牌未被取消
-            var item = section.Items[0];
+            var item = FontItem(section);
             var install = section.InstallAsync(item);
             for (var i = 0; i < 200 && !section.IsBusy; i++)
             {
@@ -238,7 +246,7 @@ public class DependencySectionViewModelTests : IDisposable
         try
         {
             Assert.Null(section.UnavailableReason);
-            var item = Assert.Single(section.Items);
+            var item = FontItem(section);
             Assert.True(item.CanInstall);
             Assert.False(item.IsInstalled);
             Assert.Equal("未安装", item.StatusText);
@@ -256,7 +264,7 @@ public class DependencySectionViewModelTests : IDisposable
         var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
         try
         {
-            var item = Assert.Single(section.Items);
+            var item = FontItem(section);
 
             await item.InstallCommand.ExecuteAsync(null);
 
@@ -290,7 +298,7 @@ public class DependencySectionViewModelTests : IDisposable
         var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
         try
         {
-            var item = Assert.Single(section.Items);
+            var item = FontItem(section);
 
             await item.InstallCommand.ExecuteAsync(null);
 
@@ -313,7 +321,7 @@ public class DependencySectionViewModelTests : IDisposable
         var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
         try
         {
-            var item = Assert.Single(section.Items);
+            var item = FontItem(section);
 
             await item.InstallCommand.ExecuteAsync(null);
 
@@ -339,7 +347,7 @@ public class DependencySectionViewModelTests : IDisposable
         var (ctx, section) = await BuildReadyUmuSectionAsync(_installer, logger);
         try
         {
-            var item = Assert.Single(section.Items);
+            var item = FontItem(section);
 
             await item.InstallCommand.ExecuteAsync(null);
 
@@ -361,7 +369,7 @@ public class DependencySectionViewModelTests : IDisposable
         var (ctx, section) = await BuildReadyUmuSectionAsync(_installer, logger);
         try
         {
-            var item = Assert.Single(section.Items);
+            var item = FontItem(section);
 
             await item.InstallCommand.ExecuteAsync(null);
 
@@ -381,7 +389,7 @@ public class DependencySectionViewModelTests : IDisposable
         var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
         try
         {
-            var item = Assert.Single(section.Items);
+            var item = FontItem(section);
 
             var first = item.InstallCommand.ExecuteAsync(null);
 
@@ -411,12 +419,353 @@ public class DependencySectionViewModelTests : IDisposable
         var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
         try
         {
-            var item = Assert.Single(section.Items);
+            var item = FontItem(section);
 
             await item.InstallCommand.ExecuteAsync(null);
 
             Assert.True(section.Feedback.Failed);
             Assert.False(section.IsBusy);
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Items_ContainBothBuiltInDependencies_InCatalogOrder()
+    {
+        var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
+        try
+        {
+            Assert.Equal(2, section.Items.Count);
+            Assert.Equal("cjk-fonts", section.Items[0].Manifest.Id);
+            Assert.Equal("richedit-msftedit", section.Items[1].Manifest.Id);
+            Assert.Equal("原生 RichEdit（msftedit）", section.Items[1].Title);
+            Assert.Contains("1.5 GB", section.Items[1].Description);
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
+    }
+
+    /// <summary>五态到按钮文案/可用性的映射（BackupMissing 不显示操作按钮，避免死按钮）。</summary>
+    [Theory]
+    [InlineData(DependencyStateKind.NotInstalled, "安装", true, false, true)]
+    [InlineData(DependencyStateKind.Installed, "重装", true, true, true)]
+    [InlineData(DependencyStateKind.Damaged, "修复", true, true, true)]
+    [InlineData(DependencyStateKind.NeedsRecovery, "恢复并安装", true, false, true)]
+    [InlineData(DependencyStateKind.BackupMissing, "安装", false, false, false)]
+    public async Task ItemState_MapsButtonsAndAvailability(
+        DependencyStateKind kind, string buttonText, bool canInstall, bool canUninstall, bool showActions)
+    {
+        _installer.StateOverride = kind;
+        var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
+        try
+        {
+            var item = Item(section, "richedit-msftedit");
+
+            Assert.Equal(kind, item.State);
+            Assert.Equal(buttonText, item.ButtonText);
+            Assert.Equal(canInstall, item.CanInstall);
+            Assert.Equal(canUninstall, item.CanUninstall);
+            Assert.Equal(showActions, item.ShowActions);
+            Assert.Equal(canUninstall, item.CanRestore);
+            if (kind == DependencyStateKind.BackupMissing)
+            {
+                // 该补充行同时覆盖“哨兵残留但当前已是原生 DLL/覆盖”的 BackupMissing：
+                // .incomplete 不能单独作为可删除重装的依据。
+                Assert.Contains("备份缺失", item.StatusText);
+                Assert.Contains("备份未提交", item.StatusDetail);
+                Assert.Contains(".incomplete", item.StatusDetail);
+                Assert.Contains("不能单独证明", item.StatusDetail);
+                Assert.Contains("DLL 与覆盖仍为原状", item.StatusDetail);
+                Assert.Contains("不等于 App 写入值", item.StatusDetail);
+                Assert.Contains("保留备份", item.StatusDetail);
+                Assert.Contains("手动恢复", item.StatusDetail);
+                Assert.Contains(".yagl-deps/richedit-msftedit.ok", item.StatusDetail);
+                Assert.Contains(".yagl-deps/richedit-msftedit-backup", item.StatusDetail);
+                Assert.Contains("原始副本", item.StatusDetail);
+                Assert.Contains("不要直接重装", item.StatusDetail);
+                Assert.Contains("先删备份目录", item.StatusDetail);
+            }
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Installed_PrimaryAction_RestoresThenInstalls()
+    {
+        _installer.StateOverride = DependencyStateKind.Installed;
+        var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
+        try
+        {
+            var item = Item(section, "richedit-msftedit");
+
+            await item.InstallCommand.ExecuteAsync(null);
+
+            Assert.Equal(["uninstall", "install"], _installer.CallLog);
+            Assert.False(section.Feedback.Failed);
+            Assert.True(item.IsInstalled);
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Damaged_PrimaryAction_RestoresThenInstalls()
+    {
+        _installer.StateOverride = DependencyStateKind.Damaged;
+        var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
+        try
+        {
+            var item = Item(section, "richedit-msftedit");
+            Assert.Equal("修复", item.ButtonText);
+
+            await item.InstallCommand.ExecuteAsync(null);
+
+            Assert.Equal(["uninstall", "install"], _installer.CallLog);
+            Assert.True(item.IsInstalled);
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task NeedsRecovery_PrimaryAction_InstallsWithoutUninstall()
+    {
+        _installer.StateOverride = DependencyStateKind.NeedsRecovery;
+        var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
+        try
+        {
+            var item = Item(section, "richedit-msftedit");
+            Assert.Equal("恢复并安装", item.ButtonText);
+
+            await item.InstallCommand.ExecuteAsync(null);
+
+            Assert.Equal(["install"], _installer.CallLog);
+            Assert.True(item.IsInstalled);
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
+    }
+
+    /// <summary>卸载失败必须停在当前状态并报错，不得继续安装。</summary>
+    [Fact]
+    public async Task Reinstall_UninstallFails_DoesNotInstall()
+    {
+        _installer.StateOverride = DependencyStateKind.Installed;
+        _installer.FailUninstallKind = DependencyFailureKind.RestoreFailed;
+        var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
+        try
+        {
+            var item = Item(section, "richedit-msftedit");
+
+            await item.InstallCommand.ExecuteAsync(null);
+
+            Assert.Equal(["uninstall"], _installer.CallLog);
+            Assert.True(section.Feedback.Failed);
+            Assert.Equal(
+                "还原失败，备份与安装状态已保留，可重试；详见应用日志。",
+                section.Feedback.Message);
+            Assert.True(item.IsInstalled); // 停在安装态，未进入安装
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Restore_Installed_CallsUninstallAndShowsRestored()
+    {
+        _installer.StateOverride = DependencyStateKind.Installed;
+        var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
+        try
+        {
+            var item = Item(section, "richedit-msftedit");
+
+            await item.UninstallCommand.ExecuteAsync(null);
+
+            Assert.Equal(1, _installer.UninstallCount);
+            Assert.False(section.Feedback.Failed);
+            Assert.Equal("原生 RichEdit（msftedit） 已还原", section.Feedback.Message);
+            Assert.False(item.IsInstalled);
+            Assert.Equal("安装", item.ButtonText);
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Restore_NotInstalled_DoesNothing()
+    {
+        var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
+        try
+        {
+            var item = Item(section, "richedit-msftedit");
+
+            await item.UninstallCommand.ExecuteAsync(null);
+
+            Assert.Equal(0, _installer.UninstallCount);
+            Assert.False(section.Feedback.HasMessage);
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
+    }
+
+    /// <summary>忙碌期两个按钮都禁用（逐条目，不只当前条目）；还原阶段显示不定进度。</summary>
+    [Fact]
+    public async Task Busy_DisablesInstallAndRestoreForAllItems()
+    {
+        _installer.HangOnUninstall = true;
+        _installer.StateOverride = DependencyStateKind.Installed;
+        var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
+        try
+        {
+            var item = Item(section, "richedit-msftedit");
+            var restore = item.UninstallCommand.ExecuteAsync(null);
+            for (var i = 0; i < 200 && !section.IsBusy; i++)
+            {
+                await Task.Delay(10);
+            }
+
+            Assert.True(section.IsBusy);
+            Assert.True(section.IsProgressIndeterminate);
+            Assert.Equal("还原中…", section.ProgressText);
+            Assert.All(section.Items, entry => Assert.False(entry.CanInstall));
+            Assert.All(section.Items, entry => Assert.False(entry.CanUninstall));
+
+            _installer.ReleaseUninstall();
+            await restore.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.False(section.IsBusy);
+            Assert.All(section.Items, entry => Assert.True(entry.CanInstall));
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
+    }
+
+    /// <summary>安装中也必须显示不定进度并禁用两个按钮（还原态已有同族用例）。</summary>
+    [Fact]
+    public async Task BusyInstall_ShowsIndeterminateProgress_AndDisablesActions()
+    {
+        _installer.HangOnInstall = true;
+        var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
+        try
+        {
+            var item = Item(section, "richedit-msftedit");
+            var install = item.InstallCommand.ExecuteAsync(null);
+            for (var i = 0; i < 200 && !section.IsBusy; i++)
+            {
+                await Task.Delay(10);
+            }
+
+            // Progress<T> 异步投递：等 Installing 报告落到 VM
+            for (var i = 0; i < 200 && !section.IsProgressIndeterminate; i++)
+            {
+                await Task.Delay(10);
+            }
+
+            Assert.True(section.IsBusy);
+            Assert.True(section.IsProgressIndeterminate);
+            Assert.Contains("1.5 GB", section.ProgressText);
+            Assert.All(section.Items, entry => Assert.False(entry.CanInstall));
+            Assert.All(section.Items, entry => Assert.False(entry.CanUninstall));
+
+            _installer.ReleaseInstall();
+            await install.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(section.IsBusy);
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
+    }
+
+    [Theory]
+    [InlineData(DependencyFailureKind.PrefixBusy, "Wine prefix 正被占用（游戏或其它 Wine 程序在运行），请先退出后重试。")]
+    [InlineData(DependencyFailureKind.WinetricksMissing, "未找到 winetricks：请安装 winetricks，或换用自带 winetricks 的 Proton，或按 README/PITFALLS 手动安装原生 msftedit（先备份现有 DLL 与覆盖值）。")]
+    [InlineData(DependencyFailureKind.WinetricksFailed, "winetricks 执行失败，已回滚到安装前状态；详见应用日志。")]
+    [InlineData(DependencyFailureKind.BackupMissing, "备份缺失或损坏，无法自动还原；请按 README/PITFALLS 依赖说明手动恢复。")]
+    [InlineData(DependencyFailureKind.PrefixUnsupported, "仅支持 win64 prefix：该 prefix 为 win32 或架构无法识别，未做任何修改。")]
+    [InlineData(DependencyFailureKind.StateWriteFailed, "写入安装状态失败，安装未完成；请检查磁盘可写与权限后重试。")]
+    public async Task Install_NewFailureKinds_ShowLocalizedText(
+        DependencyFailureKind kind, string expected)
+    {
+        _installer.FailKind = kind;
+        var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
+        try
+        {
+            await Item(section, "richedit-msftedit").InstallCommand.ExecuteAsync(null);
+
+            Assert.True(section.Feedback.Failed);
+            Assert.Equal(expected, section.Feedback.Message);
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
+    }
+
+    /// <summary>覆盖值查询超时：仍按已安装展示，提示放补充行（状态列不塞长文本），不降级成损坏态。</summary>
+    [Fact]
+    public async Task Installed_OverrideQueryUnavailable_ShowsRetryHintNotDamaged()
+    {
+        _installer.MarkInstalled = true;
+        _installer.VerificationUnavailable = true;
+        var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
+        try
+        {
+            var item = Item(section, "richedit-msftedit");
+
+            Assert.True(item.IsInstalled);
+            Assert.Equal(DependencyStateKind.Installed, item.State);
+            Assert.Contains(item.Manifest.Version, item.StatusText);
+            Assert.DoesNotContain("校验暂时不可用", item.StatusText);
+            Assert.Contains("校验暂时不可用", item.StatusDetail);
+            Assert.True(item.HasStatusDetail);
+            Assert.Equal("重装", item.ButtonText);
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
+    }
+
+    /// <summary>备份缺失文案不能把 `.incomplete` 当成“可直接删除重装”的充分条件：
+    /// 哨兵残留 + 当前已是原生 DLL 时也必须引导保留备份、手动恢复。</summary>
+    [Fact]
+    public async Task BackupMissing_DetailDoesNotTreatSentinelAsDeletePermission()
+    {
+        _installer.StateOverride = DependencyStateKind.BackupMissing;
+        var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
+        try
+        {
+            var item = Item(section, "richedit-msftedit");
+
+            Assert.True(item.HasStatusDetail);
+            Assert.Contains(".incomplete", item.StatusDetail);
+            Assert.Contains("不能单独证明", item.StatusDetail);
+            Assert.Contains("已是原生 DLL", item.StatusDetail);
+            Assert.Contains("保留备份", item.StatusDetail);
+            Assert.DoesNotContain("删除残留后重装即可", item.StatusDetail);
         }
         finally
         {
@@ -431,12 +780,26 @@ public class DependencySectionViewModelTests : IDisposable
         var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
         try
         {
-            var item = Assert.Single(section.Items);
+            var item = FontItem(section);
 
             Assert.True(item.IsInstalled);
             Assert.Equal("2.004R-1", item.Manifest.Version);
             Assert.Contains(item.Manifest.Version, item.StatusText);
             Assert.Equal("重装", item.ButtonText);
+
+            // 字体来源没有可还原的接管物：不显示/不执行「还原」，避免 no-op 成功提示
+            Assert.False(item.CanRestore);
+            Assert.False(item.CanUninstall);
+            await item.UninstallCommand.ExecuteAsync(null);
+            Assert.Equal(0, _installer.UninstallCount);
+            Assert.False(section.Feedback.HasMessage);
+
+            // 字体「重装」沿用既有语义（调用安装器并由安装器按 marker 短路），
+            // 不能因本次「重装先卸载」改造变成静默无操作
+            await item.InstallCommand.ExecuteAsync(null);
+            Assert.Equal(1, _installer.InstallCount);
+            Assert.False(section.Feedback.Failed);
+            Assert.True(section.Feedback.HasMessage);
         }
         finally
         {

@@ -16,16 +16,26 @@ public static class WineRegistryScriptBuilder
     /// <summary>Wine 专属字体名替换键：程序请求旧字体名时 Wine 直接换发目标字体。</summary>
     private const string ReplacementsKey = @"HKEY_CURRENT_USER\Software\Wine\Fonts\Replacements";
 
-    /// <summary>生成完整 .reg 内容（LF 换行；wine reg import 对换行风格不敏感，与 Bottles 同款）。</summary>
+    /// <summary>生成完整 .reg 内容（LF 换行；wine reg import 对换行风格不敏感，与 Bottles 同款）。
+    /// 仅字体来源可进入；winetricks 来源的 DLL 覆盖走逐条 <c>reg add</c>，不生成空 .reg。</summary>
+    /// <exception cref="InvalidOperationException">清单是 winetricks 来源（调用方分支错误）。</exception>
     public static string Build(DependencyManifest manifest)
     {
+        if (manifest.WinetricksVerb is not null)
+        {
+            throw new InvalidOperationException(
+                $"winetricks 来源不生成字体注册表脚本：{manifest.Id}");
+        }
+
+        var fonts = manifest.Fonts ?? [];
+        var replacementGroups = manifest.ReplacementGroups ?? [];
         var builder = new StringBuilder();
         builder.Append("Windows Registry Editor Version 5.00\n");
 
-        if (manifest.Fonts.Count > 0)
+        if (fonts.Count > 0)
         {
             builder.Append("\n[").Append(FontsKey).Append("]\n");
-            foreach (var font in manifest.Fonts)
+            foreach (var font in fonts)
             {
                 foreach (var family in font.Families)
                 {
@@ -34,10 +44,10 @@ public static class WineRegistryScriptBuilder
             }
         }
 
-        if (manifest.ReplacementGroups.Count > 0)
+        if (replacementGroups.Count > 0)
         {
             builder.Append("\n[").Append(ReplacementsKey).Append("]\n");
-            foreach (var group in manifest.ReplacementGroups)
+            foreach (var group in replacementGroups)
             {
                 foreach (var replaced in group.Replaces)
                 {

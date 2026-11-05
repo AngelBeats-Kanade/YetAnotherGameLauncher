@@ -27,7 +27,7 @@ src/
                     UpdatePlan、DeltaPackage（v2 增量计划/分卷/文件节点）、
                     UpdateProgress、LocalGameState、ChannelVersionInfo、DownloadRequest（单文件下载请求）、
                     LaunchOptions（启动命令模板）、ThemeMode
-    Abstractions/   IGameChannelApi、IDownloader、IPatchApplier（目录差分）、IFilePatchApplier（单文件差分，终末地 v2 载荷）、IProcessRunner、异常类型（UpdateException/LaunchException + LaunchFailureKind、DownloadException/DownloadVerificationException（DownloadExceptions.cs）、DeltaPackageNotApplicableException/DeltaPackageUnusableException/DeltaPackageSupplyException、PatchToolUnavailableException）、
+    Abstractions/   IGameChannelApi、IDownloader、IPatchApplier（目录差分）、IFilePatchApplier（单文件差分，终末地 v2 载荷）、IProcessRunner（ProcessStartSpec 支持旧 Arguments 与 argv 形态 ArgumentList，后者用于 winetricks/reg 含空格路径）、异常类型（UpdateException/LaunchException + LaunchFailureKind、DownloadException/DownloadVerificationException（DownloadExceptions.cs）、DeltaPackageNotApplicableException/DeltaPackageUnusableException/DeltaPackageSupplyException、PatchToolUnavailableException）、
                     IPlatformInfo（平台环境：Linux/GPU 厂商探测、文件管理器打开目录，含 GpuVendor 枚举）、IBackdropResolver（详情页背景解析，含 BackdropKind/BackdropSource）、
                     IUmuComponentProvisioner（原生 umu 组件准备契约）
     Services/       GameCatalogService（含首次运行 CreateDefaultFileAsync）、HttpFileDownloader（+HttpFileDownloaderOptions）、
@@ -50,9 +50,11 @@ src/
                     并 best-effort 清理旧版 <安装目录>/.yagl/bridge；helper 源码/构建/自检在 tools/wine-parent-bridge/）、
                     BridgeLaunchStatus（helper 启动状态 STARTING/READY/ERROR 轮询 + 两段 10 秒预算：把桥启动失败与游戏自身退出码区分开）），
                     GameBackdropService（详情页背景远程解析 + 本地缓存编排：区域/游戏版本门控，版本一致零网络）、WindowsPlatformInfo / LinuxPlatformInfo（IPlatformInfo 双实现）+ PlatformInfoFactory（唯一的 OS 选择分支，DI 与各 ViewModel 缺省共用）
-    Dependencies/   Wine prefix 依赖安装（管线细节见 docs/ARCHITECTURE.md §3.9）：DependencyManifest/DependencyCatalog（内嵌 catalog.json 清单：解析+校验+聚合错误）、
-                    WineRegistryScriptBuilder（清单 → UTF-16LE .reg，供单次 wine reg import）、DependencyPaths（全局下载缓存 ~/.cache/yagl/deps + prefix 内 .yagl-deps 状态目录布局）、
-                    DependencyInstaller + IDependencyInstaller（下载→解压→字体落位→注册表导入→完成标记五阶段编排；zip 防御解压复用 PackageInstallerService；安装前 builtin 链接预检修复）、
+    Dependencies/   Wine prefix 依赖安装（管线细节见 docs/ARCHITECTURE.md §3.9）：DependencyManifest/DependencyCatalog（内嵌 catalog.json 清单：两种互斥来源——字体下载与 winetricks 原生 DLL；解析+按来源分支校验+聚合错误）、
+                    WineRegistryScriptBuilder（字体清单 → UTF-16LE .reg，供单次 wine reg import；winetricks 清单显式拒绝）、
+                    DependencyPaths（全局下载缓存 ~/.cache/yagl/deps + prefix 内 .yagl-deps 状态/备份目录布局）、
+                    DependencyInstaller + IDependencyInstaller（字体：下载→解压→字体落位→注册表导入→完成标记；winetricks：架构预检→解析→忙碌检查→备份→winetricks→覆盖→DLL 校验→完成标记；失败回滚；五态 GetState 与 UninstallAsync 还原）、
+                    WinetricksResolver（Proton 自带 protonfixes/files/bin/winetricks 优先，PATH 回退）、DependencyBackup（备份清单：Symlink target/File 副本+sha256/Missing 与旧覆盖值）、
                     WinePrefixBuiltinRepair（Proton 升级悬空 builtin 链接的检测/重链：RepairDangling 存量迁移 + RepointTree 换版即时迁移，prune 同用）、
                     WinePrefixTarget/DependencyException 等模型
     Utilities/      Hashing（MD5/SHA-256 hex）、Json（统一序列化选项）、DiskSpace（路径所在卷的空闲空间探测：最长挂载点前缀匹配
@@ -121,7 +123,7 @@ src/
                     StatusToastRequested/SettingsToastRequested 事件转发，状态首轮预热不弹）
     ViewModels/     MainWindowViewModel（SettingsViewModel、AboutViewModel 与其同文件）、GameItemViewModel、
                     GameSettingsViewModel、LaunchSettingsViewModel、DependencySectionViewModel + DependencyItemViewModel（游戏设置页
-                    「依赖」区：内置依赖状态展示与手动安装，目标按启动方式现场解析，独立消息槽与进度行）、
+                    「依赖」区：两个内置依赖的五态展示、安装/重装（先还原再安装）/修复/还原，目标按启动方式现场解析，独立消息槽与进度行）、
                     LaunchErrorViewModel（启动失败覆盖层：类目化原因/技术详情/日志入口/umu 一键安装）、
                     GachaViewModel（鸣潮唤取记录页）、SaveMessageSlot（表单保存结果消息槽）、ToastItem（轻提示条目模型）、
                     ResourceTierText（档位显示名与状态文案的单一来源：设置页下拉/状态行/清理确认共用）、ViewModelBase
@@ -131,7 +133,7 @@ src/
 tests/
   YetAnotherGameLauncher.TestSupport/           # 共享测试设施（可复用的替身与工具）
     FakeDownloader / FakePatchApplier / FakeProcessRunner / FakeChannel / FakePlatformInfo / FakeAutostartService / StubHttpHandler / TempDir / TestZip / Zip64Builder（ZIP64 夹具：哨兵/撒谎两形）/ TestPayload（v2 载荷夹具：AES 片段/明文条目/撒谎中央目录）/ ManualTimeProvider（虚拟时钟）/
-    TestFfmpegArchive（FFmpeg 资产微型归档夹具）/ DacExemptionProbe（DAC 豁免前提探针）/ FakeDependencyInstaller（依赖安装器替身：状态/失败/挂起可编程）/
+    TestFfmpegArchive（FFmpeg 资产微型归档夹具）/ DacExemptionProbe（DAC 豁免前提探针）/ FakeDependencyInstaller（依赖安装器替身：状态/按 id 状态覆盖/安装与卸载失败/挂起与调用顺序可编程）/
     UpdateProgressCollector（同步收集 UpdateProgress 帧的 IProgress 替身——Progress<T> 在部分测试宿主下 post 不可靠）/ CapturingLogger（内存 ILogger：捕获日志供"失败必须落日志"类断言）
   YetAnotherGameLauncher.Core.Tests/            # 领域层测试
   YetAnotherGameLauncher.Channels.Kuro.Tests/   # 鸣潮渠道测试

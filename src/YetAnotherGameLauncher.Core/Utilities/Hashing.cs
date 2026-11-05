@@ -39,6 +39,17 @@ public static class Hashing
         return Convert.ToHexStringLower(md5.GetHashAndReset());
     }
 
+    /// <summary>字节数组的 SHA-256（小写 hex）。</summary>
+    public static string Sha256Hex(byte[] data) =>
+        Convert.ToHexStringLower(SHA256.HashData(data));
+
+    /// <summary>文件的 SHA256（同步流式读取，小写 hex）：仅供同步状态校验（依赖 GetState）使用。</summary>
+    public static string Sha256Hex(string filePath)
+    {
+        using var stream = File.OpenRead(filePath);
+        return Convert.ToHexStringLower(SHA256.HashData(stream));
+    }
+
     /// <summary>文件的 SHA256（流式读取，小写 hex）；不整读内存，适合大安装包。</summary>
     public static async Task<string> Sha256HexAsync(string filePath, CancellationToken cancellationToken = default)
     {

@@ -19,6 +19,16 @@ public static class DependencyPaths
     public static string MarkerPath(string stateDirectory, string dependencyId) =>
         Path.Combine(stateDirectory, MarkerFileName(dependencyId));
 
+    /// <summary>winetricks 来源依赖的备份目录（DLL 副本、旧覆盖导出与清单）。</summary>
+    public static string BackupDirectory(string stateDirectory, string dependencyId) =>
+        Path.Combine(stateDirectory, $"{dependencyId}-backup");
+
+    /// <summary>备份清单文件名（位于备份目录内，原子写入）。</summary>
+    public const string BackupManifestFileName = "manifest.json";
+
+    /// <summary>备份未提交哨兵文件名（创建备份前写入，manifest 原子写成功后删除）。</summary>
+    public const string BackupPendingFileName = ".incomplete";
+
     /// <summary>下载缓存根：~/.cache/yagl/deps（cacheHome 缺省每调用实时读，XDG_CACHE_HOME 语义与 UmuPaths 一致）。</summary>
     public static string CacheRoot(string? cacheHome = null) =>
         Path.Combine(cacheHome ?? DefaultCacheHome(), "yagl", "deps");

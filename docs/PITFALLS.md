@@ -44,7 +44,84 @@
 - **wine 拒绝在非本用户所有的目录创建 prefix**（"'/tmp' is not owned by you, refusing to create a configuration directory there"，owner 安全检查；sticky 目录即触发）——测试/脚本把 WINEPREFIX 指向 `/tmp` 会静默失败（exit 0 但 prefix 没建），必须放家目录或校验 `drive_c` 是否真的出现。
 - **umu/steamrt 容器内的 locale：宿主 LANG 原样穿透，且宿主 locale 数据在容器内可用**（2026-09-29 实测）——pressure-vessel 的 "Using glibc from provider system … Arbitrarily using provider locales" 警告只关乎混合架构 glibc 的选择面，**不代表宿主 locale 不可用**：容器内 `/usr/bin/locale -a` 实列 zh_CN.utf8 且全类别解析为 zh_CN。排查游戏内编码问题先经 `_v2-entry-point -- <命令>` 在容器内跑 `locale`/`printenv` 实测，不要望警告文生义。
 - **Wine 的运行时 ANSI/OEM 代码页由 glibc 生效 locale 推导，prefix 注册表里的 `Nls\CodePage`（ACP/OEMCP）与 `Nls\Language`/`Nls\Locale` 都是写出值而非读入值**（2026-09-29 实测；证据层级：「不读回」方向 = 源码溯源（部分）——ntdll init_locale 经 `setlocale(LC_CTYPE/LC_MESSAGES)` → locale.nls 表映射为 init 路径溯源，未逐行穷尽全文件；注册表只是同步落盘的 artifact 属行为反推。把 `Nls\Language`/`Nls\Locale` 0409 改 0804 对游戏行为无影响，对照实验 F58）。观测容器内 Wine 实际代码页的技巧：`wine cmd /c chcp` 的**消息语言与输出编码**是 locale/CP_ACP 的直接观测面（管道重向下打印的页码数字不可信；该机制括注为推断——经 CP 0=CP_ACP 转换，未核 wine cmd 转换调用链，观测结论本身不受影响）。
-- **Wine riched20 在 `EM_SETTEXTEX` 的 RTF 分支丢弃 `SETTEXTEX.codepage`，RTF 里的原始 UTF-8 字节按读取器默认 `ansiCodePage=1252` 解码（2026-10-27 复核；鸣潮 3.7.0 首登弹窗实锤）**：Wine master `dlls/riched20/editor.c:3499` 调 `ME_StreamInRTFString(editor, bSelection, (char *)lParam)` 不传 codepage，`dlls/riched20/reader.c:231` 默认 1252，`dlls/riched20/tests/editor.c:4545–4548` 的 Windows 行为仍挂 `todo_wine`；游戏 `WINEDEBUG=+richedit` 直接抓到 `flags 2, cp 65001` + `{\rtf1 ... \xe5...}`。**不是字体/ACP/地区问题**（F58 的 2026-09-29 relay cp1252 结论只对应 3.6.0 观察；3.7.0 直接 trace 已取代）；`cjk-fonts` 的 H7GBK 替换只修字体回退/豆腐，不修解码。路线 A 的已知限制 = 弹窗正文仍可能乱码；手动 workaround = 原生 Win7 SP1 `msftedit.dll` + `*msftedit=native,builtin`（prefix 里 system32/syswow64 的 msftedit 是指向 Proton 树的符号链接，必须先删链接再放文件，直接 `cp` 会写穿 Proton；覆盖必须经 `wine reg import`/注册表持久化，不能只靠 `WINEDLLOVERRIDES`；.reg 用 UTF-16LE BOM）。已有 `winetricks` 时优先 `winetricks msftedit`（其 `w_try_cp_dll` 会先删链接；首次会下 Win7 SP1 x86+x64 两个包，约 1.5 GB）。上游 Wine master 未修复（2026-10-26 拉取）；WineHQ/dwproton 报告草稿已就绪，**本仓库不承诺上游时间**。
+- **外部工具 argv 必须用 `ProcessStartSpec.ArgumentList`，日志与提权 StartInfo 都要携带**（2026-10-27，依赖 winetricks 管线实踩）：`Arguments` 是单个字符串，含空格路径（Proton/winetricks 安装目录）会被拆成多个 argv；新调用一律逐项 argv（`ProcessStartInfo.ArgumentList`），旧 `Arguments` 调用保留兼容。`# command` 日志必须打印实际 argv（含空格/引号项统一引用），提权回退的 `CreateElevatedStartInfo` 必须逐项复制 `ArgumentList`——只复制 `Arguments` 会让 requireAdministrator 路径丢参数、失败日志也看不到命令行。
+- **`wine reg query/export` 的输出与退出码**（2026-10-27 真机实测）：`reg query <键>` 退出码 1 既可能是键不存在，也可能是注册表读取坏了——用父键 `HKCU\Software\Wine` 探针区分（父键可读 = 只是键不存在，记录“无旧值”，不按备份失败）；值行格式 `名称    REG_SZ    数据`（4 空格），名称可含单空格，解析按“2+ 空白 + `REG_` 类型”切分。`reg export <键> <文件> /y` 输出 UTF-16LE BOM；键不存在时不要当备份失败。**注册表值名大小写不敏感**（`*MSFTEDIT` 与 `*msftedit` 是同一个值）：
+解析/备份/状态比对按 `OrdinalIgnoreCase`，值数据仍按原样大小写比较；否则大写变体会被漏备份，
+卸载时删除同一值却无法恢复旧值。状态校验/验收一律以 `reg query` 为准，不能立刻 grep `user.reg`（wineserver 最后进程退出后约 3 秒才落盘）。
+- **手动 msftedit 逃生舱（自动安装不可用；仓库内可复制的等价命令）**：准备原生 `msftedit.dll` 的
+  x64/x86 两份（可从 Win7 SP1 的 `windows6.1-KB976932-X64.exe` / `-X86.exe` 用 `cabextract` 解出，
+  或复用本机已有的 `richedit-fix/msftedit/msftedit-{x64,x86}.dll`；**仓库不打包微软 DLL**）。设
+  `P=<prefix>`、`K=<DLL 所在目录>`、`W=<wine 可执行文件>`、`D=<Proton 根（仅 Proton 用）>`（Proton：
+  `W="$D/files/bin/wine"`；系统 wine：`W="$(command -v wine)"`）。**安装前先备份当前 DLL 与覆盖**
+  （system wine/自定义 prefix 的 real-file 原状、已有旧 `*msftedit` 值时必须；Proton 符号链接也建议
+  执行，脚本会记录链接目标而不是跟随复制）：
+  ```sh
+  B="$P/msftedit-manual-backup"
+  mkdir -p "$B"
+  if WINEPREFIX="$P" "$W" reg query 'HKCU\Software\Wine\DllOverrides' >/dev/null 2>&1; then
+    WINEPREFIX="$P" "$W" reg export 'HKCU\Software\Wine\DllOverrides' "$B/dlloverrides.reg" /y \
+      || { echo "导出 DllOverrides 失败，停止安装" >&2; exit 1; }
+  elif WINEPREFIX="$P" "$W" reg query 'HKCU\Software\Wine' >/dev/null 2>&1; then
+    : > "$B/no-dlloverrides-key"
+  else
+    echo "wine 注册表不可读，停止安装（不要在没有备份时继续）" >&2; exit 1
+  fi
+  for pair in "system32:x64" "syswow64:x86"; do
+    dir=${pair%%:*}; arch=${pair##*:}
+    src="$P/drive_c/windows/$dir/msftedit.dll"
+    if [ -L "$src" ]; then readlink "$src" > "$B/$arch.link"
+    elif [ -f "$src" ]; then cp -p "$src" "$B/$arch.dll"
+    else : > "$B/$arch.missing"; fi
+  done
+  ```
+  备份完成后安装：
+  ```sh
+  rm -f "$P/drive_c/windows/system32/msftedit.dll" "$P/drive_c/windows/syswow64/msftedit.dll"
+  cp "$K/msftedit-x64.dll" "$P/drive_c/windows/system32/msftedit.dll"
+  cp "$K/msftedit-x86.dll" "$P/drive_c/windows/syswow64/msftedit.dll"
+  WINEPREFIX="$P" "$W" reg add 'HKCU\Software\Wine\DllOverrides' \
+    /v '*msftedit' /t REG_SZ /d 'native,builtin' /f
+  ```
+  **手动安装的还原**（按上面的 `$B` 记录；链接目标被 Proton 升级删除时改用当前树的对应路径）：
+  ```sh
+  for pair in "system32:x64" "syswow64:x86"; do
+    dir=${pair%%:*}; arch=${pair##*:}
+    dst="$P/drive_c/windows/$dir/msftedit.dll"
+    if [ -f "$B/$arch.link" ]; then
+      rm -f "$dst"; ln -s "$(cat "$B/$arch.link")" "$dst"
+    elif [ -f "$B/$arch.dll" ]; then
+      rm -f "$dst"; cp -p "$B/$arch.dll" "$dst"
+    elif [ -f "$B/$arch.missing" ]; then
+      rm -f "$dst"
+    fi
+  done
+  WINEPREFIX="$P" "$W" reg delete 'HKCU\Software\Wine\DllOverrides' \
+    /v '*msftedit' /f || true
+  if [ -f "$B/dlloverrides.reg" ]; then
+    WINEPREFIX="$P" "$W" reg import "$B/dlloverrides.reg"
+  fi
+  ```
+  **自动安装留下的 `.yagl-deps/<id>-backup/`**：manifest 存在时按 `kind` 恢复——`File` 用
+  `cp "$B/x64-msftedit.dll" .../system32/msftedit.dll` 与 `cp "$B/x86-msftedit.dll" .../syswow64/msftedit.dll`；
+  `Symlink` 按 `linkTarget` 重建；`Missing` 直接 `rm -f` 两处目标；旧覆盖按 manifest 的 `OldValue`
+  恢复（或 `reg import dlloverrides.reg`）。**manifest 已丢失时不要凭副本数量直接推断原状**：
+  先确认当前 prefix 是否仍是安装前原状（Proton 管理的 prefix 通常是两条指向当前 Proton 树的符号
+  链接；system wine/自定义 prefix 的原始真实 DLL 必须有副本才能恢复）。无法确认就保留备份目录，
+  不要 `rm -f` 当前 DLL。**备份未提交哨兵 `.incomplete`**：`CreateBackupAsync` 在复制/导出前写入，
+  manifest 原子写成功后删除；只有 **`.incomplete` 存在、当前目标不是清单里的原生 DLL、且覆盖值明确
+  不是 App 写入的期望值**（仍是 builtin/缺失；`OverridesMatch == Mismatched`，查询失败/已匹配均按
+  BackupMissing）才能确定是备份阶段硬杀（prefix 未修改），删除 `<id>-backup/` 后重装（启动器安装时
+  也会自动清理）。
+  DLL 已还原但覆盖仍是 `native,builtin` 属于局部还原，不能当预提交。
+  **`.incomplete` 不存在时，marker+manifest 缺失也可能是安装成功后丢失**（prefix 已是原生 DLL）：
+  此时必须保留备份目录并手动恢复，直接重装会把当前原生态当成“原始”重新备份，导致原始 DLL/旧覆盖
+  永久丢失。marker 存在时 `dlloverrides.reg` 缺失才说明安装前无此键；marker/manifest 缺失时不能
+  据此删除覆盖值。**顺序必须是先恢复 DLL/覆盖、确认 `reg query` 与文件内容都回到原状，最后才删
+  `.yagl-deps/<id>.ok` 与 `<id>-backup/`；不要先删备份目录。** 本机已有的
+  `richedit-fix/msftedit/install.sh` / `revert.sh` 仍可直接用；
+  上述命令是其等价步骤，不依赖启动器/winetricks（但需要用户自备 DLL）。注册表落盘有约 3 秒延迟，
+  验收以 `reg query` 为准。
+- **Wine riched20 在 `EM_SETTEXTEX` 的 RTF 分支丢弃 `SETTEXTEX.codepage`，RTF 里的原始 UTF-8 字节按读取器默认 `ansiCodePage=1252` 解码（2026-10-27 复核；鸣潮 3.7.0 首登弹窗实锤）**：Wine master `dlls/riched20/editor.c:3499` 调 `ME_StreamInRTFString(editor, bSelection, (char *)lParam)` 不传 codepage，`dlls/riched20/reader.c:231` 默认 1252，`dlls/riched20/tests/editor.c:4545–4548` 的 Windows 行为仍挂 `todo_wine`；游戏 `WINEDEBUG=+richedit` 直接抓到 `flags 2, cp 65001` + `{\rtf1 ... \xe5...}`。**不是字体/ACP/地区问题**（F58 的 2026-09-29 relay cp1252 结论只对应 3.6.0 观察；3.7.0 直接 trace 已取代）；`cjk-fonts` 的 H7GBK 替换只修字体回退/豆腐，不修解码。**处置（2026-10-27）**：依赖卡内置可选「原生 RichEdit（msftedit）」——通过 Proton 自带（`protonfixes/files/bin/winetricks`，实测存在）或系统 `winetricks` 安装原生 Win7 SP1 DLL，并持久化 `*msftedit=native,builtin`，支持一键还原；默认不装，上游修复后保持可选。手动脚本（`richedit-fix/msftedit/install.sh` / `revert.sh`）仍是逃生舱。要点：prefix 里 system32/syswow64 的 msftedit 是指向 Proton 树的符号链接，必须先删链接再放文件，直接 `cp` 会写穿 Proton；覆盖必须经注册表持久化（`reg add`/`reg import`），不能只靠 `WINEDLLOVERRIDES`；.reg 用 UTF-16LE BOM。winetricks `msftedit` 的 `w_try_cp_dll` 会先删链接；首次下 Win7 SP1 x86+x64 两个包约 1.5 GB（实测首次 42 s / 缓存后 4.4 s，网络相关）；`--force` 只影响 winetricks 自身，应用层「重装」= 卸载→安装（避免已装短路）。**账本形态（2026-10-27 核对自带 winetricks 源码）**：安装记录在 `<prefix>/winetricks.log`（每行是执行过的命令，verb 是其中一个词元，`grep -qw` 语义），卸载按词元精确删除（保留 `vcrun2022` 这类包含子串的 verb）；`installed_file1` 是 winetricks 的 verb 元数据变量，不是 prefix 文件。**占用检查**：卸载/安装前跑 `wineserver -w`（Proton 自带或同目录/PATH），10 s 超时即 `PrefixBusy`——超时说明游戏/其它 Wine 进程还在跑，不是卸载失败。上游 Wine master 未修复（2026-10-26 拉取）；WineHQ/dwproton 报告草稿已就绪，**本仓库不承诺上游时间**。
 - **Wine 对 `UpdateProcThreadAttribute` 的 `lpValue` 保存指针而非拷贝值**（2026-10-20 真机对照实验，F89）：`PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` 的父进程句柄变量必须保持分配直到 `CreateProcessW` 返回——helper 先 `Marshal.AllocHGlobal(IntPtr.Size)` 写句柄、调用后立即 `FreeHGlobal`，后续创建以 `ERROR_INVALID_HANDLE (6)` 失败（同一 helper 保活即成功、提前释放即失败，两组真机实录）。Windows 语义为拷贝、提前释放无害；跨平台代码一律保活到调用返回（多占 8 字节）。
 - **console 子系统 PE 在无终端的 Wine 链上会开 conhost 黑窗**（2026-10-20 真机复现，F89）：`--subsystem,console` 的桥 helper 经 `_v2-entry-point → proton waitforexitandrun` 启动时出现全屏 `conhost.exe`（`hyprctl clients` 实录 `class='conhost.exe'`、标题含 `yagl-parent-bridge.exe`），且 helper 自身 stderr 被吞、黑窗是纯副作用。后台 helper 一律 GUI 子系统（.NET `OutputType=WinExe` 或 `-Wl,--subsystem,windows`）；诊断走退出码与重定向日志。
 - **后台编排器透传子进程退出码时，不能用它的退出码判断编排器本身是否失败**（2026-10-20 复审）：诱饵桥 helper 在游戏进程创建后把游戏退出码原样返回（启动校验拒绝是 5），launcher 把任意非零都当桥故障会误报"桥坏了"；反过来 `WaitForExit:false` 的恒 0 又会把桥启动失败报成「已启动」。用 helper 写出的启动状态文件（`READY` 表示游戏进程已创建；`ERROR:<code>:<message>` 表示创建前失败）区分阶段，只有 READY 之前才算桥失败。状态文件写失败或 helper 在写状态前崩溃时，launcher 只能等满超时后报错——这是不用退出码判定换来的延迟，不能退回"看退出码/立即返回 0"。**超时必须分两段计时**（2026-10-21 用户口径）：Linux 链的计时从容器入口（`_v2-entry-point`）启动算起，容器冷启动 + helper 启动给 10 秒；helper 写出 `STARTING` 后，游戏进程创建另给 10 秒。旧的单一 30 秒上限把 helper 启动与游戏进程创建合并在同一总预算里（任一段变慢都会挤占另一段）；真机 74 秒那次是点击到手动关闭旧实例的观察时长，属于 READY 之后游戏自身的单实例等待，不在 launcher 的状态等待内，固定 30 秒上限也不会等 74 秒。两段分开后各 10 秒、互不挤占，超时提示也分开（helper 未启动 / 已启动但游戏进程未创建）。`WaitAsync` 在首次观察到状态时写一条 Information 日志（first status + elapsed + startup budget），启动超时路径另写一条 Warning（startup timeout + elapsed/limit）；真机可直接核对 10 秒边界。省略 `startupTimeout` 的调用方把 `timeout` 当**总预算**，首状态后 READY 段只用剩余时间；生产两个启动器都显式传两段 10 秒，互不挤占。2026-10-21 真机彻底冷启动实测首个桥状态 READY 4062 ms（10 秒预算余量约 5.9 秒；READY 已含 helper 启动 + 游戏进程创建）。超时提示同时给出启动日志与应用日志路径（`yagl-yyyyMMdd.log`；应用日志目录由调用方显式传入，不从启动日志路径反推）——first status / startup timeout 边界在应用日志，launch 日志里没有（2026-10-22 复审）。
