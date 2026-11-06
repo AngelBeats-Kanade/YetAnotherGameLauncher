@@ -811,6 +811,34 @@ public sealed class UmuComponentProvisionerTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateProtonAsync_DWProtonWithHttpFileDownloader_SucceedsWhenWafRejectsEmptyUserAgent()
+    {
+        // 症状级复现（2026-11-06 用户更新 dwproton-11.0-16 报 403 Forbidden）：
+        // UmuComponentProvisioner 自身查 release API 时显式带了 User-Agent，但把归档 URL 交给
+        // HttpFileDownloader 下载时后者未设 User-Agent，被 dawn.wine 的 Anubis WAF 拦成 403；
+        // 旧单测用 FakeDownloader 跳过了真实 HTTP 下载器，掩盖了这一断层。
+        _http.RequireUserAgent = true;
+        const string assetUrl =
+            "https://dawn.wine/dawn-winery/dwproton/releases/download/dwproton-11.0-16/dwproton-11.0-16-x86_64.tar.xz";
+        ServeForgejoReleases([
+            ("dwproton-11.0-16-x86_64.tar.xz", assetUrl),
+        ]);
+        _http.Map(assetUrl, BuildProtonArchive("dwproton-11.0-16-x86_64", wineserverElfMachine: ElfX86_64));
+        using var client = new HttpClient(_http);
+        var realDownloader = new HttpFileDownloader(client, new HttpFileDownloaderOptions { MaxAttempts = 1 });
+        var provisioner = new UmuComponentProvisioner(
+            client, realDownloader,
+            dataHome: _tempDir.Path, cacheHome: _tempDir.Path, hostArchitecture: Architecture.X64);
+
+        var path = await provisioner.UpdateProtonAsync("DW-Proton");
+
+        Assert.EndsWith(
+            NormalizeSeparators(Path.Combine("compatibilitytools.d", "dwproton-11.0-16")),
+            NormalizeSeparators(path));
+        Assert.True(provisioner.IsProtonReady(path));
+    }
+
+    [Fact]
     public void ReadWineserverElfMachine_ShortOrNonElfFile_ReturnsNull()
     {
         using var tempDir = new TempDir();

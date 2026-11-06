@@ -357,6 +357,36 @@ public class HttpFileDownloaderTests : IDisposable
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => CreateDownloader().DownloadFileAsync(Request(), cancellationToken: cts.Token));
     }
+
+    [Fact]
+    public async Task DownloadFileAsync_ServerRejectsEmptyUserAgentWith403_SendsDefaultUserAgentAndSucceeds()
+    {
+        // 回归（2026-11-06 用户报障）：dawn.wine（DW-Proton 源）前段部署了 Techaro Anubis WAF，
+        // 对缺失 User-Agent 的 GET 请求直接回 403 Forbidden；HttpFileDownloader 构造的请求
+        // 必须携带非空 User-Agent（即使调用方注入的 HttpClient 未配置 DefaultRequestHeaders.UserAgent）。
+        _handler.RequireUserAgent = true;
+        _handler.Map(Url, Content);
+
+        await CreateDownloader().DownloadFileAsync(Request(), cancellationToken: Ct);
+
+        var sent = Assert.Single(_handler.Requests);
+        Assert.Equal("YetAnotherGameLauncher", sent.Headers.UserAgent.ToString());
+        Assert.Equal(Content, await File.ReadAllBytesAsync(_tempDir.FilePath("file.bin")));
+    }
+
+    [Fact]
+    public async Task DownloadFileAsync_ClientAlreadyHasUserAgent_PreservesWithoutDuplication()
+    {
+        _handler.RequireUserAgent = true;
+        _handler.Map(Url, Content);
+        _client.DefaultRequestHeaders.UserAgent.ParseAdd("CustomLauncher/1.0");
+
+        await CreateDownloader().DownloadFileAsync(Request(), cancellationToken: Ct);
+
+        var sent = Assert.Single(_handler.Requests);
+        Assert.Equal("CustomLauncher/1.0", sent.Headers.UserAgent.ToString());
+        Assert.Equal(Content, await File.ReadAllBytesAsync(_tempDir.FilePath("file.bin")));
+    }
 }
 
 public class HttpFileDownloaderTimeoutTests : IDisposable

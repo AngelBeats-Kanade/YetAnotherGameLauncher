@@ -35,6 +35,9 @@ public sealed class StubHttpHandler : HttpMessageHandler
     /// <summary><see cref="FailWithStatusFirstN"/> 生效时返回的状态码（默认 408）。</summary>
     public HttpStatusCode FailWithStatusCode { get; set; } = HttpStatusCode.RequestTimeout;
 
+    /// <summary>要求每个请求携带非空 User-Agent（模拟 dawn.wine Anubis WAF 对无 User-Agent 请求回 403 Forbidden）。</summary>
+    public bool RequireUserAgent { get; set; }
+
     /// <summary>强制 206 响应声称的 Range 起始字节（F64：模拟畸形服务器对 Range 请求
     /// 回错误起点的 206；null = 按请求范围正常回）。</summary>
     public long? ForcedRangeStart { get; set; }
@@ -113,6 +116,11 @@ public sealed class StubHttpHandler : HttpMessageHandler
             // 抛 HttpRequestException 的生产路径，而非直接抛异常）
             FailWithStatusFirstN--;
             return new HttpResponseMessage(FailWithStatusCode) { Content = new ByteArrayContent([]) };
+        }
+
+        if (RequireUserAgent && request.Headers.UserAgent.Count == 0)
+        {
+            return new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = new ByteArrayContent([]) };
         }
 
         var url = request.RequestUri!.ToString();

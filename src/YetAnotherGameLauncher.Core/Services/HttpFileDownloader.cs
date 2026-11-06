@@ -18,6 +18,10 @@ public sealed class HttpFileDownloader(
     ILogger? logger = null,
     SpeedLimiter? speedLimiter = null) : IDownloader
 {
+    /// <summary>默认 User-Agent 标识（注入的 HttpClient 未配置 DefaultRequestHeaders.UserAgent 时使用：
+    /// dawn.wine 前段的 Techaro Anubis WAF 对缺失 User-Agent 的下载请求直接回 403 Forbidden，2026-11-06 实测）。</summary>
+    public const string DefaultUserAgent = "YetAnotherGameLauncher";
+
     private readonly HttpFileDownloaderOptions _options = options ?? new();
 
     /// <summary>全局限速器（多个下载共享同一预算）；null = 不限速。设置页可动态调整其 BytesPerSecond。</summary>
@@ -114,6 +118,11 @@ public sealed class HttpFileDownloader(
         }
 
         using var requestMessage = new HttpRequestMessage(HttpMethod.Get, request.Url);
+        if (httpClient.DefaultRequestHeaders.UserAgent.Count == 0)
+        {
+            requestMessage.Headers.UserAgent.ParseAdd(DefaultUserAgent);
+        }
+
         if (existingTempBytes > 0)
         {
             requestMessage.Headers.Range = new RangeHeaderValue(existingTempBytes, null);
