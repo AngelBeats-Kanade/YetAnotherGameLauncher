@@ -504,7 +504,7 @@ const MUTATIONS = [
   {
     id: 'M53-launch-button-disabled-while-busy',
     file: 'src/YetAnotherGameLauncher/Controls/DetailActionDock.axaml',
-    find: '                        IsEnabled="{Binding !IsBusy}"\n',
+    find: '                        IsEnabled="{Binding CanClickLaunch}"\n',
     replace: '',
     project: 'tests/YetAnotherGameLauncher.App.Tests/YetAnotherGameLauncher.App.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll',
@@ -1419,6 +1419,26 @@ const MUTATIONS = [
     project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
     method: 'YetAnotherGameLauncher.Core.Tests.Dependencies.WineRegistryScriptBuilderTests.WriteAsync_EmbeddedCjkFonts_RoundTripsH7AliasesAsUtf16LeBom',
+  },
+  {
+    // 2026-11-06 dawn.wine Anubis WAF 403：HttpFileDownloader 必须在客户端未配置 User-Agent 时补默认值。
+    id: 'M140-downloader-default-user-agent',
+    file: 'src/YetAnotherGameLauncher.Core/Services/HttpFileDownloader.cs',
+    find: '        if (httpClient.DefaultRequestHeaders.UserAgent.Count == 0)\n        {\n            requestMessage.Headers.UserAgent.ParseAdd(DefaultUserAgent);\n        }',
+    replace: '',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.HttpFileDownloaderTests.DownloadFileAsync_ServerRejectsEmptyUserAgentWith403_SendsDefaultUserAgentAndSucceeds',
+  },
+  {
+    // 2026-11-09 游戏运行中禁用启动按钮：去掉 !IsGameRunning 门控后启动态禁用守卫必须红。
+    id: 'M141-launch-button-disabled-while-game-running',
+    file: 'src/YetAnotherGameLauncher/ViewModels/GameItemViewModel.cs',
+    find: '    public bool CanClickLaunch => !IsBusy && !IsGameRunning;',
+    replace: '    public bool CanClickLaunch => !IsBusy;',
+    project: 'tests/YetAnotherGameLauncher.App.Tests/YetAnotherGameLauncher.App.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll',
+    method: 'YetAnotherGameLauncher.UiTests.DetailActionDockHeadlessTests.LaunchedGame_DisablesLaunchButton_AndShowsLaunchedText',
   },
 ];
 
