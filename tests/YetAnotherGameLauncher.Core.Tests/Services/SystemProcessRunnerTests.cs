@@ -87,6 +87,22 @@ public class SystemProcessRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_FireAndForget_ExposesExitedTaskThatCompletesWhenProcessExits()
+    {
+        var (fileName, arguments) = OperatingSystem.IsWindows()
+            ? ("cmd.exe", "/c exit /b 0")
+            : ("/bin/sh", "-c \"sleep 0.1\"");
+
+        var runner = new SystemProcessRunner();
+        var result = await runner.RunAsync(
+            new ProcessStartSpec(fileName, arguments, WaitForExit: false));
+
+        Assert.NotNull(result.Exited);
+        await result.Exited.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(result.Exited.IsCompletedSuccessfully);
+    }
+
+    [Fact]
     public async Task RunAsync_FireAndForget_WritesOutputToLogFile()
     {
         // 启动日志：即启即走的进程输出（stdout/stderr）要落盘，秒退/报错可据此排查。

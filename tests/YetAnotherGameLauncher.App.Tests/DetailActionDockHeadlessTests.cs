@@ -112,4 +112,65 @@ public class DetailActionDockHeadlessTests : IDisposable
         Assert.False(enabledDuringUpdate, "下载/更新进行中启动按钮仍可点：应禁用（用户点名 2026-10-18）");
         Assert.True(enabledAfterUpdate, "更新结束后启动按钮应恢复可点");
     }
+
+    [Fact]
+    public async Task LaunchedGame_DisablesLaunchButton_AndShowsLaunchedText()
+    {
+        await _ctx.Vm.InitializeAsync();
+        var wuwa = _ctx.Vm.Games[0];
+
+        var exePath = Path.Combine(
+            wuwa.InstallDirPath, "Client", "Binaries", "Win64", "Client-Win64-Shipping.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(exePath)!);
+        await File.WriteAllBytesAsync(exePath, "MZ"u8.ToArray());
+        await wuwa.RefreshAsync();
+        Assert.True(wuwa.CanLaunch);
+
+        var enabledBeforeLaunch = false;
+        var textBeforeLaunch = "";
+        var enabledAfterLaunch = true;
+        var textAfterLaunch = "";
+        var enabledAfterExit = false;
+        var textAfterExit = "";
+        var exitTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _ctx.ProcessRunner.Handler = _ => new(0, "", "", exitTcs.Task);
+
+        await HeadlessSession.Instance.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = _ctx.Vm };
+            window.Show();
+            window.UpdateLayout();
+            var launch = FindLaunchButton(window, wuwa.LaunchCommand);
+            var label = launch.GetVisualDescendants().OfType<TextBlock>().Single();
+            enabledBeforeLaunch = launch.IsEnabled;
+            textBeforeLaunch = label.Text ?? "";
+
+            var task = wuwa.LaunchCommand.ExecuteAsync(null);
+            PumpUntil(() => task.IsCompleted);
+            window.UpdateLayout();
+
+            enabledAfterLaunch = launch.IsEnabled;
+            textAfterLaunch = label.Text ?? "";
+
+            // 运行中重复点击不得再次拉起进程
+            var duplicate = wuwa.LaunchCommand.ExecuteAsync(null);
+            PumpUntil(() => duplicate.IsCompleted);
+
+            // 模拟游戏进程退出：按钮应恢复为可点击的「启动游戏」
+            exitTcs.SetResult();
+            PumpUntil(() => launch.IsEnabled);
+            window.UpdateLayout();
+            enabledAfterExit = launch.IsEnabled;
+            textAfterExit = label.Text ?? "";
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.True(enabledBeforeLaunch, "启动前启动按钮应可点（测试前置）");
+        Assert.Equal(wuwa.Loc["game_launch"], textBeforeLaunch);
+        Assert.Equal(wuwa.Loc["status_launched"], textAfterLaunch);
+        Assert.False(enabledAfterLaunch, "游戏启动后启动按钮应被禁用");
+        Assert.Single(_ctx.ProcessRunner.Specs);
+        Assert.True(enabledAfterExit, "游戏进程退出后启动按钮应恢复可点");
+        Assert.Equal(wuwa.Loc["game_launch"], textAfterExit);
+    }
 }

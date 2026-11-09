@@ -367,6 +367,12 @@ public sealed class DependencyInstaller(
         IProgress<DependencyProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        // UI 线程让位（同 IncrementalUpdateService.ApplyAsync 先例）：VM 命令从 UI 线程发起，
+        // 无竞争 SemaphoreSlim.WaitAsync 会同步返回已完成 Task，若入口不显式让位到线程池，
+        // 前缀预检、GetState（含双 DLL SHA-256 与同步阻塞的 wine reg query）、RepairBuiltinLinks
+        // 等耗时操作都会跑在 UI 线程，导致富文本控件安装时进度条卡顿。
+        await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
+
         // 前置校验先行：wine/prefix 缺失时绝不发起下载/安装（字体包 90MB，winetricks 首次 1.5GB）
         ValidateWineAndPrefix(target);
         var protonRoot = TryDeriveProtonRoot(target.WineExecutable);
@@ -443,6 +449,9 @@ public sealed class DependencyInstaller(
         {
             return;
         }
+
+        // UI 线程让位（同 InstallAsync）：避免还原/重装前段的备份读取、链接修复与子进程启动阻塞 UI 线程
+        await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
 
         ValidateWineAndPrefix(target);
 

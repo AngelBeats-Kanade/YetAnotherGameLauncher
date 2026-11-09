@@ -123,7 +123,7 @@ configuration tool on its own.
 Click a game in the sidebar to open its detail page. The buttons in the bottom action dock change with
 the game's state:
 
-- **Install Game** → becomes **Launch Game** once installed; becomes **Update Now** when the official side has an update
+- **Install Game** → becomes **Launch Game** once installed (switches to **Game launched** and disables while the game is running, then restores automatically when the game exits); becomes **Update Now** when the official side has an update
 - **Verify & Repair**: available any time after install; automatically repairs missing/corrupted files (saves are kept)
 - **Register version**: appears when Endfield detects an already-installed game — zero downloads
 - **Preload Next Version / Apply Preload**: appear during the official pre-download window (hidden once the local version already matches); stage first, apply in one click
@@ -212,7 +212,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### Running tests (1763 tests, measured 2026-11-06)
+### Running tests (1769 tests, measured 2026-11-09)
 
 ```bash
 # Run the 4 test projects' compiled binaries directly (on Windows you can run the .exe;

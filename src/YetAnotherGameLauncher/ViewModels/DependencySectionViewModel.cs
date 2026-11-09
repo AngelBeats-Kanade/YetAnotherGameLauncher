@@ -171,6 +171,11 @@ public sealed partial class DependencySectionViewModel : ViewModelBase
             item,
             async (target, token) =>
             {
+                OnProgress(new DependencyProgress(
+                    item.Manifest.WinetricksVerb is not null
+                        ? DependencyPhase.Installing
+                        : DependencyPhase.Downloading,
+                    null));
                 var progress = new Progress<DependencyProgress>(OnProgress);
                 await _installer.InstallAsync(target, item.Manifest, progress, token);
             },
@@ -209,6 +214,11 @@ public sealed partial class DependencySectionViewModel : ViewModelBase
             {
                 SetRestoringProgress();
                 await _installer.UninstallAsync(target, item.Manifest, token);
+                OnProgress(new DependencyProgress(
+                    item.Manifest.WinetricksVerb is not null
+                        ? DependencyPhase.Installing
+                        : DependencyPhase.Downloading,
+                    null));
                 var progress = new Progress<DependencyProgress>(OnProgress);
                 await _installer.InstallAsync(target, item.Manifest, progress, token);
             },
@@ -261,9 +271,50 @@ public sealed partial class DependencySectionViewModel : ViewModelBase
         {
             _installCts.Dispose();
             _installCts = null;
+            var refreshedStates = await QueryStatesOffThreadAsync();
             IsBusy = false;
             OnProgress(new DependencyProgress(DependencyPhase.Done, null));
-            Refresh();
+            ApplyRefreshedStates(refreshedStates);
+        }
+    }
+
+    /// <summary>
+    /// 在线程池预取全部条目的最新状态（winetricks 来源的 GetState 含双 DLL SHA-256 与同步
+    /// wine reg query 子进程等待）：在 IsBusy 收尾前后台完成，避免阻塞 UI 线程导致进度条卡顿。
+    /// </summary>
+    private async Task<(bool Visible, DependencyInstallState?[] States)> QueryStatesOffThreadAsync()
+    {
+        if (_installer is null || !_game.LaunchSettings.IsLinux || Items.Count == 0)
+        {
+            return (false, []);
+        }
+
+        var target = ResolveTarget();
+        var count = Items.Count;
+        if (target is null)
+        {
+            return (true, new DependencyInstallState?[count]);
+        }
+
+        var installer = _installer;
+        var manifests = Items.Select(i => i.Manifest).ToArray();
+        var states = await Task.Run(() =>
+            manifests.Select(m => (DependencyInstallState?)installer.GetState(target, m)).ToArray());
+        return (true, states);
+    }
+
+    /// <summary>把后台预取到的条目状态在 UI 线程应用到各条目 VM。</summary>
+    private void ApplyRefreshedStates((bool Visible, DependencyInstallState?[] States) refreshed)
+    {
+        IsVisible = refreshed.Visible;
+        if (!refreshed.Visible)
+        {
+            return;
+        }
+
+        for (var i = 0; i < Items.Count && i < refreshed.States.Length; i++)
+        {
+            Items[i].Refresh(refreshed.States[i]);
         }
     }
 
@@ -289,10 +340,7 @@ public sealed partial class DependencySectionViewModel : ViewModelBase
     private void OnProgress(DependencyProgress progress)
     {
         IsProgressIndeterminate = progress.Phase != DependencyPhase.Done && progress.Fraction is null;
-        if (progress.Fraction is { } fraction)
-        {
-            ProgressPercent = fraction * 100;
-        }
+        ProgressPercent = progress.Fraction is { } fraction ? fraction * 100 : 0;
 
         ProgressText = progress.Phase switch
         {

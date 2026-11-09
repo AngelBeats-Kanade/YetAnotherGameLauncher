@@ -20,7 +20,15 @@ public sealed record ProcessStartSpec(
     IReadOnlyList<string>? ArgumentList = null);
 
 /// <summary>进程执行结果。</summary>
-public sealed record ProcessResult(int ExitCode, string StandardOutput, string StandardError)
+/// <param name="ExitCode">退出码（WaitForExit=false 时恒为 0）。</param>
+/// <param name="StandardOutput">标准输出（WaitForExit=true）。</param>
+/// <param name="StandardError">标准错误（WaitForExit=true）。</param>
+/// <param name="Exited">WaitForExit=false 时对应进程退出的完成信号；null = 同步等待路径或未提供退出信号。</param>
+public sealed record ProcessResult(
+    int ExitCode,
+    string StandardOutput,
+    string StandardError,
+    Task? Exited = null)
 {
     public bool Succeeded => ExitCode == 0;
 }

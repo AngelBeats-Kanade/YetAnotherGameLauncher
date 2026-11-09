@@ -1356,6 +1356,62 @@ public class DependencyInstallerWinetricksTests : IDisposable
     }
 
     /// <summary>
+    /// UI 线程调用 InstallAsync/UninstallAsync 时必须立即让位到线程池：
+    /// 无竞争 SemaphoreSlim.WaitAsync 会同步返回已完成 Task，若入口不显式 ForceYielding，
+    /// GetState（含双 DLL SHA-256 与同步阻塞的 wine reg query）、RepairBuiltinLinks（递归扫 prefix）
+    /// 与 wineserver/winetricks 进程启动都会跑在 UI 线程，导致富文本控件安装时进度条卡顿。
+    /// </summary>
+    [Fact]
+    public async Task InstallAndUninstall_YieldOffCallerThreadBeforeSynchronousChecksAndProcessStart()
+    {
+        _fx.InitPrefix(WinetricksFixture.OriginalKind.RealFile);
+        var resolverThreads = new List<int>();
+        var runnerThreads = new List<int>();
+
+        var originalHandler = _fx.Runner.Handler;
+        _fx.Runner.Handler = spec =>
+        {
+            lock (runnerThreads)
+            {
+                runnerThreads.Add(Environment.CurrentManagedThreadId);
+            }
+
+            return originalHandler(spec);
+        };
+
+        var installer = new DependencyInstaller(
+            new FakeDownloader(),
+            _fx.Runner,
+            [_fx.Manifest],
+            cacheRoot: _fx.Temp.FilePath("cache"),
+            winetricksResolver: _ =>
+            {
+                lock (resolverThreads)
+                {
+                    resolverThreads.Add(Environment.CurrentManagedThreadId);
+                }
+
+                return _fx.WinetricksPath;
+            });
+
+        var uiThreadId = -1;
+        var invokeThread = new Thread(() =>
+        {
+            uiThreadId = Environment.CurrentManagedThreadId;
+            installer.InstallAsync(_fx.Target, _fx.Manifest).GetAwaiter().GetResult();
+            installer.UninstallAsync(_fx.Target, _fx.Manifest).GetAwaiter().GetResult();
+        });
+        invokeThread.Start();
+        invokeThread.Join();
+
+        Assert.NotEqual(-1, uiThreadId);
+        Assert.NotEmpty(resolverThreads);
+        Assert.NotEmpty(runnerThreads);
+        Assert.All(resolverThreads, tid => Assert.NotEqual(uiThreadId, tid));
+        Assert.All(runnerThreads, tid => Assert.NotEqual(uiThreadId, tid));
+    }
+
+    /// <summary>
     /// 假 Wine 世界的夹具：真实临时文件系统 + 按 argv 分派的假进程（wineserver/winetricks/wine reg）。
     /// </summary>
     private sealed class WinetricksFixture : IDisposable

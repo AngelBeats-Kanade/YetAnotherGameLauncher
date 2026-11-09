@@ -149,7 +149,7 @@ sequenceDiagram
 ```
 
 启动是**即启即走**（fire-and-forget）：`ProcessStartSpec.WaitForExit = false`，
-启动器不等待游戏退出、不杀进程树。游戏 stdout/stderr 经输出泵写入
+启动器不等待游戏退出、不杀进程树；`SystemProcessRunner` 通过 `ProcessResult.Exited`（透传至 `LaunchResult.Exited`）暴露进程退出完成信号，`GameItemViewModel` 据此在游戏运行期间置 `IsGameRunning = true`，把详情页操作坞启动钮文案切换为「游戏已启动」并禁用防重入，进程退出后自动恢复为可点击的「启动游戏」。游戏 stdout/stderr 经输出泵写入
 `{AppPaths.LogDirectory}/launch-<游戏id>-<时间戳>.log`（`AppPaths.LogDirectory` = Linux `~/.local/share/yagl/logs`、Windows `%LOCALAPPDATA%\yagl\logs`；逐行读取到 EOF——
 不用 `BeginOutputReadLine` 事件：`WaitForExit()` 只排空 stdout，stderr 会丢；
 日志路径模式的进程句柄在泵收尾后才释放，`using` 作用域提前 Dispose 会掐断管道）。
@@ -661,7 +661,7 @@ winetricks 原生 DLL 来源）。当前内置两项：`cjk-fonts`（思源黑�
   择新**逐目录验证内置 wine 可执行**——更新中半解包目录被跳过并回退旧可用版）→ **Proton 内置 wine**
   （`files/bin/wine`）挂 `<兼容数据根>/pfx`。prefix 未初始化（`drive_c` 缺失）是**可见状态**而非异常：
   提示先启动一次游戏。
-- **安装编排（Core `DependencyInstaller`，消费已解析的 `WinePrefixTarget`）**：前置校验（wine 可用、
+- **安装编排（Core `DependencyInstaller`，消费已解析的 `WinePrefixTarget`）**：`InstallAsync` 与 `UninstallAsync` 入口均以 `ConfigureAwaitOptions.ForceYielding` 先行让位线程池（无竞争 `SemaphoreSlim.WaitAsync` 同步返回已完成 Task，不让位则后续同步 I/O 与子进程查询会落在 UI 线程），`DependencySectionViewModel.RunOperationAsync` 收尾同样在线程池预取 `GetState` 后再回 UI 线程更新条目状态。前置校验（wine 可用、
   prefix 已初始化——失败绝不发起下载）→ **builtin 链接预检修复**（Proton 兼容组件升级删除旧目录会把
   prefix 全部 builtin 链接悬空——wine 任何 PE 进程报 `c0000135`/退出码 53；`WinePrefixBuiltinRepair.RepairDangling`
   全 prefix 递归把悬空链接重链到当前 Proton 树，修不干净按 `PrefixUnhealthy` 在下载 90MB 级字体包**之前**

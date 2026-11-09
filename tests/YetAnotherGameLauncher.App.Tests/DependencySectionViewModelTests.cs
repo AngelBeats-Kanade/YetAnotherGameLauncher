@@ -806,4 +806,65 @@ public class DependencySectionViewModelTests : IDisposable
             ctx.TempDir.Dispose();
         }
     }
+
+    /// <summary>
+    /// 富文本控件（winetricks 来源）点安装时：
+    /// 1) 同步置不定进度并把上一轮残留的 ProgressPercent（如字体下载的 100%）归零，不闪旧进度；
+    /// 2) 操作收尾的状态回读（真实安装器含 SHA-256 与同步阻塞的 wine reg query）在线程池执行，
+    ///    不在调用方（UI）线程同步跑 GetState 卡死进度条收尾帧。
+    /// </summary>
+    [Fact]
+    public async Task InstallRichEdit_ImmediatelyEntersIndeterminateZeroPercent_AndRefreshesStateOffCallerThread()
+    {
+        _installer.HangOnInstall = true;
+        var (ctx, section) = await BuildReadyUmuSectionAsync(_installer);
+        try
+        {
+            // 模拟上一轮安装残留 100% 确定进度
+            section.ProgressPercent = 100;
+            var item = Item(section, "richedit-msftedit");
+            var callerThreadId = -1;
+            var isBusyAtStart = false;
+            var isIndeterminateAtStart = false;
+            var percentAtStart = -1.0;
+            var getStateThreadIds = new List<int>();
+            _installer.OnGetState = () =>
+            {
+                lock (getStateThreadIds)
+                {
+                    getStateThreadIds.Add(Environment.CurrentManagedThreadId);
+                }
+            };
+
+            Task? installTask = null;
+            var uiThread = new Thread(() =>
+            {
+                callerThreadId = Environment.CurrentManagedThreadId;
+                installTask = item.InstallCommand.ExecuteAsync(null);
+                isBusyAtStart = section.IsBusy;
+                isIndeterminateAtStart = section.IsProgressIndeterminate;
+                percentAtStart = section.ProgressPercent;
+            });
+            uiThread.Start();
+            uiThread.Join();
+
+            // 点击返回瞬间（不等异步 Progress<T> 投递）就已是不定进度 + 百分比归零
+            Assert.True(isBusyAtStart);
+            Assert.True(isIndeterminateAtStart);
+            Assert.Equal(0, percentAtStart);
+
+            _installer.ReleaseInstall();
+            await installTask!.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.False(section.IsBusy);
+            Assert.True(item.IsInstalled);
+            Assert.NotEqual(-1, callerThreadId);
+            Assert.NotEmpty(getStateThreadIds);
+            Assert.All(getStateThreadIds, tid => Assert.NotEqual(callerThreadId, tid));
+        }
+        finally
+        {
+            ctx.TempDir.Dispose();
+        }
+    }
 }

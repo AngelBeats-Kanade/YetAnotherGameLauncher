@@ -102,11 +102,12 @@
                         Classes="pressable glass-onart"
                         Padding="20,12" VerticalAlignment="Center"/>
                 <!-- 未安装时隐藏（评审 P1-2：禁用钮常驻改隐藏，安装钮已是主 CTA）；
-                     下载/更新等忙碌期禁用（2026-10-18 用户点名：此前只有命令内 IsBusy 早退，外观仍可点，
-                     误触像"什么都没发生"；禁用观感由 accent-onart:disabled 样式承担） -->
+                     下载/更新等忙碌期或游戏已启动运行期禁用（2026-10-18 用户点名忙碌期禁用；
+                     游戏启动后文案切换为「游戏已启动」并禁用防重入，进程退出后恢复；
+                     禁用观感由 accent-onart:disabled 样式承担） -->
                 <Button Classes="pressable" Command="{Binding LaunchCommand}"
                         IsVisible="{Binding CanLaunch}"
-                        IsEnabled="{Binding !IsBusy}"
+                        IsEnabled="{Binding CanClickLaunch}"
                         Classes.glass-onart="{Binding !CanLaunch}"
                         Classes.accent-onart="{Binding CanLaunch}"
                         Padding="32,12">
@@ -114,7 +115,7 @@
                         <Path Data="{StaticResource AppPlayIconGeo}"
                               Fill="{Binding $parent[Button].Foreground}"
                               Stretch="Uniform" Width="14"/>
-                        <TextBlock Text="{Binding Loc[game_launch]}" FontSize="16" FontWeight="SemiBold"
+                        <TextBlock Text="{Binding LaunchButtonText}" FontSize="16" FontWeight="SemiBold"
                                    VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>

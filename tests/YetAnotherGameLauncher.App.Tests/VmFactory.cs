@@ -94,6 +94,9 @@ public static class VmFactory
         /// <summary>默认工厂创建的假播放器（与 Games 同序；测试未注入自定义工厂时用 Players[i] 观察第 i 个游戏）。</summary>
         public required IReadOnlyList<FakeVideoPlayer> Players { get; init; }
 
+        /// <summary>VM 启动游戏实际使用的假进程运行器（断言启动规格与注入进程退出信号用）。</summary>
+        public required FakeProcessRunner ProcessRunner { get; init; }
+
         public void Dispose() => TempDir.Dispose();
     }
 
@@ -284,8 +287,9 @@ public static class VmFactory
 
         var catalogService = new GameCatalogService(configPath);
         // pathValue 空串 = 禁用真机 PATH 扫描（wine 预检确定性失败），日志落临时目录
+        var processRunner = new FakeProcessRunner();
         var launcherService = new GameLauncherService(
-            new FakeProcessRunner(),
+            processRunner,
             logDirectory: tempDir.FilePath("logs"),
             pathValue: "");
         // 生产组合根第 14 参为 KuroGachaService；测试镜像曾缺省（null），ShowGacha 门与
@@ -341,6 +345,7 @@ public static class VmFactory
             GachaService = gacha,
             PlayerFactory = playerFactory,
             Players = players,
+            ProcessRunner = processRunner,
         };
     }
 }

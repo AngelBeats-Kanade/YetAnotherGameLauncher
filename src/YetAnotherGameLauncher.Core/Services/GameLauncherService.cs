@@ -7,8 +7,8 @@ using YetAnotherGameLauncher.Core.Utilities;
 
 namespace YetAnotherGameLauncher.Core.Services;
 
-/// <summary>一次游戏启动的结果：退出码（即启即走时恒为 0）与启动日志路径。</summary>
-public sealed record LaunchResult(int ExitCode, string? LogPath);
+/// <summary>一次游戏启动的结果：退出码（即启即走时恒为 0）、启动日志路径与可选的进程退出完成信号。</summary>
+public sealed record LaunchResult(int ExitCode, string? LogPath, Task? Exited = null);
 
 /// <summary>
 /// 游戏启动服务：解析 LaunchOptions 中的命令模板（{exe} / {installDir} 占位符）、
@@ -140,7 +140,7 @@ public sealed class GameLauncherService(
         try
         {
             var result = await processRunner.RunAsync(spec, cancellationToken).ConfigureAwait(false);
-            return new LaunchResult(result.ExitCode, logPath);
+            return new LaunchResult(result.ExitCode, logPath, result.Exited);
         }
         catch (Exception ex) when (ex is Win32Exception or IOException or UnauthorizedAccessException)
         {
@@ -219,7 +219,7 @@ public sealed class GameLauncherService(
             WaitForExit: false, OutputLogPath: logPath);
         try
         {
-            await processRunner.RunAsync(spec, cancellationToken).ConfigureAwait(false);
+            var result = await processRunner.RunAsync(spec, cancellationToken).ConfigureAwait(false);
             var status = await BridgeLaunchStatus
                 .WaitAsync(
                     statusPath,
@@ -230,7 +230,7 @@ public sealed class GameLauncherService(
                 .ConfigureAwait(false);
             if (status.State == BridgeLaunchState.Ready)
             {
-                return new LaunchResult(0, logPath);
+                return new LaunchResult(0, logPath, result.Exited);
             }
 
             // ERROR = 游戏进程尚未创建（真桥故障）；超时 = helper 未启动，或已启动但游戏进程

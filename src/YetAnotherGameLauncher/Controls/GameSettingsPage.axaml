@@ -309,12 +309,24 @@
                             <TextBlock Text="{Binding Dependencies.UnavailableReason}" Classes="card-caption"
                                        IsVisible="{Binding Dependencies.HasUnavailableReason}"
                                        TextWrapping="Wrap" MaxWidth="640" HorizontalAlignment="Left"/>
-                            <!-- 安装进度行（安装期间可见） -->
+                            <!-- 安装进度行（安装期间可见）：确定进度（字体包下载 0~100%）走 ProgressBar；
+                                 不定进度（原生 RichEdit 全程及解压/导入阶段）走代码后置自泵脉动条——
+                                 本页已暂停背景视频、无外部渲染泵，内置 ProgressBar.IsIndeterminate 的
+                                 Style.Animations 时钟受渲染循环空闲降频（~10Hz）门控会产生跳帧卡顿
+                                 （与 BootSplash/NavIndicator 同源，见 docs/ARCHITECTURE.md §3.7） -->
                             <StackPanel Spacing="4" Margin="0,4,0,0"
                                         IsVisible="{Binding Dependencies.IsBusy}">
-                                <ProgressBar Value="{Binding Dependencies.ProgressPercent}"
-                                             IsIndeterminate="{Binding Dependencies.IsProgressIndeterminate}"
+                                <ProgressBar x:Name="DependencyProgressBar"
+                                             Value="{Binding Dependencies.ProgressPercent}"
+                                             IsVisible="{Binding !Dependencies.IsProgressIndeterminate}"
                                              Maximum="100" Height="6"/>
+                                <Grid x:Name="DependencyIndeterminateBar" Height="6" ClipToBounds="True"
+                                      IsVisible="{Binding Dependencies.IsProgressIndeterminate}">
+                                    <Border Height="6" CornerRadius="3"
+                                            Background="{DynamicResource AppTextSecondary}" Opacity="0.2"/>
+                                    <Border x:Name="DependencyPulseBar" Width="160" Height="6" CornerRadius="3"
+                                            HorizontalAlignment="Left" Background="{DynamicResource AppAccentBrush}"/>
+                                </Grid>
                                 <TextBlock Text="{Binding Dependencies.ProgressText}" Classes="card-caption"/>
                             </StackPanel>
                             <!-- 安装结果消息槽：依赖区专属，不与位置卡 Save 槽混用 -->

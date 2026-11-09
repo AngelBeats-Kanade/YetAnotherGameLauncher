@@ -191,6 +191,21 @@ public partial class GameItemViewModel(
     [ObservableProperty] private bool _hasStagedPredownload;
     /// <summary>是否有操作进行中（启动/安装/更新互斥）。</summary>
     [ObservableProperty] private bool _isBusy;
+
+    /// <summary>游戏进程是否已启动且仍在运行中（驱动启动钮文案切换为「游戏已启动」并禁用防重入）。</summary>
+    [ObservableProperty] private bool _isGameRunning;
+
+    /// <summary>启动按钮是否可点：非忙碌且游戏未在运行。</summary>
+    public bool CanClickLaunch => !IsBusy && !IsGameRunning;
+
+    /// <summary>启动按钮文案：游戏运行中显示「游戏已启动」，平时显示「启动游戏」。</summary>
+    public string LaunchButtonText => IsGameRunning ? Loc["status_launched"] : Loc["game_launch"];
+
+    partial void OnIsGameRunningChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanClickLaunch));
+        OnPropertyChanged(nameof(LaunchButtonText));
+    }
     /// <summary>当前操作进度百分比（0-100）。</summary>
     [ObservableProperty] private double _progressPercent;
     /// <summary>当前操作进度文案（下载/校验/打补丁等阶段）。</summary>
@@ -340,6 +355,7 @@ public partial class GameItemViewModel(
         OnPropertyChanged(nameof(ResumeAvailable));
         OnPropertyChanged(nameof(InstallButtonText)); // 文案里的「继续下载」随忙碌态翻转（2026-10-19 review）
         OnPropertyChanged(nameof(CanPauseDownload));
+        OnPropertyChanged(nameof(CanClickLaunch));
     }
 
     /// <summary>当前可暂停操作的取消源（联动宿主取消令牌；null = 无进行中操作）。</summary>
@@ -411,9 +427,10 @@ public partial class GameItemViewModel(
     {
         var generation = ++_refreshGeneration;
 
-        // 语言可能已切换：显示名/图标首字随语言重建
+        // 语言可能已切换：显示名/图标首字/启动钮文案随语言重建
         OnPropertyChanged(nameof(DisplayName));
         OnPropertyChanged(nameof(IconText));
+        OnPropertyChanged(nameof(LaunchButtonText));
 
         var state = new LocalStateService(_installDir).Load(Game.Id, SelectedServer.Id);
         var staged = IncrementalUpdateService.TryLoadStagedManifest(_installDir);
@@ -947,11 +964,11 @@ public partial class GameItemViewModel(
         }
     }
 
-    /// <summary>启动游戏；忙碌时忽略，不可启动给出原因，失败弹主题化错误覆盖层。</summary>
+    /// <summary>启动游戏；忙碌或已启动运行中时忽略，不可启动给出原因，失败弹主题化错误覆盖层。</summary>
     [RelayCommand]
     public async Task LaunchAsync(CancellationToken cancellationToken = default)
     {
-        if (IsBusy)
+        if (IsBusy || IsGameRunning)
         {
             return;
         }
@@ -971,6 +988,7 @@ public partial class GameItemViewModel(
         ProgressText = Loc["progress_preparing"];
         try
         {
+            LaunchResult launchResult;
             // 不带 Platform.IsLinux 门：Windows 上也走原生链入口，由 NativeUmuLauncher.EnsureLinux
             // 抛出明确的「仅支持 Linux」错误，而不是把 native-umu 当命令名报「找不到」
             if (IsNativeUmuTemplate() && _nativeUmu is not null)
@@ -987,7 +1005,7 @@ public partial class GameItemViewModel(
                     extraEnvironment[key] = value;
                 }
 
-                await _nativeUmu.LaunchAsync(
+                launchResult = await _nativeUmu.LaunchAsync(
                     Game.Id, _installDir, Game.Executable, proton,
                     extraEnvironment: extraEnvironment,
                     progress: progress,
@@ -999,11 +1017,16 @@ public partial class GameItemViewModel(
             }
             else
             {
-                await launcherService.LaunchAsync(Game, _installDir, Game.Executable, cancellationToken);
+                launchResult = await launcherService.LaunchAsync(Game, _installDir, Game.Executable, cancellationToken);
             }
 
             LaunchError = null; // 上次的失败覆盖层随成功启动清掉
+            IsGameRunning = true;
             StatusText = Loc["status_launched"];
+            if (launchResult.Exited is { } exited)
+            {
+                ObserveGameExit(exited);
+            }
         }
         catch (LaunchException ex)
         {
@@ -1025,6 +1048,39 @@ public partial class GameItemViewModel(
         {
             IsBusy = false;
         }
+    }
+
+    /// <summary>后台观察已启动的游戏进程：进程退出后解除运行态锁定并恢复启动按钮与状态。</summary>
+    private async void ObserveGameExit(Task exited)
+    {
+        try
+        {
+            await exited;
+        }
+        catch (Exception)
+        {
+            // 退出观察不抛异常；防御兜住避免 async void 崩进程
+        }
+
+        if (Avalonia.Application.Current is not null && !Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(OnGameExited);
+        }
+        else
+        {
+            OnGameExited();
+        }
+    }
+
+    private void OnGameExited()
+    {
+        if (!IsGameRunning)
+        {
+            return;
+        }
+
+        IsGameRunning = false;
+        _ = RefreshAsync();
     }
 
     /// <summary>按失败类目构建错误覆盖层：原生组件失败→重试/选本机 Proton。

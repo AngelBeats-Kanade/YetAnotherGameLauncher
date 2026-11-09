@@ -224,6 +224,16 @@ public class UiScreenshotTests
             ctx.Vm.IsWindowMaximized = false;
             window.UpdateLayout();
 
+            // 暗色 · 游戏已启动运行态：启动钮文案切换为「游戏已启动」并禁用（accent-onart:disabled）
+            var launchExitGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            ctx.ProcessRunner.Handler = _ => new ProcessResult(0, "", "", launchExitGate.Task);
+            RunToCompletion(() => ctx.Vm.Games[0].LaunchCommand.ExecuteAsync(null));
+            window.UpdateLayout();
+            Capture("31-game-detail-launched-dark.png");
+            launchExitGate.SetResult();
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+
             // 暗色 · 终末地校验修复确认条（包式渠道：重下整包前需确认）
             var efZip = TestZip.Create(("bin/ef.exe", "MZ"));
             ctx.Gryphline.Manifests["1.2.0"] = new GameManifest
@@ -912,6 +922,20 @@ public class UiScreenshotTests
             ctx.Vm.SelectedTheme = light;
             ScrollDependenciesCardToEnd();
             Capture("29-game-dependencies-backup-missing-light.png");
+
+            // 暗色 · 原生 RichEdit 安装中（自泵不定进度脉动条 + 全部条目按钮禁用）
+            installer.StateOverrides.Clear();
+            installer.MarkInstalled = false;
+            installer.HangOnInstall = true;
+            settings.Dependencies.Refresh();
+            ctx.Vm.SelectedTheme = dark;
+            var richEditItem = settings.Dependencies.Items.First(i => i.Manifest.Id == "richedit-msftedit");
+            var installingTask = richEditItem.InstallCommand.ExecuteAsync(null);
+            Dispatcher.UIThread.RunJobs();
+            ScrollDependenciesCardToEnd();
+            Capture("32-game-dependencies-installing-dark.png");
+            installer.ReleaseInstall();
+            RunToCompletion(() => installingTask);
 
             window.Close();
         }, CancellationToken.None);

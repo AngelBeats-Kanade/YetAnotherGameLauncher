@@ -62,6 +62,9 @@ public sealed class FakeDependencyInstaller : IDependencyInstaller
     /// <summary>注入卸载阶段未分类原始异常；优先于 FailUninstallKind。</summary>
     public Exception? UninstallThrowRaw { get; set; }
 
+    /// <summary>GetState 调用钩子（断言调用线程/次数用）。</summary>
+    public Action? OnGetState { get; set; }
+
     private TaskCompletionSource? _hangGate;
     private TaskCompletionSource? _uninstallGate;
 
@@ -73,6 +76,7 @@ public sealed class FakeDependencyInstaller : IDependencyInstaller
 
     public DependencyInstallState GetState(WinePrefixTarget target, DependencyManifest manifest)
     {
+        OnGetState?.Invoke();
         var unverified = VerificationUnavailable
                          || VerificationUnavailableIds.Contains(manifest.Id);
         if (StateOverrides.TryGetValue(manifest.Id, out var overridden))

@@ -360,7 +360,7 @@ public sealed class NativeUmuLauncher(
                 }
             }
 
-            return new LaunchResult(result.ExitCode, logPath);
+            return new LaunchResult(result.ExitCode, logPath, result.Exited);
         }
         catch (OperationCanceledException)
         {

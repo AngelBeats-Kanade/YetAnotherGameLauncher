@@ -170,6 +170,7 @@ public sealed class SystemProcessRunner(
             var pumpStderr = PumpToLog(process.StandardError, writer, gate, "[stderr] ");
             var startedTicksCopy = startedAt;
             var launchedFile = spec.FileName;
+            var exitedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             // 先订阅再补查 HasExited（F22-3）：先查后订在"检查为未退出→进程恰在此时退出"
             // 的窗口内会永久丢失 Exited 事件（脚注缺失/句柄泄漏/秒退线索丢失）。
             // Interlocked 守卫保证事件与补查双触发时收尾恰好一次
@@ -178,6 +179,7 @@ public sealed class SystemProcessRunner(
             {
                 if (Interlocked.Exchange(ref exitObserved, 1) == 0)
                 {
+                    exitedTcs.TrySetResult();
                     ObserveFireAndForgetExit(process, pumpStdout, pumpStderr, writer, gate, launchedFile, startedTicksCopy, logger);
                 }
             }
@@ -189,7 +191,7 @@ public sealed class SystemProcessRunner(
                 OnExited();
             }
 
-            return new ProcessResult(0, "", "");
+            return new ProcessResult(0, "", "", exitedTcs.Task);
         }
 
         if (!waitForExit)
@@ -198,11 +200,13 @@ public sealed class SystemProcessRunner(
             // 进程句柄不主动释放：Dispose 会解除 Exited 布防导致事件丢失，交给 SafeProcessHandle 终结器
             var startedTicksCopy2 = startedAt;
             var launchedFile2 = spec.FileName;
+            var exitedTcs2 = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var logged = 0;
             void OnLoggedExit()
             {
                 if (Interlocked.Exchange(ref logged, 1) == 0)
                 {
+                    exitedTcs2.TrySetResult();
                     LogFireAndForgetExit(process, startedTicksCopy2, launchedFile2, logger);
                 }
             }
@@ -214,7 +218,7 @@ public sealed class SystemProcessRunner(
                 OnLoggedExit();
             }
 
-            return new ProcessResult(0, "", "");
+            return new ProcessResult(0, "", "", exitedTcs2.Task);
         }
 
         try
