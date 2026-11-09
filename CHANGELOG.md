@@ -3,19 +3,21 @@
 所有对外可感知的变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [未发布]
+## [0.1.4] — 2026-11-09
 
-### 修复 / 变更
+0.1.3 之后的功能与维护版本：依赖安装新增「原生 RichEdit（msftedit）」（通过 winetricks
+一键安装 Win7 SP1 原生 DLL 与持久化覆盖，支持五态管理与完整还原，修复 Wine 下鸣潮 KRSDK
+登录窗协议正文按 cp1252 解码的乱码），并将 `cjk-fonts` 升级至 2.004R-1（新增 KRSDK H7GBK
+字体替换组）；资源包档位「下载资源包」补档改为快速路径（已有文件只验尺寸、仅本次下载文件
+MD5 后验）并收紧官方清单边界与空清单防线；修复更新 DW-Proton 时被 `dawn.wine` Anubis WAF
+拦截返回 403 的问题；游戏启动期间详情页「启动游戏」按钮切换为「游戏已启动」并禁用防重入
+（进程退出自动恢复），游戏设置页依赖安装改用 60fps 自泵不定进度脉动条与后台状态回读。
+1769 个测试全绿，行覆盖 87.74%（2026-11-09 实测）。
 
-- 依赖 `cjk-fonts` 升级到 **2.004R-1**：新增一组 target=`Source Han Sans SC` 的字体替换，覆盖 KRSDK
-  `Config.txt` 的 `文鼎方新书H7GBK_H`、`文鼎方新书H7GBK`、`AR FangXinShuH7GBK`、
-  `AR FangXinShuH7GBK Heavy`、`H7GBKHeavy`、`Source Han Sans CN Regular`；连同既有 4 组合计 57 条替换。
-  仅修复字体回退/缺字形（真机探针：删除该组后 H7GBK 全名回退 Arial 的 `0xFFFF` 字形，装上后选中 CJK
-  字形），**不修复** KRSDK 登录窗协议正文的 cp1252 解码乱码；已装 2.004R 的用户需重装依赖以触发版本变更。
-  (Dependencies: `cjk-fonts` 2.004R-1 adds a `Source Han Sans SC` replacement group for the KRSDK H7GBK
-  faces, for 57 replacements in total; it fixes font fallback/tofu only, not the KRSDK login-window
-  agreement body decoding mojibake. Users with 2.004R must reinstall the dependency to pick up the
-  version bump.)
+### 新增
+
+**依赖安装（Linux）：原生 RichEdit 与 CJK 字体扩展**
+
 - 依赖卡新增第二项「原生 RichEdit（msftedit）」：调用 Proton 自带（优先）或系统的 `winetricks` 安装
   Win7 SP1 原生 `msftedit.dll`（首次约下载 1.5 GB），并写入持久化 `*msftedit=native,builtin`，修复
   Wine riched20 在 `EM_SETTEXTEX` 的 RTF 分支丢弃 `SETTEXTEX.codepage`（UTF-8 正文按 cp1252 解码）
@@ -26,9 +28,80 @@
   半成品副本覆盖原状 DLL；安装成功后 marker/manifest 丢失时按备份缺失保留备份，禁止重装把原生
   DLL/旧覆盖当成原始态；注册表值名按大小写不敏感处理（`*MSFTEDIT` 旧值不会漏备份/误判损坏）。
   覆盖值查询失败或注册表不可读时保持「已安装」并在补充行提示刷新，不误报损坏。依赖清单扩展
-  winetricks 来源
-  （`winetricksVerb`/`dlls`/`dllOverrides`，仅 win64 prefix）；不打包微软 DLL，原生 DLL 默认不装。
-  (Dependencies: a second built-in "Native RichEdit (msftedit)" installs the Windows 7 SP1 native DLL
+  winetricks 来源（`winetricksVerb`/`dlls`/`dllOverrides`，仅 win64 prefix）；不打包微软 DLL，原生 DLL 默认不装。
+- 依赖 `cjk-fonts` 升级到 **2.004R-1**：新增一组 target=`Source Han Sans SC` 的字体替换，覆盖 KRSDK
+  `Config.txt` 的 `文鼎方新书H7GBK_H`、`文鼎方新书H7GBK`、`AR FangXinShuH7GBK`、
+  `AR FangXinShuH7GBK Heavy`、`H7GBKHeavy`、`Source Han Sans CN Regular`；连同既有 4 组合计 57 条替换。
+  仅修复字体回退/缺字形（真机探针：删除该组后 H7GBK 全名回退 Arial 的 `0xFFFF` 字形，装上后选中 CJK
+  字形），**不修复** KRSDK 登录窗协议正文的 cp1252 解码乱码；已装 2.004R 的用户需重装依赖以触发版本变更。
+
+**界面与交互**
+
+- 游戏启动运行态锁定与反馈：点击「启动游戏」成功拉起进程后，详情页操作坞的启动按钮文案切换为
+  「游戏已启动」并进入禁用态（防重复点击重入），底层 `SystemProcessRunner` 观察到游戏进程退出后自动
+  恢复为可点击的「启动游戏」并刷新状态。
+- 依赖安装平滑不定进度条与后台状态回读：游戏设置页切入时背景视频已暂停、无外部渲染泵，Avalonia
+  内置 `ProgressBar.IsIndeterminate` 的 `Style.Animations` 时钟受空闲渲染循环（~10Hz）门控会产生跳帧
+  卡顿；现不定进度阶段改用代码后置 ~60fps 自泵脉动条（`Task.Delay(16ms)` 直写 `TranslateTransform.X`
+  基值，与启动遮蔽层同机制），确定进度阶段保持标准 `ProgressBar`。同时 `DependencyInstaller` 的
+  `InstallAsync`/`UninstallAsync` 入口显式 `ForceYielding` 让位线程池、操作收尾的 `GetState`（含双 DLL
+  SHA-256 与同步 `wine reg query`）移至后台线程预取，消除进度条首尾卡顿。
+
+### 修复 / 变更
+
+**下载与兼容组件**
+
+- 修复更新/下载 DW-Proton 等组件时被 `dawn.wine` 前段 Techaro Anubis WAF 拦截返回 `403 Forbidden`：
+  `.NET HttpClient` 默认不带 `User-Agent` 头（此前 `UmuComponentProvisioner` 查 release API 时单次附带了
+  `User-Agent`，而归档下载经 `HttpFileDownloader` 发起时缺失）；现 `HttpFileDownloader` 在注入的
+  `HttpClient.DefaultRequestHeaders.UserAgent` 为空时统一补默认 `User-Agent: YetAnotherGameLauncher`
+  （已配置自定义值则原样保留）。
+
+**资源包档位与清单边界（鸣潮）**
+
+- 资源包档位「下载资源包」（补档）改为快速路径：已有文件只做存在性 + 尺寸校验，只对**本次运行下载
+  的文件**（含缺失的 common 文件）做 MD5 后验；同尺寸损坏的已有文件留给「校验修复」（全量 MD5 不变）。
+  下载窗口内已有文件被删/改尺寸时，把这些文件当第二轮下载补下并 MD5 后验（不动其余已有文件）。
+- 档位包版本与本体版本不一致（或缺失版本）时硬失败并提示稍后重试/暂切 HD，不再混用两版内容；
+  守卫只设在档位包条目真正并入清单处（全量清单），预下载的差量清单不受阻——窗口期目标版本就
+  还不是线上版。
+- 非 HD 档裁掉的目标档条目必须全部被档位包收录，否则拒收（原本会被收尾清理当游离文件删除）。
+- 预下载应用的修复轮按暂存档位核实：应用前切档不顺手下载新档，应用后状态记实际落盘档位。
+- 官方清单边界校验（当前由库洛渠道接入）：拒绝逃逸/绝对路径、清单**禁写**路径（`.yagl/`、`Saved/`、
+  `launcherDownloadConfig*`、`compatdata/`）、文件与目录同名冲突、畸形 MD5/负尺寸、路径段尾点或尾空格
+  （Windows 会归一它们，`Saved.` 实际落进 `Saved/`）；空白/重复条目跳过而非拒收（重复路径按先登记者胜
+  去重，与既有 manifest 处理一致）；空校验字段沿用既有"未提供"语义；增量 `deleteFiles` 点名禁写路径时
+  跳过并告警，同族的保留前缀/产物豁免判定也按归一串匹配（`./x`、`a/../x` 绕不过去，否则会删掉保留档位
+  内容或刚产出的文件）。注意"禁写"≠"清理保留"：`launcherDownloadConfig/` 只禁写，同步收尾清理仍会删它
+  （不兼容官方启动器，2026-10-23 决定）。
+- 安全修复：空的全量清单（`{}` / 空数组 / `null` / 全空白 `dest`）现在拒绝同步，清理侧也跳过
+  空清单；否则一次残缺的 `indexFile.json` 会把已安装内容当游离文件整批删除。
+- 增量 `deleteFiles` 的边界校验放宽到只拒绝对/逃逸路径：目录条目（尾斜杠）与 `./x`、`a/../x`、
+  `a//b` 别名放行（消费端本就跳过目录并按落地语义归一），避免官方列表里的这类写法把增量更新永久
+  挡住（增量链无整包回退）；`resource`/`srcFiles`/`dstFiles` 为 `null` 时按空集合消费，不再抛
+  未分类异常。
+
+---
+
+### English · 0.1.4 — 2026-11-09
+
+A feature and maintenance release after 0.1.3: a new built-in Linux dependency
+"Native RichEdit (msftedit)" (installs the Windows 7 SP1 native DLL and a
+persistent override through `winetricks`, with five-state management and full
+restore, fixing the KRSDK login-window agreement body cp1252 mojibake under Wine)
+plus `cjk-fonts` 2.004R-1 (adding the KRSDK H7GBK replacement group); a fast path
+for "Download resource pack" tier additions (existing files are size-checked while
+newly downloaded files are MD5-verified) together with manifest boundary validation
+and empty-manifest guards; a default `User-Agent` in `HttpFileDownloader` fixing
+`403 Forbidden` responses from the `dawn.wine` Anubis WAF when updating DW-Proton;
+and UI improvements where the launch button switches to a disabled "Game launched"
+state while the game is running (restoring automatically on exit) and indeterminate
+dependency-install progress uses a 60fps self-pumped pulse bar with off-thread
+state refreshes. 1769 tests green, line coverage 87.74% (measured 2026-11-09).
+
+**Added — dependency installs (Linux): Native RichEdit & CJK font aliases**
+
+- Dependencies: a second built-in "Native RichEdit (msftedit)" installs the Windows 7 SP1 native DLL
   through the Proton-bundled (preferred) or system `winetricks` (~1.5 GB on first run) and writes a
   persistent `*msftedit=native,builtin` override, fixing the KRSDK login-window body mojibake caused by
   Wine riched20 dropping `SETTEXTEX.codepage` on the RTF branch (Wine master still `todo_wine`). Five
@@ -43,49 +116,62 @@
   (`*MSFTEDIT` is backed up and compared like `*msftedit`). Failed override verification keeps the
   install shown as installed with a refresh hint instead of damaged. The manifest schema gains a winetricks source
   (`winetricksVerb`/`dlls`/`dllOverrides`, win64 prefixes only); Microsoft DLLs are never bundled and
-  the native DLL stays optional.)
+  the native DLL stays optional.
+- Dependencies: `cjk-fonts` 2.004R-1 adds a `Source Han Sans SC` replacement group for the KRSDK H7GBK
+  faces, for 57 replacements in total; it fixes font fallback/tofu only, not the KRSDK login-window
+  agreement body decoding mojibake. Users with 2.004R must reinstall the dependency to pick up the
+  version bump.
 
-- 资源包档位「下载资源包」（补档）改为快速路径：已有文件只做存在性 + 尺寸校验，只对**本次运行下载
-  的文件**（含缺失的 common 文件）做 MD5 后验；同尺寸损坏的已有文件留给「校验修复」（全量 MD5 不变）。
-  下载窗口内已有文件被删/改尺寸时，把这些文件当第二轮下载补下并 MD5 后验（不动其余已有文件）。（Fix/Change:
-  tier pack add (download resource pack) now fast-checks existing files and MD5-verifies everything downloaded
-  in that run, including missing common files; full MD5 stays for explicit verify & repair. Files that disappear or
-  change size during the download window are re-downloaded and MD5-verified as a second round, without
-  touching the remaining existing files.）
-- 档位包版本与本体版本不一致（或缺失版本）时硬失败并提示稍后重试/暂切 HD，不再混用两版内容；
-  守卫只设在档位包条目真正并入清单处（全量清单），预下载的差量清单不受阻——窗口期目标版本就
-  还不是线上版。 （Fix: tier pack version mismatch or missing version now fails hard instead of
-  mixing versions; the guard sits only where tier pack entries are assembled, so pre-downloads are
-  not blocked during the rollout window.）
-- 非 HD 档裁掉的目标档条目必须全部被档位包收录，否则拒收（原本会被收尾清理当游离文件删除）。
-  （Robustness: base-manifest tier entries dropped in favour of the pack must all be covered by the
-  pack, otherwise the sync is refused rather than silently losing files to stale cleanup.）
-- 预下载应用的修复轮按暂存档位核实：应用前切档不顺手下载新档，应用后状态记实际落盘档位。
-  （Fix: applying a pre-download verifies against the staged tier; a tier switched during apply is
-  not silently downloaded.）
-- 官方清单边界校验（当前由库洛渠道接入）：拒绝逃逸/绝对路径、清单**禁写**路径（`.yagl/`、`Saved/`、
-  `launcherDownloadConfig*`、`compatdata/`）、文件与目录同名冲突、畸形 MD5/负尺寸、路径段尾点或尾空格
-  （Windows 会归一它们，`Saved.` 实际落进 `Saved/`）；空白/重复条目跳过而非拒收（重复路径按先登记者胜
-  去重，与既有 manifest 处理一致）；空校验字段沿用既有"未提供"语义；增量 `deleteFiles` 点名禁写路径时
-  跳过并告警，同族的保留前缀/产物豁免判定也按归一串匹配（`./x`、`a/../x` 绕不过去，否则会删掉保留档位
-  内容或刚产出的文件）。注意"禁写"≠"清理保留"：`launcherDownloadConfig/` 只禁写，同步收尾清理仍会删它
-  （不兼容官方启动器，2026-10-23 决定）。（Security/Robustness: manifest boundary validation rejects
-  escaping, reserved-to-write, conflicting paths, malformed checksums and trailing dot/space segments;
-  blank and duplicate entries are skipped (first entry wins on duplicate paths); empty checksum fields keep
-  the existing "not provided" semantics; deleteFiles entries under no-write paths are spared, and the sibling
-  preserved-prefix / freshly-produced-file checks match on the normalized form so aliases like `./x` or `a/../x`
-  cannot slip through. Note that "no write" is not "preserved from cleanup": `launcherDownloadConfig/` is still
-  removed by stale cleanup, as official-launcher interop was deliberately declined.）
-- 安全修复：空的全量清单（`{}` / 空数组 / `null` / 全空白 `dest`）现在拒绝同步，清理侧也跳过
-  空清单；否则一次残缺的 `indexFile.json` 会把已安装内容当游离文件整批删除。（Safety fix: an empty
-  full manifest is now rejected, and stale cleanup is skipped for empty manifests - a truncated
-  `indexFile.json` could otherwise delete the whole installed game.）
-- 增量 `deleteFiles` 的边界校验放宽到只拒绝对/逃逸路径：目录条目（尾斜杠）与 `./x`、`a/../x`、
-  `a//b` 别名放行（消费端本就跳过目录并按落地语义归一），避免官方列表里的这类写法把增量更新永久
-  挡住（增量链无整包回退）；`resource`/`srcFiles`/`dstFiles` 为 `null` 时按空集合消费，不再抛
-  未分类异常。（Robustness: deleteFiles validation now only rejects absolute/escaping paths, so
-  directory and alias forms no longer hard-block incremental updates; null collection properties are
-  treated as empty instead of throwing.）
+**Added — UI & interaction**
+
+- Running-game button lock and feedback: once "Launch Game" starts the game process, the action-dock
+  launch button switches its label to "Game launched" and disables to prevent duplicate launches, then
+  automatically restores to "Launch Game" and refreshes the state when `SystemProcessRunner` observes
+  process exit.
+- Smooth indeterminate progress bar and off-thread state refresh for dependency installs: because the
+  backdrop video is paused on the game settings page and no external render pump is active, Avalonia's
+  built-in `ProgressBar.IsIndeterminate` `Style.Animations` clock is throttled to ~10Hz by the idle
+  render loop and stutters visibly; indeterminate phases now use a ~60fps code-behind self-pumped pulse
+  bar (`Task.Delay(16ms)` writing `TranslateTransform.X` directly, the same mechanism as the boot splash),
+  while determinate phases keep the standard `ProgressBar`. In addition, `DependencyInstaller.InstallAsync`
+  and `UninstallAsync` yield to the thread pool on entry (`ForceYielding`) and final `GetState` checks
+  (which hash two DLLs and run synchronous `wine reg query` child processes) run on a background thread
+  before clearing the busy state.
+
+**Fixed / Changed — downloads & compatibility components**
+
+- Fixed `403 Forbidden` from the Techaro Anubis WAF in front of `dawn.wine` when updating or downloading
+  DW-Proton: `.NET HttpClient` sends no `User-Agent` header by default (`UmuComponentProvisioner` attached
+  one to the release-API request, but `HttpFileDownloader` did not set one on the archive download).
+  `HttpFileDownloader` now supplies a default `User-Agent: YetAnotherGameLauncher` whenever the injected
+  `HttpClient.DefaultRequestHeaders.UserAgent` is empty (preserving any caller-configured value).
+
+**Fixed / Changed — resource quality tiers & manifest boundaries (Wuthering Waves)**
+
+- Tier pack add (download resource pack) now fast-checks existing files (existence + size) and MD5-verifies
+  everything downloaded in that run, including missing common files; full MD5 stays for explicit verify & repair.
+  Files that disappear or change size during the download window are re-downloaded and MD5-verified as a second
+  round, without touching the remaining existing files.
+- Tier pack version mismatch or missing version now fails hard instead of mixing versions; the guard sits
+  only where tier pack entries are assembled, so pre-downloads are not blocked during the rollout window.
+- Base-manifest tier entries dropped in favour of the pack must all be covered by the pack, otherwise the
+  sync is refused rather than silently losing files to stale cleanup.
+- Applying a pre-download verifies against the staged tier; a tier switched during apply is not silently
+  downloaded.
+- Manifest boundary validation (currently wired into the Kuro channel) rejects escaping, reserved-to-write
+  (`.yagl/`, `Saved/`, `launcherDownloadConfig*`, `compatdata/`), conflicting file/directory paths, malformed
+  checksums, negative sizes and trailing dot/space segments (which Windows normalizes so `Saved.` lands inside
+  `Saved/`); blank and duplicate entries are skipped (first entry wins on duplicate paths); empty checksum
+  fields keep the existing "not provided" semantics; `deleteFiles` entries under no-write paths are spared,
+  and the sibling preserved-prefix / freshly-produced-file checks match on the normalized form so aliases like
+  `./x` or `a/../x` cannot slip through. Note that "no write" is not "preserved from cleanup":
+  `launcherDownloadConfig/` is still removed by stale cleanup, as official-launcher interop was deliberately declined.
+- Safety fix: an empty full manifest (`{}` / empty array / `null` / all-blank `dest`) is now rejected, and
+  stale cleanup is skipped for empty manifests - a truncated `indexFile.json` could otherwise delete the whole
+  installed game.
+- `deleteFiles` validation now only rejects absolute/escaping paths, so directory and alias forms (`./x`,
+  `a/../x`, `a//b`) no longer hard-block incremental updates; null collection properties (`resource`,
+  `srcFiles`, `dstFiles`) are treated as empty instead of throwing.
 
 ## [0.1.3] — 2026-10-22
 
