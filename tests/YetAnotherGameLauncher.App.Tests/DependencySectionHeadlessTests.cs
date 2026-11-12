@@ -1,4 +1,3 @@
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
@@ -146,7 +145,7 @@ public class DependencySectionHeadlessTests
                 // 设置页切入动画（0.3s 横滑）在 headless 下按真实时钟推进：动画未结束时取的
                 // 按钮坐标会在随后的渲染帧里继续漂移（Windows CI 实测偏 33.19px，点击点落到
                 // 按钮右缘外 2px，真实指针命中落空）。泵到坐标连续两轮稳定后再点击。
-                var center = SettleAndGetCenter(window, button);
+                var center = HeadlessGeometry.SettleAndGetCenter(window, button);
                 window.MouseMove(center);
                 window.MouseDown(center, MouseButton.Left);
                 window.MouseUp(center, MouseButton.Left);
@@ -179,34 +178,6 @@ public class DependencySectionHeadlessTests
         {
             ctx.TempDir.Dispose();
         }
-    }
-
-    /// <summary>
-    /// 泵渲染帧直到控件中心在窗口坐标中连续两轮不变（上限 100 轮 / 约 500ms），返回稳定中心点。
-    /// 设置页切入动画与滚动布局收敛都走真实时钟/渲染帧，提前取坐标会在随后的输入渲染中漂移。
-    /// </summary>
-    private static Point SettleAndGetCenter(Window window, Visual target)
-    {
-        var lastCenter = new Point(double.NaN, double.NaN);
-        for (var attempt = 0; attempt < 100; attempt++)
-        {
-            AvaloniaHeadlessPlatform.ForceRenderTimerTick(10);
-            Dispatcher.UIThread.RunJobs();
-            window.UpdateLayout();
-            var center = target.TranslatePoint(
-                new Point(target.Bounds.Width / 2, target.Bounds.Height / 2), window)!.Value;
-            if (Math.Abs(center.X - lastCenter.X) < 0.01
-                && Math.Abs(center.Y - lastCenter.Y) < 0.01)
-            {
-                return center;
-            }
-
-            lastCenter = center;
-            Thread.Sleep(5);
-        }
-
-        Assert.Fail("控件中心在 500ms 内未稳定，无法进行真实指针点击");
-        return lastCenter;
     }
 
     [Fact]

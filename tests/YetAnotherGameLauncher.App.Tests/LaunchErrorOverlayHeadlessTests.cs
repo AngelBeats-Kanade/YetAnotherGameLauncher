@@ -1,4 +1,3 @@
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
@@ -73,8 +72,9 @@ public class LaunchErrorOverlayHeadlessTests : IDisposable
                 .OfType<Button>()
                 .First(b => b.Classes.Contains("launch-error-primary")
                             && ReferenceEquals(b.Command, wuwa.LaunchError!.DismissCommand));
-            var center = dismiss.TranslatePoint(
-                new Point(dismiss.Bounds.Width / 2, dismiss.Bounds.Height / 2), window)!.Value;
+            // 详情页同样挂 .page 切入动画（0.3s 横滑，按真实时钟推进）：提前取的中心点会在
+            // 随后的输入渲染里漂移（Windows CI 实测偏 33.19px），点击落到关闭钮外。先泵稳定。
+            var center = HeadlessGeometry.SettleAndGetCenter(window, dismiss);
             window.MouseMove(center);
             window.MouseDown(center, MouseButton.Left);
             window.MouseUp(center, MouseButton.Left);
