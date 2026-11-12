@@ -1495,6 +1495,17 @@ const MUTATIONS = [
     dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
     method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroBundleIndexTests.GetVersionInfo_BundleIndex_PredownloadWithoutTierPatch_HidesWindow',
   },
+  {
+    // 2026-11-12 预下载提示与计划层同口径：补丁入口必须版本非空（计划层过滤空 Version），
+    // 否则畸形条目点亮预下载、计划落到不支持的 FullSync。去掉版本判定后守卫必须红。
+    id: 'M147-kuro-predownload-patch-version',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
+    find: '        && patchConfig.Any(p => !string.IsNullOrEmpty(p.Version)\n                                && !string.IsNullOrWhiteSpace(p.IndexFile));',
+    replace: '        && patchConfig.Any(p => !string.IsNullOrWhiteSpace(p.IndexFile));',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroBundleIndexTests.GetVersionInfo_BundleIndex_PredownloadPatchWithoutVersion_HidesWindow',
+  },
 ];
 
 function run(cmd, args) {

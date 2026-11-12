@@ -131,7 +131,8 @@ public class KuroBundleIndexTests
         string? commonVersionOverride = null,
         string? tierVersionOverride = null,
         bool commonPatchHasIndex = true,
-        bool includeTierPack = true)
+        bool includeTierPack = true,
+        bool commonPatchVersionEmpty = false)
     {
         var packs = new Dictionary<string, object>(StringComparer.Ordinal);
         var bundles = new Dictionary<string, object>(StringComparer.Ordinal);
@@ -158,7 +159,7 @@ public class KuroBundleIndexTests
                 {
                     new
                     {
-                        version = fromVersion,
+                        version = commonPatchVersionEmpty ? "" : fromVersion,
                         indexFile = commonPatchHasIndex ? commonPatchPath : "",
                         indexFileMd5 = Md5(commonPatchJson),
                         baseUrl = $"{prefix}/{version}/common/{fromVersion}/resources",
@@ -227,7 +228,8 @@ public class KuroBundleIndexTests
         bool includePredownloadCommonPatch = true,
         bool includePredownloadTierPatch = true,
         bool predownloadCommonPatchHasIndex = true,
-        bool includePredownloadTierPack = true)
+        bool includePredownloadTierPack = true,
+        bool predownloadCommonPatchVersionEmpty = false)
     {
         var (packs, bundles) = ServePackSet(
             "bundle",
@@ -257,7 +259,8 @@ public class KuroBundleIndexTests
                 includeCommonPatch: includePredownloadCommonPatch,
                 includeTierPatch: includePredownloadTierPatch,
                 commonPatchHasIndex: predownloadCommonPatchHasIndex,
-                includeTierPack: includePredownloadTierPack);
+                includeTierPack: includePredownloadTierPack,
+                commonPatchVersionEmpty: predownloadCommonPatchVersionEmpty);
             var pre = new Dictionary<string, object?>
             {
                 ["resourcePacks"] = prePacks,
@@ -371,6 +374,19 @@ public class KuroBundleIndexTests
     public async Task GetVersionInfo_BundleIndex_PredownloadWithoutUsableCommonPatchIndex_HidesWindow()
     {
         ServeBundle(predownloadVersion: "3.9.0", predownloadCommonPatchHasIndex: false);
+
+        var info = await CreateApi().GetVersionInfoAsync(Server());
+
+        Assert.False(info.PredownloadAvailable);
+        Assert.Null(info.PredownloadVersion);
+    }
+
+    [Fact]
+    public async Task GetVersionInfo_BundleIndex_PredownloadPatchWithoutVersion_HidesWindow()
+    {
+        // 计划层只认带版本号的补丁入口（GetPatchSourceVersions 过滤空 Version）；
+        // 只看 indexFile 会让畸形条目点亮预下载，随后计划落到不支持的 FullSync。
+        ServeBundle(predownloadVersion: "3.9.0", predownloadCommonPatchVersionEmpty: true);
 
         var info = await CreateApi().GetVersionInfoAsync(Server());
 

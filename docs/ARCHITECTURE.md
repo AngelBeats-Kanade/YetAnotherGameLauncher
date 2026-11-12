@@ -820,8 +820,8 @@ winetricks 原生 DLL 来源）。当前内置两项：`cjk-fonts`（思源黑�
   null**——提前应用时 `RepairPredownloadAsync` 会因服务器 latest 尚未转正而跳过修复轮，不能留
   “版本号已新、档位内容仍旧”的半状态。
 - `GetVersionInfoAsync` 的预下载可用性还要求同构 `predownload.bundles` 覆盖全部档位组合（每个组合
-  含 common + 本档），且 common 与每个档位包都至少有一个带非空 `indexFile` 的补丁；结构不完整时
-  隐藏预下载提示，避免点击后才失败。
+  含 common + 本档），且 common 与每个档位包都至少有一个版本非空、带非空 `indexFile` 的补丁；
+  结构不完整时隐藏预下载提示，避免点击后才失败。
 - **旧索引回退守卫**：请求版本比旧索引正式版/预下载版本新、而 bundle 不可用/不匹配时抛
   `UpdateException`；绝不把旧内容标成新版本返回（RF-E 同族）。
 - **版本化可选包（2026-11-12 端点实测）**：3.8.0 的 common 与每个档位包 full index 各含

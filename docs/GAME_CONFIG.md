@@ -132,8 +132,8 @@ UHD = common + UHD 66.04 GB，2026-10-16 端点实测）。`launch.resourceQuali
   `bundles[HD/SD/UHD].resourcePacks` 各包 full `indexFile` 的并集（逐包非空/档位内容校验）；
   增量清单 = common + 当前档位包 `patchConfig` 的并集；common 缺匹配补丁走全量，正式更新档位包
   缺匹配补丁只应用 common + 全量修复轮补档，预下载档位包缺匹配补丁直接拒绝（提前应用会跳过修复轮）。
-  预下载还要求同构 `predownload.bundles` 覆盖全部档位组合，且 common 与各档位包都至少有一个带非空
-  `indexFile` 的补丁，否则隐藏提示。
+  预下载还要求同构 `predownload.bundles` 覆盖全部档位组合，且 common 与各档位包都至少有一个版本
+  非空、带非空 `indexFile` 的补丁，否则隐藏提示。
   旧 `indexUrl` 仅作旧版/国际服回退；请求版本比旧索引新且 bundle 不可用/不匹配时拒收，绝不把旧内容
   标成新版本。旧档位索引（无 `bundles`）仍按下面的 legacy 路径处理。
 - **legacy 全量同步/校验修复**：按该档构建清单——裁掉**所有**档位目录

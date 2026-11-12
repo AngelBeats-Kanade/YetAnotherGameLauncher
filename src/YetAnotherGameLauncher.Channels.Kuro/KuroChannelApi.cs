@@ -463,8 +463,8 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
     }
 
     /// <summary>同构 predownload 必须覆盖全部档位组合、每个组合含 common + 本档，
-    /// 且 common 与各档位包都至少有一个带非空 <c>indexFile</c> 的补丁；缺任何一项都隐藏
-    /// 预下载提示，避免 UI 显示可预下载而点击后在清单合并/计划阶段必然失败。</summary>
+    /// 且 common 与各档位包都至少有一个版本非空、带非空 <c>indexFile</c> 的补丁；缺任何一项
+    /// 都隐藏预下载提示，避免 UI 显示可预下载而点击后在清单合并/计划阶段必然失败。</summary>
     private static bool HasUsablePredownloadStructure(
         Dictionary<string, KuroResourcePack> packs,
         Dictionary<string, KuroResourceBundle>? bundles)
@@ -489,9 +489,12 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         return true;
     }
 
+    /// <summary>补丁入口是否可被计划层采用：与 <c>GetPatchSourceVersions</c> 同口径，
+    /// 版本与 <c>indexFile</c> 都非空（空版本条目不会出现在差分源列表里，也不该点亮预下载）。</summary>
     private static bool HasUsablePatch(IReadOnlyList<KuroPatchEntry>? patchConfig) =>
         patchConfig is not null
-        && patchConfig.Any(p => !string.IsNullOrWhiteSpace(p.IndexFile));
+        && patchConfig.Any(p => !string.IsNullOrEmpty(p.Version)
+                                && !string.IsNullOrWhiteSpace(p.IndexFile));
 
     /// <summary>bundle 的包列表（官方 HD = ["common","hd"]）；缺 common/当前档位即拒收。</summary>
     private static IReadOnlyList<string> GetBundlePackNames(BundleSource source, string tier)
