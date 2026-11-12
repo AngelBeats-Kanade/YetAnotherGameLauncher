@@ -280,7 +280,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            if [ "$(gh release view "${GITHUB_REF_NAME}" --json isDraft --jq .isDraft)" = "True" ]; then
+            # gh/jq 输出小写 true（曾按 PowerShell 的 "True" 比较，tag 移动重跑走到 else
+            # 分支被误判为已发布而中止）；大小写归一后再判。
+            is_draft="$(gh release view "${GITHUB_REF_NAME}" --json isDraft --jq .isDraft | tr '[:upper:]' '[:lower:]')"
+            if [ "$is_draft" = "true" ]; then
               gh release delete "${GITHUB_REF_NAME}" --yes
             else
               echo "::error::release ${GITHUB_REF_NAME} 已存在且已发布，请改用新版本号"
