@@ -375,7 +375,8 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         Dictionary<string, KuroResourcePack> Packs,
         Dictionary<string, KuroResourceBundle> Bundles,
         IReadOnlyList<KuroCdnNode> CdnList,
-        string Version);
+        string Version,
+        bool IsPredownload);
 
     /// <summary>按目标版本选 formal 或 predownload 包组；两者都不匹配返回 null（回退旧索引）。</summary>
     private static BundleSource? TryGetBundleSource(KuroLauncherIndex index, string version)
@@ -388,7 +389,8 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
                 packs,
                 index.Bundles ?? new Dictionary<string, KuroResourceBundle>(),
                 index.CdnList,
-                commonVersion);
+                commonVersion,
+                IsPredownload: false);
         }
 
         var predownload = index.Predownload;
@@ -401,7 +403,8 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
                 prePacks,
                 predownload.Bundles ?? new Dictionary<string, KuroResourceBundle>(),
                 cdn,
-                preVersion);
+                preVersion,
+                IsPredownload: true);
         }
 
         return null;
@@ -448,7 +451,9 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         }
 
         if (predownload.ResourcePacks is { } packs
-            && GetPack(packs, "common") is { Version: { Length: > 0 } newVersion } common)
+            && GetPack(packs, "common") is { Version: { Length: > 0 } newVersion } common
+            && common.PatchConfig is { Count: > 0 }
+            && HasCompletePredownloadBundles(predownload.Bundles))
         {
             return new PredownloadSource(newVersion, common.PatchConfig);
         }
@@ -456,6 +461,30 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         return predownload.Config is { Version: { Length: > 0 } legacyVersion } legacy
             ? new PredownloadSource(legacyVersion, legacy.PatchConfig)
             : null;
+    }
+
+    /// <summary>同构 predownload 必须覆盖全部档位组合且每个组合都含 common + 本档；
+    /// 缺 bundles/缺档位时隐藏预下载提示，避免点击后才在清单合并处失败。</summary>
+    private static bool HasCompletePredownloadBundles(
+        Dictionary<string, KuroResourceBundle>? bundles)
+    {
+        if (bundles is null)
+        {
+            return false;
+        }
+
+        foreach (var tier in ResourceTiers.All)
+        {
+            if (!bundles.TryGetValue(tier.ToUpperInvariant(), out var bundle)
+                || bundle.ResourcePacks is not { Count: > 0 } names
+                || !names.Any(n => string.Equals(n, "common", StringComparison.OrdinalIgnoreCase))
+                || !names.Any(n => string.Equals(n, tier, StringComparison.OrdinalIgnoreCase)))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>bundle 的包列表（官方 HD = ["common","hd"]）；缺 common/当前档位即拒收。</summary>
@@ -486,6 +515,39 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         return names;
     }
 
+    /// <summary>单包完整性闸：空包或"只有 Saved 可选包"的包必须拒收。合并后总数非空不能证明每个包
+    /// 都有内容——common 缺失会被收尾清理当游离文件删除（几十 GB），档位包缺失同理。</summary>
+    private static void EnsureBundlePackHasContent(
+        string name, string tier, IReadOnlyList<ManifestFile> files)
+    {
+        if (files.Count == 0)
+        {
+            throw new UpdateException(
+                $"Kuro bundle pack \"{name}\" lists no files; refusing to sync " +
+                "(a pack-less full manifest would delete installed content).");
+        }
+
+        if (string.Equals(name, "common", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!files.Any(f => !ManifestBoundary.IsClientSavedPath(f.Path)
+                                && !ResourceTiers.All.Any(t => IsInTierDirectory(f.Path, t))))
+            {
+                throw new UpdateException(
+                    "Kuro bundle pack \"common\" lists no common content " +
+                    "(only tier/Saved optional packs); refusing to sync.");
+            }
+
+            return;
+        }
+
+        if (!files.Any(f => IsInTierDirectory(f.Path, tier)))
+        {
+            throw new UpdateException(
+                $"Kuro bundle pack \"{name}\" lists no Client/Content/{tier.ToUpperInvariant()}/ files; " +
+                "refusing to sync.");
+        }
+    }
+
     /// <summary>全量清单 = bundle 内各包 full indexFile 的并集；URL 按各包 baseUrl 拼接。
     /// 3.8+ 档位包/ common 包都含 Client/Saved/Resources/&lt;目标版本&gt;/ 可选包，边界按版本精确放行。</summary>
     private async Task<GameManifest> BuildBundleManifestAsync(
@@ -504,7 +566,27 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
             EnsurePackVersion(pack, name, source.Version);
 
             var packIndex = await FetchPackIndexFileAsync(pack, cdn, name, cancellationToken).ConfigureAwait(false);
-            foreach (var file in ToManifestFiles(packIndex.Resource ?? [], cdn, pack.BaseUrl))
+            if (packIndex.GroupInfos is { Count: > 0 })
+            {
+                // 当前 3.8 full 索引没有 groupInfos；出现即协议形态变化。静默忽略会让
+                // 差分组产物缺清单、随后被收尾清理当游离文件删除，故拒收而不是猜。
+                throw new UpdateException(
+                    $"Kuro bundle pack \"{name}\" full index lists groupInfos; " +
+                    "this full-pack protocol shape is not supported.");
+            }
+
+            var packFiles = ToManifestFiles(packIndex.Resource ?? [], cdn, pack.BaseUrl);
+            EnsureBundlePackHasContent(name, tier, packFiles);
+            if (!string.Equals(name, "common", StringComparison.OrdinalIgnoreCase))
+            {
+                // 档位包条目仍必须落在 Client/Content/<TIER>/ 或本版本 Saved/Resources 之下；
+                // 混入 common/其它档位会在合并后覆盖非本档内容。
+                ManifestBoundary.ValidatePackFiles(
+                    PackDirectoryFor(tier), packFiles,
+                    $"Kuro bundle pack \"{name}\"", source.Version);
+            }
+
+            foreach (var file in packFiles)
             {
                 if (seen.Add(file.Path.Replace('\\', '/')))
                 {
@@ -529,7 +611,8 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
     /// <summary>增量清单 = bundle 内各包 patchConfig[fromVersion] 的并集：
     /// 直下文件按各包 fromFolder/patch baseUrl 拼 URL，差分组按各包 patch baseUrl 拼 URL，
     /// deleteFiles 按包归属过滤（common 不删档位、档位包不删其它档）。
-    /// common 无匹配补丁 → null（走全量）；档位包无匹配补丁 → 只应用 common + 全量修复轮补档。</summary>
+    /// common 无匹配补丁 → null（走全量）；正式更新档位包无匹配补丁 → 只应用 common + 全量修复轮补档；
+    /// 预下载档位包无匹配补丁 → null（提前应用会跳过修复轮，不能留半更新档位）。</summary>
     private async Task<GameManifest?> BuildBundleIncrementalManifestAsync(
         BundleSource source, string fromVersion, string tier, CancellationToken cancellationToken)
     {
@@ -553,8 +636,20 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
                 p => string.Equals(p.Version, fromVersion, StringComparison.Ordinal));
             if (patch is null || string.IsNullOrWhiteSpace(patch.IndexFile))
             {
-                if (string.Equals(name, "common", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(name, "common", StringComparison.OrdinalIgnoreCase)
+                    || source.IsPredownload)
                 {
+                    // 预下载提前应用时 RepairPredownloadAsync 会因服务器 latest 尚未转正而跳过修复轮；
+                    // 此时只应用 common 会把旧档位内容留在盘上，且 go-live 后没有新的更新信号。
+                    // 宁可拒绝这次预下载，也不留"版本号已新、档位内容仍旧"的半状态。
+                    if (source.IsPredownload)
+                    {
+                        logger?.LogWarning(
+                            "Kuro predownload pack \"{Pack}\" has no {From} -> {To} patch; " +
+                            "refusing the preload instead of leaving a half-updated tier.",
+                            name, fromVersion, source.Version);
+                    }
+
                     return null;
                 }
 

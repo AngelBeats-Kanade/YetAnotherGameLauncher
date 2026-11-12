@@ -129,8 +129,10 @@ UHD = common + UHD 66.04 GB，2026-10-16 端点实测）。`launch.resourceQuali
 - **3.8+ bundle 协议（2026-11-12 端点实测）**：旧 `indexUrl` 在 3.7.1 后停更；3.8.0 的版本/全量/
   差分/预下载只发布在 `resourcePackIndexUrl` 的 bundle 索引（`resourcePacks` + `bundles` + 同构
   `predownload`）。CN 的 `LatestVersion` 取 `resourcePacks.common.version`；全量清单 =
-  `bundles[HD/SD/UHD].resourcePacks` 各包 full `indexFile` 的并集；增量清单 = common + 当前档位包
-  `patchConfig` 的并集；common 缺匹配补丁走全量，档位包缺匹配补丁只应用 common + 全量修复轮补档。
+  `bundles[HD/SD/UHD].resourcePacks` 各包 full `indexFile` 的并集（逐包非空/档位内容校验）；
+  增量清单 = common + 当前档位包 `patchConfig` 的并集；common 缺匹配补丁走全量，正式更新档位包
+  缺匹配补丁只应用 common + 全量修复轮补档，预下载档位包缺匹配补丁直接拒绝（提前应用会跳过修复轮）。
+  预下载还要求同构 `predownload.bundles` 覆盖全部档位组合且 common 有 `patchConfig`，否则隐藏提示。
   旧 `indexUrl` 仅作旧版/国际服回退；请求版本比旧索引新且 bundle 不可用/不匹配时拒收，绝不把旧内容
   标成新版本。旧档位索引（无 `bundles`）仍按下面的 legacy 路径处理。
 - **legacy 全量同步/校验修复**：按该档构建清单——裁掉**所有**档位目录

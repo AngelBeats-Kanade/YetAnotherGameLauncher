@@ -1473,6 +1473,17 @@ const MUTATIONS = [
     dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
     method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroBundleIndexTests.GetManifest_NewerVersionWithoutBundle_FallsBackToLegacyAndRejectsMislabelling',
   },
+  {
+    // 2026-11-12 3.8 全量逐包闸：单包为空/残缺时合并后总数仍可能非空；去掉逐包非空守卫后
+    // 空档位包会与 common 合并，收尾清理把该档已装内容当游离文件删除。
+    id: 'M145-kuro-bundle-pack-nonempty',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
+    find: '        if (files.Count == 0)',
+    replace: '        if (false)',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroBundleIndexTests.GetManifest_BundleIndex_TierPackEmpty_Throws',
+  },
 ];
 
 function run(cmd, args) {

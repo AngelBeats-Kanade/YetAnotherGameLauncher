@@ -807,12 +807,20 @@ winetricks 原生 DLL 来源）。当前内置两项：`cjk-fonts`（思源黑�
   且 `config.predownloadSwitch == 1`。新索引不可达时抛错，不退回旧索引谎报“已是最新”；返回旧档位
   索引（无 `bundles`）或服务器未配置该选项时仍走旧 `indexUrl`。
 - `GetManifestAsync(tier)`：按 `bundles[HD/SD/UHD].resourcePacks`（common + 当前档位）合并各包
-  `indexFile`；每个包的 URL 用各自 `baseUrl`，包版本必须与目标版本一致（不一致拒收）。旧档位索引
-  仍走原“标准清单裁掉所有档位目录 + 追加目标档位包”路径。
+  `indexFile`；每个包的 URL 用各自 `baseUrl`，包版本必须与目标版本一致（不一致拒收）。
+  **逐包完整性闸**：每个包单独非空——common 必须有非档位、非 `Client/Saved` 内容，档位包必须有
+  `Client/Content/<TIER>/` 条目；档位包逐条走 `ValidatePackFiles`（只允许本档目录或本版本
+  `Client/Saved/Resources`）。合并后总数非空不能证明单包完整，否则收尾清理会删掉缺失包的已装内容。
+  full 包出现非空 `groupInfos` 时拒收（当前 3.8 full 索引无此形态，静默忽略会漏差分组产物）。
+  旧档位索引仍走原“标准清单裁掉所有档位目录 + 追加目标档位包”路径。
 - `GetIncrementalManifestAsync(tier)`：合并 common + 当前档位包 `patchConfig[fromVersion]`；直下文件
   按各包 `fromFolder`/patch `baseUrl` 拼 URL，差分组按各包 patch `baseUrl`，`deleteFiles` 按包归属
-  过滤（common 不删档位、档位包不删其它档）。common 缺匹配补丁 → null（全量）；档位包缺匹配补丁
-  → 只应用 common 差量，档位内容由更新后的全量修复轮补齐。
+  过滤（common 不删档位、档位包不删其它档）。common 缺匹配补丁 → null（全量）；正式更新档位包缺
+  匹配补丁 → 只应用 common 差量，档位内容由更新后的全量修复轮补齐；**预下载档位包缺匹配补丁 →
+  null**——提前应用时 `RepairPredownloadAsync` 会因服务器 latest 尚未转正而跳过修复轮，不能留
+  “版本号已新、档位内容仍旧”的半状态。
+- `GetVersionInfoAsync` 的预下载可用性还要求同构 `predownload.bundles` 覆盖全部档位组合（每个组合
+  含 common + 本档）且 common 有 `patchConfig`；结构不完整时隐藏预下载提示，避免点击后才失败。
 - **旧索引回退守卫**：请求版本比旧索引正式版/预下载版本新、而 bundle 不可用/不匹配时抛
   `UpdateException`；绝不把旧内容标成新版本返回（RF-E 同族）。
 - **版本化可选包（2026-11-12 端点实测）**：3.8.0 的 common 与每个档位包 full index 各含

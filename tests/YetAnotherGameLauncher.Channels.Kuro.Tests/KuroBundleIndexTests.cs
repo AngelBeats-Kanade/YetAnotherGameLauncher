@@ -48,6 +48,15 @@ public class KuroBundleIndexTests
         }
         """;
 
+    private static string OnlySavedPack(string version) => $$"""
+        {
+          "resource": [
+            { "dest": "Client/Saved/Resources/{{version}}/Option/Base/pak.pak",
+              "md5": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "size": 1 }
+          ]
+        }
+        """;
+
     private static string FullTier(string tier, string version) => $$"""
         {
           "resource": [
@@ -207,7 +216,10 @@ public class KuroBundleIndexTests
         string? commonFullOverride = null,
         string? tierFullOverride = null,
         string? commonVersionOverride = null,
-        string? tierVersionOverride = null)
+        string? tierVersionOverride = null,
+        bool includePredownloadBundles = true,
+        bool includePredownloadCommonPatch = true,
+        bool includePredownloadTierPatch = true)
     {
         var (packs, bundles) = ServePackSet(
             "bundle",
@@ -233,12 +245,19 @@ public class KuroBundleIndexTests
             var (prePacks, preBundles) = ServePackSet(
                 "pre",
                 predownloadVersion,
-                formalVersion);
-            root["predownload"] = new Dictionary<string, object?>
+                formalVersion,
+                includeCommonPatch: includePredownloadCommonPatch,
+                includeTierPatch: includePredownloadTierPatch);
+            var pre = new Dictionary<string, object?>
             {
-                ["bundles"] = preBundles,
                 ["resourcePacks"] = prePacks,
             };
+            if (includePredownloadBundles)
+            {
+                pre["bundles"] = preBundles;
+            }
+
+            root["predownload"] = pre;
         }
 
         _downloader.Serve(BundleIndexUrl, JsonSerializer.Serialize(root));
@@ -301,6 +320,28 @@ public class KuroBundleIndexTests
 
         Assert.False(info.PredownloadAvailable);
         Assert.Equal("3.9.0", info.PredownloadVersion);
+    }
+
+    [Fact]
+    public async Task GetVersionInfo_BundleIndex_PredownloadWithoutBundles_HidesWindow()
+    {
+        ServeBundle(predownloadVersion: "3.9.0", includePredownloadBundles: false);
+
+        var info = await CreateApi().GetVersionInfoAsync(Server());
+
+        Assert.False(info.PredownloadAvailable);
+        Assert.Null(info.PredownloadVersion);
+    }
+
+    [Fact]
+    public async Task GetVersionInfo_BundleIndex_PredownloadWithoutCommonPatch_HidesWindow()
+    {
+        ServeBundle(predownloadVersion: "3.9.0", includePredownloadCommonPatch: false);
+
+        var info = await CreateApi().GetVersionInfoAsync(Server());
+
+        Assert.False(info.PredownloadAvailable);
+        Assert.Null(info.PredownloadVersion);
     }
 
     [Fact]
@@ -380,7 +421,7 @@ public class KuroBundleIndexTests
         var ex = await Assert.ThrowsAsync<UpdateException>(
             () => CreateApi().GetManifestAsync(Server(), "3.8.0", "uhd"));
 
-        Assert.Contains("reserved", ex.Message);
+        Assert.Contains("outside", ex.Message);
     }
 
     [Fact]
@@ -416,6 +457,88 @@ public class KuroBundleIndexTests
             () => CreateApi().GetManifestAsync(Server(), "3.8.0", "uhd"));
 
         Assert.Contains("UHD", ex.Message);
+    }
+
+    [Fact]
+    public async Task GetManifest_BundleIndex_CommonPackEmpty_Throws()
+    {
+        ServeBundle(commonFullOverride: """{ "resource": [] }""");
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => CreateApi().GetManifestAsync(Server(), "3.8.0", "uhd"));
+
+        Assert.Contains("common", ex.Message);
+    }
+
+    [Fact]
+    public async Task GetManifest_BundleIndex_CommonPackOnlySaved_Throws()
+    {
+        ServeBundle(commonFullOverride: OnlySavedPack("3.8.0"));
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => CreateApi().GetManifestAsync(Server(), "3.8.0", "uhd"));
+
+        Assert.Contains("no common content", ex.Message);
+    }
+
+    [Fact]
+    public async Task GetManifest_BundleIndex_TierPackEmpty_Throws()
+    {
+        ServeBundle(tierFullOverride: """{ "resource": [] }""");
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => CreateApi().GetManifestAsync(Server(), "3.8.0", "uhd"));
+
+        Assert.Contains("lists no files", ex.Message);
+    }
+
+    [Fact]
+    public async Task GetManifest_BundleIndex_TierPackOnlySaved_Throws()
+    {
+        ServeBundle(tierFullOverride: OnlySavedPack("3.8.0"));
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => CreateApi().GetManifestAsync(Server(), "3.8.0", "uhd"));
+
+        Assert.Contains("no Client/Content/UHD/", ex.Message);
+    }
+
+    [Fact]
+    public async Task GetManifest_BundleIndex_TierPackEntryOutsideTier_Throws()
+    {
+        var mixed = """
+            {
+              "resource": [
+                { "dest": "Client/Content/UHD/ok.pak", "md5": "11111111111111111111111111111111", "size": 10 },
+                { "dest": "Client/Content/HD/evil.pak", "md5": "22222222222222222222222222222222", "size": 20 }
+              ]
+            }
+            """;
+        ServeBundle(tierFullOverride: mixed);
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => CreateApi().GetManifestAsync(Server(), "3.8.0", "uhd"));
+
+        Assert.Contains("outside", ex.Message);
+    }
+
+    [Fact]
+    public async Task GetManifest_BundleIndex_FullPackWithGroupInfos_Throws()
+    {
+        var withGroups = """
+            {
+              "resource": [
+                { "dest": "Client/Content/UHD/ok.pak", "md5": "11111111111111111111111111111111", "size": 10 }
+              ],
+              "groupInfos": [ { "dest": "unexpected.krpdiff" } ]
+            }
+            """;
+        ServeBundle(tierFullOverride: withGroups);
+
+        var ex = await Assert.ThrowsAsync<UpdateException>(
+            () => CreateApi().GetManifestAsync(Server(), "3.8.0", "uhd"));
+
+        Assert.Contains("groupInfos", ex.Message);
     }
 
     [Fact]
@@ -518,6 +641,18 @@ public class KuroBundleIndexTests
         Assert.Equal("3.9.0", manifest.Version);
         Assert.All(manifest.Files, f => Assert.StartsWith(Cdn + "pre/3.9.0/zip/", f.Url));
         Assert.All(manifest.Groups, g => Assert.StartsWith(Cdn + "pre/3.9.0/", g.Url));
+    }
+
+    [Fact]
+    public async Task GetIncrementalManifest_BundleIndex_PredownloadMissingTierPatch_ReturnsNull()
+    {
+        // 预下载提前应用时修复轮会被 latest 守卫跳过；档位包缺补丁时只应用 common 会留下
+        // "版本号已新、档位内容仍旧"的半状态，因此整次预下载拒绝。
+        ServeBundle(predownloadVersion: "3.9.0", includePredownloadTierPatch: false);
+
+        var manifest = await CreateApi().GetIncrementalManifestAsync(Server(), "3.8.0", "3.9.0", "uhd");
+
+        Assert.Null(manifest);
     }
 
     [Fact]
