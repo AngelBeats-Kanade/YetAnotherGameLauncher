@@ -377,6 +377,56 @@ public class GameInstallServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task SyncAsync_CleansStaleFilesButPreservesClientSaved()
+    {
+        // 3.8 更新会在 Client/Saved/Resources/<版本>/ 下新增官方可选包；清单里没有
+        // Client/Saved/SaveGames、Logs、Config 等用户数据——同步收尾必须整段保留 Client/Saved，
+        // 否则一次跨版本修复就会删掉存档/日志/设置（参考 ww-manager 的 cleanup：跳过任何 Saved/）。
+        var a = "content-a"u8.ToArray();
+        _downloader.Responses[Url("a.txt")] = a;
+        var saved = _tempDir.FilePath("Client", "Saved");
+        Directory.CreateDirectory(Path.Combine(saved, "SaveGames"));
+        Directory.CreateDirectory(Path.Combine(saved, "Logs"));
+        Directory.CreateDirectory(Path.Combine(saved, "Resources", "3.8.0"));
+        await File.WriteAllBytesAsync(Path.Combine(saved, "SaveGames", "slot.sav"), [1]);
+        await File.WriteAllTextAsync(Path.Combine(saved, "Logs", "Client.log"), "log");
+        await File.WriteAllTextAsync(
+            Path.Combine(saved, "Resources", "3.8.0", "option.pak"), "option");
+        await File.WriteAllTextAsync(_tempDir.FilePath("stray-old.log"), "stray");
+        var service = new GameInstallService(_downloader);
+
+        await service.SyncAsync(_tempDir.Path, Manifest(FileEntry("a.txt", a)));
+
+        Assert.True(File.Exists(Path.Combine(saved, "SaveGames", "slot.sav")));
+        Assert.True(File.Exists(Path.Combine(saved, "Logs", "Client.log")));
+        Assert.True(File.Exists(Path.Combine(saved, "Resources", "3.8.0", "option.pak")));
+        Assert.False(File.Exists(_tempDir.FilePath("stray-old.log")));
+        Assert.True(File.Exists(_tempDir.FilePath("a.txt")));
+    }
+
+    [Fact]
+    public async Task SyncAsync_DownloadsVersionedClientSavedResourceAndKeepsExistingSaved()
+    {
+        // 3.8 全量清单把可选包放在 Client/Saved/Resources/<版本>/：同步要能下载它们，
+        // 同时同目录下的 SaveGames/Logs 等用户数据必须原样保留。
+        var option = "option-pack"u8.ToArray();
+        _downloader.Responses[Url("Client/Saved/Resources/3.8.0/Option/pak.pak")] = option;
+        Directory.CreateDirectory(_tempDir.FilePath("Client", "Saved", "SaveGames"));
+        await File.WriteAllBytesAsync(_tempDir.FilePath("Client", "Saved", "SaveGames", "slot.sav"), [1]);
+        var service = new GameInstallService(_downloader);
+
+        await service.SyncAsync(
+            _tempDir.Path,
+            Manifest(FileEntry("Client/Saved/Resources/3.8.0/Option/pak.pak", option)));
+
+        Assert.Equal(
+            option,
+            await File.ReadAllBytesAsync(
+                _tempDir.FilePath("Client", "Saved", "Resources", "3.8.0", "Option", "pak.pak")));
+        Assert.True(File.Exists(_tempDir.FilePath("Client", "Saved", "SaveGames", "slot.sav")));
+    }
+
+    [Fact]
     public async Task SyncAsync_NeverDeletesWinePrefixCompatdata()
     {
         // 旧版推荐配置把 Proton prefix 放在 {installDir}/compatdata：它不在清单内，

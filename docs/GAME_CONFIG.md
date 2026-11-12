@@ -112,7 +112,7 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 | channel | 键 | 必填 | 说明 |
 |---|---|---|---|
 | `kuro` | `indexUrl` | ✔ | 库洛 launcher `index.json` 完整地址（每服一个） |
-| `kuro` | `resourcePackIndexUrl` | | 官方**档位索引**完整地址（`resourcePacks` 节点，2026-10-16 端点实测；与 `indexUrl` 同源、hash 体系不同、不含版本号）。提供后该服务器支持「按 `launch.resourceQualityTier` 下载/补包/清理档位资源」；缺省 = 档位只作启动参数（设置页给出提示、清理入口隐藏）。内置样例只为官服（CN）提供——国际服/B 服的档位索引路径实测 404（2026-10-19 端点实测） |
+| `kuro` | `resourcePackIndexUrl` | | 官方 3.8+ **bundle 索引**完整地址（`resourcePacks` + `bundles`，2026-11-12 端点实测；与旧 `indexUrl` 同源、hash 体系不同）。提供后该服务器以它作为**版本检测/全量/增量/预下载**来源（common + 当前档位包合并；旧索引只作旧版/国际服回退），并支持按 `launch.resourceQualityTier` 下载/补包/清理档位资源；缺省 = 按旧索引（旧版行为，档位只作启动参数）。内置样例只为官服（CN）提供——国际服/B 服该路径实测 404（2026-10-19 端点实测） |
 | `hypergryph` | `apiBase` | ✔ | 启动器 API 基址：国际服 `https://launcher.gryphline.com/api`，国服/B服 `https://launcher.hypergryph.com/api` |
 | `hypergryph` | `appcode` | | 游戏 appcode；代码缺省 = 国际服值 `YDUTE5gscDZ229CW`（国服/B服值 `6LL0KJuqHBVz33WK` 须显式提供） |
 | `hypergryph` | `channel` | | 渠道号；代码缺省 `6`（国际服），国服 `1`、B服 `2` 须显式提供 |
@@ -121,21 +121,33 @@ YetAnotherGameLauncher 通过一个 JSON 文件描述全部游戏，**代码零�
 > 终末地三个官方服务器（国际服 / 国服 / B服）均已内置于
 > [`samples/games.json`](../samples/games.json)：国际服条目依赖上述缺省值，国服/B服条目显式给出全部键，直接使用即可；上述键仅供未来新增渠道时覆盖。
 
-### 档位资源包（鸣潮，2026-10-19）
+### 档位资源包（鸣潮，2026-10-19，2026-11-12 更新）
 
 游戏本体按"common + 一个档位包"组成（官方 bundle：SD = common + SD 21.97 GB / HD = common + HD 45.71 GB /
 UHD = common + UHD 66.04 GB，2026-10-16 端点实测）。`launch.resourceQualityTier` 为 `sd`/`uhd` 时：
 
-- **全量同步/校验修复**按该档构建清单：裁掉**所有**档位目录（`Client/Content/{SD,HD,UHD}/`，
-  含目标档——目标档内容只来自档位包）、补上目标档位包；与档位无关的 common 内容不受影响。
-  被裁掉的目标档条目必须全部被该档位包收录，否则拒收（裁掉后清理会把它们当游离文件删除）。
-- **增量更新/预下载**只取基础差量（档位包跨版本不变，官方实测 hd/sd/uhd 的差量清单为空）；
-  `sd`/`uhd` 时基础差量同样裁掉所有档位目录，档位包自身的补齐由更新/应用后的全量修复轮承担。
-- **版本一致性硬失败（2026-10-23）**：`sd`/`uhd` 的**全量清单**在返回前核对档位包版本与 base
-  内容版本（点分数字归一，`3.7` ≡ `3.7.0`）；不一致或缺失版本即报错"稍后重试或暂切 HD"，
-  **不自动降级到 HD**（避免静默丢档位内容）。守卫只放在档位包条目真正并入清单处：增量差量清单
-  不含档位包内容，预下载窗口期目标版也还不是线上版，故增量入口不设限；「清理其他档位」的体积
-  测量同样不受此门限（版本窗口期仍可释放空间）。
+- **3.8+ bundle 协议（2026-11-12 端点实测）**：旧 `indexUrl` 在 3.7.1 后停更；3.8.0 的版本/全量/
+  差分/预下载只发布在 `resourcePackIndexUrl` 的 bundle 索引（`resourcePacks` + `bundles` + 同构
+  `predownload`）。CN 的 `LatestVersion` 取 `resourcePacks.common.version`；全量清单 =
+  `bundles[HD/SD/UHD].resourcePacks` 各包 full `indexFile` 的并集；增量清单 = common + 当前档位包
+  `patchConfig` 的并集；common 缺匹配补丁走全量，档位包缺匹配补丁只应用 common + 全量修复轮补档。
+  旧 `indexUrl` 仅作旧版/国际服回退；请求版本比旧索引新且 bundle 不可用/不匹配时拒收，绝不把旧内容
+  标成新版本。旧档位索引（无 `bundles`）仍按下面的 legacy 路径处理。
+- **legacy 全量同步/校验修复**：按该档构建清单——裁掉**所有**档位目录
+  （`Client/Content/{SD,HD,UHD}/`，含目标档——目标档内容只来自档位包）、补上目标档位包；与档位
+  无关的 common 内容不受影响。被裁掉的目标档条目必须全部被该档位包收录，否则拒收（裁掉后清理会
+  把它们当游离文件删除）。
+- **legacy 增量更新/预下载**只取基础差量（旧档位索引时代档位包跨版本不变，官方实测 hd/sd/uhd 的
+  差量清单为空）；`sd`/`uhd` 时基础差量同样裁掉所有档位目录，档位包自身的补齐由更新/应用后的
+  全量修复轮承担。3.8+ bundle 索引下 common/档位包各自有 `patchConfig`，按上一条合并应用。
+- **版本一致性硬失败（2026-10-23）**：bundle 路径在合并前逐包核对 `version` 与目标；legacy 路径
+  在返回前核对档位包版本与 base 内容版本（点分数字归一，`3.7` ≡ `3.7.0`）。不一致或缺失版本即报错
+  "稍后重试或暂切 HD"，**不自动降级到 HD**（避免静默丢档位内容）。「清理其他档位」的体积测量不受
+  此门限（版本窗口期仍可释放空间）。
+- **版本化可选包（2026-11-12 端点实测）**：3.8.0 的 common 与每个档位包全量清单各含
+  `Client/Saved/Resources/3.8.0/...` 文件；清单边界只放行 `Client/Saved/Resources/<目标版本>/`，
+  其它 `Client/Saved` 路径禁写；同步收尾整段保留 `Client/Saved`（SaveGames/Logs/Config 不在清单内）。
+  「清理其他档位」的档位包清单仍只度量/删除 `Client/Content/<TIER>`，版本化可选包由主清单下载并保留。
 - **追加式共存**：切换档位不删除旧档内容（未选中档位目录列入"保留清单"，同步收尾清理与增量废弃清单
   都不碰它们）；释放空间只经设置页「清理其他档位」（先预览释放量与目标档位、再确认删除；只删各档位清单
   点名且解析后位于该档位目录下的文件与同名下载半成品 `.temp`）。确认文案在"选中档位未完整落盘"时
@@ -152,11 +164,13 @@ UHD = common + UHD 66.04 GB，2026-10-16 端点实测）。`launch.resourceQuali
 - **档位索引拉取失败/目标档位缺失时拒收**（不返回"缺目标档位包"的清单——那会让收尾清理把目标档位
   目录当游离文件删掉）；档位索引不可用的服务器（国际服/B 服）档位只作启动参数。
 - **清单边界（2026-10-23）**：官方清单是不可信输入，落盘前拒绝越界/绝对路径、**清单禁写路径**
-  （`.yagl/`、`Saved/`、`launcherDownloadConfig.json`、`launcherDownloadConfig/`、`compatdata/`）、
+  （`.yagl/`、根级 `Saved/`、`Client/Saved/`（仅放行 `Client/Saved/Resources/<目标版本>/`）、
+  `launcherDownloadConfig.json`、`launcherDownloadConfig/`、`compatdata/`）、
   文件与目录同名冲突、畸形 MD5（非空且非 32 位十六进制）/负尺寸、路径段尾点或尾空格（Windows 会
   吃掉它们，`Saved.` 实际落进 `Saved/`）；空白/重复条目跳过而非拒收；空 MD5 沿用既有语义视为
   "未提供校验信息"放行。**空全量清单拒收（2026-10-26）**：`indexFile.json` 为 `{}` / 空数组 /
-  `null` / 全空白 dest 时拒绝同步（空清单会让同步收尾把已装内容当游离文件删光），清理侧另有兜底
+  `null` / 全空白 dest，或 3.8 bundle 合并后无任何文件时拒绝同步（空清单会让同步收尾把已装内容当
+  游离文件删光），清理侧另有兜底
   （空清单跳过清理）。**"禁写"≠"清理保留"**：`launcherDownloadConfig/` 只禁清单写/删，同步收尾清理
   **仍会**把它当游离文件删掉（不兼容官方启动器，2026-10-23 用户决定）。增量 `deleteFiles` 点名禁写
   路径时跳过并告警；边界对删除清单只拒绝对/逃逸路径（目录条目与 `./x`、`a/../x` 别名放行，否则
@@ -299,4 +313,8 @@ winetricks 来源另有 `<依赖id>-backup/`（原始 DLL 副本/旧覆盖导出
 压缩包全局共享（多 prefix 复用，size/MD5 双校验），`staging/<依赖id>/` 为解压暂存（用后即清）。
 依赖安装管线见 docs/ARCHITECTURE.md §3.9。
 
-清理游离文件时，`Saved/` 存档目录、`.yagl/`、`launcherDownloadConfig.json` 与 `compatdata/`（旧版推荐配置的 Proton prefix 位置，内有注册表/着色器缓存/用户数据）永远保留。清理枚举不穿过目录符号链接/junction（链接目标在安装树之外也绝不会被删），无权限读取的子目录会被静默跳过。
+清理游离文件时，根级 `Saved/`、UE 的 `Client/Saved/`（SaveGames/Logs/Config；3.8 清单只点名
+`Client/Saved/Resources/...`）、`.yagl/`、`launcherDownloadConfig.json` 与 `compatdata/`（旧版推荐
+配置的 Proton prefix 位置，内有注册表/着色器缓存/用户数据）永远保留。`Client/Saved/Resources/<版本>/`
+的官方可选包由主清单下载，显式档位清理只处理 `Client/Content/<TIER>`。清理枚举不穿过目录符号链接/
+junction（链接目标在安装树之外也绝不会被删），无权限读取的子目录会被静默跳过。

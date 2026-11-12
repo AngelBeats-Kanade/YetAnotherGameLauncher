@@ -237,6 +237,9 @@ public sealed class GameInstallService(
     }
 
     /// <summary>删除清单之外的游离文件（跳过存档与启动器数据目录）。</summary>
+    /// <remarks>存档包含根级 <c>Saved/</c> 与 UE 的 <c>Client/Saved/</c>：3.8+ 清单只点名
+    /// <c>Client/Saved/Resources/&lt;版本&gt;/</c> 下的官方可选包，其余 <c>Client/Saved</c> 内容
+    /// （SaveGames/Logs/Config）在清单外，必须整段保留，不能当游离文件删除。</remarks>
     private void CleanupStaleFiles(string installDir, GameManifest manifest)
     {
         if (!Directory.Exists(installDir))
@@ -292,6 +295,14 @@ public sealed class GameInstallService(
         foreach (var path in Directory.EnumerateFiles(installDir, "*", enumerationOptions))
         {
             var relative = NormalizeForCleanup(Path.GetRelativePath(installDir, path));
+
+            // UE 存档/日志/设置目录：清单只可能点名 Client/Saved/Resources/<版本>/，
+            // 其余内容（SaveGames/Logs/Config）不在清单里，必须整段保留。
+            if (ManifestBoundary.IsClientSavedPath(relative))
+            {
+                continue;
+            }
+
             var top = relative.Contains('/')
                 ? relative[..relative.IndexOf('/')]
                 : relative;

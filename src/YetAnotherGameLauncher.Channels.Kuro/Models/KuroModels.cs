@@ -32,6 +32,32 @@ internal sealed class KuroLauncherIndex
     /// </summary>
     [JsonPropertyName("resourcePacks")]
     public Dictionary<string, KuroResourcePack>? ResourcePacks { get; set; }
+
+    /// <summary>
+    /// 3.8+ bundle 索引的档位组合（HD/SD/UHD → resourcePacks 列表，如 ["common","hd"]）。
+    /// 旧档位索引无该字段（null）；有该字段才按 bundle 协议合并 common + 当前档位包。
+    /// </summary>
+    [JsonPropertyName("bundles")]
+    public Dictionary<string, KuroResourceBundle>? Bundles { get; set; }
+
+    /// <summary>3.8+ bundle 索引顶层运营配置（含 predownloadSwitch）；旧索引无该字段。</summary>
+    [JsonPropertyName("config")]
+    public KuroIndexConfig? Config { get; set; }
+}
+
+/// <summary>3.8+ bundle 索引顶层 config 节点（只消费预下载开关）。</summary>
+internal sealed class KuroIndexConfig
+{
+    /// <summary>预下载开关（1 开启 / 0 关闭）；null = 字段缺省。</summary>
+    [JsonPropertyName("predownloadSwitch")]
+    public int? PredownloadSwitch { get; set; }
+}
+
+/// <summary>bundle 组合：一个档位由哪些资源包组成（3.8+ 官方 HD = common + hd）。</summary>
+internal sealed class KuroResourceBundle
+{
+    [JsonPropertyName("resourcePacks")]
+    public List<string>? ResourcePacks { get; set; }
 }
 
 /// <summary>档位索引 resourcePacks 中的一个资源包（官方实测形态：与 config 节点同形的 indexFile 三件套 + 体积）。</summary>
@@ -52,6 +78,13 @@ internal sealed class KuroResourcePack
     /// <summary>该包（未压缩）总字节数；仅诊断用，落盘判定以逐文件清单为准。</summary>
     [JsonPropertyName("size")]
     public long Size { get; set; }
+
+    /// <summary>
+    /// 该包"从旧版本 → 本包 version"的差分入口（3.8+ 官方每包独立下发；旧档位索引无该字段）。
+    /// 与 <see cref="KuroResourceConfig.PatchConfig"/> 同形。
+    /// </summary>
+    [JsonPropertyName("patchConfig")]
+    public List<KuroPatchEntry>? PatchConfig { get; set; }
 }
 
 /// <summary>index.json 中 default / predownload 共用的资源块。</summary>
@@ -68,6 +101,14 @@ internal sealed class KuroResourceBlock
 
     [JsonPropertyName("config")]
     public KuroResourceConfig? Config { get; set; }
+
+    /// <summary>3.8+ 预下载块与顶层同构：resourcePacks + bundles（旧索引的 predownload 只有 config）。</summary>
+    [JsonPropertyName("resourcePacks")]
+    public Dictionary<string, KuroResourcePack>? ResourcePacks { get; set; }
+
+    /// <summary>3.8+ 预下载块的档位组合；旧索引无该字段。</summary>
+    [JsonPropertyName("bundles")]
+    public Dictionary<string, KuroResourceBundle>? Bundles { get; set; }
 }
 
 /// <summary>index.json cdnList 中的一个 CDN 节点。</summary>

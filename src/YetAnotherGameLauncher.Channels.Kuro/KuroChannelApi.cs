@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using YetAnotherGameLauncher.Channels.Kuro.Models;
 using YetAnotherGameLauncher.Core.Abstractions;
 using YetAnotherGameLauncher.Core.Models;
+using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Core.Utilities;
 
 namespace YetAnotherGameLauncher.Channels.Kuro;
@@ -26,6 +27,31 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
 
     public async Task<ChannelVersionInfo> GetVersionInfoAsync(GameServer server, CancellationToken cancellationToken = default)
     {
+        // 3.8+：官方把版本/差分/预下载迁到 bundle 索引（resourcePacks + bundles）。
+        // 版本取 common 包 version，差分入口取 common 的 patchConfig；各档位包版本在
+        // GetManifestAsync 合并时逐包校验。旧索引仅作旧版/国际服回退。
+        if (SupportsResourcePackDownload(server))
+        {
+            var bundleIndex = await FetchResourcePackIndexAsync(server, cancellationToken).ConfigureAwait(false);
+            if (IsBundleIndex(bundleIndex))
+            {
+                var common = RequireBundlePack(bundleIndex, "common");
+                var latest = RequirePackVersion(common, "common");
+                var predownload = TryGetPredownloadSource(bundleIndex);
+                var predownloadSwitch = bundleIndex.Config?.PredownloadSwitch ?? bundleIndex.PredownloadSwitch;
+                return new ChannelVersionInfo
+                {
+                    LatestVersion = latest,
+                    PatchSourceVersions = GetPatchSourceVersions(common.PatchConfig, requireIndexFile: true),
+                    PredownloadAvailable = predownload is not null && predownloadSwitch == 1,
+                    PredownloadVersion = predownload?.Version,
+                    PredownloadPatchSourceVersions = predownload is null
+                        ? []
+                        : GetPatchSourceVersions(predownload.PatchConfig, requireIndexFile: true),
+                };
+            }
+        }
+
         var index = await FetchIndexAsync(server, cancellationToken).ConfigureAwait(false);
         var block = RequireDefault(index);
 
@@ -45,8 +71,32 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
     public async Task<GameManifest> GetManifestAsync(
         GameServer server, string version, string? resourceTier = null, CancellationToken cancellationToken = default)
     {
+        var tier = SyncTier(server, resourceTier);
+
+        var bundleIndex = await TryFetchBundleIndexAsync(server, cancellationToken).ConfigureAwait(false);
+        if (bundleIndex is not null && TryGetBundleSource(bundleIndex, version) is { } bundle)
+        {
+            return await BuildBundleManifestAsync(bundle, tier, cancellationToken).ConfigureAwait(false);
+        }
+
+        return await GetLegacyManifestAsync(server, version, tier, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<GameManifest> GetLegacyManifestAsync(
+        GameServer server, string version, string tier, CancellationToken cancellationToken)
+    {
         var index = await FetchIndexAsync(server, cancellationToken).ConfigureAwait(false);
         var block = RequireDefault(index);
+        var legacyVersion = RequireVersion(block);
+        if (VersionComparison.IsNewer(version, legacyVersion))
+        {
+            // 旧索引恒返回“服务器当前版本”内容；请求更新的版本说明 bundle 索引不可用/未匹配。
+            // 绝不能把旧内容标成新版本返回（RF-E 同族：下游会按新版本校验/落盘）。
+            throw new UpdateException(
+                $"Kuro index.json serves version {legacyVersion}, so {version} cannot be built from it. " +
+                "Re-check for updates and retry.");
+        }
+
         var cdn = RequireCdn(block);
         var config = RequireConfig(block);
 
@@ -61,7 +111,6 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         // sd/uhd 才取官方档位索引：裁掉其它档位目录 + 追加目标档位包。
         // 服务器无档位索引（国际服/B 服实测 404 或用户未配）时档位归一为 hd：内容恒为官方默认
         // bundle（common + HD），档位只作启动参数（UI 侧按 SupportsResourcePackDownload 提示）。
-        var tier = SyncTier(server, resourceTier);
         var baseEntries = indexFile.Resource ?? [];
         if (tier == ResourceTiers.Hd)
         {
@@ -166,7 +215,30 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
     public async Task<GameManifest?> GetIncrementalManifestAsync(
         GameServer server, string fromVersion, string toVersion, string? resourceTier = null, CancellationToken cancellationToken = default)
     {
+        var tier = SyncTier(server, resourceTier);
+
+        var bundleIndex = await TryFetchBundleIndexAsync(server, cancellationToken).ConfigureAwait(false);
+        if (bundleIndex is not null && TryGetBundleSource(bundleIndex, toVersion) is { } bundle)
+        {
+            return await BuildBundleIncrementalManifestAsync(
+                bundle, fromVersion, tier, cancellationToken).ConfigureAwait(false);
+        }
+
+        return await GetLegacyIncrementalManifestAsync(
+            server, fromVersion, toVersion, tier, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<GameManifest?> GetLegacyIncrementalManifestAsync(
+        GameServer server, string fromVersion, string toVersion, string tier, CancellationToken cancellationToken)
+    {
         var index = await FetchIndexAsync(server, cancellationToken).ConfigureAwait(false);
+        var legacyVersion = RequireVersion(RequireDefault(index));
+        if (!IsServedByLegacy(index, toVersion) && VersionComparison.IsNewer(toVersion, legacyVersion))
+        {
+            throw new UpdateException(
+                $"Kuro index.json serves version {legacyVersion}, so an incremental manifest to {toVersion} " +
+                "cannot be built from it. Re-check for updates and retry.");
+        }
 
         // 差分入口与目标版本同块：预下载（live → predownload）的差分入口在 predownload 块的
         // patchConfig 里，常规更新（旧 live → live）在 default 块；目标版本不属于任一块时
@@ -201,8 +273,6 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
             // 窗口期内 toVersion（预下载目标版）按定义不是线上版，而 GetManifestAsync 又按线上版
             // 校验，resourcePacks[tier].version 是单值，两种口径必有一侧不成立：sd/uhd 的预下载
             // 会被无解地挡死（2026-10-23 复审阻塞项）。
-            var tier = SyncTier(server, resourceTier);
-
             var patchIndexJson = await FetchTextAsync(
                 KuroUrlBuilder.BuildFileUrl(cdn, null, patchEntry.IndexFile),
                 patchEntry.IndexFileMd5,
@@ -274,6 +344,304 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         return null;
     }
 
+    /// <summary>3.8+ bundle 协议判定：有 bundles 节点才按 common + 档位包合并；旧档位索引（只有
+    /// resourcePacks[tier]）仍走旧标准清单路径。</summary>
+    private static bool IsBundleIndex(KuroLauncherIndex index) => index.Bundles is { Count: > 0 };
+
+    /// <summary>取 bundle 索引；服务器未配、网络失败或返回旧档位索引时返回 null（调用方回退旧索引）。
+    /// 版本检测不走此缝：新索引不可达时必须报错，不能退回旧版本源谎报“已是最新”。</summary>
+    private async Task<KuroLauncherIndex?> TryFetchBundleIndexAsync(
+        GameServer server, CancellationToken cancellationToken)
+    {
+        if (!SupportsResourcePackDownload(server))
+        {
+            return null;
+        }
+
+        try
+        {
+            var index = await FetchResourcePackIndexAsync(server, cancellationToken).ConfigureAwait(false);
+            return IsBundleIndex(index) ? index : null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger?.LogDebug(ex, "Kuro bundle index unavailable; falling back to the legacy index.");
+            return null;
+        }
+    }
+
+    /// <summary>bundle 索引中的一组包：formal 或 predownload；CdnList 对 predownload 用外层回退。</summary>
+    private sealed record BundleSource(
+        Dictionary<string, KuroResourcePack> Packs,
+        Dictionary<string, KuroResourceBundle> Bundles,
+        IReadOnlyList<KuroCdnNode> CdnList,
+        string Version);
+
+    /// <summary>按目标版本选 formal 或 predownload 包组；两者都不匹配返回 null（回退旧索引）。</summary>
+    private static BundleSource? TryGetBundleSource(KuroLauncherIndex index, string version)
+    {
+        if (index.ResourcePacks is { } packs
+            && GetPack(packs, "common") is { Version: { Length: > 0 } commonVersion }
+            && VersionsMatch(commonVersion, version))
+        {
+            return new BundleSource(
+                packs,
+                index.Bundles ?? new Dictionary<string, KuroResourceBundle>(),
+                index.CdnList,
+                commonVersion);
+        }
+
+        var predownload = index.Predownload;
+        if (predownload?.ResourcePacks is { } prePacks
+            && GetPack(prePacks, "common") is { Version: { Length: > 0 } preVersion }
+            && VersionsMatch(preVersion, version))
+        {
+            var cdn = predownload.CdnList.Count > 0 ? predownload.CdnList : index.CdnList;
+            return new BundleSource(
+                prePacks,
+                predownload.Bundles ?? new Dictionary<string, KuroResourceBundle>(),
+                cdn,
+                preVersion);
+        }
+
+        return null;
+    }
+
+    /// <summary>包名大小写不敏感查找（官方当前全小写；防协议形态漂移）。</summary>
+    private static KuroResourcePack? GetPack(Dictionary<string, KuroResourcePack> packs, string name)
+    {
+        if (packs.TryGetValue(name, out var exact))
+        {
+            return exact;
+        }
+
+        foreach (var (key, value) in packs)
+        {
+            if (string.Equals(key, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    private static KuroResourcePack RequireBundlePack(KuroLauncherIndex index, string name) =>
+        (index.ResourcePacks is { } packs ? GetPack(packs, name) : null)
+        ?? throw new UpdateException($"Kuro bundle index has no \"{name}\" resource pack.");
+
+    private static string RequirePackVersion(KuroResourcePack pack, string name) =>
+        !string.IsNullOrWhiteSpace(pack.Version)
+            ? pack.Version
+            : throw new UpdateException($"Kuro bundle index \"{name}\" resource pack has no version.");
+
+    private sealed record PredownloadSource(string Version, IReadOnlyList<KuroPatchEntry>? PatchConfig);
+
+    /// <summary>预下载目标：新索引为同构 resourcePacks.common，旧索引为 predownload.config。
+    /// 结构缺失/版本空白返回 null（隐藏预下载提示，不影响正式更新）。</summary>
+    private static PredownloadSource? TryGetPredownloadSource(KuroLauncherIndex index)
+    {
+        var predownload = index.Predownload;
+        if (predownload is null)
+        {
+            return null;
+        }
+
+        if (predownload.ResourcePacks is { } packs
+            && GetPack(packs, "common") is { Version: { Length: > 0 } newVersion } common)
+        {
+            return new PredownloadSource(newVersion, common.PatchConfig);
+        }
+
+        return predownload.Config is { Version: { Length: > 0 } legacyVersion } legacy
+            ? new PredownloadSource(legacyVersion, legacy.PatchConfig)
+            : null;
+    }
+
+    /// <summary>bundle 的包列表（官方 HD = ["common","hd"]）；缺 common/当前档位即拒收。</summary>
+    private static IReadOnlyList<string> GetBundlePackNames(BundleSource source, string tier)
+    {
+        var bundleName = tier.ToUpperInvariant();
+        if (!source.Bundles.TryGetValue(bundleName, out var bundle)
+            || bundle.ResourcePacks is not { Count: > 0 })
+        {
+            throw new UpdateException($"Kuro bundle index has no \"{bundleName}\" bundle.");
+        }
+
+        var names = bundle.ResourcePacks
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Select(n => n.ToLowerInvariant())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (!names.Contains("common", StringComparer.Ordinal))
+        {
+            throw new UpdateException($"Kuro \"{bundleName}\" bundle does not include the common pack.");
+        }
+
+        if (!names.Contains(tier, StringComparer.Ordinal))
+        {
+            throw new UpdateException($"Kuro \"{bundleName}\" bundle does not include the \"{tier}\" pack.");
+        }
+
+        return names;
+    }
+
+    /// <summary>全量清单 = bundle 内各包 full indexFile 的并集；URL 按各包 baseUrl 拼接。
+    /// 3.8+ 档位包/ common 包都含 Client/Saved/Resources/&lt;目标版本&gt;/ 可选包，边界按版本精确放行。</summary>
+    private async Task<GameManifest> BuildBundleManifestAsync(
+        BundleSource source, string tier, CancellationToken cancellationToken)
+    {
+        var cdn = KuroCdnSelector.SelectCdn(source.CdnList)
+                  ?? throw new UpdateException("Kuro bundle index cdnList has no usable node (K1/K2).");
+        var packNames = GetBundlePackNames(source, tier);
+        var files = new List<ManifestFile>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var name in packNames)
+        {
+            var pack = GetPack(source.Packs, name)
+                       ?? throw new UpdateException($"Kuro bundle index has no \"{name}\" resource pack.");
+            EnsurePackVersion(pack, name, source.Version);
+
+            var packIndex = await FetchPackIndexFileAsync(pack, cdn, name, cancellationToken).ConfigureAwait(false);
+            foreach (var file in ToManifestFiles(packIndex.Resource ?? [], cdn, pack.BaseUrl))
+            {
+                if (seen.Add(file.Path.Replace('\\', '/')))
+                {
+                    files.Add(file);
+                }
+            }
+        }
+
+        EnsureNonEmptyFullManifest("bundle manifest", files.Count);
+        var manifest = new GameManifest
+        {
+            Version = source.Version,
+            Files = files,
+            Groups = [],
+            ResourceTier = tier,
+            PreservedPaths = PreservedTierDirs(tier),
+        };
+        ManifestBoundary.ValidateManifest(manifest, $"Kuro {tier} bundle manifest", source.Version);
+        return manifest;
+    }
+
+    /// <summary>增量清单 = bundle 内各包 patchConfig[fromVersion] 的并集：
+    /// 直下文件按各包 fromFolder/patch baseUrl 拼 URL，差分组按各包 patch baseUrl 拼 URL，
+    /// deleteFiles 按包归属过滤（common 不删档位、档位包不删其它档）。
+    /// common 无匹配补丁 → null（走全量）；档位包无匹配补丁 → 只应用 common + 全量修复轮补档。</summary>
+    private async Task<GameManifest?> BuildBundleIncrementalManifestAsync(
+        BundleSource source, string fromVersion, string tier, CancellationToken cancellationToken)
+    {
+        var cdn = KuroCdnSelector.SelectCdn(source.CdnList)
+                  ?? throw new UpdateException("Kuro bundle index cdnList has no usable node (K1/K2).");
+        var packNames = GetBundlePackNames(source, tier);
+        var files = new List<ManifestFile>();
+        var groups = new List<PatchGroup>();
+        var deleteFiles = new List<string>();
+        var seenFiles = new HashSet<string>(StringComparer.Ordinal);
+        var seenGroups = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seenDeletes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var name in packNames)
+        {
+            var pack = GetPack(source.Packs, name)
+                       ?? throw new UpdateException($"Kuro bundle index has no \"{name}\" resource pack.");
+            EnsurePackVersion(pack, name, source.Version);
+
+            var patch = pack.PatchConfig?.FirstOrDefault(
+                p => string.Equals(p.Version, fromVersion, StringComparison.Ordinal));
+            if (patch is null || string.IsNullOrWhiteSpace(patch.IndexFile))
+            {
+                if (string.Equals(name, "common", StringComparison.OrdinalIgnoreCase))
+                {
+                    return null;
+                }
+
+                logger?.LogWarning(
+                    "Kuro bundle pack \"{Pack}\" has no {From} -> {To} patch; " +
+                    "the post-update full repair will fill the tier content.",
+                    name, fromVersion, source.Version);
+                continue;
+            }
+
+            var patchJson = await FetchTextWithContextAsync(
+                KuroUrlBuilder.BuildFileUrl(cdn, null, patch.IndexFile), patch.IndexFileMd5,
+                $"the \"{name}\" bundle patch index", cancellationToken).ConfigureAwait(false);
+            var patchIndex = ParseJson<KuroIndexFile>(patchJson, $"\"{name}\" bundle patch indexFile.json");
+
+            var directResources = (patchIndex.Resource ?? [])
+                .Where(r => !IsDiffResource(r.Dest))
+                .ToList();
+            var folder = FirstFromFolder(directResources)
+                         ?? patch.BaseUrl
+                         ?? pack.BaseUrl;
+            foreach (var file in ToManifestFiles(directResources, cdn, folder))
+            {
+                if (seenFiles.Add(file.Path.Replace('\\', '/')))
+                {
+                    files.Add(file);
+                }
+            }
+
+            foreach (var group in ToGroups(
+                         patchIndex.GroupInfos, cdn, patch.BaseUrl, pack.BaseUrl, null, patchIndex.Resource))
+            {
+                if (seenGroups.Add(group.PatchFile))
+                {
+                    groups.Add(group);
+                }
+            }
+
+            foreach (var path in patchIndex.DeleteFiles ?? [])
+            {
+                if (ShouldKeepBundleDeleteFile(name, tier, path) && seenDeletes.Add(path))
+                {
+                    deleteFiles.Add(path);
+                }
+            }
+        }
+
+        var manifest = new GameManifest
+        {
+            Version = source.Version,
+            Files = files,
+            Groups = groups,
+            DeleteFiles = deleteFiles,
+            ResourceTier = tier,
+            PreservedPaths = PreservedTierDirs(tier),
+        };
+        ManifestBoundary.ValidateManifest(manifest, $"Kuro {tier} bundle incremental manifest", source.Version);
+        return manifest;
+    }
+
+    /// <summary>废弃清单按包归属过滤：common 不点名档位目录；档位包只点名当前档位；
+    /// 所有 Reserved 路径（含 Client/Saved）一律保留。</summary>
+    private static bool ShouldKeepBundleDeleteFile(string packName, string tier, string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || ManifestBoundary.IsReservedPath(path))
+        {
+            return false;
+        }
+
+        return string.Equals(packName, "common", StringComparison.OrdinalIgnoreCase)
+            ? !ResourceTiers.All.Any(t => IsInTierDirectory(path, t))
+            : IsInTierDirectory(path, tier);
+    }
+
+    /// <summary>目标版本是否由旧索引正式版/预下载块服务（用于“新索引不可用时不得把旧内容标成新版本”守卫）。</summary>
+    private static bool IsServedByLegacy(KuroLauncherIndex index, string version)
+    {
+        var defaultBlock = RequireDefault(index);
+        if (VersionsMatch(RequireVersion(defaultBlock), version))
+        {
+            return true;
+        }
+
+        var predownloadVersion = index.Predownload?.Config?.Version;
+        return predownloadVersion is not null && VersionsMatch(predownloadVersion, version);
+    }
+
     private async Task<KuroLauncherIndex> FetchIndexAsync(GameServer server, CancellationToken cancellationToken)
     {
         if (!server.Options.TryGetValue(IndexUrlOptionKey, out var indexUrl) || string.IsNullOrWhiteSpace(indexUrl))
@@ -328,7 +696,7 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         }
 
         var packIndex = await FetchResourcePackIndexAsync(server, cancellationToken).ConfigureAwait(false);
-        if (packIndex.ResourcePacks?.GetValueOrDefault(tier) is not { } pack)
+        if (packIndex.ResourcePacks is not { } packs || GetPack(packs, tier) is not { } pack)
         {
             return null;
         }
@@ -337,9 +705,13 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
         var packIndexFile = await FetchPackIndexFileAsync(pack, packCdn, tier, cancellationToken).ConfigureAwait(false);
         var files = ToManifestFiles(packIndexFile.Resource ?? [], packCdn, pack.BaseUrl);
         // 清理/测量同样只信"条目在目标档目录下"：混入别的档位会被算成本档体积，甚至被清理误删。
+        // 3.8+ 档位包还带 Client/Saved/Resources/<版本>/ 可选包：按本包版本精确放行边界校验，
+        // 但 ResourcePackManifest 的单目录不变量不放宽——只返回 Client/Content/<TIER>/ 条目
+        // （Saved/Resources 由主清单下载/保留，清理入口暂不越界删除）。
         ManifestBoundary.ValidatePackFiles(
-            PackDirectoryFor(tier), files, $"Kuro \"{tier}\" resource pack manifest");
-        return new ResourcePackManifest(tier, PackDirectoryFor(tier), pack.Version ?? "", files);
+            PackDirectoryFor(tier), files, $"Kuro \"{tier}\" resource pack manifest", pack.Version);
+        var contentFiles = files.Where(f => IsInTierDirectory(f.Path, tier)).ToList();
+        return new ResourcePackManifest(tier, PackDirectoryFor(tier), pack.Version ?? "", contentFiles);
     }
 
     /// <summary>本次同步实际落盘的档位：支持档位索引的服务器取配置档（未设置 = hd）；
@@ -487,13 +859,18 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
     private static string? FirstFromFolder(IEnumerable<KuroResourceEntry> entries) =>
         entries.Select(entry => entry.FromFolder).FirstOrDefault(folder => !string.IsNullOrWhiteSpace(folder));
 
-    private static IReadOnlyList<string> GetPatchSourceVersions(KuroResourceConfig? config) =>
-        config?.PatchConfig is null
+    private static IReadOnlyList<string> GetPatchSourceVersions(
+        KuroResourceConfig? config, bool requireIndexFile = false) =>
+        GetPatchSourceVersions(config?.PatchConfig, requireIndexFile);
+
+    private static IReadOnlyList<string> GetPatchSourceVersions(
+        IReadOnlyList<KuroPatchEntry>? patchConfig, bool requireIndexFile = false) =>
+        patchConfig is null
             ? []
-            : [.. config.PatchConfig
-                .Select(p => p.Version)
-                .Where(v => !string.IsNullOrEmpty(v))
-                .Select(v => v!)];
+            : [.. patchConfig
+                .Where(p => !string.IsNullOrEmpty(p.Version))
+                .Where(p => !requireIndexFile || !string.IsNullOrWhiteSpace(p.IndexFile))
+                .Select(p => p.Version!)];
 
     private static KuroResourceBlock RequireDefault(KuroLauncherIndex index) =>
         index.Default ?? throw new UpdateException("Kuro index.json has no default resource block.");

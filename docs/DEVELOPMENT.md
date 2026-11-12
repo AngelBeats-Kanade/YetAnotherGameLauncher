@@ -72,14 +72,18 @@ src/
                     + AES-CTR + HMAC 校验，.NET zip 库不支持 AE-x；含流式解密 `TryCopyDecrypted`）、
                     LaunchOptionsText（自定义启动选项文本/参数解析与序列化：Steam 启动选项风格 shell 词法 + %command% 切分，严格/宽松解析与环境/参数序列化）、
                     ManifestBoundary（清单边界校验，2026-10-23，当前由库洛渠道构造清单时调用——官方清单是不可信输入：
-                    拒绝逃逸/绝对路径、清单**禁写**路径（`.yagl/`、`Saved/`、`launcherDownloadConfig.json`、
-                    `launcherDownloadConfig/`、`compatdata/`）、文件与目录同名冲突、畸形 MD5/负尺寸（空校验字段沿用
-                    ManifestVerifier "未提供"语义）、段尾点/尾空格（Windows 归一后 `Saved.` 即 `Saved/`）；空白/重复条目
-                    按 F42 家族跳过而非拒收（重复 dest 在 ToManifestFiles 先登记者胜去重）。档位包条目必须全在目标档目录下。
+                    拒绝逃逸/绝对路径、清单**禁写**路径（`.yagl/`、根级 `Saved/`、`Client/Saved/`（仅放行
+                    `Client/Saved/Resources/<目标版本>/`）、`launcherDownloadConfig.json`、`launcherDownloadConfig/`、
+                    `compatdata/`）、文件与目录同名冲突、畸形 MD5/负尺寸（空校验字段沿用 ManifestVerifier "未提供"语义）、
+                    段尾点/尾空格（Windows 归一后 `Saved.` 即 `Saved/`）；空白/重复条目按 F42 家族跳过而非拒收
+                    （重复 dest 在 ToManifestFiles 先登记者胜去重）。档位包条目必须全在目标档目录下；
+                    3.8 bundle 的 full/patch 清单额外放行 `Client/Saved/Resources/<目标版本>/`。
                     注意"禁写"≠ GameInstallService.PreservedEntries 的"清理保留"：launcherDownloadConfig/ 只禁写、清理仍删
-                    （用户决定不兼容官方启动器）。`IsReservedPath` 另供增量 deleteFiles 的消费端守卫共用，判定按落地语义归一）
+                    （用户决定不兼容官方启动器）；`Client/Saved/` 则整段列入收尾清理保留（3.8 清单只点名 Resources 子目录，
+                    不保留会删 SaveGames/Logs/Config）。`IsReservedPath` 另供增量 deleteFiles 的消费端守卫共用，判定按落地语义归一）
   YetAnotherGameLauncher.Channels.Kuro/         # 库洛渠道（鸣潮）
-    KuroChannelApi（index.json/indexFile 解析、CDN 选择、URL 拼接）
+    KuroChannelApi（旧 index.json + 3.8 bundle 索引（resourcePacks/bundles/同构 predownload）解析、
+                    版本检测与 common + 档位包全量/增量合并、CDN 选择、URL 拼接）
     KuroUrlBuilder（含同文件的 KuroCdnSelector：CDN 节点优先级选择）、HpatchzApplier（HDiffPatch 目录模式 + IFilePatchApplier 单文件模式（终末地 v2 载荷）；HpatchzApplierOptions 配置路径/超时）、HpatchzProvisioner（hpatchz 自动供给：PATH 无自备时下载社区验证构建 hpatchz.exe 到应用数据目录并 MD5 实测校验；Linux 经 wine 运行（独立 WINEPREFIX），Windows 原生直跑）
     KuroSwitchConfigClient（官方运营配置直连：launcher-config → 背景内容两跳）、KuroSwitchConfig（背景投放 DTO）、KuroBackdropResolver（背景解析：运营配置直连，视频 + 首帧图单级回退）
     KuroGachaService（唤取记录：日志地址提取 → 官方接口 → 本地合并缓存）、KuroServiceCollectionExtensions（AddKuroChannel）、Models/（协议 DTO）

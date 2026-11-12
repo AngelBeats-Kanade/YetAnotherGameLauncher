@@ -29,6 +29,13 @@
 ## 2. 文件系统与跨平台
 
 - **Windows 占用/只读语义是跨平台更新的头号杀手**（Linux `rename()`/`unlink()` 总能成功，问题只在 Windows 暴露）：被占用或只读的文件会让 `File.Move(overwrite:true)` 抛 IOException/UnauthorizedAccessException、让 `Directory.Delete(recursive:true)` 整体抛异常。统一防线：原子写 `FileUtilities.WriteAtomicAsync`（解除只读+重试一次，任一环失败清理 .tmp 不残留——F68）、目录树 `FileUtilities.TryDeleteDirectory`（能删多少删多少）、下载落盘 `HttpFileDownloader.ReplaceDestination`（单独分类报"目标被占用"，绝不落进网络错误重试——重下多少遍都不会好；.temp 建流/写入/冲刷三处同款折算 F65）、背景落盘 `GameBackdropService` 换时间戳备用名。新增删除/覆盖代码先想这层。**同族新形态（2026-10-19 CI 双腿实锤）**：进程自己持有的普通读句柄也算占用——`FileStream` 未带 `FILE_SHARE_DELETE`（`FileShare.Read` 即不含）时，删除其所在目录树必须先释放该流（`using var` 作用域晚于删除动作即踩；Linux 的 unlink 语义让 Linux 腿对此恒绿，只有 Windows 腿会红——`DeltaPackageApplier` 载荷清理，2026-10-19 修：删除前显式 `Dispose`）。
+- **UE 的 `Client/Saved/` 不是根级 `Saved/`，清单清理必须单独保留**（2026-11-12，3.8 更新前实锤）：
+  `ManifestBoundary` 原来只禁写根级 `Saved/`，`CleanupStaleFiles` 也只保留根级 `Saved`；3.7.1 清单
+  没有任何 `Client/Saved` 条目，3.8 全量清单只点名 `Client/Saved/Resources/3.8.0/...`，其余
+  SaveGames/Logs/Config 都在清单外。跨版本修复走到 `SyncAsync` 收尾清理时，按旧逻辑会把它们
+  当游离文件删除（3.7.1 那次因清单已完整提前返回，未触发；3.8 因新增可选包必然触发）。修复 =
+  边界把 `Client/Saved/` 列为禁写、仅放行 `Client/Saved/Resources/<目标版本>/`（版本段必须是单一
+  安全路径段），清理整段跳过 `Client/Saved/`。不要用"清单里没写 = 可删"判断存档目录。
 - **Windows 对路径分量做"尾点/尾空格"归一，跨平台文件名比较必须先把这层算进去**（2026-10-26）：`Saved.` 与 `Saved ` 在 Win32 落盘时都变成 `Saved`、`foo.pak.` 变成 `foo.pak`、`...` 直接无效。用裸字符串做"保留目录/重复路径/名单匹配"会被 `Saved./x`、`x/pak.` 这类写法绕过（Linux 上它们是不同名字，测试全绿也发现不了）。`ManifestBoundary.NormalizeRelativePath` 对带尾点/尾空格的段直接拒收，`CanonicalizeWithinRoot`/`IsReservedPath` 按 Win32 口径逐段归一再判定；新增"按清单路径做删除/覆盖/保留"的代码必须先归一。
 - **`ZipFile.ExtractToDirectory` 在 Unix 把含 `\` 的 zip 条目名当字面文件名**（dotnet/runtime#98247，未修复）：Windows 打包器产出的包会在 Linux 解成安装根目录下的平铺垃圾文件，且"更新成功"。凡解包不可信外部 zip 必须手动遍历 `ZipArchive` 归一条目名（`PackageInstallerService.ExtractArchive`，顺带做 `..`/盘符穿越校验）。
 - **切 PATH 必须用 `Path.PathSeparator`，不能硬编码 `':'`**：Windows 上盘符 `C:` 会被切开，`SearchPath`/`FindOnPath` 返回缺盘符的相对根路径（CI Windows 腿红过）。同理，`GameLauncherService.ValidateCommand` 仅在 `pathValue is null && Windows` 时跳过裸命令预检——测试注入 `pathValue:""` 必须仍走 PATH 扫描，否则预检/错误覆盖层用例在 Windows 上会假绿成「已启动」。
@@ -129,4 +136,12 @@
 
 ## 4. 研究与取证
 
+- **鸣潮 3.8 旧 `index.json` 停更，bundle 索引才是版本/差分/预下载来源**（2026-11-12 端点实测）：
+  旧 `.../launcher/game/G152/10003_Y8x.../index.json` 主 CDN 与备用 `prod-volcdn-...xyz` 都停在
+  3.7.1（last-modified 2026-10-16，CDN age ~27 天），且 `patchConfig` 止于 3.7.0；3.8.0 的
+  `resourcePacks` + `bundles` + 同构 `predownload` 只在 `.../10003_oLNg.../G152/official/index.json`
+  （last-modified 2026-11-11）。不要把"旧索引没更新"当成官方还没发版，也不要在 bundle 不可用/
+  不匹配时把旧索引内容标成请求的新版本（`GetManifestAsync` 已加版本守卫）。新 `predownload` 不是旧
+  `predownload.config`，而是与顶层同构的 `resourcePacks` + `bundles`（复用外层 `cdnList`）；
+  3.8.0 全量清单的 common 与每个档位包各带 26 个 `Client/Saved/Resources/3.8.0/` 文件。
 - **协议/格式的行为结论只认一手源码，二手摘要必须标注未核实**（F24 两连错实锤）：WebSearch 摘要给的 Valve KeyValues 转义表是错的，拉 `tier1/utlbuffer.cpp` raw 源码实证的真表与之不符（未知转义 = NUL+保留后续字符）。解析器/协议逆向类结论：摘要 → 源码溯源是硬门槛；注释里引用外部行为必须写明出处层级（"源码实证" vs "摘要未核"）。

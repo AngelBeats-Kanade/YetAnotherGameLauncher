@@ -7,7 +7,7 @@ namespace YetAnotherGameLauncher.Core.Utilities;
 /// <summary>
 /// 清单边界校验（2026-10-23）：官方清单是不可信输入，落盘前拒绝越界/禁写路径、
 /// 文件与目录冲突、非法 MD5/尺寸。目前由库洛渠道在构造全量/增量/档位包清单时调用；
-/// 消费端另有 <see cref="IsReservedPath"/> 作为废弃清单的纵深守卫。
+/// 消费端另有 <see cref="IsReservedPath(string?)"/> 作为废弃清单的纵深守卫。
 /// </summary>
 /// <remarks>
 /// 两类"名单"语义不同，勿混：
@@ -18,7 +18,7 @@ namespace YetAnotherGameLauncher.Core.Utilities;
 /// <b>同步收尾清理保留</b>——本启动器自己的清理策略。</item>
 /// </list>
 /// 两者有意不等：<c>launcherDownloadConfig</c>（官方启动器状态目录）对清单**只禁写/禁删**
-/// （<see cref="IsReservedPath"/> 让 <c>deleteFiles</c> 也跳过它）、**不**列入清理保留，
+/// （<see cref="IsReservedPath(string?)"/> 让 <c>deleteFiles</c> 也跳过它）、**不**列入清理保留，
 /// 因为"清理策略保持现状、不兼容官方启动器"是 2026-10-23 的用户决定；混用官方启动器时该目录内容
 /// 仍可能被同步收尾当游离文件删除，属已接受代价，不是缺陷。
 /// </remarks>
@@ -31,8 +31,20 @@ public static class ManifestBoundary
     public const string ReservedFile = "launcherDownloadConfig.json";
 
     /// <summary>
+    /// 游戏运行时存档/日志/设置目录（相对安装目录根）。3.8+ 清单只允许写
+    /// <c>Client/Saved/Resources/&lt;版本&gt;/</c> 这一官方可选包子目录，其余路径一律禁写；
+    /// 同步收尾清理也必须整段保留（存档/日志/设置在清单之外）。
+    /// </summary>
+    public const string ClientSavedDirectory = "Client/Saved";
+
+    /// <summary>3.8+ 官方版本化可选包目录（<c>Client/Saved/Resources/&lt;版本&gt;/</c>）。</summary>
+    private const string ClientSavedResourcesPrefix = "Client/Saved/Resources/";
+
+    /// <summary>
     /// 不允许被清单写入/删除的目录（相对安装目录根）。清理保留表（GameInstallService.PreservedEntries）
     /// 由本表派生但<b>排除</b> <see cref="LauncherDownloadConfigDirectory"/>，见类注释的语义差异。
+    /// <see cref="ClientSavedDirectory"/> 是嵌套路径，单独在 <see cref="IsReservedPath(string?, string?)"/>
+    /// 中判定，不放进本表（本表的判定只看首段）。
     /// </summary>
     public static readonly IReadOnlyList<string> ReservedDirectories =
         [LocalStateService.StateDirName, "Saved", LauncherDownloadConfigDirectory, "compatdata"];
@@ -47,7 +59,10 @@ public static class ManifestBoundary
     /// <c>foo/../Saved/x</c> 会绕过守卫而 <c>ResolveSafe</c> 仍落进 <c>Saved/</c>（2026-10-26 复审）。
     /// 逃出安装目录根的形态返回 false——那由 <c>ResolveSafe</c> 以 "escapes sandbox" 拒收。
     /// </remarks>
-    public static bool IsReservedPath(string? path)
+    public static bool IsReservedPath(string? path) => IsReservedPath(path, null);
+
+    /// <summary>带版本化可选包白名单的禁写判定（放行 Client/Saved/Resources/&lt;版本&gt;/ 下的官方包）。</summary>
+    public static bool IsReservedPath(string? path, string? allowedSavedResourcesVersion)
     {
         if (string.IsNullOrWhiteSpace(path))
         {
@@ -60,6 +75,11 @@ public static class ManifestBoundary
             return false;
         }
 
+        if (IsClientSavedPath(canonical))
+        {
+            return !IsAllowedSavedResourcesPath(canonical, allowedSavedResourcesVersion);
+        }
+
         var firstSlash = canonical.IndexOf('/');
         var firstSegment = firstSlash < 0 ? canonical : canonical[..firstSlash];
         if (string.Equals(firstSegment, ReservedFile, StringComparison.OrdinalIgnoreCase))
@@ -70,21 +90,60 @@ public static class ManifestBoundary
         return ReservedDirectories.Contains(firstSegment, StringComparer.OrdinalIgnoreCase);
     }
 
+    /// <summary>路径是否落在 UE 的 <c>Client/Saved/</c> 之下（含目录本身）。</summary>
+    public static bool IsClientSavedPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        var canonical = CanonicalizeWithinRoot(path) ?? path.Replace('\\', '/');
+        return canonical.Equals(ClientSavedDirectory, StringComparison.OrdinalIgnoreCase)
+               || canonical.StartsWith(ClientSavedDirectory + "/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>精确放行 <c>Client/Saved/Resources/&lt;目标版本&gt;/</c> 下的文件（版本段必须是单一路径段）。</summary>
+    private static bool IsAllowedSavedResourcesPath(string canonical, string? allowedVersion)
+    {
+        if (!IsSafeSavedResourcesVersion(allowedVersion))
+        {
+            return false;
+        }
+
+        var prefix = $"{ClientSavedResourcesPrefix}{allowedVersion}/";
+        return canonical.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+               && canonical.Length > prefix.Length;
+    }
+
+    /// <summary>版本段必须可安全拼进路径前缀：非空、无分隔符/盘符、非 . / ..、无尾点/尾空格。</summary>
+    private static bool IsSafeSavedResourcesVersion(string? version) =>
+        !string.IsNullOrWhiteSpace(version)
+        && version.Trim().Length == version.Length
+        && version.IndexOfAny(['/', '\\', ':', '\0']) < 0
+        && version is not "." and not ".."
+        && version[^1] is not ('.' or ' ');
+
     /// <summary>
     /// 校验全量/增量清单：文件与组路径、MD5、尺寸、文件/目录冲突、禁写路径。
     /// 不安全条目一律抛 <see cref="UpdateException"/>（带来源，便于定位渠道）；
     /// 空白/重复条目按 F42 家族语义跳过（见各私有方法注释）。
     /// </summary>
-    public static void ValidateManifest(GameManifest manifest, string source)
+    public static void ValidateManifest(
+        GameManifest manifest, string source, string? allowedSavedResourcesVersion = null)
     {
-        ValidateFiles(manifest.Files, source, "file");
-        ValidateGroups(manifest.Groups, source);
+        ValidateFiles(manifest.Files, source, "file", allowedSavedResourcesVersion);
+        ValidateGroups(manifest.Groups, source, allowedSavedResourcesVersion);
         ValidateDeleteFiles(manifest.DeleteFiles, source);
     }
 
-    /// <summary>校验档位包条目：必须全部落在该档位目录之下，且满足文件条目校验规则。</summary>
+    /// <summary>校验档位包条目：必须全部落在该档位目录（或本版本 Saved/Resources 可选包目录）之下，
+    /// 且满足文件条目校验规则。</summary>
     public static void ValidatePackFiles(
-        string packDirectory, IReadOnlyList<ManifestFile> files, string source)
+        string packDirectory,
+        IReadOnlyList<ManifestFile> files,
+        string source,
+        string? allowedSavedResourcesVersion = null)
     {
         var directory = NormalizeRelativePath(packDirectory, source, "pack directory").TrimEnd('/') + "/";
         foreach (var file in files)
@@ -95,7 +154,8 @@ public static class ManifestBoundary
             }
 
             var path = NormalizeRelativePath(file.Path, source, "pack file");
-            if (!path.StartsWith(directory, StringComparison.OrdinalIgnoreCase))
+            if (!path.StartsWith(directory, StringComparison.OrdinalIgnoreCase)
+                && !IsAllowedSavedResourcesPath(path, allowedSavedResourcesVersion))
             {
                 throw new UpdateException(
                     $"{source}: pack file lies outside {packDirectory}: {file.Path}");
@@ -106,7 +166,7 @@ public static class ManifestBoundary
     }
 
     private static void ValidateFiles(
-        IReadOnlyList<ManifestFile> files, string source, string kind)
+        IReadOnlyList<ManifestFile> files, string source, string kind, string? allowedSavedResourcesVersion)
     {
         // 空白/重复条目跳过而非拒收：与 BuildResourceByDest/ToManifestFiles 的既有决定一致
         //（"清单不可信，F42 同族——单条畸形/冗余不得炸清单获取"）。重复 dest 在**单次**
@@ -122,7 +182,7 @@ public static class ManifestBoundary
             }
 
             var path = NormalizeRelativePath(file.Path, source, kind);
-            if (IsReservedPath(path))
+            if (IsReservedPath(path, allowedSavedResourcesVersion))
             {
                 throw new UpdateException($"{source}: {kind} writes reserved path: {file.Path}");
             }
@@ -150,7 +210,8 @@ public static class ManifestBoundary
         }
     }
 
-    private static void ValidateGroups(IReadOnlyList<PatchGroup> groups, string source)
+    private static void ValidateGroups(
+        IReadOnlyList<PatchGroup> groups, string source, string? allowedSavedResourcesVersion)
     {
         // 组的 PatchFile 是结构字段（渠道已滤掉空白 dest）：空白仍拒收当构造错误兜底；
         // 同名 PatchFile 则是真冲突——两个组下载同一个补丁文件到同一暂存路径，后到者覆盖先到者，
@@ -174,8 +235,8 @@ public static class ManifestBoundary
                 throw new UpdateException($"{source}: invalid patch MD5 for {group.PatchFile}");
             }
 
-            ValidateFiles(group.SrcFiles, source, "group source");
-            ValidateFiles(group.DstFiles, source, "group destination");
+            ValidateFiles(group.SrcFiles, source, "group source", allowedSavedResourcesVersion);
+            ValidateFiles(group.DstFiles, source, "group destination", allowedSavedResourcesVersion);
         }
     }
 

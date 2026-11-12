@@ -1440,6 +1440,39 @@ const MUTATIONS = [
     dll: 'tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll',
     method: 'YetAnotherGameLauncher.UiTests.DetailActionDockHeadlessTests.LaunchedGame_DisablesLaunchButton_AndShowsLaunchedText',
   },
+  {
+    // 2026-11-12 3.8 更新前 P0：收尾清理必须整段保留 UE 的 Client/Saved（3.8 清单只点名
+    // Resources 子目录，SaveGames/Logs/Config 在清单外）；去掉守卫后存档被当游离文件删除。
+    id: 'M142-client-saved-cleanup-preserved',
+    file: 'src/YetAnotherGameLauncher.Core/Services/GameInstallService.cs',
+    find: '            if (ManifestBoundary.IsClientSavedPath(relative))',
+    replace: '            if (false && ManifestBoundary.IsClientSavedPath(relative))',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.GameInstallServiceTests.SyncAsync_CleansStaleFilesButPreservesClientSaved',
+  },
+  {
+    // 2026-11-12 3.8 边界：Client/Saved 非 Resources 路径必须仍禁写；去掉嵌套判定后
+    // SaveGames 可被清单覆盖/删除。
+    id: 'M143-client-saved-boundary-reserved',
+    file: 'src/YetAnotherGameLauncher.Core/Utilities/ManifestBoundary.cs',
+    find: '        if (IsClientSavedPath(canonical))',
+    replace: '        if (false && IsClientSavedPath(canonical))',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Utilities.ManifestBoundaryTests.ValidateManifest_ClientSavedOtherPaths_RemainReservedEvenWithAllowlist',
+  },
+  {
+    // 2026-11-12 3.8 旧索引守卫：bundle 不可用时不能把旧 3.7.1 内容标成请求的 3.8.0；
+    // 去掉版本守卫后 GetManifestAsync 会返回错误标签的旧清单。
+    id: 'M144-kuro-legacy-mislabel-guard',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
+    find: '        if (VersionComparison.IsNewer(version, legacyVersion))',
+    replace: '        if (false)',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroBundleIndexTests.GetManifest_NewerVersionWithoutBundle_FallsBackToLegacyAndRejectsMislabelling',
+  },
 ];
 
 function run(cmd, args) {

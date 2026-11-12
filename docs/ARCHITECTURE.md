@@ -796,34 +796,44 @@ winetricks 原生 DLL 来源）。当前内置两项：`cjk-fonts`（思源黑�
   Wayland 是 no-op（#21943，xdg-activation 未实现）——唤回窗口不保证抢到焦点。菜单文案
   取构造时刻语言，运行中切换语言不回填（重启生效）。
 
-### 3.11 档位资源包与续传标记（2026-10-19）
+### 3.11 档位资源包、3.8 bundle 索引与续传标记（2026-10-19，2026-11-12 更新）
 
-**档位资源包（鸣潮）**：官方档位索引（`resourcePacks`，服务器选项 `resourcePackIndexUrl`）把游戏内容
-分成 `common` 与 `hd`/`sd`/`uhd` 四个包（每档 100 个文件，位于 `Client/Content/{HD,SD,UHD}/`）。
-渠道层（`KuroChannelApi`）按"生效档"构建清单：
+**3.8+ bundle 索引（2026-11-12 端点实测）**：官方旧 `indexUrl` 在 3.7.1 后停更（主/备 CDN 均停在
+10-16），3.8.0 的版本/全量/差分/预下载只发布在服务器选项 `resourcePackIndexUrl` 的 bundle 索引
+（`resourcePacks` + `bundles` + 同构 `predownload`）。`KuroChannelApi` 对配置了该索引的服务器：
 
-- `GetManifestAsync(tier)`：`hd`/未设置走标准 `indexUrl` 清单（官方档位索引的 hd 包与标准清单 HD 条目
-  逐字节一致，2026-10-19 逐条对照实测，故不额外联网）；`sd`/`uhd` 取档位索引 → 裁掉**所有**档位目录
-  的条目与差分组（含目标档，目标档内容只来自档位包）→ 追加目标档位包条目。被裁掉的目标档条目必须
-  **全部**被该档位包收录，否则拒收——裁掉后它既不在清单、也不在保留名单（`PreservedPaths` 只保其它
-  档），收尾清理会把它当游离文件删除且**无自愈路径**（修复轮用的是同一份清单，补不回来）。
-- `GetIncrementalManifestAsync(tier)`：`sd`/`uhd` 同样裁掉所有档位目录（HD 保留 HD 条目，它是基础包）；
-  档位包自身在版本间不变（官方实测差量清单为空），其落盘由更新/应用后的全量修复轮承担。
-- **版本一致性守卫（2026-10-23）**：`sd`/`uhd` 的**全量清单**在返回前核对档位包 `version` 与 base
-  内容版本（点分数字归一：`3.7` ≡ `3.7.0`）；缺失/不一致抛 `UpdateException`，提示稍后重试或
-  暂切 HD，**不自动降级**。守卫只放在档位包条目真正并入清单的入口：增量差量清单不含档位包内容，
-  落盘由应用/更新后的全量修复轮承担（那里 `GetManifestAsync` 已把关），故增量入口不设限——预下载
-  窗口期内 `toVersion`（预下载目标版）按定义不是线上版，而 `resourcePacks[tier].version` 是单值，
-  两处若都硬校验必有一侧不成立，sd/uhd 的预下载会被无解地挡死（2026-10-23 复审阻塞项）。清理/测量
-  入口（`GetResourcePackManifestAsync`）同样不做此检查，避免版本窗口阻塞释放空间。
-- 服务器无档位索引（国际服/B 服实测 404）时档位归一为 `hd`：内容恒为官方默认 bundle，档位只作启动参数。
-- **拒收守卫**：档位索引取不到或目标档位缺失/包清单为空时抛错，绝不返回"缺目标档位包"的清单——
+- `GetVersionInfoAsync`：`LatestVersion` = `resourcePacks.common.version`，`PatchSourceVersions` = common
+  `patchConfig` 中带 `indexFile` 的条目；预下载目标/差分源来自同构 `predownload.resourcePacks.common`
+  且 `config.predownloadSwitch == 1`。新索引不可达时抛错，不退回旧索引谎报“已是最新”；返回旧档位
+  索引（无 `bundles`）或服务器未配置该选项时仍走旧 `indexUrl`。
+- `GetManifestAsync(tier)`：按 `bundles[HD/SD/UHD].resourcePacks`（common + 当前档位）合并各包
+  `indexFile`；每个包的 URL 用各自 `baseUrl`，包版本必须与目标版本一致（不一致拒收）。旧档位索引
+  仍走原“标准清单裁掉所有档位目录 + 追加目标档位包”路径。
+- `GetIncrementalManifestAsync(tier)`：合并 common + 当前档位包 `patchConfig[fromVersion]`；直下文件
+  按各包 `fromFolder`/patch `baseUrl` 拼 URL，差分组按各包 patch `baseUrl`，`deleteFiles` 按包归属
+  过滤（common 不删档位、档位包不删其它档）。common 缺匹配补丁 → null（全量）；档位包缺匹配补丁
+  → 只应用 common 差量，档位内容由更新后的全量修复轮补齐。
+- **旧索引回退守卫**：请求版本比旧索引正式版/预下载版本新、而 bundle 不可用/不匹配时抛
+  `UpdateException`；绝不把旧内容标成新版本返回（RF-E 同族）。
+- **版本化可选包（2026-11-12 端点实测）**：3.8.0 的 common 与每个档位包 full index 各含
+  `Client/Saved/Resources/3.8.0/...`；全量清单合并后共 52 个（common 26 + 档位 26）。清单边界只放行
+  `Client/Saved/Resources/<目标版本>/`，其它 `Client/Saved` 路径禁写；同步收尾整段保留 `Client/Saved`
+  （SaveGames/Logs/Config 不在清单内）。`GetResourcePackManifestAsync` 仍只返回
+  `Client/Content/<TIER>/` 条目——版本化可选包由主清单下载/保留，显式档位清理不越界删除。
+- **旧档位索引（legacy，2026-10-19 行为）**：无 `bundles` 的 `resourcePacks` 索引仍按“hd/未设置走
+  标准清单，sd/uhd 裁掉所有档位目录 + 追加目标档位包”处理；档位包跨版本无差量时由全量修复轮补档。
+  该假设已被 3.8 的 bundle 数据取代，新服务器不要再按它推断。
+- **版本一致性守卫**：bundle 路径在合并前逐包核对 `version` 与目标；legacy 路径保留原
+  `EnsurePackVersion`。清理/测量入口（`GetResourcePackManifestAsync`）不做版本窗口门禁，避免阻塞释放空间。
+- 服务器无档位索引（国际服/B 服实测 404）或未配置时档位归一为 `hd`：内容为官方默认 bundle，档位只作启动参数。
+- **拒收守卫**：索引/目标档位包/包清单缺失、为空或版本不一致时抛错，绝不返回“缺目标档位包”的清单——
   同步收尾的游离文件清理会把目标档位目录当垃圾删掉（几十 GB）。
 
 **清单边界校验（2026-10-23）**：官方清单是不可信输入，`ManifestBoundary` 在**库洛渠道**构造全量/增量/
 档位包清单时统一拒绝逃逸/绝对路径、**禁写路径**、文件与目录同名冲突、**畸形** MD5（非空且非 32 位
 十六进制）与负数尺寸、路径段尾点/尾空格（Windows 建文件时吃掉它们，`Saved.` 实际落进 `Saved/`、
-`foo.pak.` → `foo.pak`，词法比较会漏判）。档位包条目还必须全部落在目标档目录下。空白/重复条目按
+`foo.pak.` → `foo.pak`，词法比较会漏判）。档位包条目必须全部落在目标档目录下；3.8 bundle 的
+full/patch 清单额外放行 `Client/Saved/Resources/<目标版本>/`（版本段必须是单一安全路径段）。空白/重复条目按
 F42 家族语义**跳过**而非拒收（与 `BuildResourceByDest` 的先登记者胜同一决定；重复 dest 在**单次**
 `ToManifestFiles` 内去重；全量清单的基础/档位包两个列表天然不相交——基础裁掉所有档位目录、包被
 限制在目标档目录下，故跨列表不会出现同目标双条目；同目标异构写法由 `IsInTierDirectory` 的 `\`→`/`
@@ -831,7 +841,7 @@ F42 家族语义**跳过**而非拒收（与 `BuildResourceByDest` 的先登记�
 
 **空全量清单拒收（2026-10-26 复审 P1）**：`indexFile.json` 为 `{}`、`"resource":[]`、`"resource":null`
 或全部 dest 空白时，返回空清单会让同步收尾把已装内容全当游离文件删掉（几十 GB）。渠道在全量清单
-构造处（HD 与"裁档后的 common 部分"两处）显式拒收，`GameInstallService.CleanupStaleFiles` 另有
+构造处（legacy 的 HD/裁档 common 与 3.8 bundle 合并三处）显式拒收，`GameInstallService.CleanupStaleFiles` 另有
 一道不依赖渠道的兜底（空清单跳过清理并告警）。此规则只适用于**全量**清单：增量清单可以空 Files
 + 非空 Groups/DeleteFiles。
 
@@ -840,12 +850,15 @@ F42 家族语义**跳过**而非拒收（与 `BuildResourceByDest` 的先登记�
 `UpdateException`。
 
 **禁写路径 ≠ 清理保留**（两类名单语义不同，勿混）：`ManifestBoundary.ReservedDirectories`/`ReservedFile`
-= 清单**禁写/禁删**名单（`.yagl/`、`Saved/`、`launcherDownloadConfig.json`、`launcherDownloadConfig/`、
+= 清单**禁写/禁删**名单（`.yagl/`、根级 `Saved/`、`Client/Saved/`（仅放行
+`Client/Saved/Resources/<目标版本>/`）、`launcherDownloadConfig.json`、`launcherDownloadConfig/`、
 `compatdata/`）；`GameManifest.PreservedPaths` 与 `GameInstallService.PreservedEntries` = 同步收尾
 **清理保留**名单。两者有意不等：`launcherDownloadConfig/`（官方启动器状态目录）对清单**只禁写/禁删**
 （`deleteFiles` 也跳过它）、**不**列入清理保留——"清理策略保持现状、不兼容官方启动器"是 2026-10-23 的
 用户决定，混用官方启动器时该目录内容仍会被同步收尾当游离文件删除，属已接受代价。两份名单共用一处
-定义、只在 `PreservedEntries` 点名差异。
+定义、只在 `PreservedEntries` 点名差异。`Client/Saved/` 是例外：3.8 清单只点名
+`Client/Saved/Resources/...`，SaveGames/Logs/Config 在清单外，`CleanupStaleFiles` 必须整段保留
+（2026-11-12 对比 ww-manager 的 cleanup：跳过任何 `Saved/` 且只删自己缓存过的文件）。
 
 增量 `deleteFiles` 点名禁写路径时渠道侧过滤并告警，`IncrementalUpdateService.DeleteListedFiles` 再做
 一道不依赖渠道的消费端守卫（旧暂存清单也覆盖）。这里**三项判定共用同一条归一串**——禁写路径、保留
@@ -860,13 +873,17 @@ F42 家族语义**跳过**而非拒收（与 `BuildResourceByDest` 的先登记�
 
 **保留清单与显式清理**：清单携带 `PreservedPaths`（渠道填充 = 未选中档位目录），
 **两处删除点**都按"整段相对路径前缀"跳过它们（口径共用 `ManifestVerifier.NormalizePreservedPrefixes` /
-`IsUnderPreservedPrefix`）：`GameInstallService` 的收尾清理，以及增量链的官方废弃清单
+`IsUnderPreservedPrefix`）：`GameInstallService` 的收尾清理（另整段跳过 UE 的 `Client/Saved/`），
+以及增量链的官方废弃清单
 （`IncrementalUpdateService.DeleteListedFiles`——档位模式下的废弃清单可能点名其它档位目录内容，
 渠道侧已按档位裁剪，消费端再留一道不依赖渠道实现的纵深守卫；漏裁只该少删、不该误删）。
 释放空间只经 `ResourcePackService`（设置页「清理其他档位」）：`PreviewCleanupAsync` 拉各档位清单
 测算本地释放量（预览不改文件；逐档容错，某一档清单取不到只列入"取不到"而非整页报错）→ 确认后
 `CleanupOtherTiersAsync` 只删各档位清单点名、且**解析后**确实位于该档位目录之下的文件与同名
 下载半成品 `.temp`（词法前缀挡不住 `..` 段，以解析结果为准；逐文件容错、删空目录、如实上报取不到清单的档位）。
+`GetResourcePackManifestAsync` 对 3.8 bundle 包仍只返回 `Client/Content/<TIER>/` 条目；
+`Client/Saved/Resources/<版本>/` 的版本化可选包由主清单下载并由收尾清理整段保留，
+显式档位清理暂不越界删除它们。
 确认文案的缺档警示按"选中档位未完整落盘"给（半途下载同样会缺档）；选中档位清单取不到时如实说明、不断言未下载。
 
 **档位状态**：`LocalGameState.ResourceTier` 记录本地内容对应的档位，由该次操作所用清单的 `ResourceTier`

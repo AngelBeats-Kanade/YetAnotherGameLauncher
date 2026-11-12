@@ -698,10 +698,12 @@ public class KuroResourcePackTests
     // ---------- 全量清单：hd / 未设置 = 标准清单不变（不取档位索引）----------
 
     [Fact]
-    public async Task GetManifest_HdTier_UsesStandardIndexWithoutFetchingTierIndex()
+    public async Task GetManifest_HdTier_FallsBackToStandardIndexWhenBundleIndexUnavailable()
     {
         RegisterStandardFixture();
-        // 档位索引故意不注册：hd 档走标准清单（官方 hd 包与标准 HD 条目逐字节一致），不得联网取它
+        // 旧档位索引（无 bundles）不是 3.8 bundle 协议；这里故意不注册档位索引：
+        // bundle 探测失败后 hd 仍走标准清单，不得因探测失败而报错。
+        // （3.8+ 的 hd 由 bundle 的 common + hd 合并，见 KuroBundleIndexTests。）
 
         var manifest = await CreateApi().GetManifestAsync(Server(), "3.7.1", "hd");
 
