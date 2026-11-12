@@ -1484,6 +1484,17 @@ const MUTATIONS = [
     dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
     method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroBundleIndexTests.GetManifest_BundleIndex_TierPackEmpty_Throws',
   },
+  {
+    // 2026-11-12 预下载提示一致性：可见性判断必须与实际增量清单同构（common + 各档位包的补丁都可用）。
+    // 把档位补丁判定取反后，缺档位补丁的数据仍会显示预下载提示，而点击必失败。
+    id: 'M146-kuro-predownload-tier-patch-visible',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
+    find: '                || !HasUsablePatch(GetPack(packs, tier)?.PatchConfig))',
+    replace: '                || HasUsablePatch(GetPack(packs, tier)?.PatchConfig))',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroBundleIndexTests.GetVersionInfo_BundleIndex_PredownloadWithoutTierPatch_HidesWindow',
+  },
 ];
 
 function run(cmd, args) {

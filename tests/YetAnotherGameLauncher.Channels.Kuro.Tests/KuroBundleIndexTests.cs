@@ -129,7 +129,9 @@ public class KuroBundleIndexTests
         string? commonFullOverride = null,
         string? tierFullOverride = null,
         string? commonVersionOverride = null,
-        string? tierVersionOverride = null)
+        string? tierVersionOverride = null,
+        bool commonPatchHasIndex = true,
+        bool includeTierPack = true)
     {
         var packs = new Dictionary<string, object>(StringComparer.Ordinal);
         var bundles = new Dictionary<string, object>(StringComparer.Ordinal);
@@ -157,7 +159,7 @@ public class KuroBundleIndexTests
                     new
                     {
                         version = fromVersion,
-                        indexFile = commonPatchPath,
+                        indexFile = commonPatchHasIndex ? commonPatchPath : "",
                         indexFileMd5 = Md5(commonPatchJson),
                         baseUrl = $"{prefix}/{version}/common/{fromVersion}/resources",
                     },
@@ -180,27 +182,31 @@ public class KuroBundleIndexTests
                 _downloader.Serve(Cdn + tierPatchPath, tierPatchJson);
             }
 
-            packs[tier] = new Dictionary<string, object?>
+            if (includeTierPack || tier != Tier)
             {
-                ["version"] = tier == Tier && tierVersionOverride is not null
-                    ? tierVersionOverride
-                    : version,
-                ["indexFile"] = tierFullPath,
-                ["indexFileMd5"] = Md5(tierJson),
-                ["baseUrl"] = $"{prefix}/{version}/zip/",
-                ["patchConfig"] = includeTierPatch
-                    ? new[]
-                    {
-                        new
+                packs[tier] = new Dictionary<string, object?>
+                {
+                    ["version"] = tier == Tier && tierVersionOverride is not null
+                        ? tierVersionOverride
+                        : version,
+                    ["indexFile"] = tierFullPath,
+                    ["indexFileMd5"] = Md5(tierJson),
+                    ["baseUrl"] = $"{prefix}/{version}/zip/",
+                    ["patchConfig"] = includeTierPatch
+                        ? new[]
                         {
-                            version = fromVersion,
-                            indexFile = tierPatchPath,
-                            indexFileMd5 = Md5(tierPatchJson),
-                            baseUrl = $"{prefix}/{version}/{tier}/{fromVersion}/resources",
-                        },
-                    }
-                    : Array.Empty<object>(),
-            };
+                            new
+                            {
+                                version = fromVersion,
+                                indexFile = tierPatchPath,
+                                indexFileMd5 = Md5(tierPatchJson),
+                                baseUrl = $"{prefix}/{version}/{tier}/{fromVersion}/resources",
+                            },
+                        }
+                        : Array.Empty<object>(),
+                };
+            }
+
             bundles[tier.ToUpperInvariant()] = new { resourcePacks = new[] { "common", tier } };
         }
 
@@ -219,7 +225,9 @@ public class KuroBundleIndexTests
         string? tierVersionOverride = null,
         bool includePredownloadBundles = true,
         bool includePredownloadCommonPatch = true,
-        bool includePredownloadTierPatch = true)
+        bool includePredownloadTierPatch = true,
+        bool predownloadCommonPatchHasIndex = true,
+        bool includePredownloadTierPack = true)
     {
         var (packs, bundles) = ServePackSet(
             "bundle",
@@ -247,7 +255,9 @@ public class KuroBundleIndexTests
                 predownloadVersion,
                 formalVersion,
                 includeCommonPatch: includePredownloadCommonPatch,
-                includeTierPatch: includePredownloadTierPatch);
+                includeTierPatch: includePredownloadTierPatch,
+                commonPatchHasIndex: predownloadCommonPatchHasIndex,
+                includeTierPack: includePredownloadTierPack);
             var pre = new Dictionary<string, object?>
             {
                 ["resourcePacks"] = prePacks,
@@ -337,6 +347,41 @@ public class KuroBundleIndexTests
     public async Task GetVersionInfo_BundleIndex_PredownloadWithoutCommonPatch_HidesWindow()
     {
         ServeBundle(predownloadVersion: "3.9.0", includePredownloadCommonPatch: false);
+
+        var info = await CreateApi().GetVersionInfoAsync(Server());
+
+        Assert.False(info.PredownloadAvailable);
+        Assert.Null(info.PredownloadVersion);
+    }
+
+    [Fact]
+    public async Task GetVersionInfo_BundleIndex_PredownloadWithoutTierPatch_HidesWindow()
+    {
+        // 结构完整但档位补丁缺失：版本信息层的 PredownloadAvailable 必须与实际
+        // GetIncrementalManifestAsync 的结果一致，不能先亮提示再在点击时失败。
+        ServeBundle(predownloadVersion: "3.9.0", includePredownloadTierPatch: false);
+
+        var info = await CreateApi().GetVersionInfoAsync(Server());
+
+        Assert.False(info.PredownloadAvailable);
+        Assert.Null(info.PredownloadVersion);
+    }
+
+    [Fact]
+    public async Task GetVersionInfo_BundleIndex_PredownloadWithoutUsableCommonPatchIndex_HidesWindow()
+    {
+        ServeBundle(predownloadVersion: "3.9.0", predownloadCommonPatchHasIndex: false);
+
+        var info = await CreateApi().GetVersionInfoAsync(Server());
+
+        Assert.False(info.PredownloadAvailable);
+        Assert.Null(info.PredownloadVersion);
+    }
+
+    [Fact]
+    public async Task GetVersionInfo_BundleIndex_PredownloadMissingTierPack_HidesWindow()
+    {
+        ServeBundle(predownloadVersion: "3.9.0", includePredownloadTierPack: false);
 
         var info = await CreateApi().GetVersionInfoAsync(Server());
 

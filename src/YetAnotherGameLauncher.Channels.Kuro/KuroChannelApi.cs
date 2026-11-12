@@ -452,8 +452,7 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
 
         if (predownload.ResourcePacks is { } packs
             && GetPack(packs, "common") is { Version: { Length: > 0 } newVersion } common
-            && common.PatchConfig is { Count: > 0 }
-            && HasCompletePredownloadBundles(predownload.Bundles))
+            && HasUsablePredownloadStructure(packs, predownload.Bundles))
         {
             return new PredownloadSource(newVersion, common.PatchConfig);
         }
@@ -463,12 +462,14 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
             : null;
     }
 
-    /// <summary>同构 predownload 必须覆盖全部档位组合且每个组合都含 common + 本档；
-    /// 缺 bundles/缺档位时隐藏预下载提示，避免点击后才在清单合并处失败。</summary>
-    private static bool HasCompletePredownloadBundles(
+    /// <summary>同构 predownload 必须覆盖全部档位组合、每个组合含 common + 本档，
+    /// 且 common 与各档位包都至少有一个带非空 <c>indexFile</c> 的补丁；缺任何一项都隐藏
+    /// 预下载提示，避免 UI 显示可预下载而点击后在清单合并/计划阶段必然失败。</summary>
+    private static bool HasUsablePredownloadStructure(
+        Dictionary<string, KuroResourcePack> packs,
         Dictionary<string, KuroResourceBundle>? bundles)
     {
-        if (bundles is null)
+        if (bundles is null || !HasUsablePatch(GetPack(packs, "common")?.PatchConfig))
         {
             return false;
         }
@@ -478,7 +479,8 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
             if (!bundles.TryGetValue(tier.ToUpperInvariant(), out var bundle)
                 || bundle.ResourcePacks is not { Count: > 0 } names
                 || !names.Any(n => string.Equals(n, "common", StringComparison.OrdinalIgnoreCase))
-                || !names.Any(n => string.Equals(n, tier, StringComparison.OrdinalIgnoreCase)))
+                || !names.Any(n => string.Equals(n, tier, StringComparison.OrdinalIgnoreCase))
+                || !HasUsablePatch(GetPack(packs, tier)?.PatchConfig))
             {
                 return false;
             }
@@ -486,6 +488,10 @@ public sealed class KuroChannelApi(IDownloader downloader, ILogger? logger = nul
 
         return true;
     }
+
+    private static bool HasUsablePatch(IReadOnlyList<KuroPatchEntry>? patchConfig) =>
+        patchConfig is not null
+        && patchConfig.Any(p => !string.IsNullOrWhiteSpace(p.IndexFile));
 
     /// <summary>bundle 的包列表（官方 HD = ["common","hd"]）；缺 common/当前档位即拒收。</summary>
     private static IReadOnlyList<string> GetBundlePackNames(BundleSource source, string tier)
