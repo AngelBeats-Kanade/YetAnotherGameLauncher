@@ -86,14 +86,27 @@ jobs:
             tests/YetAnotherGameLauncher.Channels.Hypergryph.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Hypergryph.Tests.dll
           )
           overall=0
+          failed_suites=""
           for suite in "${suites[@]}"; do
             name="$(basename "$suite" .dll)"
             echo "=== $name ==="
-            dotnet "$suite" 2>&1 | tee "/tmp/${name}.log" || overall=1
+            if ! dotnet "$suite" 2>&1 | tee "/tmp/${name}.log"; then
+              overall=1
+              failed_suites="${failed_suites} ${name}"
+            fi
           done
           if [ "$overall" -ne 0 ]; then
-            failed="$(grep -hE '\[FAIL\]' /tmp/*.log | sed 's/^[[:space:]]*//' | head -20 | tr '\n' ' ')"
-            echo "::error::failing cases: ${failed:-（详见对应 suite 日志）}"
+            # grep 无匹配时管道退出 1；Actions 的 bash 默认 -e，没有 || true 会在
+            # 输出失败注解前整步中止（崩溃型失败因此没有任何公开线索）。
+            failed="$(grep -hE '\[FAIL\]' /tmp/*.log | sed 's/^[[:space:]]*//' | head -20 | tr '\n' ' ' || true)"
+            echo "::error::failing cases: ${failed:-（无 [FAIL] 行，失败 suite：${failed_suites}）}"
+            # 崩溃/宿主异常不会打印 [FAIL]：把失败 suite 日志尾段也写进公开注解。
+            for name in ${failed_suites}; do
+              log_tail="$(tail -n 25 "/tmp/${name}.log" 2>/dev/null | tr -d '\r' | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}' || true)"
+              if [ -n "$log_tail" ]; then
+                echo "::error title=${name}::${log_tail}"
+              fi
+            done
             exit 1
           fi
           # 禁用形态守卫（2026-09-19 审计落地）：Dispatch(async ...) 是吞断言的假绿形态
