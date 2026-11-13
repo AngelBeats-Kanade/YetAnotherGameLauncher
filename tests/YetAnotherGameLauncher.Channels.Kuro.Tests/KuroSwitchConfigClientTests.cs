@@ -179,6 +179,7 @@ public class KuroSwitchConfigClientTests
     [Theory]
     [InlineData(null, "HASH123", "zh-Hans")]
     [InlineData("", "HASH123", "zh-Hans")]
+    [InlineData("https://cdn.example.com", "HASH123", "zh-Hans")]
     [InlineData("https://cdn.example.com/other/config.json", null, "zh-Hans")]
     [InlineData("https://cdn.example.com/other/config.json", "HASH123", " ")]
     public void DeriveGameConfigBackgroundUrl_InvalidInput_ReturnsNull(
