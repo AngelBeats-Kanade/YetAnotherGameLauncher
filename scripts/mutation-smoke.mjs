@@ -1540,15 +1540,15 @@ const MUTATIONS = [
     method: 'YetAnotherGameLauncher.Core.Tests.Services.IncrementalUpdateServiceTests.ApplyAsync_FreeSpaceRequired_IncludesSourceCopies',
   },
   {
-    // 2026-11-13 复审：缺补丁直下回退不复制 src，预检必须按 dst 计费（flag 恒 true 会让恢复路径
-    // 被源文件声明尺寸误拦）；空间介于 dst 与 src+dst 之间的用例必须红。
+    // 2026-11-13 复审：预检必须按"该组本次是否真的复制源"计费；退回"补丁在就算 src"后，源缺失
+    // 且空闲落在 dst 与 src+dst 之间的恢复路径会误拦，用例必须红。
     id: 'M151-incremental-fallback-free-space-dst-only',
     file: 'src/YetAnotherGameLauncher.Core/Services/IncrementalUpdateService.cs',
-    find: '            EnsureEnoughFreeSpaceForGroup(installDir, group, includesSourceCopy: patchStaged);',
-    replace: '            EnsureEnoughFreeSpaceForGroup(installDir, group, includesSourceCopy: true);',
+    find: '            var copiesSources = patchStaged\n                                && group.SrcFiles.All(src => File.Exists(ManifestVerifier.ResolveSafe(installDir, src.Path)));',
+    replace: '            var copiesSources = patchStaged;',
     project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
-    method: 'YetAnotherGameLauncher.Core.Tests.Services.IncrementalUpdateServiceTests.ApplyAsync_PatchMissing_FreeSpaceCheckedAgainstProducedFilesOnly',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.IncrementalUpdateServiceTests.ApplyAsync_MissingSource_FreeSpaceCheckedAgainstProducedFilesOnly',
   },
 ];
 

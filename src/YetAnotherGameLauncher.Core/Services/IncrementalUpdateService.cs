@@ -268,7 +268,11 @@ public sealed class IncrementalUpdateService(
                     $"Patch {group.PatchFile} was not preloaded; run predownload first or use the full update.");
             }
 
-            EnsureEnoughFreeSpaceForGroup(installDir, group, includesSourceCopy: patchStaged);
+            // 该组本次是否真的会复制差分源：源缺失时 ApplyGroupAsync 改走直下回退（不复制 src），
+            // 预检按实际动作计费，避免恢复路径被源文件声明尺寸误拦。
+            var copiesSources = patchStaged
+                                && group.SrcFiles.All(src => File.Exists(ManifestVerifier.ResolveSafe(installDir, src.Path)));
+            EnsureEnoughFreeSpaceForGroup(installDir, group, includesSourceCopy: copiesSources);
 
             if (patchStaged)
             {
@@ -467,9 +471,9 @@ public sealed class IncrementalUpdateService(
     /// 探针给不出空闲值（平台/权限）直接放行：预检是防呆，不能变成新的阻断源。
     /// 必须逐**待应用**组判定，不能在循环前对全部组取 max——续跑时已应用完的最大组（3.8 实测单组
     /// 55.7 GiB）会永久误拦后续更新。
-    /// <paramref name="includesSourceCopy"/> = 该组会复制 SrcFiles 到 olddir（差分路径）。缺补丁走直下
-    /// 回退时只产出 DstFiles、不复制 src，按 dst-only 估算——否则恢复路径会被源文件声明尺寸误拦
-    /// （用户为腾空间删掉源文件后尤其没道理），而它本来只下载一份产物。
+    /// <paramref name="includesSourceCopy"/> = 该组本次会复制 SrcFiles 到 olddir（差分路径且源文件都在
+    /// 盘）。缺补丁或源缺失走直下回退时只产出 DstFiles、不复制 src，按 dst-only 估算——否则恢复路径
+    /// 会被源文件声明尺寸误拦（用户为腾空间删掉源文件后尤其没道理），而它本来只下载一份产物。
     /// </summary>
     private static void EnsureEnoughFreeSpaceForGroup(string installDir, PatchGroup group, bool includesSourceCopy)
     {

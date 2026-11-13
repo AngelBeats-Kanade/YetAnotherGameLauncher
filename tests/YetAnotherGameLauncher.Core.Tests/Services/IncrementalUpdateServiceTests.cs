@@ -954,6 +954,82 @@ public class IncrementalUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyAsync_MissingSource_FreeSpaceCheckedAgainstProducedFilesOnly()
+    {
+        // 源缺失的既有直下回退同样不复制 src：预检按"该组本次实际会复制源"计费，否则用户腾空间
+        // 删掉源文件后，空闲落在 dst 与 src+dst 之间时恢复路径会被源文件声明尺寸误拦
+        //（2026-11-13 复审 nit）。
+        var dstContent = new byte[10];
+        new Random(13).NextBytes(dstContent);
+        var patch = "patch-g1"u8.ToArray();
+        _downloader.Responses[Url("g1.krpdiff")] = patch;
+        _downloader.Responses[Url("b.dat")] = dstContent;
+        var group = new PatchGroup(
+            "g1.krpdiff", patch.Length, Md5(patch),
+            [new ManifestFile("gone.dat", 20, new string('0', 32))], // 源不存在，清单仍声明 20
+            [new ManifestFile("b.dat", dstContent.Length, Md5(dstContent))],
+            Url("g1.krpdiff"));
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+
+        try
+        {
+            DiskSpace.AvailableFreeBytesForTests = _ => 15; // dst=10 够用，src+dst=30 不够
+
+            await CreateService().ApplyAsync(
+                _tempDir.Path, manifest,
+                dstUrlResolver: (path, _) => Task.FromResult<string?>(Url(path.Replace('/', '_'))));
+        }
+        finally
+        {
+            DiskSpace.AvailableFreeBytesForTests = null;
+        }
+
+        Assert.Equal(dstContent, await File.ReadAllBytesAsync(_tempDir.FilePath("b.dat")));
+        Assert.Empty(_applier.Calls); // 源缺失：走直下，不走补丁器
+    }
+
+    [Fact]
+    public async Task ApplyAsync_PatchMissing_NotEnoughSpaceForOutputs_ReportsDirectDownloadBudget()
+    {
+        // 直下回退的空间报错必须说清"只算产物"（该路径不复制源、会下载该组产物），
+        // 不能沿用差分路径的 "source copy" 文案（2026-11-13 复审 nit）。
+        var dstContent = new byte[10];
+        new Random(17).NextBytes(dstContent);
+        var patch = "patch-g1"u8.ToArray();
+        _downloader.Responses[Url("g1.krpdiff")] = patch;
+        _downloader.Responses[Url("b.dat")] = dstContent;
+        var group = new PatchGroup(
+            "g1.krpdiff", patch.Length, Md5(patch),
+            [new ManifestFile("a.dat", 20, new string('0', 32))],
+            [new ManifestFile("b.dat", dstContent.Length, Md5(dstContent))],
+            Url("g1.krpdiff"));
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+        File.Delete(Path.Combine(IncrementalUpdateService.PredownloadDir(_tempDir.Path), "patches", "g1.krpdiff"));
+
+        try
+        {
+            DiskSpace.AvailableFreeBytesForTests = _ => 5; // 连产物（10）都不够
+
+            var ex = await Assert.ThrowsAsync<UpdateException>(
+                () => CreateService().ApplyAsync(
+                    _tempDir.Path, manifest,
+                    dstUrlResolver: (path, _) => Task.FromResult<string?>(Url(path.Replace('/', '_')))));
+
+            Assert.Contains("Not enough free disk space", ex.Message);
+            Assert.Contains("produced files only (direct download)", ex.Message);
+        }
+        finally
+        {
+            DiskSpace.AvailableFreeBytesForTests = null;
+        }
+
+        Assert.Empty(_applier.Calls);
+        Assert.False(File.Exists(_tempDir.FilePath("b.dat")));
+    }
+
+    [Fact]
     public async Task ApplyAsync_InsufficientFreeSpace_ThrowsBeforeApplyingGroup()
     {
         // 2026-11-13 3.8 事故（写到 100% 才失败）：Kuro 增量链此前没有空间预检。需求按 src+dst
