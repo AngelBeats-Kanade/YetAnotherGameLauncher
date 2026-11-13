@@ -1506,6 +1506,28 @@ const MUTATIONS = [
     dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
     method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroBundleIndexTests.GetVersionInfo_BundleIndex_PredownloadPatchWithoutVersion_HidesWindow',
   },
+  {
+    // 2026-11-13 3.8 增量事故：按组回收差分草稿是峰值守卫本身；去掉后组 1 的 olddir 会留到整轮结束，
+    // 失败轮用例必须红（整轮末尾清理只在全部成功时执行，掩盖不了这条）。
+    id: 'M148-incremental-per-group-cleanup',
+    file: 'src/YetAnotherGameLauncher.Core/Services/IncrementalUpdateService.cs',
+    find: '            FileUtilities.TryDeleteDirectory(GroupOldDir(workDir, i), logger);',
+    replace: '            // mutated: per-group draft cleanup disabled',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.IncrementalUpdateServiceTests.ApplyAsync_SecondGroupFailure_CleansFirstGroupWorkDirAndPatch',
+  },
+  {
+    // 2026-11-13 3.8 增量事故：每组空间预检是"写满磁盘才失败"的唯一防线；条件改成恒真后，
+    // 空间不足用例必须红（不会再抛 UpdateException）。
+    id: 'M149-incremental-group-free-space-guard',
+    file: 'src/YetAnotherGameLauncher.Core/Services/IncrementalUpdateService.cs',
+    find: '        if (free.Value >= required)',
+    replace: '        if (free.Value >= -1)',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.IncrementalUpdateServiceTests.ApplyAsync_InsufficientFreeSpace_ThrowsBeforeApplyingGroup',
+  },
 ];
 
 function run(cmd, args) {

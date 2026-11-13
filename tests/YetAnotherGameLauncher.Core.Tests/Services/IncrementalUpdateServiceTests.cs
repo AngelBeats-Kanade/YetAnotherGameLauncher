@@ -7,6 +7,8 @@ using YetAnotherGameLauncher.TestSupport;
 
 namespace YetAnotherGameLauncher.Core.Tests.Services;
 
+// 空间预检用例设置进程级 DiskSpace 钩子：必须与其它使用该缝的测试同处 sequential 集合
+[Collection("sequential")]
 public class IncrementalUpdateServiceTests : IDisposable
 {
     private readonly TempDir _tempDir = new();
@@ -823,6 +825,139 @@ public class IncrementalUpdateServiceTests : IDisposable
         Assert.Equal(v2, await File.ReadAllBytesAsync(_tempDir.FilePath("a.dat")));
         // 第二组未生效（回滚后保持原值）
         Assert.Equal(v2, await File.ReadAllBytesAsync(_tempDir.FilePath("b.dat")));
+    }
+
+    [Fact]
+    public async Task ApplyAsync_SecondGroupFailure_CleansFirstGroupWorkDirAndPatch()
+    {
+        // 2026-11-13 3.8 事故核心守卫（根分区被写满）：差分草稿与已消费补丁曾只在整轮成功后清理，
+        // 峰值随总载荷增长（75 组累计 ≈90G 逻辑大小/41G 实际释放）。组 1 成功即应释放自己的
+        // olddir/newdir 与补丁；组 2 失败保留现场供诊断/续跑（下次 Apply 入口会清 workDir）。
+        var v1 = "v1"u8.ToArray();
+        var v2 = "v2"u8.ToArray();
+        var v3 = "v3"u8.ToArray();
+        await File.WriteAllBytesAsync(_tempDir.FilePath("a.dat"), v1);
+        await File.WriteAllBytesAsync(_tempDir.FilePath("b.dat"), v2);
+
+        var group1 = PrepareGroup("g1.krpdiff", [("a.dat", v1)], [("a.dat", v2)]);
+        var group2 = PrepareGroup("g2.krpdiff", [("b.dat", v2)], [("b.dat", v3)]);
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group1, group2] };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+        _applier.FailOnCallIndex = 1; // 第二组补丁阶段失败
+
+        await Assert.ThrowsAsync<UpdateException>(() => CreateService().ApplyAsync(_tempDir.Path, manifest));
+
+        Assert.Equal(v2, await File.ReadAllBytesAsync(_tempDir.FilePath("a.dat")));
+        var workDir = Path.Combine(_tempDir.Path, ".yagl", "patchwork");
+        Assert.False(Directory.Exists(Path.Combine(workDir, "olddir-0")));
+        Assert.False(Directory.Exists(Path.Combine(workDir, "newdir-0")));
+        var patches = Path.Combine(IncrementalUpdateService.PredownloadDir(_tempDir.Path), "patches");
+        Assert.False(File.Exists(Path.Combine(patches, "g1.krpdiff")));
+        // 失败组保留当前组现场（补丁 + 草稿）：便于诊断，也让本轮可重试
+        Assert.True(File.Exists(Path.Combine(patches, "g2.krpdiff")));
+        Assert.True(Directory.Exists(Path.Combine(workDir, "olddir-1")));
+    }
+
+    [Fact]
+    public async Task ApplyAsync_SkippedAppliedGroup_DeletesItsPatch()
+    {
+        // 续跑时已应用组的补丁不再需要：跳过点就地删除。用"后续组失败"构造，确保断言不被
+        // 末尾整目录清理兜底掩盖（成功后 patches 目录本来就不存在，测不出缺失）。
+        var v1 = "v1"u8.ToArray();
+        var v2 = "v2"u8.ToArray();
+        var v3 = "v3"u8.ToArray();
+        await File.WriteAllBytesAsync(_tempDir.FilePath("a.dat"), v2); // 组 1 已是目标版本
+        await File.WriteAllBytesAsync(_tempDir.FilePath("b.dat"), v2);
+
+        var group1 = PrepareGroup("g1.krpdiff", [("a.dat", v1)], [("a.dat", v2)]);
+        var group2 = PrepareGroup("g2.krpdiff", [("b.dat", v2)], [("b.dat", v3)]);
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group1, group2] };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+        _applier.FailOnCallIndex = 0; // 组 1 被跳过，唯一一次补丁调用属于组 2
+
+        await Assert.ThrowsAsync<UpdateException>(() => CreateService().ApplyAsync(_tempDir.Path, manifest));
+
+        var patches = Path.Combine(IncrementalUpdateService.PredownloadDir(_tempDir.Path), "patches");
+        Assert.False(File.Exists(Path.Combine(patches, "g1.krpdiff")));
+        Assert.True(File.Exists(Path.Combine(patches, "g2.krpdiff")));
+    }
+
+    [Fact]
+    public async Task ApplyAsync_InsufficientFreeSpace_ThrowsBeforeApplyingGroup()
+    {
+        // 2026-11-13 3.8 事故（写到 100% 才失败）：Kuro 增量链此前没有空间预检。需求按 src+dst
+        // 保守估算（不假设 reflink），探针给不出时跳过——这里的缝只是防呆，不能变成新阻断。
+        var oldContent = "old-content"u8.ToArray();
+        var newContent = "new-content"u8.ToArray();
+        Directory.CreateDirectory(_tempDir.FilePath("data"));
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "file.dat"), oldContent);
+        var group = PrepareGroup("g1.krpdiff", [("data/file.dat", oldContent)], [("data/file.dat", newContent)]);
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+
+        try
+        {
+            DiskSpace.AvailableFreeBytesForTests = _ => 1; // 远小于单组 src+dst
+
+            var ex = await Assert.ThrowsAsync<UpdateException>(
+                () => CreateService().ApplyAsync(_tempDir.Path, manifest));
+
+            Assert.Contains("Not enough free disk space", ex.Message);
+            Assert.Contains("GiB required", ex.Message);
+            Assert.Contains("GiB available", ex.Message);
+            Assert.Contains("retry", ex.Message);
+        }
+        finally
+        {
+            DiskSpace.AvailableFreeBytesForTests = null;
+        }
+
+        Assert.Empty(_applier.Calls); // 预检先于补丁器
+        Assert.Equal(oldContent, await File.ReadAllBytesAsync(_tempDir.FilePath("data", "file.dat")));
+    }
+
+    [Fact]
+    public async Task ApplyAsync_FreeSpaceCheck_PerGroup_SkipsAlreadyAppliedFootprint()
+    {
+        // 续跑时已应用组可能正是最大组（3.8 最大单组 55.7 GiB）：预检必须逐"待应用组"进行。
+        // 若改成循环前对全部组取 max，这个已完成的组会永久误拦续跑（空闲永远小于它的足迹）。
+        var v1 = "v1"u8.ToArray();
+        var v2 = "v2"u8.ToArray();
+        var v3 = "v3"u8.ToArray();
+        await File.WriteAllBytesAsync(_tempDir.FilePath("a.dat"), v2); // 组 1 已应用（续跑形态）
+        await File.WriteAllBytesAsync(_tempDir.FilePath("b.dat"), v2);
+
+        var patch1 = "patch-g1"u8.ToArray();
+        var patch2 = "patch-g2"u8.ToArray();
+        _downloader.Responses[Url("g1.krpdiff")] = patch1;
+        _downloader.Responses[Url("g2.krpdiff")] = patch2;
+        _applier.Outputs["g2.krpdiff"] = new Dictionary<string, byte[]> { ["b.dat"] = v3 };
+        // 组 1 的 src 声明为 400 MiB（远超下面给的空闲值），仅用于暴露"对全部组取 max"的误拦
+        var group1 = new PatchGroup(
+            "g1.krpdiff", patch1.Length, Md5(patch1),
+            [new ManifestFile("a.dat", 400L * 1024 * 1024, Md5(v1))],
+            [new ManifestFile("a.dat", v2.Length, Md5(v2))],
+            Url("g1.krpdiff"));
+        var group2 = new PatchGroup(
+            "g2.krpdiff", patch2.Length, Md5(patch2),
+            [new ManifestFile("b.dat", v2.Length, Md5(v2))],
+            [new ManifestFile("b.dat", v3.Length, Md5(v3))],
+            Url("g2.krpdiff"));
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group1, group2] };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+
+        try
+        {
+            DiskSpace.AvailableFreeBytesForTests = _ => 1024 * 1024; // 够组 2（数十字节），远不够组 1 的声明足迹
+
+            await CreateService().ApplyAsync(_tempDir.Path, manifest);
+        }
+        finally
+        {
+            DiskSpace.AvailableFreeBytesForTests = null;
+        }
+
+        Assert.Equal(v3, await File.ReadAllBytesAsync(_tempDir.FilePath("b.dat")));
     }
 
     [Fact]

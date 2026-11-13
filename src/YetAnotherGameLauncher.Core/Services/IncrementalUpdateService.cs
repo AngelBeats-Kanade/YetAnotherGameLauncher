@@ -11,8 +11,10 @@ namespace YetAnotherGameLauncher.Core.Services;
 /// 1) Predownload：把差分包（krpdiff）与可直接下载的新文件放入 {installDir}/.yagl/predownload 暂存
 ///    （重跑保留暂存：完好文件核验跳过、.temp 续传）；
 /// 2) Apply：逐组"复制旧文件 → hpatchz 合成 → MD5 校验 → .yagl-bak 备份替换"（单组失败自动回滚
-///    该组，中断后可重新执行），随后落位暂存新文件、删除清单废弃文件（deleteFiles 在组后——
-///    废弃文件可能同时是组差分源，2026-10-02 真机 P1 实锤）、清理暂存；差分源缺失或补丁器
+///    该组，中断后可重新执行；每组应用前做空闲空间预检，成功后立即回收本组草稿 olddir/newdir 与
+///    已消费补丁——峰值 = 单组 src+dst，不随总载荷增长，2026-11-13 3.8 事故修复），随后落位暂存
+///    新文件、删除清单废弃文件（deleteFiles 在组后——废弃文件可能同时是组差分源，2026-10-02 真机
+///    P1 实锤）、清理暂存；差分源缺失或补丁器
 ///    执行失败时按注入的解析缝直下该组产物自救（组级回退）。
 /// </summary>
 public sealed class IncrementalUpdateService(
@@ -237,6 +239,7 @@ public sealed class IncrementalUpdateService(
         FileUtilities.TryDeleteDirectory(workDir, logger);
 
         var total = incrementalManifest.Groups.Count;
+        var patchDir = Path.Combine(staging, "patches");
         for (var i = 0; i < total; i++)
         {
             var group = incrementalManifest.Groups[i];
@@ -249,19 +252,32 @@ public sealed class IncrementalUpdateService(
             if (await GroupAlreadyAppliedAsync(installDir, group, cancellationToken).ConfigureAwait(false))
             {
                 logger?.LogDebug("Target file of group {Patch} already present; skipped", group.PatchFile);
+                // 已应用组的补丁不再消费：续跑时它只是占盘的遗留，就地回收（本轮末尾清理只在
+                // 整轮成功时执行，失败/取消轮不该让上一轮的补丁继续滞留）
+                TryDeleteFile(SafeJoin(patchDir, group.PatchFile), logger);
                 continue;
             }
 
             progress?.Report(new UpdateProgress(UpdatePhase.Patching, group.PatchSize * (total - i), 0, i, total, group.PatchFile));
 
-            var patchPath = SafeJoin(Path.Combine(staging, "patches"), group.PatchFile);
+            var patchPath = SafeJoin(patchDir, group.PatchFile);
             if (!File.Exists(patchPath))
             {
                 throw new UpdateException(
                     $"Patch {group.PatchFile} was not preloaded; run predownload first or use the full update.");
             }
 
+            EnsureEnoughFreeSpaceForGroup(installDir, group);
+
             await ApplyGroupAsync(installDir, workDir, i, group, patchPath, dstUrlResolver, progress, cancellationToken).ConfigureAwait(false);
+
+            // 组成功即回收本组草稿与已消费补丁（2026-11-13 3.8 事故：此前只在整轮 75 组全部成功后
+            // 才删 workDir，峰值 ≈ 所有被替换文件的旧版本 + 暂存 ≈ 100G，把 479G 根分区写满；开
+            // reflink 也只是把成本推迟到原文件被替换那一刻）。失败/取消保留当前组现场供诊断与续跑，
+            // 下一轮 Apply 入口会整树清掉残留。
+            FileUtilities.TryDeleteDirectory(GroupOldDir(workDir, i), logger);
+            FileUtilities.TryDeleteDirectory(GroupNewDir(workDir, i), logger);
+            TryDeleteFile(patchPath, logger);
         }
 
         // 差分组不覆盖的新文件已在预下载时暂存，此处落位；缺失的交给事后修复
@@ -310,7 +326,7 @@ public sealed class IncrementalUpdateService(
         // 暂存清单 manifest.json 必须保留到操作提交（GameUpdateService 写状态）之后再清
         // （2026-10-19 review 修复）：此后还隔着修复轮与状态写盘两个可取消点，期间掉线/暂停时
         // 清单还在场，续跑走"应用链续跑"（组级应用按 dstFiles 校验幂等跳过）而不是重下整包差量。
-        FileUtilities.TryDeleteDirectory(Path.Combine(staging, "patches"), logger);
+        FileUtilities.TryDeleteDirectory(patchDir, logger);
         FileUtilities.TryDeleteDirectory(Path.Combine(staging, "files"), logger);
         await WriteStagedManifestAsync(staging, incrementalManifest, cancellationToken).ConfigureAwait(false);
         // 差分工作草稿同样清理：SrcFiles 的完整副本（olddir-*/newdir-*）可占数 GB~数十 GB，
@@ -425,6 +441,42 @@ public sealed class IncrementalUpdateService(
         }
     }
 
+    /// <summary>组草稿目录（SrcFiles 的完整副本）：按组号隔离，组成功后立即删除以压住峰值。</summary>
+    private static string GroupOldDir(string workDir, int index) => Path.Combine(workDir, $"olddir-{index}");
+
+    /// <summary>组产物目录（hpatchz/直下回退的输出）：替换进游戏目录后即无价值，组成功后删除。</summary>
+    private static string GroupNewDir(string workDir, int index) => Path.Combine(workDir, $"newdir-{index}");
+
+    /// <summary>
+    /// 逐组空闲空间预检（2026-11-13 3.8 事故：Kuro 增量链此前没有预检，一路写到根分区 100% 才失败）。
+    /// 需求按 src+dst 保守估算——**不假设 reflink**：有 CoW 的文件系统上实际只需要 dst，但 XFS/btrfs
+    /// 的副本在源文件被替换后仍是旧数据的唯一引用、空间照常占用；ext4 等无 reflink 时本就是 src+dst。
+    /// 探针给不出空闲值（平台/权限）直接放行：预检是防呆，不能变成新的阻断源。
+    /// 必须逐**待应用**组判定，不能在循环前对全部组取 max——续跑时已应用完的最大组（3.8 实测单组
+    /// 55.7 GiB）会永久误拦后续更新。
+    /// </summary>
+    private static void EnsureEnoughFreeSpaceForGroup(string installDir, PatchGroup group)
+    {
+        var free = DiskSpace.TryGetAvailableFreeBytes(installDir);
+        if (free is null)
+        {
+            return;
+        }
+
+        var required = group.SrcFiles.Sum(f => Math.Max(0, f.Size))
+                       + group.DstFiles.Sum(f => Math.Max(0, f.Size));
+        if (free.Value >= required)
+        {
+            return;
+        }
+
+        throw new UpdateException(
+            $"Not enough free disk space for patch group {group.PatchFile}: " +
+            $"{required / (double)(1L << 30):F2} GiB required (source copy + produced files, reflink not assumed), " +
+            $"{free.Value / (double)(1L << 30):F2} GiB available. " +
+            "Free up space and retry - groups already applied are skipped, so nothing is downloaded again.");
+    }
+
     private async Task ApplyGroupAsync(
         string installDir,
         string workDir,
@@ -435,8 +487,8 @@ public sealed class IncrementalUpdateService(
         IProgress<UpdateProgress>? progress,
         CancellationToken cancellationToken)
     {
-        var oldDir = Path.Combine(workDir, $"olddir-{index}");
-        var newDir = Path.Combine(workDir, $"newdir-{index}");
+        var oldDir = GroupOldDir(workDir, index);
+        var newDir = GroupNewDir(workDir, index);
         Directory.CreateDirectory(oldDir);
         Directory.CreateDirectory(newDir);
 
@@ -682,6 +734,29 @@ public sealed class IncrementalUpdateService(
         foreach (var (_, backup, _) in replaced)
         {
             TryDeleteBackup(backup, logger);
+        }
+    }
+
+    /// <summary>
+    /// 尽力删除单个已消费的差分产物（组成功后回收的补丁、已应用组跳过的补丁）：失败不抛，
+    /// 返回是否删除成功——更新/续跑结果不得被清理动作推翻（与 <see cref="TryDeleteBackup"/>
+    /// 同契约）。<see cref="FileUtilities"/> 只有整目录的 <c>TryDeleteDirectory</c>，没有单文件版本。
+    /// </summary>
+    private static bool TryDeleteFile(string path, ILogger? logger = null)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger?.LogWarning(ex, "Could not delete consumed patch file {Path}; left in place", path);
+            return false;
         }
     }
 
