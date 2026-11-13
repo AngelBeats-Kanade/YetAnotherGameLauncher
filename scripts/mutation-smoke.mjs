@@ -1555,8 +1555,8 @@ const MUTATIONS = [
     // 关掉后新解析器测试会退回旧 launcher-config（未铺桩）并返回 null，用例必须红
     id: 'M152-kuro-bundle-background-hash',
     file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroSwitchConfigClient.cs',
-    find: 'root.TryGetProperty("config", out var config)',
-    replace: 'false && root.TryGetProperty("config", out var config)',
+    find: '? ReadBackgroundHash(config)',
+    replace: '? null',
     project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
     method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroSwitchConfigClientTests.FetchAsync_GameConfigWithHash_UsesIndexRelativePathAndSkipsLegacy',
@@ -1582,6 +1582,28 @@ const MUTATIONS = [
     project: 'tests/YetAnotherGameLauncher.App.Tests/YetAnotherGameLauncher.App.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll',
     method: 'YetAnotherGameLauncher.AppTests.StartupAssetPreloadTests.LegacyBackdropCacheFormat_TriggersOneRemoteResolve_EvenWhenVersionUnchanged',
+  },
+  {
+    // 2026-11-13 真实解析器迁移常量：Kuro 必须为 2，否则旧 meta 不会被强制重解析，
+    // 用户报告的"背景停在旧投放"会原样复现。
+    id: 'M155-kuro-cache-format-version',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroBackdropResolver.cs',
+    find: 'public int CacheFormatVersion => 2;',
+    replace: 'public int CacheFormatVersion => 1;',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroBackdropResolverTests.CacheFormatVersion_IsBumpedForBundleIndexMigration',
+  },
+  {
+    // 2026-11-13 review 修复：bundle 形态索引缺背景字段时必须直接返回 null，
+    // 改回无条件回退后旧 launcher-config 会把 3.7.1 旧投放写成当前缓存。
+    id: 'M156-kuro-bundle-index-no-fallback',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroSwitchConfigClient.cs',
+    find: 'return (null, !isBundleIndex);',
+    replace: 'return (null, true);',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroSwitchConfigClientTests.FetchAsync_BundleIndexWithoutHash_DoesNotFallBackToLegacy',
   },
 ];
 

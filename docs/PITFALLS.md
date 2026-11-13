@@ -163,4 +163,6 @@
   3.8 当期背景哈希在 bundle 索引的 `config.functionCode.background`，内容路径相对 bundle 索引
   （`.../{serverCode}/background/{hash}/{lang}.json`）。只按 `meta.gameVersion` 门控会把旧投放
   标成当前版本缓存；解析器迁移时必须 bump `CacheFormatVersion` / `meta.formatVersion` 强制一次重解析。
+  **bundle 形态索引缺背景字段 = 本期未投放**，不能回退旧 launcher-config（否则会把 3.7.1 旧投放
+  重新写成当前缓存）；只有旧形态索引（无 `config`/`bundles`）才允许走旧链路回退。
 - **协议/格式的行为结论只认一手源码，二手摘要必须标注未核实**（F24 两连错实锤）：WebSearch 摘要给的 Valve KeyValues 转义表是错的，拉 `tier1/utlbuffer.cpp` raw 源码实证的真表与之不符（未知转义 = NUL+保留后续字符）。解析器/协议逆向类结论：摘要 → 源码溯源是硬门槛；注释里引用外部行为必须写明出处层级（"源码实证" vs "摘要未核"）。

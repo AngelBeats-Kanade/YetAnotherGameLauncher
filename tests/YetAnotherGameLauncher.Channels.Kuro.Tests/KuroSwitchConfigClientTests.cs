@@ -4,9 +4,10 @@ using YetAnotherGameLauncher.TestSupport;
 namespace YetAnotherGameLauncher.Channels.Kuro.Tests;
 
 /// <summary>
-/// 库洛启动器运营配置直连客户端：两级地址推导（launcher-config / 背景内容）、两跳解析、
-/// 语言回退与失败静默。新链路 2026-09 实测：switch.json 已停止投放背景，背景内容改由
-/// launcher-config 的 functionCode.background 哈希寻址。
+/// 库洛启动器背景配置直连客户端：3.8+ 优先从 resourcePackIndexUrl 的 bundle 索引
+/// config.functionCode.background 取哈希，再取同目录背景内容；旧 launcher-config 两跳
+/// 作为旧形态/未配置资源索引的回退。语言回退与失败静默；2026-09 实测 switch.json
+/// 已停止投放背景。
 /// </summary>
 public class KuroSwitchConfigClientTests
 {
@@ -216,6 +217,24 @@ public class KuroSwitchConfigClientTests
         Assert.Contains(
             _handler.Requests,
             request => request.RequestUri!.AbsolutePath == "/launcher/launcher/10003_H1/G152/index.json");
+    }
+
+    [Fact]
+    public async Task FetchAsync_BundleIndexWithoutHash_DoesNotFallBackToLegacy()
+    {
+        // 3.8+ bundle 形态索引缺背景字段 = 本期未投放；回退旧 launcher-config 会把 3.7.1
+        // 的旧投放重新写成当前缓存。只有旧形态索引（无 config/bundles）才允许回退。
+        _handler.Map(CnGameConfigUrl,
+            """{"resourcePacks":{"common":{"version":"3.8.0"}},"config":{},"bundles":{}}""");
+        MapTwoHop("zh-Hans", FullBackgroundJson);
+
+        var config = await CreateClient().FetchAsync(CnIndexUrl, CnGameConfigUrl, "cn");
+
+        Assert.Null(config);
+        Assert.DoesNotContain(
+            _handler.Requests,
+            request => request.RequestUri!.AbsolutePath.StartsWith(
+                "/launcher/launcher/", StringComparison.Ordinal));
     }
 
     [Fact]

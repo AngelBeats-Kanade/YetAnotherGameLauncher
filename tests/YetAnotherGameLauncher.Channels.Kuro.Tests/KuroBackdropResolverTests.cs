@@ -5,7 +5,8 @@ using YetAnotherGameLauncher.TestSupport;
 namespace YetAnotherGameLauncher.Channels.Kuro.Tests;
 
 /// <summary>
-/// 鸣潮背景解析：直连官方运营配置（launcher-config → 背景内容两跳，经 StubHttpHandler 隔离），
+/// 鸣潮背景解析：3.8+ 优先从 resourcePackIndexUrl 的 bundle 索引 config.functionCode.background
+/// 取哈希，再取同目录背景内容；旧 launcher-config 仅作回退（经 StubHttpHandler 隔离）。
 /// 与终末地一致的单级模型——视频投放带首帧图兜底，解析失败返回 null。
 /// </summary>
 public class KuroBackdropResolverTests
@@ -32,6 +33,13 @@ public class KuroBackdropResolverTests
 
     private static KuroBackdropResolver CreateResolver(StubHttpHandler? handler = null) =>
         new(new KuroSwitchConfigClient(new HttpClient(handler ?? new StubHttpHandler())));
+
+    [Fact]
+    public void CacheFormatVersion_IsBumpedForBundleIndexMigration()
+    {
+        // 用户可见修复依赖该常量：旧 meta 无 formatVersion 时，服务层只有看到 2 才会强制重解析。
+        Assert.Equal(2, CreateResolver().CacheFormatVersion);
+    }
 
     /// <summary>铺好两跳桩：launcher-config 返回背景哈希，zh-Hans 背景内容返回指定投放。</summary>
     private static void MapTwoHop(StubHttpHandler handler, string backgroundJson)

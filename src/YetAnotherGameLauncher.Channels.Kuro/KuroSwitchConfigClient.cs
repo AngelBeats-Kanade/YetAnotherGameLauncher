@@ -131,13 +131,14 @@ public sealed class KuroSwitchConfigClient(HttpClient httpClient, ILogger<KuroSw
         FetchFromLauncherConfigAsync(indexUrl, region, cancellationToken);
 
     /// <summary>
-    /// 从 3.8+ 资源索引取背景配置。返回 <c>CanFallBackToLegacy=true</c> 仅表示索引成功拉取但未声明背景
-    /// （旧服务形态）；索引不可用或已声明哈希但内容失败都返回 false，避免旧投放被写成当前缓存。
+    /// 从 3.8+ 资源索引取背景配置。返回 <c>CanFallBackToLegacy=true</c> 仅表示索引是旧形态且未声明背景；
+    /// bundle 形态索引（含 <c>config</c>/<c>bundles</c>）缺哈希、索引不可用、或已声明哈希但内容失败
+    /// 都返回 false，避免旧投放被写成当前缓存。
     /// </summary>
     private async Task<(KuroSwitchConfig? Config, bool CanFallBackToLegacy)> FetchFromGameConfigAsync(
         string gameConfigUrl, string region, CancellationToken cancellationToken)
     {
-        var (backgroundHash, configAvailable) = await FetchBackgroundHashWithRetryAsync(
+        var (backgroundHash, configAvailable, isBundleIndex) = await FetchBackgroundHashWithRetryAsync(
             gameConfigUrl, "Kuro game config", cancellationToken).ConfigureAwait(false);
         if (!configAvailable)
         {
@@ -146,7 +147,9 @@ public sealed class KuroSwitchConfigClient(HttpClient httpClient, ILogger<KuroSw
 
         if (backgroundHash is null)
         {
-            return (null, true);
+            // 旧资源索引（仅 resourcePacks / 无 config、bundles）才允许回退；
+            // bundle 形态索引缺背景声明说明“本期未投放”，回退旧投放会污染缓存。
+            return (null, !isBundleIndex);
         }
 
         var config = await FetchBackgroundContentAsync(
@@ -166,7 +169,7 @@ public sealed class KuroSwitchConfigClient(HttpClient httpClient, ILogger<KuroSw
             return null;
         }
 
-        var (backgroundHash, configAvailable) = await FetchBackgroundHashWithRetryAsync(
+        var (backgroundHash, configAvailable, _) = await FetchBackgroundHashWithRetryAsync(
             configUrl, "Kuro launcher config", cancellationToken).ConfigureAwait(false);
         if (!configAvailable || backgroundHash is null)
         {
@@ -225,29 +228,32 @@ public sealed class KuroSwitchConfigClient(HttpClient httpClient, ILogger<KuroSw
         return null;
     }
 
-    /// <summary>拉取索引并取出背景哈希（带一次瞬态重试）；Available=false 表示网络/解析失败，null 哈希表示明确未投放。</summary>
-    private async Task<(string? Hash, bool Available)> FetchBackgroundHashWithRetryAsync(
+    /// <summary>拉取索引并取出背景哈希（带一次瞬态重试）；Available=false 表示网络/解析失败，null 哈希表示明确未投放；IsBundleIndex 供回退决策。</summary>
+    private async Task<(string? Hash, bool Available, bool IsBundleIndex)> FetchBackgroundHashWithRetryAsync(
         string configUrl, string logLabel, CancellationToken cancellationToken)
     {
         for (var attempt = 0; ; attempt++)
         {
             try
             {
-                return (await FetchBackgroundHashAsync(configUrl, cancellationToken).ConfigureAwait(false), true);
+                var (hash, isBundleIndex) = await FetchBackgroundHashAsync(configUrl, cancellationToken)
+                    .ConfigureAwait(false);
+                return (hash, true, isBundleIndex);
             }
             catch (Exception ex) when (IsTransient(ex, cancellationToken))
             {
                 if (attempt >= 1)
                 {
                     logger?.LogDebug("{Label} fetch failed: {Message}", logLabel, ex.Message);
-                    return (null, false);
+                    return (null, false, false);
                 }
             }
         }
     }
 
     /// <summary>拉取索引（带缓存破坏时间戳）并读取根级或 config 下的 functionCode.background。</summary>
-    private async Task<string?> FetchBackgroundHashAsync(string configUrl, CancellationToken cancellationToken)
+    private async Task<(string? Hash, bool IsBundleIndex)> FetchBackgroundHashAsync(
+        string configUrl, CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(FetchTimeout);
@@ -260,8 +266,13 @@ public sealed class KuroSwitchConfigClient(HttpClient httpClient, ILogger<KuroSw
 
         // 逆向协议：3.8+ 在 config.functionCode，旧 launcher-config 在根级 functionCode；
         // 全程 TryGetProperty，不抛键缺失异常
-        return TryReadBackgroundHash(doc.RootElement);
+        return (TryReadBackgroundHash(doc.RootElement), IsBundleIndexRoot(doc.RootElement));
     }
+
+    /// <summary>3.8+ bundle 索引形态：根级有 config 或 bundles 对象（旧索引只有 resourcePacks 或无这些字段）。</summary>
+    private static bool IsBundleIndexRoot(JsonElement root) =>
+        (root.TryGetProperty("config", out var config) && config.ValueKind == JsonValueKind.Object)
+        || (root.TryGetProperty("bundles", out var bundles) && bundles.ValueKind == JsonValueKind.Object);
 
     /// <summary>读取根级 functionCode.background，缺失时再读 config.functionCode.background。</summary>
     private static string? TryReadBackgroundHash(JsonElement root)

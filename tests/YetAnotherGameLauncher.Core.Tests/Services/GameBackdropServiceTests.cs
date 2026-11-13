@@ -340,6 +340,29 @@ public class GameBackdropServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Resolve_SameUrlButCachedFileMissing_Redownloads()
+    {
+        // 文件被手删/清理后，同 URL 解析不能只回远程直链——视频播放器要求本地文件，
+        // 且本地缓存会永久缺失；下载分支必须把"文件缺失"当作需要重下的条件。
+        _handler.Map("https://cdn.example.com/bg.png", [7, 8]);
+        var resolver = new StubResolver(
+            _ => new BackdropSource("https://cdn.example.com/bg.png", BackdropKind.Image));
+        var service = CreateService(resolver);
+
+        var first = await service.ResolveAsync(Request(), "1.0.0");
+        Assert.NotNull(first);
+        File.Delete(first.Source!);
+        _handler.Requests.Clear();
+
+        var second = await service.ResolveAsync(Request(), "1.0.0");
+
+        Assert.NotNull(second);
+        Assert.True(File.Exists(second.Source));
+        Assert.Equal((byte[])[7, 8], await File.ReadAllBytesAsync(second.Source!));
+        Assert.Single(_handler.Requests);
+    }
+
+    [Fact]
     public async Task ResolveCached_Hit_ReturnsFile_WithoutResolverOrNetwork()
     {
         _handler.Map("https://cdn.example.com/bg.mp4", [1, 2, 3, 4]);

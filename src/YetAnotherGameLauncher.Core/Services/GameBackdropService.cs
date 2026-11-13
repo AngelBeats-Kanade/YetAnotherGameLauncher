@@ -190,11 +190,15 @@ public sealed class GameBackdropService(
                 }).ConfigureAwait(false);
         }
 
-        // 地址或类型变化（版本更新换投放）→ 重新下载覆盖缓存
+        // 地址/类型变化（版本更新换投放）或缓存文件缺失 → 重新下载覆盖缓存。
+        // 文件缺失必须走下载：GetCachedGameVersion 的可用性检查会让 VM 触发重解析，
+        // 若这里因 URL 未变跳过，视频路径会退成远程直链（播放器要求本地文件），缓存也永不修复。
         if (remote is not null
             && (meta is null
                 || !string.Equals(meta.Url, remote.Url, StringComparison.OrdinalIgnoreCase)
-                || meta.Kind != remote.Kind))
+                || meta.Kind != remote.Kind
+                || string.IsNullOrEmpty(meta.File)
+                || !File.Exists(Path.Combine(cacheDir, meta.File))))
         {
             var downloaded = await TryDownloadAsync(
                     remote, cacheDir, request.Region, gameVersion, resolver.CacheFormatVersion, cancellationToken)
