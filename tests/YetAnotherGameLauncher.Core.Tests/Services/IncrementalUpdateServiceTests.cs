@@ -883,6 +883,28 @@ public class IncrementalUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyAsync_PatchRemovedAfterAppliedGroup_WithResolver_FallsBackToDirectDownload()
+    {
+        // 按组回收补丁的恢复面（2026-11-13 复审 R2）：组成功后补丁即删；若该组目标随后被改动
+        // （用户为腾空间删了游戏文件、磁盘损坏），续跑会判"未应用"而补丁已不在。有解析缝时必须
+        // 按既有组级回退直下该组产物自救——"run predownload first" 在暂存清单在场时没有 UI 入口。
+        var newContent = "brand-new"u8.ToArray();
+        var group = PrepareGroup("g1.krpdiff", [("data/old.dat", "old"u8.ToArray())], [("data/new.dat", newContent)]);
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+        Directory.CreateDirectory(_tempDir.FilePath("data"));
+        await File.WriteAllBytesAsync(_tempDir.FilePath("data", "old.dat"), "old"u8.ToArray());
+        File.Delete(Path.Combine(IncrementalUpdateService.PredownloadDir(_tempDir.Path), "patches", "g1.krpdiff"));
+
+        await CreateService().ApplyAsync(
+            _tempDir.Path, manifest,
+            dstUrlResolver: (path, _) => Task.FromResult<string?>(Url(path.Replace('/', '_'))));
+
+        Assert.Equal(newContent, await File.ReadAllBytesAsync(_tempDir.FilePath("data", "new.dat")));
+        Assert.Empty(_applier.Calls); // 补丁不在场：走直下，而非补丁器
+    }
+
+    [Fact]
     public async Task ApplyAsync_InsufficientFreeSpace_ThrowsBeforeApplyingGroup()
     {
         // 2026-11-13 3.8 事故（写到 100% 才失败）：Kuro 增量链此前没有空间预检。需求按 src+dst
@@ -958,6 +980,79 @@ public class IncrementalUpdateServiceTests : IDisposable
         }
 
         Assert.Equal(v3, await File.ReadAllBytesAsync(_tempDir.FilePath("b.dat")));
+    }
+
+    [Fact]
+    public async Task ApplyAsync_FreeSpaceRequired_IncludesSourceCopies()
+    {
+        // 保守估算必须计入 src 副本（不假设 reflink）：免费额度 20 字节时，只算 dst（10）或只算
+        // src（20，且恰好等于免费额度）的实现都会放行；src+dst=30 必须拦下——这是本修复的核心取舍，
+        // 少了这条，删掉 src 项的变异会在全部预检用例下存活（2026-11-13 复审 R3）。
+        var srcContent = new byte[10];
+        var dstContent = new byte[10];
+        new Random(7).NextBytes(dstContent);
+        await File.WriteAllBytesAsync(_tempDir.FilePath("a.dat"), srcContent);
+
+        var patch = "patch-g1"u8.ToArray();
+        _downloader.Responses[Url("g1.krpdiff")] = patch;
+        _applier.Outputs["g1.krpdiff"] = new Dictionary<string, byte[]> { ["b.dat"] = dstContent };
+        var group = new PatchGroup(
+            "g1.krpdiff", patch.Length, Md5(patch),
+            // src 只声明尺寸（复制路径不校验它），声明 20 字节即可暴露"只算 src"的提前放行
+            [new ManifestFile("a.dat", 20, Md5(srcContent))],
+            [new ManifestFile("b.dat", dstContent.Length, Md5(dstContent))],
+            Url("g1.krpdiff"));
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+
+        try
+        {
+            DiskSpace.AvailableFreeBytesForTests = _ => 20;
+
+            var ex = await Assert.ThrowsAsync<UpdateException>(
+                () => CreateService().ApplyAsync(_tempDir.Path, manifest));
+
+            Assert.Contains("Not enough free disk space", ex.Message);
+        }
+        finally
+        {
+            DiskSpace.AvailableFreeBytesForTests = null;
+        }
+
+        Assert.Empty(_applier.Calls);
+        Assert.False(File.Exists(_tempDir.FilePath("b.dat")));
+    }
+
+    [Fact]
+    public async Task ApplyAsync_FreeSpaceExactlyRequired_Proceeds()
+    {
+        // 边界：free == required 必须放行（改成严格 > 会误拦恰好够用的机器）
+        var srcContent = "src-bytes"u8.ToArray();
+        var dstContent = "dst"u8.ToArray();
+        await File.WriteAllBytesAsync(_tempDir.FilePath("a.dat"), srcContent);
+        var patch = "patch-g1"u8.ToArray();
+        _downloader.Responses[Url("g1.krpdiff")] = patch;
+        _applier.Outputs["g1.krpdiff"] = new Dictionary<string, byte[]> { ["b.dat"] = dstContent };
+        var group = new PatchGroup(
+            "g1.krpdiff", patch.Length, Md5(patch),
+            [new ManifestFile("a.dat", srcContent.Length, Md5(srcContent))],
+            [new ManifestFile("b.dat", dstContent.Length, Md5(dstContent))],
+            Url("g1.krpdiff"));
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+
+        try
+        {
+            DiskSpace.AvailableFreeBytesForTests = _ => srcContent.Length + dstContent.Length;
+
+            await CreateService().ApplyAsync(_tempDir.Path, manifest);
+        }
+        finally
+        {
+            DiskSpace.AvailableFreeBytesForTests = null;
+        }
+
+        Assert.Equal(dstContent, await File.ReadAllBytesAsync(_tempDir.FilePath("b.dat")));
     }
 
     [Fact]
@@ -1262,5 +1357,8 @@ public class IncrementalUpdateHygieneTests : IDisposable
         await CreateService().ApplyAsync(_tempDir.Path, manifest);
 
         Assert.Equal(newContent, await File.ReadAllBytesAsync(_tempDir.FilePath("data", "file.dat")));
+        // 副本继承源文件的只读属性：不清位时按组清理删不掉 olddir（File.Delete 抛 UA 被尽力删除
+        // 吞掉），峰值退化回整轮载荷——只有 Windows 腿能验证这条
+        Assert.False(Directory.Exists(Path.Combine(_tempDir.Path, ".yagl", "patchwork")));
     }
 }

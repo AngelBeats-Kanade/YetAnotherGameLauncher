@@ -1528,6 +1528,17 @@ const MUTATIONS = [
     dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
     method: 'YetAnotherGameLauncher.Core.Tests.Services.IncrementalUpdateServiceTests.ApplyAsync_InsufficientFreeSpace_ThrowsBeforeApplyingGroup',
   },
+  {
+    // 2026-11-13 复审 R3：保守估算的核心是"计入 src 副本"；删掉 src 项后，免费额度落在
+    // src 与 src+dst 之间的用例必须红（只有 dst 的估算在这些机器上会误放行）。
+    id: 'M150-incremental-free-space-src-term',
+    file: 'src/YetAnotherGameLauncher.Core/Services/IncrementalUpdateService.cs',
+    find: '        var required = group.SrcFiles.Sum(f => Math.Max(0, f.Size))\n                       + group.DstFiles.Sum(f => Math.Max(0, f.Size));',
+    replace: '        var required = 0L + group.DstFiles.Sum(f => Math.Max(0, f.Size));',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.IncrementalUpdateServiceTests.ApplyAsync_FreeSpaceRequired_IncludesSourceCopies',
+  },
 ];
 
 function run(cmd, args) {

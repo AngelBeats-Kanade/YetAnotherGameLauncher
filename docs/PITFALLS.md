@@ -36,6 +36,11 @@
   在 XFS 上产出共享 extent，同样救不了"旧文件被替换后 olddir 是旧数据唯一引用"的形态。规则：按组成功即删
   本组草稿与已消费补丁（跳过组也删补丁），失败/取消保留当前组；峰值按**单组 src+dst** 估算，并逐组做
   空闲空间预检（不假设 reflink），探不到空闲值放行。同族：任何"整轮收尾才清理"的临时目录都按此审计。
+  **两个衍生坑**（2026-11-13 复审）：①`File.Copy` 保留源文件属性，Windows 只读游戏文件的副本也是只读，
+  `File.Delete` 抛 `UnauthorizedAccessException` 被尽力删除吞掉——草稿复制后必须清只读位，否则按组清理
+  静默失效、峰值退化回整轮；②按组删补丁拿掉了"目标被改动后重打补丁"的恢复面（用户为腾空间删游戏文件
+  正是本修复错误文案引导的动作），缺失补丁的待应用组必须有组级直下回退，不能只报 "run predownload
+  first"（暂存清单在场时 UI 不给预下载入口）。
 
 - **Windows 占用/只读语义是跨平台更新的头号杀手**（Linux `rename()`/`unlink()` 总能成功，问题只在 Windows 暴露）：被占用或只读的文件会让 `File.Move(overwrite:true)` 抛 IOException/UnauthorizedAccessException、让 `Directory.Delete(recursive:true)` 整体抛异常。统一防线：原子写 `FileUtilities.WriteAtomicAsync`（解除只读+重试一次，任一环失败清理 .tmp 不残留——F68）、目录树 `FileUtilities.TryDeleteDirectory`（能删多少删多少）、下载落盘 `HttpFileDownloader.ReplaceDestination`（单独分类报"目标被占用"，绝不落进网络错误重试——重下多少遍都不会好；.temp 建流/写入/冲刷三处同款折算 F65）、背景落盘 `GameBackdropService` 换时间戳备用名。新增删除/覆盖代码先想这层。**同族新形态（2026-10-19 CI 双腿实锤）**：进程自己持有的普通读句柄也算占用——`FileStream` 未带 `FILE_SHARE_DELETE`（`FileShare.Read` 即不含）时，删除其所在目录树必须先释放该流（`using var` 作用域晚于删除动作即踩；Linux 的 unlink 语义让 Linux 腿对此恒绿，只有 Windows 腿会红——`DeltaPackageApplier` 载荷清理，2026-10-19 修：删除前显式 `Dispose`）。
 - **UE 的 `Client/Saved/` 不是根级 `Saved/`，清单清理必须单独保留**（2026-11-12，3.8 更新前实锤）：

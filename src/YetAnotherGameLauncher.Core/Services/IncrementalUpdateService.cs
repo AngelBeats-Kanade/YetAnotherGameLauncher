@@ -14,8 +14,8 @@ namespace YetAnotherGameLauncher.Core.Services;
 ///    该组，中断后可重新执行；每组应用前做空闲空间预检，成功后立即回收本组草稿 olddir/newdir 与
 ///    已消费补丁——峰值 = 单组 src+dst，不随总载荷增长，2026-11-13 3.8 事故修复），随后落位暂存
 ///    新文件、删除清单废弃文件（deleteFiles 在组后——废弃文件可能同时是组差分源，2026-10-02 真机
-///    P1 实锤）、清理暂存；差分源缺失或补丁器
-///    执行失败时按注入的解析缝直下该组产物自救（组级回退）。
+///    P1 实锤）、清理暂存；差分源缺失、补丁器执行失败或补丁已被按组回收（目标随后被改动）时按
+///    注入的解析缝直下该组产物自救（组级回退）。
 /// </summary>
 public sealed class IncrementalUpdateService(
     IDownloader downloader,
@@ -261,7 +261,8 @@ public sealed class IncrementalUpdateService(
             progress?.Report(new UpdateProgress(UpdatePhase.Patching, group.PatchSize * (total - i), 0, i, total, group.PatchFile));
 
             var patchPath = SafeJoin(patchDir, group.PatchFile);
-            if (!File.Exists(patchPath))
+            var patchStaged = File.Exists(patchPath);
+            if (!patchStaged && dstUrlResolver is null)
             {
                 throw new UpdateException(
                     $"Patch {group.PatchFile} was not preloaded; run predownload first or use the full update.");
@@ -269,7 +270,19 @@ public sealed class IncrementalUpdateService(
 
             EnsureEnoughFreeSpaceForGroup(installDir, group);
 
-            await ApplyGroupAsync(installDir, workDir, i, group, patchPath, dstUrlResolver, progress, cancellationToken).ConfigureAwait(false);
+            if (patchStaged)
+            {
+                await ApplyGroupAsync(installDir, workDir, i, group, patchPath, dstUrlResolver, progress, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                // 补丁已被按组回收（本方法成功后即删）：若该组目标随后被改动（用户为腾空间删了游戏
+                // 文件、磁盘损坏），续跑会判"未应用"而差分不可用。有解析缝时按既有组级回退直下产物
+                // 自救，避免把用户卡在不可操作的 "run predownload first"（暂存清单在场时 UI 不给
+                // 预下载入口）。无解析缝保持原报错（旧调用方兼容）。
+                await ApplyGroupFromDirectDownloadAsync(
+                    installDir, workDir, i, group, dstUrlResolver!, progress, cancellationToken).ConfigureAwait(false);
+            }
 
             // 组成功即回收本组草稿与已消费补丁（2026-11-13 3.8 事故：此前只在整轮 75 组全部成功后
             // 才删 workDir，峰值 ≈ 所有被替换文件的旧版本 + 暂存 ≈ 100G，把 479G 根分区写满；开
@@ -477,6 +490,51 @@ public sealed class IncrementalUpdateService(
             "Free up space and retry - groups already applied are skipped, so nothing is downloaded again.");
     }
 
+    /// <summary>
+    /// 补丁已被按组回收后的组级自救（2026-11-13，与源缺失/hpatchz 失败同族的组级回退）：组成功后
+    /// 补丁即删，若该组目标随后被改动（用户为腾空间删了游戏文件、磁盘损坏），续跑判"未应用"时差分
+    /// 已不可用。有解析缝时直下该组产物（传输量大，但免重下整包、免手动清暂存），无解析缝由调用方
+    /// 保持原"run predownload first"报错。
+    /// </summary>
+    private async Task ApplyGroupFromDirectDownloadAsync(
+        string installDir,
+        string workDir,
+        int index,
+        PatchGroup group,
+        Func<string, CancellationToken, Task<string?>> dstUrlResolver,
+        IProgress<UpdateProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        logger?.LogWarning(
+            "Patch {Patch} is no longer staged; downloading this group's outputs directly", group.PatchFile);
+        var newDir = GroupNewDir(workDir, index);
+        Directory.CreateDirectory(newDir);
+        await DownloadGroupOutputsDirectlyAsync(
+            newDir, group, $"patch {group.PatchFile} is no longer staged", dstUrlResolver, progress, cancellationToken).ConfigureAwait(false);
+        VerifyGroupOutputs(newDir, group);
+        ReplaceWithBackup(installDir, group, newDir, logger);
+    }
+
+    /// <summary>组产物事后校验（尺寸 + MD5，逐 dst）：不合规即整组失败，绝不落位坏内容。</summary>
+    private static void VerifyGroupOutputs(string newDir, PatchGroup group)
+    {
+        foreach (var dst in group.DstFiles)
+        {
+            var produced = SafeJoin(newDir, dst.Path);
+            if (!File.Exists(produced))
+            {
+                throw new UpdateException($"Patcher did not produce {dst.Path}; patch group {group.PatchFile} failed.");
+            }
+
+            var producedLength = new FileInfo(produced).Length;
+            if (producedLength != dst.Size
+                || !string.Equals(Hashing.Md5Hex(produced), dst.Md5, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new UpdateException($"Checksum mismatch for patched {dst.Path}; patch group {group.PatchFile} failed.");
+            }
+        }
+    }
+
     private async Task ApplyGroupAsync(
         string installDir,
         string workDir,
@@ -512,6 +570,11 @@ public sealed class IncrementalUpdateService(
                 try
                 {
                     File.Copy(source, copied, overwrite: true);
+                    // 副本继承源文件属性：Windows 上只读游戏文件会让副本同样带只读位，按组清理与
+                    // 整轮整树清理的 File.Delete 都会抛 UnauthorizedAccessException 并被尽力删除吞掉，
+                    // olddir 滞留、峰值退化回整轮载荷（2026-11-13 复审 R1）。草稿是启动器自己的临时
+                    // 副本，去掉只读位不影响游戏文件本身。
+                    File.SetAttributes(copied, File.GetAttributes(copied) & ~FileAttributes.ReadOnly);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                            && !cancellationToken.IsCancellationRequested)
@@ -556,22 +619,7 @@ public sealed class IncrementalUpdateService(
             }
         }
 
-        foreach (var dst in group.DstFiles)
-        {
-            var produced = SafeJoin(newDir, dst.Path);
-            if (!File.Exists(produced))
-            {
-                throw new UpdateException($"Patcher did not produce {dst.Path}; patch group {group.PatchFile} failed.");
-            }
-
-            var producedLength = new FileInfo(produced).Length;
-            if (producedLength != dst.Size
-                || !string.Equals(Hashing.Md5Hex(produced), dst.Md5, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new UpdateException($"Checksum mismatch for patched {dst.Path}; patch group {group.PatchFile} failed.");
-            }
-        }
-
+        VerifyGroupOutputs(newDir, group);
         ReplaceWithBackup(installDir, group, newDir, logger);
     }
 
