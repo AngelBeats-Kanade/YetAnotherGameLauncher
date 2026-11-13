@@ -1,5 +1,6 @@
 using Avalonia.Media;
 using YetAnotherGameLauncher.Core.Abstractions;
+using YetAnotherGameLauncher.Core.Models;
 using YetAnotherGameLauncher.Core.Services;
 using YetAnotherGameLauncher.Channels.Kuro;
 using YetAnotherGameLauncher.Services;
@@ -78,6 +79,24 @@ public static class VmFactory
         public required FakeBackdropResolver KuroBackdrop { get; init; }
         public required FakeBackdropResolver GryphlineBackdrop { get; init; }
         public StubHttpHandler BackgroundHandler { get; init; } = new();
+
+        /// <summary>VM 实际持有的更新服务（单游戏 VM 直构测试复用）。</summary>
+        public required GameUpdateService UpdateService { get; init; }
+
+        /// <summary>VM 实际持有的启动服务（单游戏 VM 直构测试复用）。</summary>
+        public required GameLauncherService LauncherService { get; init; }
+
+        /// <summary>VM 实际持有的静态背景图服务（单游戏 VM 直构测试复用）。</summary>
+        public required BackgroundImageService BackgroundImageService { get; init; }
+
+        /// <summary>VM 实际持有的背景解析/缓存服务（单游戏 VM 直构测试复用）。</summary>
+        public required GameBackdropService BackdropService { get; init; }
+
+        /// <summary>VM 实际持有的本地化服务（单游戏 VM 直构测试复用）。</summary>
+        public required LocalizationService LocalizationService { get; init; }
+
+        /// <summary>VM 实际持有的平台信息（单游戏 VM 直构测试复用）。</summary>
+        public required IPlatformInfo PlatformInfo { get; init; }
 
         /// <summary>VM 实际持有的代理管理器（断言共享 handler 随保存切换用——组合根装配缺口回归）。</summary>
         public required NetworkProxyManager ProxyManager { get; init; }
@@ -275,6 +294,11 @@ public static class VmFactory
         var downloader = new FakeDownloader();
         var backgroundHandler = new StubHttpHandler();
         var httpDownloader = new HttpFileDownloader(new HttpClient(backgroundHandler));
+        var localizationService = new LocalizationService();
+        var backgroundImageService = new BackgroundImageService(
+            new HttpClient(backgroundHandler), diskCacheRoot: tempDir.FilePath("image-cache"));
+        var updateService = new GameUpdateService(downloader, new FakePatchApplier());
+        var resolvedPlatformInfo = platformInfo ?? new FakePlatformInfo(isLinux: false);
         // 生产组合根恒传 NetworkProxyManager（App.axaml.cs）；测试镜像生产装配，缺省新建
         var resolvedProxyManager = proxyManager ?? new NetworkProxyManager();
         var kuroBackdrop = new FakeBackdropResolver();
@@ -301,14 +325,14 @@ public static class VmFactory
             new HttpClient(backgroundHandler), cacheDirectory: tempDir.FilePath("gacha-cache"));
         var vm = new MainWindowViewModel(
             catalogService,
-            new GameUpdateService(downloader, new FakePatchApplier()),
+            updateService,
             launcherService,
             httpDownloader,
             autostart ?? new WindowsAutostartService(new FakeProcessRunner()),
             new ThemeService(),
-            new LocalizationService(),
+            localizationService,
             // 磁盘缓存根目录落临时目录：VM 测试的 http 图标不得写进真实用户配置目录
-            new BackgroundImageService(new HttpClient(backgroundHandler), diskCacheRoot: tempDir.FilePath("image-cache")),
+            backgroundImageService,
             backdropService,
             channelKey => channelKey switch
             {
@@ -321,7 +345,7 @@ public static class VmFactory
             resolvedPlayerFactory,
             gacha,
             proxyManager: resolvedProxyManager,
-            platformInfo: platformInfo ?? new FakePlatformInfo(isLinux: false),
+            platformInfo: resolvedPlatformInfo,
             linuxProtonVersions: linuxProtonVersions,
             linuxWinePath: linuxWinePath,
             linuxDataHome: linuxDataHome ?? tempDir.FilePath("data-home"),
@@ -343,6 +367,12 @@ public static class VmFactory
             KuroBackdrop = kuroBackdrop,
             GryphlineBackdrop = gryphlineBackdrop,
             BackgroundHandler = backgroundHandler,
+            UpdateService = updateService,
+            LauncherService = launcherService,
+            BackgroundImageService = backgroundImageService,
+            BackdropService = backdropService,
+            LocalizationService = localizationService,
+            PlatformInfo = resolvedPlatformInfo,
             ProxyManager = resolvedProxyManager,
             HttpDownloader = httpDownloader,
             GachaService = gacha,
@@ -351,4 +381,20 @@ public static class VmFactory
             ProcessRunner = processRunner,
         };
     }
+
+    /// <summary>
+    /// 按 Context 的服务装配单个游戏 VM。用于绕开 MainWindowViewModel 的列表重建与
+    /// “首次刷新必因区域初始化而加载资产”的干扰，直测 GameItemViewModel 自身的资产门控。
+    /// </summary>
+    public static GameItemViewModel CreateGameItem(Context ctx, GameDefinition game) => new(
+        game,
+        ctx.TempDir.FilePath("games-root", game.InstallDir),
+        game.Channel == KuroServiceCollectionExtensions.ChannelKey ? ctx.Kuro : ctx.Gryphline,
+        ctx.UpdateService,
+        ctx.LauncherService,
+        ctx.LocalizationService,
+        ctx.CatalogService,
+        ctx.BackgroundImageService,
+        ctx.BackdropService,
+        platformInfo: ctx.PlatformInfo);
 }

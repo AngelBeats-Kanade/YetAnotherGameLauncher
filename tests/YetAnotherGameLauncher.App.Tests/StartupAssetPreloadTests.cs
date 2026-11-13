@@ -141,9 +141,10 @@ public sealed class StartupAssetPreloadTests
     {
         // 2026-11-13：Kuro 解析器格式升到 2（3.8 bundle 索引）。旧 meta 没有 formatVersion，
         // 即使 gameVersion 与最新版一致也必须重解析一次；预加载仍应能先显示旧缓存。
+        // 直构单游戏 VM 并先跑 PreloadAssetsAsync：把 _loadedRegion/_assetVersionLoaded 提前置位，
+        // 隔离 MainWindowViewModel 首次刷新的“区域初始化必加载”干扰，确保本用例只测格式门控。
         using var ctx = VmFactory.Build(ConfigJson(IconUrl1, IconUrl2));
         ctx.BackgroundHandler.Map(IconUrl1, Png);
-        ctx.BackgroundHandler.Map(IconUrl2, Png);
         ctx.BackgroundHandler.Map(BackdropUrl, Png);
         ctx.KuroBackdrop.CacheFormatVersion = 2;
         ctx.KuroBackdrop.Resolver = _ => new BackdropSource(BackdropUrl, BackdropKind.Image);
@@ -154,8 +155,13 @@ public sealed class StartupAssetPreloadTests
             """{"url":"https://cdn.example/old-backdrop.png","file":"backdrop.png","kind":"Image","region":"cn","gameVersion":"2.0.0"}""");
         await File.WriteAllBytesAsync(Path.Combine(cacheDir, "backdrop.png"), Png);
 
+        await ctx.CatalogService.LoadAsync();
+        var item = VmFactory.CreateGameItem(ctx, ctx.CatalogService.Catalog!.Games[0]);
+
         await HeadlessSession.Instance.Dispatch(
-            () => RunToCompletion(() => ctx.Vm.InitializeAsync()), CancellationToken.None);
+            () => RunToCompletion(() => item.PreloadAssetsAsync()), CancellationToken.None);
+        await HeadlessSession.Instance.Dispatch(
+            () => RunToCompletion(() => item.RefreshAsync()), CancellationToken.None);
 
         // RefreshAsync 内部 LoadAssetsCoreAsync 是 fire-and-forget：有界等待解析器被调用
         var settleDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
@@ -168,7 +174,7 @@ public sealed class StartupAssetPreloadTests
 
         // 再刷新一次：格式已升级/资产版本已对齐，不得重复解析
         await HeadlessSession.Instance.Dispatch(
-            () => RunToCompletion(() => ctx.Vm.Games[0].RefreshAsync()), CancellationToken.None);
+            () => RunToCompletion(() => item.RefreshAsync()), CancellationToken.None);
         await Task.Delay(50);
         Assert.Equal(1, ctx.KuroBackdrop.ResolveCount);
     }
