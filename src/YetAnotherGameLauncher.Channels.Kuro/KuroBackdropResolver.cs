@@ -5,7 +5,7 @@ namespace YetAnotherGameLauncher.Channels.Kuro;
 /// <summary>
 /// 鸣潮详情页背景解析：3.8+ 从服务器选项 resourcePackIndexUrl 的 bundle 索引取
 /// <c>config.functionCode.background</c>，再取同目录背景内容 JSON（背景视频 + 首帧图）；
-/// 旧 launcher-config 仅作为资源索引未声明背景时的回退。与终末地一致的单级模型——
+/// 旧 launcher-config 仅作为未配置资源索引或资源索引未声明背景时的回退。与终末地一致的单级模型——
 /// 视频不可用时首帧图即一级回退，解析失败返回 null，由上层回退上次磁盘缓存与主题渐变。
 /// </summary>
 public sealed class KuroBackdropResolver(KuroSwitchConfigClient switchConfigClient) : IBackdropResolver

@@ -8,7 +8,8 @@ namespace YetAnotherGameLauncher.Channels.Kuro;
 /// 库洛官方启动器背景配置直连客户端：
 /// 3.8+ 从资源索引（games.json 的 resourcePackIndexUrl）的 <c>config.functionCode.background</c>
 /// 取当期背景哈希，再取与索引同目录的 <c>background/{hash}/{lang}.json</c>；旧 launcher-config
-/// （根级 <c>functionCode.background</c>）两跳仅作为“资源索引成功拉取但未声明背景”时的回退。
+/// （根级 <c>functionCode.background</c>）两跳用于未配置资源索引的服务器（国际服/旧配置），
+/// 或资源索引成功拉取但未声明背景时的回退。
 /// 背景内容 JSON 含 backgroundFile 背景视频 / firstFrameImage 首帧图 / slogan 横幅的 CDN 直链。
 /// 历史端点 switch.json 已停止投放背景（实测仅剩功能开关），官方改用哈希寻址后内容轮换天然免 CDN 缓存污染。
 /// 约束：国际服 CDN 无条件返回 gzip 响应体，注入的 HttpClient 必须开启 AutomaticDecompression

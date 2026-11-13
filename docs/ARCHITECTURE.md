@@ -446,9 +446,10 @@ flowchart LR
   `kuro`：3.8+ 从服务器选项 `resourcePackIndexUrl` 的 bundle 索引读 `config.functionCode.background`
   取当期投放哈希，再取与索引同目录的 `background/{hash}/{lang}.json`（背景视频 + 首帧图；按语言
   投放，主语言 404 自动回退 en/zh-Hans）。旧 `indexUrl` 的 launcher-config（根级
-  `functionCode.background`）两跳仅作为“bundle 索引成功拉取但未声明背景”时的回退；bundle 索引
-  网络失败或已声明哈希但内容取不到时返回 null，不用旧投放污染缓存（旧索引在 3.7.1 后冻结，
-  见 §3.11；2026-09-13 实测历史端点 switch.json 已停止投放背景）；
+  `functionCode.background`）两跳用于未配置 `resourcePackIndexUrl` 的服务器（国际服/旧配置），
+  或 bundle 索引成功拉取但未声明背景时的回退；bundle 索引网络失败或已声明哈希但内容取不到时
+  返回 null，不用旧投放污染缓存（旧索引在 3.7.1 后冻结，见 §3.11；2026-09-13 实测历史端点
+  switch.json 已停止投放背景）；
   `hypergryph`：官方启动器 `get_main_bg_image` 接口（视频优先、静态图兜底）。
   两渠道一致的单级回退模型：视频不可用时首帧/静态图兜底，解析失败返回 null 交上层处理，不再探测
   本机官方启动器缓存或本地帧序列。
