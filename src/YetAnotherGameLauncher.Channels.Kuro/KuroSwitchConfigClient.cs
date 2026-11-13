@@ -9,7 +9,7 @@ namespace YetAnotherGameLauncher.Channels.Kuro;
 /// 3.8+ 从资源索引（games.json 的 resourcePackIndexUrl）的 <c>config.functionCode.background</c>
 /// 取当期背景哈希，再取与索引同目录的 <c>background/{hash}/{lang}.json</c>；旧 launcher-config
 /// （根级 <c>functionCode.background</c>）两跳用于未配置资源索引的服务器（国际服/旧配置），
-/// 或资源索引成功拉取但未声明背景时的回退。
+/// 或旧形态索引（无 <c>config</c>/<c>bundles</c>）未声明背景时的回退；bundle 形态索引缺背景字段不回退。
 /// 背景内容 JSON 含 backgroundFile 背景视频 / firstFrameImage 首帧图 / slogan 横幅的 CDN 直链。
 /// 历史端点 switch.json 已停止投放背景（实测仅剩功能开关），官方改用哈希寻址后内容轮换天然免 CDN 缓存污染。
 /// 约束：国际服 CDN 无条件返回 gzip 响应体，注入的 HttpClient 必须开启 AutomaticDecompression
@@ -91,8 +91,9 @@ public sealed class KuroSwitchConfigClient(HttpClient httpClient, ILogger<KuroSw
 
     /// <summary>
     /// 3.8+ 背景解析入口：优先从 <paramref name="gameConfigUrl"/>（资源索引 / bundle 索引）读取
-    /// <c>config.functionCode.background</c>，再取同目录背景内容。仅当资源索引成功拉取但明确没有背景哈希时
-    /// 才回退旧 launcher-config；资源索引请求失败或已声明哈希但内容取不到时返回 null，交上层保留旧缓存并重试。
+    /// <c>config.functionCode.background</c>，再取同目录背景内容。仅当索引是旧形态且明确没有背景哈希时
+    /// 才回退旧 launcher-config；bundle 形态缺背景字段、索引请求失败或已声明哈希但内容取不到时返回 null，
+    /// 交上层保留旧缓存并重试。
     /// </summary>
     /// <param name="indexUrl">旧版本接口地址（用于回退推导 launcher-config）。</param>
     /// <param name="gameConfigUrl">3.8+ 资源索引完整地址（games.json 的 resourcePackIndexUrl）；null = 直接走旧链路。</param>

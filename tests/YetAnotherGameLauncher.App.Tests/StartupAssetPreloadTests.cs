@@ -9,7 +9,7 @@ namespace YetAnotherGameLauncher.AppTests;
 /// 启动资产预热与一次性版本检测：
 /// 1) InitializeAsync 后全部游戏图标已加载（不等到选中），版本检测每游戏恰一次；
 /// 2) 来回切换选中不再触发版本检测（会话缓存）；
-/// 3) 版本号变化触发背景解析器重调 + http 图标绕过缓存重取；版本不变时零网络零解析器调用。
+/// 3) 版本号变化触发背景解析器重调 + http 图标绕过缓存重取；版本与缓存格式均未变时零网络零解析器调用。
 /// 审计修复（2026-09-19）：原实现把 await/断言写进 Dispatch(async ...) lambda（吞断言假绿），
 /// 且 `using var ctx` 在 lambda 内与被放弃的续体竞态。改为：ctx 生命周期在测试方法体；
 /// await Dispatch(同步 lambda) 内用 RunJobs 泵 InitializeAsync 到完成；断言全部在 Dispatch 外。
