@@ -640,7 +640,9 @@ public partial class GameItemViewModel(
         }
 
         _assetVersionLoaded = true;
-        _assetVersion = backdropService.GetCachedGameVersion(Game.Id);
+        // 缓存格式低于渠道解析器当前版本（端点/路径迁移）时返回 null：让 RefreshAsync 的
+        // versionChanged 判定触发一次远程重解析，成功后 meta.formatVersion 升级、后续恢复零网络
+        _assetVersion = backdropService.GetCachedGameVersion(Game.Id, Game.Channel);
     }
 
     /// <summary>图标是否为 http 直链（版本变化时需要绕过缓存强制重取的类型；avares/本地文件本就随包/在盘）。</summary>

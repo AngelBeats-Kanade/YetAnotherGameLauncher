@@ -49,7 +49,7 @@ src/
                     DecoyParentBridge（诱饵父进程桥准备：候选挑选→诱饵复制→helper 落盘到启动器数据目录的 bridge/<游戏id>，
                     并 best-effort 清理旧版 <安装目录>/.yagl/bridge；helper 源码/构建/自检在 tools/wine-parent-bridge/）、
                     BridgeLaunchStatus（helper 启动状态 STARTING/READY/ERROR 轮询 + 两段 10 秒预算：把桥启动失败与游戏自身退出码区分开）），
-                    GameBackdropService（详情页背景远程解析 + 本地缓存编排：区域/游戏版本门控，版本一致零网络）、WindowsPlatformInfo / LinuxPlatformInfo（IPlatformInfo 双实现）+ PlatformInfoFactory（唯一的 OS 选择分支，DI 与各 ViewModel 缺省共用）
+                    GameBackdropService（详情页背景远程解析 + 本地缓存编排：区域/游戏版本/解析器缓存格式版本门控，三者一致零网络）、WindowsPlatformInfo / LinuxPlatformInfo（IPlatformInfo 双实现）+ PlatformInfoFactory（唯一的 OS 选择分支，DI 与各 ViewModel 缺省共用）
     Dependencies/   Wine prefix 依赖安装（管线细节见 docs/ARCHITECTURE.md §3.9）：DependencyManifest/DependencyCatalog（内嵌 catalog.json 清单：两种互斥来源——字体下载与 winetricks 原生 DLL；解析+按来源分支校验+聚合错误）、
                     WineRegistryScriptBuilder（字体清单 → UTF-16LE .reg，供单次 wine reg import；winetricks 清单显式拒绝）、
                     DependencyPaths（全局下载缓存 ~/.cache/yagl/deps + prefix 内 .yagl-deps 状态/备份目录布局）、
@@ -85,7 +85,7 @@ src/
     KuroChannelApi（旧 index.json + 3.8 bundle 索引（resourcePacks/bundles/同构 predownload）解析、
                     版本检测与 common + 档位包全量/增量合并、CDN 选择、URL 拼接）
     KuroUrlBuilder（含同文件的 KuroCdnSelector：CDN 节点优先级选择）、HpatchzApplier（HDiffPatch 目录模式 + IFilePatchApplier 单文件模式（终末地 v2 载荷）；HpatchzApplierOptions 配置路径/超时）、HpatchzProvisioner（hpatchz 自动供给：PATH 无自备时下载社区验证构建 hpatchz.exe 到应用数据目录并 MD5 实测校验；Linux 经 wine 运行（独立 WINEPREFIX），Windows 原生直跑）
-    KuroSwitchConfigClient（官方运营配置直连：launcher-config → 背景内容两跳）、KuroSwitchConfig（背景投放 DTO）、KuroBackdropResolver（背景解析：运营配置直连，视频 + 首帧图单级回退）
+    KuroSwitchConfigClient（3.8+ 资源索引 config.functionCode.background → 同目录背景内容；旧 launcher-config 两跳回退）、KuroSwitchConfig（背景投放 DTO）、KuroBackdropResolver（3.8+ bundle 索引背景解析，旧 indexUrl 仅回退；视频 + 首帧图单级回退）
     KuroGachaService（唤取记录：日志地址提取 → 官方接口 → 本地合并缓存）、KuroServiceCollectionExtensions（AddKuroChannel）、Models/（协议 DTO）
   YetAnotherGameLauncher.Channels.Hypergryph/   # GRYPHLINE 渠道（终末地，包式）
     GryphlineChannelApi（batch_proxy get_latest_game）、GryphlineProtocol（版本/背景接口共用的协议工具）

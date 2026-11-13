@@ -11,12 +11,24 @@ namespace YetAnotherGameLauncher.Channels.Kuro.Tests;
 public class KuroBackdropResolverTests
 {
     private const string IndexUrl = "https://cdn.example.com/launcher/game/G152/10003_H1/index.json";
+    private const string GameConfigUrl = "https://cdn.example.com/launcher/game/10003_H1/G152/official/index.json";
 
-    private static BackdropRequest Request(string? indexUrl = IndexUrl) => new(
+    private static BackdropRequest Request(string? indexUrl = IndexUrl, string? gameConfigUrl = null) => new(
         "wuthering-waves", "kuro", "cn", InstallDir: "D:/games/ww",
-        ServerOptions: indexUrl is null
-            ? new Dictionary<string, string>()
-            : new Dictionary<string, string> { [KuroChannelApi.IndexUrlOptionKey] = indexUrl });
+        ServerOptions: (indexUrl, gameConfigUrl) switch
+        {
+            (null, null) => new Dictionary<string, string>(),
+            (not null, null) => new Dictionary<string, string> { [KuroChannelApi.IndexUrlOptionKey] = indexUrl! },
+            (null, not null) => new Dictionary<string, string>
+            {
+                [KuroChannelApi.ResourcePackIndexUrlOptionKey] = gameConfigUrl!,
+            },
+            _ => new Dictionary<string, string>
+            {
+                [KuroChannelApi.IndexUrlOptionKey] = indexUrl!,
+                [KuroChannelApi.ResourcePackIndexUrlOptionKey] = gameConfigUrl!,
+            },
+        });
 
     private static KuroBackdropResolver CreateResolver(StubHttpHandler? handler = null) =>
         new(new KuroSwitchConfigClient(new HttpClient(handler ?? new StubHttpHandler())));
@@ -50,6 +62,34 @@ public class KuroBackdropResolverTests
         Assert.Equal(BackdropKind.Video, source.Kind);
         Assert.Equal("https://cdn.example.com/loop.mp4", source.Url);
         Assert.Equal("https://cdn.example.com/first.webp", source.PosterUrl);
+    }
+
+    [Fact]
+    public async Task GetBackdropUrlAsync_BundleIndexHash_ReturnsNewSourceAndSkipsLegacy()
+    {
+        // 3.8 实测形态：resourcePackIndexUrl 的 config.functionCode.background 才是当期哈希
+        var handler = new StubHttpHandler();
+        handler.Map(GameConfigUrl, """{"config":{"functionCode":{"background":"HASH789"}}}""");
+        handler.Map(
+            "https://cdn.example.com/launcher/game/10003_H1/G152/official/background/HASH789/zh-Hans.json",
+            """
+            {"functionSwitch":1,
+             "backgroundFile":"https://cdn.example.com/new.mp4",
+             "backgroundFileType":2,
+             "firstFrameImage":"https://cdn.example.com/new.webp"}
+            """);
+        var resolver = CreateResolver(handler);
+
+        var source = await resolver.GetBackdropUrlAsync(Request(gameConfigUrl: GameConfigUrl));
+
+        Assert.NotNull(source);
+        Assert.Equal(BackdropKind.Video, source.Kind);
+        Assert.Equal("https://cdn.example.com/new.mp4", source.Url);
+        Assert.Equal("https://cdn.example.com/new.webp", source.PosterUrl);
+        Assert.DoesNotContain(
+            handler.Requests,
+            request => request.RequestUri!.AbsolutePath.StartsWith(
+                "/launcher/launcher/", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -437,29 +437,36 @@ flowchart LR
 
 ### 3.7 背景视频播放子系统
 
-详情页背景的解析、缓存与视频播放管线：配置文件不携带背景地址，缓存元数据记录抓取时的区域与
-游戏版本，两者均未变化时直接用缓存（零网络），版本更新后的首次解析才向渠道确认当期背景；
-缓存到本地后由 FFmpeg 播放器后台解码上屏，并以循环点分析 + 预卷做到无缝循环。关键机制：
+详情页背景的解析、缓存与视频播放管线：配置文件不携带背景地址，缓存元数据记录抓取时的区域、
+游戏版本与解析器缓存格式版本，三者均未变化时直接用缓存（零网络），版本更新或解析器格式升级后的
+首次解析才向渠道确认当期背景；缓存到本地后由 FFmpeg 播放器后台解码上屏，并以循环点分析 + 预卷
+做到无缝循环。关键机制：
 
 - **背景解析**：keyed `IBackdropResolver` 按渠道解析——
-  `kuro`：官方运营配置直连两跳——launcher-config 的 `functionCode.background` 取当期投放哈希，
-  再取背景内容 JSON 的 `backgroundFile`/`firstFrameImage`（背景视频 + 首帧图；按语言投放，主语言
-  404 自动回退 en/zh-Hans。2026-09-13 实测：历史端点 switch.json 已停止投放背景，官方改哈希寻址）；
+  `kuro`：3.8+ 从服务器选项 `resourcePackIndexUrl` 的 bundle 索引读 `config.functionCode.background`
+  取当期投放哈希，再取与索引同目录的 `background/{hash}/{lang}.json`（背景视频 + 首帧图；按语言
+  投放，主语言 404 自动回退 en/zh-Hans）。旧 `indexUrl` 的 launcher-config（根级
+  `functionCode.background`）两跳仅作为“bundle 索引成功拉取但未声明背景”时的回退；bundle 索引
+  网络失败或已声明哈希但内容取不到时返回 null，不用旧投放污染缓存（旧索引在 3.7.1 后冻结，
+  见 §3.11；2026-09-13 实测历史端点 switch.json 已停止投放背景）；
   `hypergryph`：官方启动器 `get_main_bg_image` 接口（视频优先、静态图兜底）。
   两渠道一致的单级回退模型：视频不可用时首帧/静态图兜底，解析失败返回 null 交上层处理，不再探测
   本机官方启动器缓存或本地帧序列。
   `GameBackdropService` 把远程背景流式下载缓存到 `%DataDirectory%/backdrops/<gameId>/`
   （`backdrop.*` + `poster.*` + `meta.json`），地址未变不重复下载，离线/下载失败/解析到畸形响应
   （如 WAF 拦截页的 200+HTML，F59）回退上次缓存。
-  **版本门控**（产品决策：背景严格跟随游戏版本，卡池轮换等与版本无关的运营投放不触发刷新）：
-  `meta.json` 记录 `region`/`gameVersion`，`ResolveAsync(request, gameVersion)` 在区域与版本均未变化、
-  文件在盘时直接返回缓存、不调解析器；版本变化后的解析若地址未变则仅升级元数据不重下。
-  `ResolveCachedAsync` 纯磁盘读取（启动预加载用），`GetCachedGameVersion` 供 VM 免网络对齐资产版本。
+  **版本/格式门控**（产品决策：背景严格跟随游戏版本，卡池轮换等与版本无关的运营投放不触发刷新）：
+  `meta.json` 记录 `region`/`gameVersion`/`formatVersion`，`ResolveAsync(request, gameVersion)` 在
+  区域、游戏版本与 `formatVersion >= resolver.CacheFormatVersion` 均满足、文件在盘时直接返回缓存、
+  不调解析器；版本变化或解析器格式升级后的解析若地址未变则仅升级元数据不重下。`formatVersion`
+  用于解析端点/路径语义迁移（2026-11-13 鸣潮升至 2：背景哈希来源迁到 bundle 索引），旧 meta 缺字段
+  按 1。`ResolveCachedAsync` 纯磁盘读取（启动预加载用，忽略格式门以便先显示旧缓存）；
+  `GetCachedGameVersion(gameId, channel)` 对格式过期/文件缺失返回 null，供 VM 触发一次重解析。
 - **启动资产预热与一次性版本检测**（`MainWindowViewModel.WarmupGames` + `GameItemViewModel`）：
   启动时非选中游戏并行 `PreloadAssetsAsync`（图标 + 背景仅读磁盘缓存）让侧栏图标即刻可见（选中游戏跳过预热，由 `SelectedGame` 赋值触发的完整刷新加载）；
   每服务器每启动至多一次 `GetVersionInfoAsync`（`GameItemViewModel` 按 SelectedServer 会话缓存，
   选中/切语言/操作完成后的刷新不再打网络；测试经 `ResetVersionCheckCache` 模拟重启），
-  版本检测成功且与资产缓存记录版本不一致时才重新解析背景并重取 http 图标。
+  版本检测成功且与资产缓存记录版本不一致（或缓存格式过期）时才重新解析背景并重取 http 图标。
   图标 URL 缓存于 `%DataDirectory%/image-cache/`（`BackgroundImageService`，URL SHA256 键；
   `ReloadAsync` 绕过缓存强制重取）。区域随界面语言（cn/global），语言切换换区时重新解析新区域。
   离线启动状态行照常提示无连接，资产由缓存兜底。

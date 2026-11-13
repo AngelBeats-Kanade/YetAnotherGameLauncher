@@ -185,9 +185,9 @@ UHD = common + UHD 66.04 GB，2026-10-16 端点实测）。`launch.resourceQuali
 
 ### 详情页背景与名称本地化（代码内置，不写入配置）
 
-- **详情页背景**：配置文件不携带背景地址。背景缓存元数据记录抓取时的区域与游戏版本，两者均未变化时启动直接用缓存（零网络）；每服务器每启动至多一次版本/预载检测，**游戏版本更新后**的首次解析才按界面语言选择渠道（中文 → 国服端点，其余 → 国际服端点）向官方接口确认当期背景，地址变化时自动下载到应用数据目录缓存（数据目录下 `backdrops/<gameId>/`，Linux 即 `~/.local/share/yagl/backdrops/`、Windows 即 `%LOCALAPPDATA%\yagl\backdrops\`——2026-09-22 起可重建缓存统一归数据目录，见 §6），离线时回退上次缓存：
+- **详情页背景**：配置文件不携带背景地址。背景缓存元数据记录抓取时的区域、游戏版本与解析器缓存格式版本，三者均未变化时启动直接用缓存（零网络）；每服务器每启动至多一次版本/预载检测，**游戏版本更新后或解析器格式升级后**的首次解析才按界面语言选择渠道（中文 → 国服端点，其余 → 国际服端点）向官方接口确认当期背景，地址变化时自动下载到应用数据目录缓存（数据目录下 `backdrops/<gameId>/`，Linux 即 `~/.local/share/yagl/backdrops/`、Windows 即 `%LOCALAPPDATA%\yagl\backdrops\`——2026-09-22 起可重建缓存统一归数据目录，见 §6），离线时回退上次缓存：
   - 终末地：官方启动器 `get_main_bg_image` 接口（当期版本主视觉，端点参数取自该游戏 `servers[].options`）。
-  - 鸣潮：直连官方启动器运营配置两跳取当期投放（launcher-config 的 `functionCode.background` 哈希 → 背景内容 JSON，背景视频 + 首帧图，随官方投放即时更新；2026-09 起官方弃用固定 `switch.json` 改哈希寻址）。视频不可用时首帧图即一级回退，与终末地同款。
+  - 鸣潮：3.8+ 以 `resourcePackIndexUrl` 的 bundle 索引为背景哈希来源（`config.functionCode.background` → 同目录 `background/{hash}/{lang}.json`，背景视频 + 首帧图）；旧 `indexUrl` 的 launcher-config 仅作 bundle 索引未声明背景时的回退（旧索引在 3.7.1 后冻结）。机制与端点实测见 ARCHITECTURE §3.7。视频不可用时首帧图即一级回退，与终末地同款。
   - 均不可用时回退主题渐变背景。
 - **游戏名**：`nameLocalized` 按界面语言显示（样例模板已含鸣潮/终末地中英文名，旧配置自动迁移补齐）；服务器名等其余配置数据按配置文件原样显示。
 

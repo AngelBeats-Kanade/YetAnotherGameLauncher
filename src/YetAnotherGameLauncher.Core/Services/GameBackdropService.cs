@@ -15,9 +15,9 @@ public sealed record ResolvedBackdrop(string? Source, BackdropKind Kind, string?
 
 /// <summary>
 /// 游戏详情页背景的远程解析 + 本地缓存编排。配置文件不携带背景地址：
-/// 缓存元数据记录抓取时的区域与游戏版本，两者均未变化时直接使用缓存（零网络），
-/// 版本更新后的首次解析才向渠道确认当期地址、地址变化时重新下载（严格跟随版本，
-/// 卡池轮换等运营投放不触发刷新）；离线或下载失败时回退上次缓存，
+/// 缓存元数据记录抓取时的区域、游戏版本与缓存格式版本，均未变化时直接使用缓存（零网络），
+/// 版本更新或解析器格式升级后的首次解析才向渠道确认当期地址、地址变化时重新下载
+/// （严格跟随版本，卡池轮换等运营投放不触发刷新）；离线或下载失败时回退上次缓存，
 /// 均不可用时由调用方回退主题渐变。视频背景（可达数十 MB）与首帧海报一并缓存。
 /// </summary>
 public sealed class GameBackdropService(
@@ -44,8 +44,9 @@ public sealed class GameBackdropService(
 
     /// <summary>
     /// 解析游戏的当期背景，返回本地缓存文件路径、远程直链或解析器给出的本地路径。
-    /// 版本门控：缓存元数据记录的游戏版本与区域均与传入值一致时直接返回缓存（零网络），
-    /// 背景只在游戏版本更新后的首次解析时重新获取。失败链：远程解析失败/下载失败 → 上次缓存 → 远程直链 → null。
+    /// 版本/格式门控：缓存元数据记录的游戏版本、区域与缓存格式均与传入值一致时直接返回缓存（零网络），
+    /// 背景只在游戏版本更新或解析器 CacheFormatVersion 升级后的首次解析时重新获取。
+    /// 失败链：远程解析失败/下载失败 → 上次缓存 → 远程直链 → null。
     /// </summary>
     public async Task<ResolvedBackdrop?> ResolveAsync(
         BackdropRequest request, string? gameVersion = null, CancellationToken cancellationToken = default)
@@ -62,9 +63,12 @@ public sealed class GameBackdropService(
             var cacheDir = Path.Combine(_cacheRoot, Sanitize(request.GameId));
             var meta = ReadMeta(Path.Combine(cacheDir, "meta.json"));
 
-            // 版本门控（缓存直读，零网络）：区域与游戏版本都未变化时不再向渠道确认当期地址，
-            // 卡池轮换等与版本无关的运营投放不触发重新解析（产品决策：背景严格跟随游戏版本）
-            if (IsCacheFreshFor(meta, request.Region, cacheDir, requireVersionMatch: true, gameVersion))
+            // 版本门控（缓存直读，零网络）：区域、游戏版本与缓存格式都未变化时不再向渠道确认当期地址，
+            // 卡池轮换等与版本无关的运营投放不触发重新解析（产品决策：背景严格跟随游戏版本）。
+            // 解析器端点/路径迁移时 CacheFormatVersion 递增，旧 meta 强制重解析一次。
+            if (IsCacheFreshFor(
+                    meta, request.Region, cacheDir, requireVersionMatch: true,
+                    gameVersion, resolver.CacheFormatVersion))
             {
                 return ResolvedFromCache(meta!, cacheDir)!;
             }
@@ -89,19 +93,40 @@ public sealed class GameBackdropService(
         return Task.FromResult(hit);
     }
 
-    /// <summary>读取磁盘缓存元数据里记录的游戏版本（无缓存或旧格式元数据返回 null；纯读盘，不触发网络）。</summary>
-    public string? GetCachedGameVersion(string gameId)
+    /// <summary>
+    /// 读取磁盘缓存元数据里记录的游戏版本；无缓存、缓存格式低于该渠道解析器的
+    /// <see cref="IBackdropResolver.CacheFormatVersion"/>、或背景文件缺失时返回 null
+    /// （调用方据此触发一次远程重解析）。纯读盘，不触发网络。
+    /// </summary>
+    public string? GetCachedGameVersion(string gameId, string channel)
     {
-        var meta = ReadMeta(Path.Combine(_cacheRoot, Sanitize(gameId), "meta.json"));
-        return string.IsNullOrEmpty(meta?.GameVersion) ? null : meta.GameVersion;
+        if (!resolvers.TryGetValue(channel, out var resolver))
+        {
+            return null;
+        }
+
+        var cacheDir = Path.Combine(_cacheRoot, Sanitize(gameId));
+        var meta = ReadMeta(Path.Combine(cacheDir, "meta.json"));
+        if (meta is null
+            || meta.FormatVersion < resolver.CacheFormatVersion
+            || string.IsNullOrEmpty(meta.File)
+            || !File.Exists(Path.Combine(cacheDir, meta.File)))
+        {
+            return null;
+        }
+
+        return string.IsNullOrEmpty(meta.GameVersion) ? null : meta.GameVersion;
     }
 
     /// <summary>缓存是否可直接使用：元数据完整（<see cref="BackdropMeta.File"/> 非空——手改/
     /// 截断的 meta.json 缺字段时 null 拼接会裸 ArgumentNullException，2026-09-26 review 立案）、
-    /// 区域一致、背景文件在；requireVersionMatch 时还要求缓存记录的游戏版本与传入版本一致。</summary>
+    /// 缓存格式不低于解析器当前版本、区域一致、背景文件在；requireVersionMatch 时还要求缓存
+    /// 记录的游戏版本与传入版本一致。只读缓存（启动预加载）传 minFormatVersion=0 忽略格式门。</summary>
     private static bool IsCacheFreshFor(
-        BackdropMeta? meta, string region, string cacheDir, bool requireVersionMatch, string? gameVersion = null) =>
+        BackdropMeta? meta, string region, string cacheDir, bool requireVersionMatch,
+        string? gameVersion = null, int minFormatVersion = 0) =>
         meta is { } cached
+        && cached.FormatVersion >= minFormatVersion
         && !string.IsNullOrEmpty(cached.File)
         && string.Equals(cached.Region, region, StringComparison.Ordinal)
         && (!requireVersionMatch
@@ -149,15 +174,20 @@ public sealed class GameBackdropService(
             remote = null;
         }
 
-        // 远程确认成功且地址/类型未变：仅升级元数据里的区域与版本（不重下），
-        // 让下次启动的版本门控能够命中
+        // 远程确认成功且地址/类型未变：仅升级元数据里的区域、版本与缓存格式（不重下），
+        // 让下次启动的版本/格式门控能够命中
         if (remote is not null
             && meta is { } cached
             && string.Equals(cached.Url, remote.Url, StringComparison.OrdinalIgnoreCase)
             && cached.Kind == remote.Kind)
         {
             await WriteMetaAsync(Path.Combine(cacheDir, "meta.json"),
-                cached with { Region = request.Region, GameVersion = gameVersion }).ConfigureAwait(false);
+                cached with
+                {
+                    Region = request.Region,
+                    GameVersion = gameVersion,
+                    FormatVersion = resolver.CacheFormatVersion,
+                }).ConfigureAwait(false);
         }
 
         // 地址或类型变化（版本更新换投放）→ 重新下载覆盖缓存
@@ -166,7 +196,8 @@ public sealed class GameBackdropService(
                 || !string.Equals(meta.Url, remote.Url, StringComparison.OrdinalIgnoreCase)
                 || meta.Kind != remote.Kind))
         {
-            var downloaded = await TryDownloadAsync(remote, cacheDir, request.Region, gameVersion, cancellationToken)
+            var downloaded = await TryDownloadAsync(
+                    remote, cacheDir, request.Region, gameVersion, resolver.CacheFormatVersion, cancellationToken)
                 .ConfigureAwait(false);
             if (downloaded is { } download)
             {
@@ -187,7 +218,8 @@ public sealed class GameBackdropService(
 
     /// <summary>下载背景本体（视频用流式写盘）与可选的首帧海报；返回缓存元数据或 null。</summary>
     private async Task<(BackdropMeta Meta, Func<string, ResolvedBackdrop> Resolved)?> TryDownloadAsync(
-        BackdropSource source, string cacheDir, string region, string? gameVersion, CancellationToken cancellationToken)
+        BackdropSource source, string cacheDir, string region, string? gameVersion, int formatVersion,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -217,7 +249,9 @@ public sealed class GameBackdropService(
             }
 
             return (
-                new BackdropMeta(source.Url, backdropFile, source.Kind, source.PosterUrl, posterFile, region, gameVersion),
+                new BackdropMeta(
+                    source.Url, backdropFile, source.Kind, source.PosterUrl, posterFile, region, gameVersion,
+                    formatVersion),
                 dir => new ResolvedBackdrop(
                     Path.Combine(dir, backdropFile),
                     source.Kind,
@@ -333,6 +367,7 @@ public sealed class GameBackdropService(
     /// <param name="PosterFile">海报缓存文件名（poster&lt;ext&gt;）。</param>
     /// <param name="Region">缓存对应的区域（cn/global；旧格式元数据为 null，首次重新解析后升级）。</param>
     /// <param name="GameVersion">缓存抓取时的游戏版本（渠道 LatestVersion；旧格式元数据为 null）。</param>
+    /// <param name="FormatVersion">解析器缓存格式版本（旧格式元数据缺字段按 1；低于当前解析器时强制重解析）。</param>
     private sealed record BackdropMeta(
         [property: JsonPropertyName("url")] string Url,
         [property: JsonPropertyName("file")] string File,
@@ -340,5 +375,6 @@ public sealed class GameBackdropService(
         [property: JsonPropertyName("posterUrl")] string? PosterUrl = null,
         [property: JsonPropertyName("posterFile")] string? PosterFile = null,
         [property: JsonPropertyName("region")] string? Region = null,
-        [property: JsonPropertyName("gameVersion")] string? GameVersion = null);
+        [property: JsonPropertyName("gameVersion")] string? GameVersion = null,
+        [property: JsonPropertyName("formatVersion")] int FormatVersion = 1);
 }

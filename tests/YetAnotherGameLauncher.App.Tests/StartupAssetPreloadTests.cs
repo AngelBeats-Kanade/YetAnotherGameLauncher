@@ -137,6 +137,43 @@ public sealed class StartupAssetPreloadTests
     }
 
     [Fact]
+    public async Task LegacyBackdropCacheFormat_TriggersOneRemoteResolve_EvenWhenVersionUnchanged()
+    {
+        // 2026-11-13：Kuro 解析器格式升到 2（3.8 bundle 索引）。旧 meta 没有 formatVersion，
+        // 即使 gameVersion 与最新版一致也必须重解析一次；预加载仍应能先显示旧缓存。
+        using var ctx = VmFactory.Build(ConfigJson(IconUrl1, IconUrl2));
+        ctx.BackgroundHandler.Map(IconUrl1, Png);
+        ctx.BackgroundHandler.Map(IconUrl2, Png);
+        ctx.BackgroundHandler.Map(BackdropUrl, Png);
+        ctx.KuroBackdrop.CacheFormatVersion = 2;
+        ctx.KuroBackdrop.Resolver = _ => new BackdropSource(BackdropUrl, BackdropKind.Image);
+
+        var cacheDir = Path.Combine(ctx.TempDir.Path, "backdrops", "wuthering-waves");
+        Directory.CreateDirectory(cacheDir);
+        await File.WriteAllTextAsync(Path.Combine(cacheDir, "meta.json"),
+            """{"url":"https://cdn.example/old-backdrop.png","file":"backdrop.png","kind":"Image","region":"cn","gameVersion":"2.0.0"}""");
+        await File.WriteAllBytesAsync(Path.Combine(cacheDir, "backdrop.png"), Png);
+
+        await HeadlessSession.Instance.Dispatch(
+            () => RunToCompletion(() => ctx.Vm.InitializeAsync()), CancellationToken.None);
+
+        // RefreshAsync 内部 LoadAssetsCoreAsync 是 fire-and-forget：有界等待解析器被调用
+        var settleDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (ctx.KuroBackdrop.ResolveCount < 1 && DateTime.UtcNow < settleDeadline)
+        {
+            await Task.Delay(20);
+        }
+
+        Assert.Equal(1, ctx.KuroBackdrop.ResolveCount);
+
+        // 再刷新一次：格式已升级/资产版本已对齐，不得重复解析
+        await HeadlessSession.Instance.Dispatch(
+            () => RunToCompletion(() => ctx.Vm.Games[0].RefreshAsync()), CancellationToken.None);
+        await Task.Delay(50);
+        Assert.Equal(1, ctx.KuroBackdrop.ResolveCount);
+    }
+
+    [Fact]
     public async Task InitializeAsync_Offline_FallsBackToHttpIconAndReportsNoConnection()
     {
         // 审计缺口 RefreshAsync catch 内离线资产兜底（2026-09-19）：版本检测失败时，

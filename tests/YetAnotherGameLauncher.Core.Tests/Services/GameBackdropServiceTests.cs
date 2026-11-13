@@ -233,7 +233,7 @@ public class GameBackdropServiceTests : IDisposable
         Assert.Equal(2, resolver.ResolveCount);
         Assert.Equal(1, _handler.Requests.Count(r => r.RequestUri == new Uri("https://cdn.example.com/bg.png")));
         Assert.NotNull(second);
-        Assert.Equal("2.0.0", service.GetCachedGameVersion("some-game"));
+        Assert.Equal("2.0.0", service.GetCachedGameVersion("some-game", "test"));
     }
 
     [Fact]
@@ -271,8 +271,72 @@ public class GameBackdropServiceTests : IDisposable
 
         Assert.Equal(1, resolver.ResolveCount); // 升级后第二次门控命中
         Assert.Equal(0, _handler.Requests.Count(r => r.RequestUri == new Uri("https://cdn.example.com/bg.png"))); // 地址未变不重下
-        Assert.Equal("1.0.0", service.GetCachedGameVersion("some-game"));
+        Assert.Equal("1.0.0", service.GetCachedGameVersion("some-game", "test"));
         Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public async Task Resolve_LegacyFormatCache_ForcesOneResolverCallThenUpgrades()
+    {
+        // 2026-11-13：Kuro 背景哈希来源迁到 3.8 bundle 索引，旧 meta（无 formatVersion）即使
+        // region/gameVersion 都命中也不能直接复用——必须强制重解析一次，否则版本门控会把旧投放永久锁死
+        var cacheDir = _tempDir.FilePath("backdrops", "some-game");
+        Directory.CreateDirectory(cacheDir);
+        await File.WriteAllTextAsync(Path.Combine(cacheDir, "meta.json"),
+            """{"url":"https://cdn.example.com/bg.png","file":"backdrop.png","kind":"Image","region":"cn","gameVersion":"1.0.0"}""");
+        await File.WriteAllBytesAsync(Path.Combine(cacheDir, "backdrop.png"), [5]);
+        _handler.Map("https://cdn.example.com/bg.png", [5]);
+        var resolver = new StubResolver(_ => new BackdropSource("https://cdn.example.com/bg.png", BackdropKind.Image))
+        {
+            CacheFormatVersion = 2,
+        };
+        var service = CreateService(resolver);
+
+        Assert.Null(service.GetCachedGameVersion("some-game", "test")); // 格式过期
+        Assert.NotNull(await service.ResolveCachedAsync(Request())); // 预加载仍能显示旧缓存
+        var first = await service.ResolveAsync(Request(), "1.0.0");
+        var second = await service.ResolveAsync(Request(), "1.0.0");
+
+        Assert.Equal(1, resolver.ResolveCount); // 第一次强制重解析，第二次格式已升级
+        Assert.Equal("1.0.0", service.GetCachedGameVersion("some-game", "test"));
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public async Task Resolve_V1Resolver_LegacyMetaWithoutFormatVersion_StillGated()
+    {
+        // 默认实现 CacheFormatVersion=1：终末地等未迁移渠道的旧 meta（缺字段按 1）不应被无谓刷新
+        var cacheDir = _tempDir.FilePath("backdrops", "some-game");
+        Directory.CreateDirectory(cacheDir);
+        await File.WriteAllTextAsync(Path.Combine(cacheDir, "meta.json"),
+            """{"url":"https://cdn.example.com/bg.png","file":"backdrop.png","kind":"Image","region":"cn","gameVersion":"1.0.0"}""");
+        await File.WriteAllBytesAsync(Path.Combine(cacheDir, "backdrop.png"), [5]);
+        var resolver = new StubResolver(_ => new BackdropSource("https://cdn.example.com/bg.png", BackdropKind.Image));
+        var service = CreateService(resolver);
+
+        var first = await service.ResolveAsync(Request(), "1.0.0");
+        var second = await service.ResolveAsync(Request(), "1.0.0");
+
+        Assert.Equal(0, resolver.ResolveCount);
+        Assert.Equal("1.0.0", service.GetCachedGameVersion("some-game", "test"));
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public void GetCachedGameVersion_CurrentFormatButMissingFile_ReturnsNull()
+    {
+        // 缓存文件被手删/清理后，版本门控不能仍报"可用"——否则资产永不重拉
+        var cacheDir = _tempDir.FilePath("backdrops", "some-game");
+        Directory.CreateDirectory(cacheDir);
+        File.WriteAllText(Path.Combine(cacheDir, "meta.json"),
+            """{"url":"https://cdn.example.com/bg.png","file":"backdrop.png","kind":"Image","region":"cn","gameVersion":"1.0.0","formatVersion":2}""");
+        var resolver = new StubResolver(_ => new BackdropSource("https://cdn.example.com/bg.png", BackdropKind.Image))
+        {
+            CacheFormatVersion = 2,
+        };
+        var service = CreateService(resolver);
+
+        Assert.Null(service.GetCachedGameVersion("some-game", "test"));
     }
 
     [Fact]
@@ -325,7 +389,7 @@ public class GameBackdropServiceTests : IDisposable
         var service = CreateService(new StubResolver(
             _ => new BackdropSource("https://cdn.example.com/bg.png", BackdropKind.Image)));
 
-        Assert.Null(service.GetCachedGameVersion("some-game"));
+        Assert.Null(service.GetCachedGameVersion("some-game", "test"));
     }
 
     [Fact]
@@ -339,13 +403,16 @@ public class GameBackdropServiceTests : IDisposable
 
         var service = CreateService(new StubResolver(_ => null));
 
-        Assert.Null(service.GetCachedGameVersion("some-game"));
+        Assert.Null(service.GetCachedGameVersion("some-game", "test"));
         Assert.Null(await service.ResolveCachedAsync(Request()));
     }
 
     private sealed class StubResolver(Func<string, BackdropSource?> resolve) : IBackdropResolver
     {
         public Func<string, BackdropSource?> Resolver { get; set; } = resolve;
+
+        /// <summary>解析器缓存格式版本（测试按需提升以触发一次性重解析）。</summary>
+        public int CacheFormatVersion { get; set; } = 1;
 
         /// <summary>解析器被调用次数（验证版本门控是否跳过远程解析）。</summary>
         public int ResolveCount { get; private set; }

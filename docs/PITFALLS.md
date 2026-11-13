@@ -159,4 +159,8 @@
   不匹配时把旧索引内容标成请求的新版本（`GetManifestAsync` 已加版本守卫）。新 `predownload` 不是旧
   `predownload.config`，而是与顶层同构的 `resourcePacks` + `bundles`（复用外层 `cdnList`）；
   3.8.0 全量清单的 common 与每个档位包各带 26 个 `Client/Saved/Resources/3.8.0/` 文件。
+  **同族背景坑（2026-11-13 端点实测）**：旧索引的 launcher-config 背景哈希也冻结在 3.7.1，
+  3.8 当期背景哈希在 bundle 索引的 `config.functionCode.background`，内容路径相对 bundle 索引
+  （`.../{serverCode}/background/{hash}/{lang}.json`）。只按 `meta.gameVersion` 门控会把旧投放
+  标成当前版本缓存；解析器迁移时必须 bump `CacheFormatVersion` / `meta.formatVersion` 强制一次重解析。
 - **协议/格式的行为结论只认一手源码，二手摘要必须标注未核实**（F24 两连错实锤）：WebSearch 摘要给的 Valve KeyValues 转义表是错的，拉 `tier1/utlbuffer.cpp` raw 源码实证的真表与之不符（未知转义 = NUL+保留后续字符）。解析器/协议逆向类结论：摘要 → 源码溯源是硬门槛；注释里引用外部行为必须写明出处层级（"源码实证" vs "摘要未核"）。

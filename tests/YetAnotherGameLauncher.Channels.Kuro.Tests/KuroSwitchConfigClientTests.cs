@@ -13,6 +13,9 @@ public class KuroSwitchConfigClientTests
     private const string CnIndexUrl = "https://cdn.example.com/launcher/game/G152/10003_H1/index.json";
     private const string CnLauncherConfigUrl = "https://cdn.example.com/launcher/launcher/10003_H1/G152/index.json";
     private const string GlobalIndexUrl = "https://cdn.example.com/launcher/game/G153/50004_H2/index.json";
+    private const string CnGameConfigUrl = "https://cdn.example.com/launcher/game/10003_H1/G152/official/index.json";
+    private const string CnGameConfigBackgroundBase =
+        "https://cdn.example.com/launcher/game/10003_H1/G152/official/background";
 
     private readonly StubHttpHandler _handler = new();
 
@@ -23,6 +26,13 @@ public class KuroSwitchConfigClientTests
     {
         _handler.Map(CnLauncherConfigUrl, """{"functionCode":{"background":"HASH123"},"crashInitSwitch":0}""");
         _handler.Map($"https://cdn.example.com/launcher/10003_H1/G152/background/HASH123/{lang}.json", backgroundJson);
+    }
+
+    /// <summary>铺好 3.8+ 桩：资源索引的 config.functionCode 返回哈希，背景内容相对索引目录。</summary>
+    private void MapGameConfig(string lang, string backgroundJson)
+    {
+        _handler.Map(CnGameConfigUrl, """{"config":{"functionCode":{"background":"HASH789"}}}""");
+        _handler.Map($"{CnGameConfigBackgroundBase}/HASH789/{lang}.json", backgroundJson);
     }
 
     [Fact]
@@ -156,6 +166,86 @@ public class KuroSwitchConfigClientTests
 
         Assert.Equal("https://cdn.example.com/global.mp4", config!.BackgroundFile);
         Assert.Equal(2, _handler.Requests.Count); // 主语言直接命中，不碰回退
+    }
+
+    [Fact]
+    public void DeriveGameConfigBackgroundUrl_ComposesRelativeToIndexDirectory()
+    {
+        Assert.Equal(
+            $"{CnGameConfigBackgroundBase}/HASH123/zh-Hans.json",
+            KuroSwitchConfigClient.DeriveGameConfigBackgroundUrl(CnGameConfigUrl, "HASH123", "zh-Hans"));
+    }
+
+    [Theory]
+    [InlineData(null, "HASH123", "zh-Hans")]
+    [InlineData("", "HASH123", "zh-Hans")]
+    [InlineData("https://cdn.example.com/other/config.json", null, "zh-Hans")]
+    [InlineData("https://cdn.example.com/other/config.json", "HASH123", " ")]
+    public void DeriveGameConfigBackgroundUrl_InvalidInput_ReturnsNull(
+        string? gameConfigUrl, string? hash, string lang)
+    {
+        Assert.Null(KuroSwitchConfigClient.DeriveGameConfigBackgroundUrl(gameConfigUrl, hash, lang));
+    }
+
+    [Fact]
+    public async Task FetchAsync_GameConfigWithHash_UsesIndexRelativePathAndSkipsLegacy()
+    {
+        // 3.8 实测形态：哈希在资源索引的 config.functionCode，内容在同目录 background/ 下
+        MapGameConfig("zh-Hans", FullBackgroundJson);
+
+        var config = await CreateClient().FetchAsync(indexUrl: null, CnGameConfigUrl, "cn");
+
+        Assert.Equal("https://cdn.example.com/bg.mp4", config!.BackgroundFile);
+        Assert.DoesNotContain(
+            _handler.Requests,
+            request => request.RequestUri!.AbsolutePath.StartsWith(
+                "/launcher/launcher/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task FetchAsync_GameConfigWithoutHash_FallsBackToLauncherConfig()
+    {
+        // 3.8 之前的资源索引没有 config.functionCode：旧 launcher-config 仍是正确来源
+        _handler.Map(CnGameConfigUrl, """{"resourcePacks":{"common":{"version":"3.7.0"}}}""");
+        MapTwoHop("zh-Hans", FullBackgroundJson);
+
+        var config = await CreateClient().FetchAsync(CnIndexUrl, CnGameConfigUrl, "cn");
+
+        Assert.Equal("https://cdn.example.com/bg.mp4", config!.BackgroundFile);
+        Assert.Contains(
+            _handler.Requests,
+            request => request.RequestUri!.AbsolutePath == "/launcher/launcher/10003_H1/G152/index.json");
+    }
+
+    [Fact]
+    public async Task FetchAsync_GameConfigUnavailable_DoesNotFallBackToLegacy()
+    {
+        // 资源索引网络失败时不能退回旧投放：否则旧 URL 会被再次写成"当前缓存"，版本门控继续锁死
+        MapTwoHop("zh-Hans", FullBackgroundJson);
+
+        var config = await CreateClient().FetchAsync(CnIndexUrl, CnGameConfigUrl, "cn");
+
+        Assert.Null(config);
+        Assert.DoesNotContain(
+            _handler.Requests,
+            request => request.RequestUri!.AbsolutePath.StartsWith(
+                "/launcher/launcher/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task FetchAsync_GameConfigBackgroundUnavailable_DoesNotFallBackToLegacy()
+    {
+        // 索引已声明哈希但内容取不到（404/网络失败）：返回 null 交上层保留旧缓存并下次重试
+        _handler.Map(CnGameConfigUrl, """{"config":{"functionCode":{"background":"HASH789"}}}""");
+        MapTwoHop("zh-Hans", FullBackgroundJson);
+
+        var config = await CreateClient().FetchAsync(CnIndexUrl, CnGameConfigUrl, "cn");
+
+        Assert.Null(config);
+        Assert.DoesNotContain(
+            _handler.Requests,
+            request => request.RequestUri!.AbsolutePath.StartsWith(
+                "/launcher/launcher/", StringComparison.Ordinal));
     }
 
     [Fact]

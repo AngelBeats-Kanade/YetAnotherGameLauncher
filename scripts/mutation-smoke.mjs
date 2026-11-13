@@ -1550,6 +1550,39 @@ const MUTATIONS = [
     dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
     method: 'YetAnotherGameLauncher.Core.Tests.Services.IncrementalUpdateServiceTests.ApplyAsync_MissingSource_FreeSpaceCheckedAgainstProducedFilesOnly',
   },
+  {
+    // 2026-11-13 鸣潮 3.8 背景哈希迁移：bundle 索引的 config.functionCode 分支必须被读到——
+    // 关掉后新解析器测试会退回旧 launcher-config（未铺桩）并返回 null，用例必须红
+    id: 'M152-kuro-bundle-background-hash',
+    file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroSwitchConfigClient.cs',
+    find: 'root.TryGetProperty("config", out var config)',
+    replace: 'false && root.TryGetProperty("config", out var config)',
+    project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
+    method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroSwitchConfigClientTests.FetchAsync_GameConfigWithHash_UsesIndexRelativePathAndSkipsLegacy',
+  },
+  {
+    // 2026-11-13 缓存格式迁移：放行过期 formatVersion 后，旧 meta 不再强制重解析，
+    // 迁移守卫用例必须红（版本门控会把旧投放永久锁死）。
+    id: 'M153-backdrop-format-gate',
+    file: 'src/YetAnotherGameLauncher.Core/Services/GameBackdropService.cs',
+    find: '&& cached.FormatVersion >= minFormatVersion',
+    replace: '&& cached.FormatVersion >= 0',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.GameBackdropServiceTests.Resolve_LegacyFormatCache_ForcesOneResolverCallThenUpgrades',
+  },
+  {
+    // 2026-11-13 VM 触发点：GetCachedGameVersion 不再把格式过期的缓存报为可用时，
+    // 启动刷新必须仍能触发一次远程解析（否则服务层改了也到不了解析器）。
+    id: 'M154-backdrop-vm-format-trigger',
+    file: 'src/YetAnotherGameLauncher.Core/Services/GameBackdropService.cs',
+    find: '|| meta.FormatVersion < resolver.CacheFormatVersion',
+    replace: '|| false',
+    project: 'tests/YetAnotherGameLauncher.App.Tests/YetAnotherGameLauncher.App.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.App.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.App.Tests.dll',
+    method: 'YetAnotherGameLauncher.AppTests.StartupAssetPreloadTests.LegacyBackdropCacheFormat_TriggersOneRemoteResolve_EvenWhenVersionUnchanged',
+  },
 ];
 
 function run(cmd, args) {

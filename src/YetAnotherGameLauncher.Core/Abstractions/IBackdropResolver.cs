@@ -40,6 +40,12 @@ public sealed record BackdropRequest(
 /// </summary>
 public interface IBackdropResolver
 {
+    /// <summary>
+    /// 解析器缓存格式版本：解析端点/路径/语义变化时递增，旧缓存（meta.formatVersion 更低）会被强制重解析一次。
+    /// 默认 1；鸣潮 2026-11-13 升至 2（背景哈希来源迁到 3.8 bundle 索引）。
+    /// </summary>
+    int CacheFormatVersion => 1;
+
     /// <summary>解析指定游戏与区域的背景；返回直链/本地路径（含类型），null = 暂无法确定。</summary>
     Task<BackdropSource?> GetBackdropUrlAsync(BackdropRequest request, CancellationToken cancellationToken = default);
 }

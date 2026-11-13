@@ -103,6 +103,9 @@ public static class VmFactory
     /// <summary>可编程的背景解析器假实现：默认返回 null（回退主题渐变）。</summary>
     public sealed class FakeBackdropResolver : IBackdropResolver
     {
+        /// <summary>解析器缓存格式版本（测试按需提升以触发一次性重解析）。</summary>
+        public int CacheFormatVersion { get; set; } = 1;
+
         /// <summary>按区域返回背景来源；null = 解析失败。</summary>
         public Func<string, BackdropSource?>? Resolver { get; set; }
 

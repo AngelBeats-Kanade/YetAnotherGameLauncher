@@ -3,16 +3,21 @@ using YetAnotherGameLauncher.Core.Abstractions;
 namespace YetAnotherGameLauncher.Channels.Kuro;
 
 /// <summary>
-/// 鸣潮详情页背景解析：直连官方启动器运营配置（launcher-config 取当期投放哈希 → 背景内容 JSON，
-/// 含背景视频 + 首帧图，随官方投放即时更新）。与终末地一致的单级模型——视频不可用时首帧图即一级回退，
-/// 解析失败返回 null，由上层回退上次磁盘缓存与主题渐变。
+/// 鸣潮详情页背景解析：3.8+ 从服务器选项 resourcePackIndexUrl 的 bundle 索引取
+/// <c>config.functionCode.background</c>，再取同目录背景内容 JSON（背景视频 + 首帧图）；
+/// 旧 launcher-config 仅作为资源索引未声明背景时的回退。与终末地一致的单级模型——
+/// 视频不可用时首帧图即一级回退，解析失败返回 null，由上层回退上次磁盘缓存与主题渐变。
 /// </summary>
 public sealed class KuroBackdropResolver(KuroSwitchConfigClient switchConfigClient) : IBackdropResolver
 {
+    /// <summary>3.8+ 背景哈希来源迁移到 bundle 索引；旧缓存（无 formatVersion / 1）需强制重解析一次。</summary>
+    public int CacheFormatVersion => 2;
+
     public async Task<BackdropSource?> GetBackdropUrlAsync(BackdropRequest request, CancellationToken cancellationToken = default)
     {
         var config = await switchConfigClient.FetchAsync(
             request.ServerOptions.GetValueOrDefault(KuroChannelApi.IndexUrlOptionKey),
+            request.ServerOptions.GetValueOrDefault(KuroChannelApi.ResourcePackIndexUrlOptionKey),
             request.Region, cancellationToken).ConfigureAwait(false);
         return config is null ? null : AsSource(config);
     }

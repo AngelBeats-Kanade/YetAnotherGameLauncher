@@ -5,10 +5,11 @@ using Microsoft.Extensions.Logging;
 namespace YetAnotherGameLauncher.Channels.Kuro;
 
 /// <summary>
-/// 库洛官方启动器运营配置直连客户端，两跳取当期背景投放（2026-09 实测链路）：
-/// ① launcher-config（functionCode.background 字段）给出当期背景投放哈希；
-/// ② 背景内容 JSON（backgroundFile 背景视频 / firstFrameImage 首帧图 / slogan 横幅的 CDN 直链）。
-/// 两级地址均可由 games.json 现有的 indexUrl 推导，每次启动直连即可与官方启动器同步拿到最新投放。
+/// 库洛官方启动器背景配置直连客户端：
+/// 3.8+ 从资源索引（games.json 的 resourcePackIndexUrl）的 <c>config.functionCode.background</c>
+/// 取当期背景哈希，再取与索引同目录的 <c>background/{hash}/{lang}.json</c>；旧 launcher-config
+/// （根级 <c>functionCode.background</c>）两跳仅作为“资源索引成功拉取但未声明背景”时的回退。
+/// 背景内容 JSON 含 backgroundFile 背景视频 / firstFrameImage 首帧图 / slogan 横幅的 CDN 直链。
 /// 历史端点 switch.json 已停止投放背景（实测仅剩功能开关），官方改用哈希寻址后内容轮换天然免 CDN 缓存污染。
 /// 约束：国际服 CDN 无条件返回 gzip 响应体，注入的 HttpClient 必须开启 AutomaticDecompression
 /// （应用共享 handler 已开启，见 NetworkProxyManager）。
@@ -45,6 +46,32 @@ public sealed class KuroSwitchConfigClient(HttpClient httpClient, ILogger<KuroSw
             : null;
     }
 
+    /// <summary>
+    /// 从游戏资源索引地址 + 背景哈希推导 3.8+ 背景内容地址（相对索引所在目录）：
+    /// <c>{索引目录}/background/{hash}/{lang}.json</c>。哈希/语言缺失或地址非法返回 null。
+    /// </summary>
+    public static string? DeriveGameConfigBackgroundUrl(
+        string? gameConfigUrl, string? backgroundHash, string lang)
+    {
+        if (string.IsNullOrWhiteSpace(gameConfigUrl)
+            || !Uri.TryCreate(gameConfigUrl, UriKind.Absolute, out var uri)
+            || uri.Scheme is not ("http" or "https")
+            || string.IsNullOrWhiteSpace(backgroundHash)
+            || string.IsNullOrWhiteSpace(lang))
+        {
+            return null;
+        }
+
+        var lastSlash = gameConfigUrl.LastIndexOf('/');
+        if (lastSlash < uri.GetLeftPart(UriPartial.Authority).Length)
+        {
+            return null;
+        }
+
+        var directory = gameConfigUrl[..(lastSlash + 1)];
+        return $"{directory}background/{Uri.EscapeDataString(backgroundHash)}/{Uri.EscapeDataString(lang)}.json";
+    }
+
     /// <summary>解析版本接口地址的约定段；形态不符返回 null。</summary>
     private static (string Scheme, string Authority, string GameId, string AppKey)? ParseGameIndexUrl(string? indexUrl)
     {
@@ -62,15 +89,75 @@ public sealed class KuroSwitchConfigClient(HttpClient httpClient, ILogger<KuroSw
     }
 
     /// <summary>
-    /// 直连拉取当期背景配置；未投放（配置无背景哈希 / 内容无 backgroundFile / 功能关闭）或网络失败返回 null。
-    /// 背景内容按语言投放：主语言（区域映射）优先，404 时回退其他语言（实测国服仅 zh-Hans，国际服多语言）；
-    /// 连接重置/超时这类瞬态失败每跳重试一次，重试仍失败即整体放弃——网络层面的失败换语言也一样失败。
+    /// 3.8+ 背景解析入口：优先从 <paramref name="gameConfigUrl"/>（资源索引 / bundle 索引）读取
+    /// <c>config.functionCode.background</c>，再取同目录背景内容。仅当资源索引成功拉取但明确没有背景哈希时
+    /// 才回退旧 launcher-config；资源索引请求失败或已声明哈希但内容取不到时返回 null，交上层保留旧缓存并重试。
     /// </summary>
-    /// <param name="indexUrl">games.json 该服务器的版本接口地址（用于推导两级配置地址）。</param>
+    /// <param name="indexUrl">旧版本接口地址（用于回退推导 launcher-config）。</param>
+    /// <param name="gameConfigUrl">3.8+ 资源索引完整地址（games.json 的 resourcePackIndexUrl）；null = 直接走旧链路。</param>
     /// <param name="region">背景区域（"cn"/"global"），决定首选语言。</param>
     /// <param name="cancellationToken">调用方取消令牌（用户退出时不等超时）。</param>
     public async Task<KuroSwitchConfig?> FetchAsync(
-        string? indexUrl, string region, CancellationToken cancellationToken = default)
+        string? indexUrl, string? gameConfigUrl, string region, CancellationToken cancellationToken = default)
+    {
+        if (!string.IsNullOrWhiteSpace(gameConfigUrl))
+        {
+            var (config, canFallBackToLegacy) = await FetchFromGameConfigAsync(
+                gameConfigUrl, region, cancellationToken).ConfigureAwait(false);
+            if (config is not null)
+            {
+                return config;
+            }
+
+            if (!canFallBackToLegacy)
+            {
+                return null;
+            }
+        }
+
+        return await FetchFromLauncherConfigAsync(indexUrl, region, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 直连拉取旧 launcher-config 两跳背景配置；未投放（配置无背景哈希 / 内容无 backgroundFile / 功能关闭）
+    /// 或网络失败返回 null。保留给 3.8 之前的资源索引 / 国际服回退。
+    /// </summary>
+    /// <param name="indexUrl">games.json 该服务器的旧版本接口地址（用于推导 launcher-config）。</param>
+    /// <param name="region">背景区域（"cn"/"global"），决定首选语言。</param>
+    /// <param name="cancellationToken">调用方取消令牌（用户退出时不等超时）。</param>
+    public Task<KuroSwitchConfig?> FetchAsync(
+        string? indexUrl, string region, CancellationToken cancellationToken = default) =>
+        FetchFromLauncherConfigAsync(indexUrl, region, cancellationToken);
+
+    /// <summary>
+    /// 从 3.8+ 资源索引取背景配置。返回 <c>CanFallBackToLegacy=true</c> 仅表示索引成功拉取但未声明背景
+    /// （旧服务形态）；索引不可用或已声明哈希但内容失败都返回 false，避免旧投放被写成当前缓存。
+    /// </summary>
+    private async Task<(KuroSwitchConfig? Config, bool CanFallBackToLegacy)> FetchFromGameConfigAsync(
+        string gameConfigUrl, string region, CancellationToken cancellationToken)
+    {
+        var (backgroundHash, configAvailable) = await FetchBackgroundHashWithRetryAsync(
+            gameConfigUrl, "Kuro game config", cancellationToken).ConfigureAwait(false);
+        if (!configAvailable)
+        {
+            return (null, false);
+        }
+
+        if (backgroundHash is null)
+        {
+            return (null, true);
+        }
+
+        var config = await FetchBackgroundContentAsync(
+            lang => DeriveGameConfigBackgroundUrl(gameConfigUrl, backgroundHash, lang),
+            region,
+            cancellationToken).ConfigureAwait(false);
+        return (config, false);
+    }
+
+    /// <summary>旧 launcher-config 两跳：哈希未投放/网络失败返回 null；内容失败同样返回 null 交上层回退缓存。</summary>
+    private async Task<KuroSwitchConfig?> FetchFromLauncherConfigAsync(
+        string? indexUrl, string region, CancellationToken cancellationToken)
     {
         var configUrl = DeriveLauncherConfigUrl(indexUrl);
         if (configUrl is null)
@@ -78,40 +165,43 @@ public sealed class KuroSwitchConfigClient(HttpClient httpClient, ILogger<KuroSw
             return null;
         }
 
-        // 第一跳：launcher-config 取背景投放哈希
-        string? backgroundHash;
-        for (var attempt = 0; ; attempt++)
+        var (backgroundHash, configAvailable) = await FetchBackgroundHashWithRetryAsync(
+            configUrl, "Kuro launcher config", cancellationToken).ConfigureAwait(false);
+        if (!configAvailable || backgroundHash is null)
         {
-            try
-            {
-                backgroundHash = await FetchBackgroundHashAsync(configUrl, cancellationToken).ConfigureAwait(false);
-                if (backgroundHash is not null)
-                {
-                    break;
-                }
-
-                // 配置里没有背景投放：确定性结果，不重试不换语言
-                return null;
-            }
-            catch (Exception ex) when (IsTransient(ex, cancellationToken))
-            {
-                if (attempt >= 1)
-                {
-                    logger?.LogDebug("Kuro launcher config fetch failed: {Message}", ex.Message);
-                    return null;
-                }
-            }
+            return null;
         }
 
-        // 第二跳：按语言候选链取背景内容
+        return await FetchBackgroundContentAsync(
+            lang => DeriveBackgroundUrl(indexUrl, backgroundHash, lang),
+            region,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>背景内容的语言候选链：主语言（区域映射）优先，en 与 zh-Hans 兜底（去重保序）。</summary>
+    internal static IEnumerable<string> LanguageCandidates(string region)
+    {
+        var primary = region.Equals("cn", StringComparison.OrdinalIgnoreCase) ? "zh-Hans" : "en";
+        return new[] { primary, "en", "zh-Hans" }.Distinct(StringComparer.Ordinal);
+    }
+
+    /// <summary>按语言候选链拉取背景内容；404/无背景字段换下一个语言，瞬态失败每语言重试一次后整体放弃。</summary>
+    private async Task<KuroSwitchConfig?> FetchBackgroundContentAsync(
+        Func<string, string?> urlForLanguage, string region, CancellationToken cancellationToken)
+    {
         foreach (var lang in LanguageCandidates(region))
         {
             for (var attempt = 0; ; attempt++)
             {
                 try
                 {
-                    var config = await FetchBackgroundAsync(indexUrl!, backgroundHash, lang, cancellationToken)
-                        .ConfigureAwait(false);
+                    var backgroundUrl = urlForLanguage(lang);
+                    if (backgroundUrl is null)
+                    {
+                        break;
+                    }
+
+                    var config = await FetchBackgroundAsync(backgroundUrl, cancellationToken).ConfigureAwait(false);
                     if (config is not null)
                     {
                         return config;
@@ -134,49 +224,81 @@ public sealed class KuroSwitchConfigClient(HttpClient httpClient, ILogger<KuroSw
         return null;
     }
 
-    /// <summary>背景内容的语言候选链：主语言（区域映射）优先，en 与 zh-Hans 兜底（去重保序）。</summary>
-    internal static IEnumerable<string> LanguageCandidates(string region)
+    /// <summary>拉取索引并取出背景哈希（带一次瞬态重试）；Available=false 表示网络/解析失败，null 哈希表示明确未投放。</summary>
+    private async Task<(string? Hash, bool Available)> FetchBackgroundHashWithRetryAsync(
+        string configUrl, string logLabel, CancellationToken cancellationToken)
     {
-        var primary = region.Equals("cn", StringComparison.OrdinalIgnoreCase) ? "zh-Hans" : "en";
-        return new[] { primary, "en", "zh-Hans" }.Distinct(StringComparer.Ordinal);
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return (await FetchBackgroundHashAsync(configUrl, cancellationToken).ConfigureAwait(false), true);
+            }
+            catch (Exception ex) when (IsTransient(ex, cancellationToken))
+            {
+                if (attempt >= 1)
+                {
+                    logger?.LogDebug("{Label} fetch failed: {Message}", logLabel, ex.Message);
+                    return (null, false);
+                }
+            }
+        }
     }
 
-    /// <summary>拉取 launcher-config（带缓存破坏时间戳，与官方启动器请求形态一致）并取出 functionCode.background。</summary>
+    /// <summary>拉取索引（带缓存破坏时间戳）并读取根级或 config 下的 functionCode.background。</summary>
     private async Task<string?> FetchBackgroundHashAsync(string configUrl, CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(FetchTimeout);
         using var response = await httpClient.GetAsync(
-            $"{configUrl}?_t={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}", timeout.Token).ConfigureAwait(false);
+            AppendCacheBuster(configUrl), timeout.Token).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
         using var stream = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false);
         using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: timeout.Token).ConfigureAwait(false);
 
-        // 逆向协议、结构可能随官方更新变化：全程 TryGetProperty，不抛键缺失异常
-        return doc.RootElement.TryGetProperty("functionCode", out var functionCode)
-            && functionCode.ValueKind == JsonValueKind.Object
-            && functionCode.TryGetProperty("background", out var background)
-            && background.ValueKind == JsonValueKind.String
-            && !string.IsNullOrWhiteSpace(background.GetString())
-            ? background.GetString()
+        // 逆向协议：3.8+ 在 config.functionCode，旧 launcher-config 在根级 functionCode；
+        // 全程 TryGetProperty，不抛键缺失异常
+        return TryReadBackgroundHash(doc.RootElement);
+    }
+
+    /// <summary>读取根级 functionCode.background，缺失时再读 config.functionCode.background。</summary>
+    private static string? TryReadBackgroundHash(JsonElement root)
+    {
+        var rootHash = ReadBackgroundHash(root);
+        if (rootHash is not null)
+        {
+            return rootHash;
+        }
+
+        return root.TryGetProperty("config", out var config) && config.ValueKind == JsonValueKind.Object
+            ? ReadBackgroundHash(config)
             : null;
     }
 
-    /// <summary>拉取指定语言的背景内容；404（该语言未投放）或无背景字段返回 null，其他失败抛异常由调用方重试。</summary>
-    private async Task<KuroSwitchConfig?> FetchBackgroundAsync(
-        string indexUrl, string backgroundHash, string lang, CancellationToken cancellationToken)
+    /// <summary>读取单个对象元素下的 functionCode.background；不是非空字符串返回 null。</summary>
+    private static string? ReadBackgroundHash(JsonElement element)
     {
-        var backgroundUrl = DeriveBackgroundUrl(indexUrl, backgroundHash, lang);
-        if (backgroundUrl is null)
+        if (!element.TryGetProperty("functionCode", out var functionCode)
+            || functionCode.ValueKind != JsonValueKind.Object
+            || !functionCode.TryGetProperty("background", out var background)
+            || background.ValueKind != JsonValueKind.String)
         {
             return null;
         }
 
+        var hash = background.GetString();
+        return string.IsNullOrWhiteSpace(hash) ? null : hash;
+    }
+
+    /// <summary>拉取指定 URL 的背景内容；404（该语言未投放）或无背景字段返回 null，其他失败抛异常由调用方重试。</summary>
+    private async Task<KuroSwitchConfig?> FetchBackgroundAsync(
+        string backgroundUrl, CancellationToken cancellationToken)
+    {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(FetchTimeout);
         using var response = await httpClient.GetAsync(
-            $"{backgroundUrl}?_t={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}", timeout.Token).ConfigureAwait(false);
+            AppendCacheBuster(backgroundUrl), timeout.Token).ConfigureAwait(false);
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
             // 404 是确定性的语言缺失：不重试、不触发 EnsureSuccessStatusCode 的异常路径
@@ -186,6 +308,10 @@ public sealed class KuroSwitchConfigClient(HttpClient httpClient, ILogger<KuroSw
         response.EnsureSuccessStatusCode();
         return await ParseAsync(response, timeout.Token).ConfigureAwait(false);
     }
+
+    /// <summary>给请求 URL 追加缓存破坏时间戳（已有 query 时用 &amp; 连接）。</summary>
+    private static string AppendCacheBuster(string url) =>
+        $"{url}{(url.Contains('?') ? '&' : '?')}_t={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
 
     /// <summary>解析背景配置 JSON：委托给 KuroSwitchConfig.FromJson，无投放（无 backgroundFile 或功能关闭）返回 null。</summary>
     private static async Task<KuroSwitchConfig?> ParseAsync(HttpResponseMessage response, CancellationToken cancellationToken)
