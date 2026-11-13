@@ -1533,11 +1533,22 @@ const MUTATIONS = [
     // src 与 src+dst 之间的用例必须红（只有 dst 的估算在这些机器上会误放行）。
     id: 'M150-incremental-free-space-src-term',
     file: 'src/YetAnotherGameLauncher.Core/Services/IncrementalUpdateService.cs',
-    find: '        var required = group.SrcFiles.Sum(f => Math.Max(0, f.Size))\n                       + group.DstFiles.Sum(f => Math.Max(0, f.Size));',
-    replace: '        var required = 0L + group.DstFiles.Sum(f => Math.Max(0, f.Size));',
+    find: 'group.SrcFiles.Sum(f => Math.Max(0, f.Size))',
+    replace: '0L',
     project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
     method: 'YetAnotherGameLauncher.Core.Tests.Services.IncrementalUpdateServiceTests.ApplyAsync_FreeSpaceRequired_IncludesSourceCopies',
+  },
+  {
+    // 2026-11-13 复审：缺补丁直下回退不复制 src，预检必须按 dst 计费（flag 恒 true 会让恢复路径
+    // 被源文件声明尺寸误拦）；空间介于 dst 与 src+dst 之间的用例必须红。
+    id: 'M151-incremental-fallback-free-space-dst-only',
+    file: 'src/YetAnotherGameLauncher.Core/Services/IncrementalUpdateService.cs',
+    find: '            EnsureEnoughFreeSpaceForGroup(installDir, group, includesSourceCopy: patchStaged);',
+    replace: '            EnsureEnoughFreeSpaceForGroup(installDir, group, includesSourceCopy: true);',
+    project: 'tests/YetAnotherGameLauncher.Core.Tests/YetAnotherGameLauncher.Core.Tests.csproj',
+    dll: 'tests/YetAnotherGameLauncher.Core.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Core.Tests.dll',
+    method: 'YetAnotherGameLauncher.Core.Tests.Services.IncrementalUpdateServiceTests.ApplyAsync_PatchMissing_FreeSpaceCheckedAgainstProducedFilesOnly',
   },
 ];
 

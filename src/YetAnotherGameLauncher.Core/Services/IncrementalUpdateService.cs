@@ -219,8 +219,8 @@ public sealed class IncrementalUpdateService(
     /// <param name="progress">进度回调（Verifying/Patching/Done 阶段）。</param>
     /// <param name="cancellationToken">取消令牌。</param>
     /// <param name="dstUrlResolver">组级回退的产物直链解析缝（相对路径 → CDN 直链，查无返回 null）。
-    /// 差分源缺失（官方清单 deleteFiles ∩ srcFiles 交叉或安装被外力破坏）或补丁器执行失败时
-    /// 按组直下产物自救；null = 不启用回退（按可操作报错收尾）。</param>
+    /// 差分源缺失（官方清单 deleteFiles ∩ srcFiles 交叉或安装被外力破坏）、补丁器执行失败，或该组
+    /// 补丁已被按组回收后目标又被改动时，按组直下产物自救；null = 不启用回退（按可操作报错收尾）。</param>
     public async Task ApplyAsync(
         string installDir,
         GameManifest incrementalManifest,
@@ -268,7 +268,7 @@ public sealed class IncrementalUpdateService(
                     $"Patch {group.PatchFile} was not preloaded; run predownload first or use the full update.");
             }
 
-            EnsureEnoughFreeSpaceForGroup(installDir, group);
+            EnsureEnoughFreeSpaceForGroup(installDir, group, includesSourceCopy: patchStaged);
 
             if (patchStaged)
             {
@@ -467,8 +467,11 @@ public sealed class IncrementalUpdateService(
     /// 探针给不出空闲值（平台/权限）直接放行：预检是防呆，不能变成新的阻断源。
     /// 必须逐**待应用**组判定，不能在循环前对全部组取 max——续跑时已应用完的最大组（3.8 实测单组
     /// 55.7 GiB）会永久误拦后续更新。
+    /// <paramref name="includesSourceCopy"/> = 该组会复制 SrcFiles 到 olddir（差分路径）。缺补丁走直下
+    /// 回退时只产出 DstFiles、不复制 src，按 dst-only 估算——否则恢复路径会被源文件声明尺寸误拦
+    /// （用户为腾空间删掉源文件后尤其没道理），而它本来只下载一份产物。
     /// </summary>
-    private static void EnsureEnoughFreeSpaceForGroup(string installDir, PatchGroup group)
+    private static void EnsureEnoughFreeSpaceForGroup(string installDir, PatchGroup group, bool includesSourceCopy)
     {
         var free = DiskSpace.TryGetAvailableFreeBytes(installDir);
         if (free is null)
@@ -476,18 +479,21 @@ public sealed class IncrementalUpdateService(
             return;
         }
 
-        var required = group.SrcFiles.Sum(f => Math.Max(0, f.Size))
+        var required = (includesSourceCopy ? group.SrcFiles.Sum(f => Math.Max(0, f.Size)) : 0)
                        + group.DstFiles.Sum(f => Math.Max(0, f.Size));
         if (free.Value >= required)
         {
             return;
         }
 
+        var detail = includesSourceCopy
+            ? "source copy + produced files, reflink not assumed"
+            : "produced files only (direct download)";
         throw new UpdateException(
             $"Not enough free disk space for patch group {group.PatchFile}: " +
-            $"{required / (double)(1L << 30):F2} GiB required (source copy + produced files, reflink not assumed), " +
+            $"{required / (double)(1L << 30):F2} GiB required ({detail}), " +
             $"{free.Value / (double)(1L << 30):F2} GiB available. " +
-            "Free up space and retry - groups already applied are skipped, so nothing is downloaded again.");
+            "Free up space and retry - groups already applied are skipped and are not downloaded again.");
     }
 
     /// <summary>

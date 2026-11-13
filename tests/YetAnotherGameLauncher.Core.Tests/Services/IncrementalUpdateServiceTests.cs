@@ -883,25 +883,74 @@ public class IncrementalUpdateServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ApplyAsync_PatchRemovedAfterAppliedGroup_WithResolver_FallsBackToDirectDownload()
+    public async Task ApplyAsync_TargetChangedAfterPatchReclaimed_WithResolver_FallsBackToDirectDownload()
     {
-        // 按组回收补丁的恢复面（2026-11-13 复审 R2）：组成功后补丁即删；若该组目标随后被改动
-        // （用户为腾空间删了游戏文件、磁盘损坏），续跑会判"未应用"而补丁已不在。有解析缝时必须
-        // 按既有组级回退直下该组产物自救——"run predownload first" 在暂存清单在场时没有 UI 入口。
+        // 按组回收补丁的恢复面（2026-11-13 复审 R2）：组成功 → 补丁按组删除；若该组目标随后被
+        // 改动（用户为腾空间删了游戏文件、磁盘损坏），续跑会判"未应用"而补丁已不在。有解析缝时
+        // 必须按既有组级回退直下该组产物自救——"run predownload first" 在暂存清单在场时没有 UI 入口。
         var newContent = "brand-new"u8.ToArray();
         var group = PrepareGroup("g1.krpdiff", [("data/old.dat", "old"u8.ToArray())], [("data/new.dat", newContent)]);
         var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
         await CreateService().PredownloadAsync(_tempDir.Path, manifest);
         Directory.CreateDirectory(_tempDir.FilePath("data"));
         await File.WriteAllBytesAsync(_tempDir.FilePath("data", "old.dat"), "old"u8.ToArray());
-        File.Delete(Path.Combine(IncrementalUpdateService.PredownloadDir(_tempDir.Path), "patches", "g1.krpdiff"));
 
-        await CreateService().ApplyAsync(
+        Task ApplyWithFallbackAsync() => CreateService().ApplyAsync(
             _tempDir.Path, manifest,
             dstUrlResolver: (path, _) => Task.FromResult<string?>(Url(path.Replace('/', '_'))));
 
+        await ApplyWithFallbackAsync();
+        // 首轮成功即回收该组补丁
+        Assert.False(File.Exists(Path.Combine(
+            IncrementalUpdateService.PredownloadDir(_tempDir.Path), "patches", "g1.krpdiff")));
+        // 目标随后被改动（用户腾空间删文件 / 损坏）
+        File.Delete(_tempDir.FilePath("data", "new.dat"));
+
+        await ApplyWithFallbackAsync();
+
         Assert.Equal(newContent, await File.ReadAllBytesAsync(_tempDir.FilePath("data", "new.dat")));
-        Assert.Empty(_applier.Calls); // 补丁不在场：走直下，而非补丁器
+        Assert.Single(_applier.Calls); // 只有首轮走过补丁器；续跑走直下
+    }
+
+    [Fact]
+    public async Task ApplyAsync_PatchMissing_FreeSpaceCheckedAgainstProducedFilesOnly()
+    {
+        // 缺补丁走直下回退时不复制 src（只下载 DstFiles）：预检若仍按 src+dst 计费，会在空闲落在
+        // dst 与 src+dst 之间时误拦恢复路径，文案也会误报 "source copy" 与 "nothing is downloaded
+        // again"（2026-11-13 复审新 finding）。
+        var srcContent = new byte[10];
+        var dstContent = new byte[10];
+        new Random(11).NextBytes(dstContent);
+        await File.WriteAllBytesAsync(_tempDir.FilePath("a.dat"), srcContent);
+
+        var patch = "patch-g1"u8.ToArray();
+        _downloader.Responses[Url("g1.krpdiff")] = patch;
+        _downloader.Responses[Url("b.dat")] = dstContent;
+        var group = new PatchGroup(
+            "g1.krpdiff", patch.Length, Md5(patch),
+            // src 声明 20：src+dst=30 > 空闲 15 > dst=10，只有 dst-only 的预检会放行
+            [new ManifestFile("a.dat", 20, Md5(srcContent))],
+            [new ManifestFile("b.dat", dstContent.Length, Md5(dstContent))],
+            Url("g1.krpdiff"));
+        var manifest = new GameManifest { Version = "2.0.0", Groups = [group] };
+        await CreateService().PredownloadAsync(_tempDir.Path, manifest);
+        File.Delete(Path.Combine(IncrementalUpdateService.PredownloadDir(_tempDir.Path), "patches", "g1.krpdiff"));
+
+        try
+        {
+            DiskSpace.AvailableFreeBytesForTests = _ => 15;
+
+            await CreateService().ApplyAsync(
+                _tempDir.Path, manifest,
+                dstUrlResolver: (path, _) => Task.FromResult<string?>(Url(path.Replace('/', '_'))));
+        }
+        finally
+        {
+            DiskSpace.AvailableFreeBytesForTests = null;
+        }
+
+        Assert.Equal(dstContent, await File.ReadAllBytesAsync(_tempDir.FilePath("b.dat")));
+        Assert.Empty(_applier.Calls);
     }
 
     [Fact]
