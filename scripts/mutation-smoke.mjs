@@ -1001,10 +1001,12 @@ const MUTATIONS = [
   {
     // 2026-10-23 复审阻塞项 1 回归：增量入口若恢复按 toVersion 硬校验档位包版本，预下载窗口期
     // （toVersion ≠ 线上版、resourcePacks 单值）sd/uhd 的预下载必被挡死 → 预下载窗口用例应变红。
+    // 2026-11-13 8be178b 把 legacy 增量分支拆到 GetLegacyIncrementalManifestAsync：插入点改为
+    // 该方法的补丁索引拉取前（原 GetIncrementalManifestAsync 的 tier 计算已不在同一方法内）。
     id: 'M99-incremental-no-pack-version-gate',
     file: 'src/YetAnotherGameLauncher.Channels.Kuro/KuroChannelApi.cs',
-    find: '            var tier = SyncTier(server, resourceTier);\n\n            var patchIndexJson = await FetchTextAsync(',
-    replace: '            var tier = SyncTier(server, resourceTier);\n            if (tier != ResourceTiers.Hd && DateTime.MinValue != DateTime.MaxValue)\n            {\n                var packIndex0 = await FetchResourcePackIndexAsync(server, cancellationToken).ConfigureAwait(false);\n                EnsurePackVersion(RequireResourcePack(packIndex0, tier), tier, toVersion);\n            }\n\n            var patchIndexJson = await FetchTextAsync(',
+    find: '            var patchIndexJson = await FetchTextAsync(',
+    replace: '            if (tier != ResourceTiers.Hd && DateTime.MinValue != DateTime.MaxValue)\n            {\n                var packIndex0 = await FetchResourcePackIndexAsync(server, cancellationToken).ConfigureAwait(false);\n                EnsurePackVersion(RequireResourcePack(packIndex0, tier), tier, toVersion);\n            }\n\n            var patchIndexJson = await FetchTextAsync(',
     project: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/YetAnotherGameLauncher.Channels.Kuro.Tests.csproj',
     dll: 'tests/YetAnotherGameLauncher.Channels.Kuro.Tests/bin/Debug/net10.0/YetAnotherGameLauncher.Channels.Kuro.Tests.dll',
     method: 'YetAnotherGameLauncher.Channels.Kuro.Tests.KuroResourcePackTests.GetIncrementalManifest_PredownloadWindow_TierPackNotYetAtTarget_DoesNotHardFail',
