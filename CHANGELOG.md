@@ -3,6 +3,135 @@
 所有对外可感知的变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.5] — 2026-11-14
+
+0.1.4 之后的功能与兼容性版本：鸣潮 3.8 起旧 `index.json` 停更，本版把服务器选项
+`resourcePackIndexUrl` 的 bundle 索引作为版本检测/全量/增量/预下载来源（common + 当前档位包
+合并；旧索引只作旧版/国际服回退），并保留 UE 的 `Client/Saved` 存档、放行版本化
+`Client/Saved/Resources/<版本>` 可选包；修复 3.8 增量更新把每组差分草稿留到整轮结束导致
+磁盘写满的问题（按组回收草稿 + 每组空闲空间预检，峰值降到单组 src+dst）；详情页背景改为
+跟随 bundle 索引投放并 bump 缓存格式，修复升级后背景停在旧投放。1845 个测试全绿，行覆盖
+87.94%（2026-11-14 实测）。
+
+### 新增
+
+**鸣潮 3.8 bundle 索引**
+
+- 版本检测/全量/增量/预下载改从 `servers[].options.resourcePackIndexUrl` 的 bundle 索引读取
+  （`resourcePacks` + `bundles` + 同构 `predownload`）；CN 的 `LatestVersion` 取
+  `resourcePacks.common.version`，全量清单 = 各 `bundles[HD/SD/UHD].resourcePacks` 的 full
+  `indexFile` 并集，增量清单 = common + 当前档位包 `patchConfig` 的并集。
+- common 缺匹配补丁时走全量；正式更新中档位包缺匹配补丁时只应用 common，档位包由更新后的
+  全量修复轮补齐；预下载中档位包缺匹配补丁直接拒绝（提前应用会跳过修复轮）。
+- 预下载要求同构 `predownload.bundles` 覆盖全部档位组合，且 common 与各档位包都至少有一个
+  版本非空、带非空 `indexFile` 的补丁，否则隐藏提示。
+- 旧 `index.json` 仅作旧版/国际服回退；请求版本比旧索引新且 bundle 不可用/不匹配时拒收，
+  不把旧内容标成新版本。旧档位索引（无 `bundles`）仍按 legacy 路径处理。
+
+**UE 存档与版本化可选包**
+
+- 3.8 全量清单在 `Client/Saved` 下只点名 `Client/Saved/Resources/<版本>/...`，其余 SaveGames/Logs/Config 在清单外；
+  清单边界把 `Client/Saved/` 列为禁写、仅放行 `Client/Saved/Resources/<目标版本>/`，同步收尾
+  整段保留 `Client/Saved/`，避免跨版本修复把 UE 存档当游离文件删除。
+- `ManifestBoundary` 放行版本化可选包，档位包条目仍必须全部落在目标档目录下。
+
+**详情页背景（鸣潮 3.8）**
+
+- 背景哈希改从 bundle 索引的 `config.functionCode.background` 读取，内容路径相对 bundle 索引
+  （`.../{serverCode}/background/{hash}/{lang}.json`）；旧 launcher-config 仅在旧形态索引下回退。
+- 缓存元数据新增解析器格式版本并 bump `CacheFormatVersion`/`meta.formatVersion`：升级后强制
+  重解析一次，修复背景停在 3.7.1 旧投放；bundle 形态索引缺背景字段视为本期未投放，不回退旧链路。
+
+### 修复 / 变更
+
+**鸣潮 3.8 增量更新（磁盘写满事故修复）**
+
+- 每组成功后立即删除该组 `olddir`/`newdir` 与已消费补丁，跳过（已应用）的组同样删补丁；
+  失败/取消保留当前组现场。峰值从整轮累计降到**单组 src+dst**（不假设 reflink）。
+- 每组应用前做空闲空间预检：差分路径按 `SrcFiles + DstFiles`，缺补丁/源缺失走组级直下回退时
+  按 `DstFiles` 计费；空闲不足给出可操作报错，释放空间后重试可续跑。探不到空闲值直接放行。
+- 草稿副本复制后清除只读位（Windows 只读游戏文件会让按组删除静默失败）；补丁已被回收但目标
+  又被改动时，有解析缝则按组直下产物自救，不再只报 "run predownload first"。
+- bundle 全量/预下载守卫收紧：逐包拒绝空包或仅含 `Saved` 路径的包、校验档位包条目边界、拒收
+  full-pack 形态的 `groupInfos`；预下载必须完整覆盖全部档位组合。
+- 预下载提示与可用补丁对齐：补丁 `Version` 为空或 `IndexFile` 为空时不显示可预下载。
+
+**背景缓存迁移**
+
+- 旧缓存格式（formatVersion 1）在版本未变时也会触发一次远程解析并升级元数据，随后恢复零网络。
+
+### English · 0.1.5 — 2026-11-14
+
+A feature and compatibility release after 0.1.4: Wuthering Waves 3.8 stopped updating the legacy
+`index.json`, so the server option `resourcePackIndexUrl` bundle index now drives version detection,
+full/incremental updates and pre-downloads (common + the selected tier pack merged; the legacy index
+is only a fallback for older/Global servers); UE `Client/Saved` data is preserved and versioned
+`Client/Saved/Resources/<version>` optional packs are allowed; the 3.8 incremental update no longer
+keeps every group's patch drafts until the whole run finishes (per-group reclamation + per-group
+free-space precheck, peak reduced to one group's src+dst); and backdrops now follow the bundle index
+with a cache-format migration, fixing backgrounds stuck on the old campaign. 1845 tests green, line
+coverage 87.94% (measured 2026-11-14).
+
+**Added — Wuthering Waves 3.8 bundle index**
+
+- Version/full/incremental/pre-download now come from the bundle index at
+  `servers[].options.resourcePackIndexUrl` (`resourcePacks` + `bundles` + isomorphic `predownload`);
+  CN `LatestVersion` uses `resourcePacks.common.version`, the full manifest is the union of each
+  `bundles[HD/SD/UHD].resourcePacks` full `indexFile`, and the incremental manifest is the union of
+  common + the selected tier pack `patchConfig`.
+- A missing common patch falls back to the full package; when only the tier pack lacks a matching
+  patch during a live update, the common delta is applied alone and the tier is filled by the
+  post-update full repair round; a pre-download with a missing tier patch is rejected (applying it
+  early would skip the repair round).
+- Pre-download requires the isomorphic `predownload.bundles` to cover every tier and every pack to
+  have a versioned patch with a non-empty `indexFile`; otherwise the hint is hidden.
+- The legacy `index.json` is only a fallback for old/Global servers; a newer requested version with
+  an unavailable/mismatched bundle is rejected instead of mislabelling old content. Legacy tier
+  indexes (no `bundles`) keep the old path.
+
+**Added — UE saves and versioned optional packs**
+
+- The 3.8 full manifest lists only `Client/Saved/Resources/<version>/...` under `Client/Saved`;
+  SaveGames/Logs/Config are outside it. The manifest boundary reserves `Client/Saved/` and only allows
+  `Client/Saved/Resources/<target version>/`, and stale-file cleanup preserves the whole
+  `Client/Saved/` tree so a cross-version repair cannot delete UE saves.
+- `ManifestBoundary` allows the versioned optional packs while still requiring every tier-pack entry
+  to stay under the target tier directory.
+
+**Added — detail-page backdrops (Wuthering Waves 3.8)**
+
+- The backdrop hash now comes from the bundle index's `config.functionCode.background`; content paths
+  are relative to the bundle index (`.../{serverCode}/background/{hash}/{lang}.json`). The legacy
+  launcher-config is only used for the old index shape.
+- Cache metadata gains a resolver format version and bumps `CacheFormatVersion`/`meta.formatVersion`:
+  the first run after upgrading forces one re-resolve, fixing backdrops stuck on the 3.7.1 campaign;
+  a bundle-shaped index without a background field means no campaign and does not fall back.
+
+**Fixed / Changed — Wuthering Waves 3.8 incremental updates (disk-full incident)**
+
+- Each group's `olddir`/`newdir` and consumed patch are deleted as soon as the group succeeds;
+  skipped (already-applied) groups drop their patches too, while the failed group is kept for
+  diagnosis/resume. The peak is one group's src+dst (reflink not assumed).
+- A per-group free-space precheck runs before applying: `SrcFiles + DstFiles` on the differential
+  path and `DstFiles` when the group falls back to a direct download (missing patch or source); an
+  insufficient-space error is actionable and a retry resumes. An unavailable free-space probe is
+  allowed through.
+- Copied drafts clear the read-only attribute (a read-only game file on Windows would otherwise make
+  per-group deletion fail silently); when a patch was reclaimed but the target changed afterwards, a
+  resolver enables the existing group-level direct download instead of only "run predownload first".
+- Full-pack/pre-download guards are stricter: reject empty or Saved-only packs per pack, validate
+  tier-pack entry boundaries, reject full-pack `groupInfos`, and require a complete pre-download
+  covering every tier combination.
+- The pre-download hint is aligned with usable patches: a patch with an empty `Version` or empty
+  `IndexFile` no longer advertises a pre-download.
+
+**Fixed — backdrop cache migration**
+
+- A legacy cache (formatVersion 1) now triggers one remote resolve even when the game version is
+  unchanged, upgrades the metadata, and then returns to zero-network reads.
+
+---
+
 ## [0.1.4] — 2026-11-09
 
 0.1.3 之后的功能与维护版本：依赖安装新增「原生 RichEdit（msftedit）」（通过 winetricks

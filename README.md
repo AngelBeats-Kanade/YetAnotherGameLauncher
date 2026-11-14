@@ -13,7 +13,7 @@
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-blueviolet)
 ![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=.net&logoColor=white)
 ![Avalonia](https://img.shields.io/badge/Avalonia-12-9B4FAB)
-![Version](https://img.shields.io/badge/version-v0.1.4-blue)
+![Version](https://img.shields.io/badge/version-v0.1.5-blue)
 
 **简体中文** | [English](README.en.md)
 
@@ -193,7 +193,7 @@ dotnet publish src/YetAnotherGameLauncher -c Release -r linux-x64 --self-contain
 dotnet publish src/YetAnotherGameLauncher -c Release -r win-x64 --self-contained -o publish/win-x64
 ```
 
-### 运行测试（1845 个，2026-11-13 实测）
+### 运行测试（1845 个，2026-11-14 实测）
 
 ```bash
 # 4 个测试工程分别运行编译产物（Windows 亦可直接跑 .exe；本机 dotnet test 可能发现 0 个测试）：
